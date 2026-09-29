@@ -2,18 +2,38 @@
 """
 Light-bounce image / video generator.
 
-A bounding shape centred on the origin sits in a 512x512 preview image that
-spans [-1, 1] in both directions (the simulation itself always runs in that
-fixed square, whatever resolution is later exported). The shape is one of
-eight, each with its own size/angle parameters and rotation:
+The scene is made of shapes - "obstacles" - drawn in a 512x512 preview image
+that spans [-1, 1] in both directions (the simulation itself always runs in
+that fixed square, whatever resolution is later exported). There is no other
+kind of boundary: the app starts with a single obstacle - the unit circle,
+filling the image, which reflects rays and fires them inside itself - and
+everything else is built the same way, by editing, adding or deleting
+obstacles.
 
-  * an ellipse - the defaults (2.0 x 2.0, no rotation) give the unit circle,
-    which fills the image,
-  * a regular polygon (number of sides), inscribed in the unit circle,
+The figure
+  The "figure" is the mathematical result of perfectly simulating the rules
+  below - like the Mandelbrot set or the Buddhabrot are the results of their
+  own rules. It can never be generated whole; this program generates views of
+  it, detailed and accurate enough to learn about it. What defines the figure
+  is the stopping limits, the segment length, the fuzzing and the obstacles.
+  Coloration, decorations and the Buddha blur are not part of it: they only
+  process or decorate the data generated from it.
+
+Obstacles
+  Any number of shapes, each one of eight kinds with its own size/angle
+  parameters and rotation:
+
+  * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
+    circle),
+  * a regular polygon (number of sides and a radius),
   * a Moss's egg, a circular sector, a circular segment, a two-circle lens,
     a Reuleaux polygon (odd number of sides), or a capsule.
 
-Ray effects (bounding shape and obstacles alike)
+  Each is placed by a polar position (r, theta) from the origin plus an x/y
+  offset, and has its own incoming and outgoing ray effects and its own "Fire
+  rays inside" box. Every one of these fields can be animated by keyframes.
+
+Ray effects
   What happens to a ray as it reaches the edge of a shape depends on which
   way it is crossing: coming in from outside uses the shape's "incoming ray
   effect", going out from inside its "outgoing ray effect". Each is one of
@@ -24,26 +44,20 @@ Ray effects (bounding shape and obstacles alike)
                   nor a recorded path point, and it doesn't cut the segment
                   short: the ray simply becomes inside (or outside) that shape.
 
-  Reflect both ways makes a container that rays never leave; Pass through
-  both ways makes the shape invisible to rays; incoming Pass through with
-  outgoing Reflect lets rays in but never out. The bounding shape's controls
-  default to Reflect / Reflect (a ray inside it is bounced back, as it always
-  was); a new obstacle defaults to incoming Reflect, outgoing Pass through.
-
-Obstacles
-  Any number of extra shapes (the same eight kinds), each placed by a polar
-  position (r, theta) from the origin plus an x/y offset, each with its own
-  incoming and outgoing ray effects and its own "Fire rays inside" box.
+  Reflect both ways makes a container that rays never leave;
+  Pass through both ways makes the shape invisible to rays; incoming Pass
+  through with outgoing Reflect lets rays in but never out. A new obstacle
+  defaults to incoming Reflect, outgoing Pass through.
 
 Rays
-  A ray starts at the centre of every pixel that is inside ANY shape - the
-  bounding shape or an obstacle - whose "Fire rays inside" box is ticked (the
-  bounding shape's is ticked by default). Being inside a shape whose box is
-  clear makes no difference. The ray travels up and to the right (45 degrees,
-  unless fuzzing perturbs its emission angle - see below), starting out inside
-  every shape that contains its start point. It reflects, terminates or passes
-  through at each shape's edge as described above, and it reflects off any
-  earlier segment of its own path. A ray stops when
+  A ray starts at the centre of every pixel that is inside ANY shape whose
+  "Fire rays inside" box is ticked. Being inside a shape whose box is clear
+  makes no difference, and with no shape firing there are no rays at all. The
+  ray travels up and to the right (45 degrees, unless fuzzing perturbs its
+  emission angle - see below), starting out inside every shape that contains
+  its start point. It reflects, terminates or passes through at each shape's
+  edge as described above, and it reflects off any earlier segment of its own
+  path. A ray stops when
 
   * it becomes confined to a region smaller than one pixel,
   * it has bounced as many times as the iteration limit allows (1 to 9999),
@@ -65,9 +79,8 @@ Fuzzing
   Optional randomness/offsets applied to three kinds of angle: the ray's
   emission angle (once, when it leaves its start pixel - a plain angle slider,
   defaulting to 45 degrees, the unfuzzed direction, plus jitter), the
-  deflection angle of each bounce off any reflecting edge (of the bounding
-  shape or an obstacle), and the deflection angle of each bounce off the
-  ray's own earlier
+  deflection angle of each bounce off any reflecting edge, and the
+  deflection angle of each bounce off the ray's own earlier
   path (each of the latter two with an offset, a jitter range and a
   multiplier). A seed makes the randomness reproducible. The whole tab is
   greyed out while fuzzing is off.
@@ -108,9 +121,9 @@ Coloration
   side, so more than three channels' worth of information can be shown at once.
 
 Decorations
-  The outline of the bounding shape (white) and of each obstacle is drawn into
-  the image and so appears in exports. An obstacle's outline has two layers:
-  the outer one shows its incoming ray effect and the inner one its outgoing
+  The outline of each obstacle is drawn into the image and so appears in
+  exports. An outline has two layers, each about 1.5 pixels thick: the outer
+  one shows the obstacle's incoming ray effect and the inner one its outgoing
   effect (pale blue for Reflect, brown for Terminate, black for Pass through).
   Everything else (the dashed outline of not-yet-generated shape
   changes, the previewed ray's path, markers and guide lines, the color
@@ -120,7 +133,8 @@ Timeline and video
   A keyframe has a frame index, an interpolation method (Linear or Step), a
   small thumbnail, and a set of settings - any subset of every setting in the
   Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
-  obstacle's and every view's own fields. "New keyframe" defines every
+  obstacle's and every view's own fields (an obstacle's shape and ray effects
+  included). "New keyframe" defines every
   setting from the controls' current values; afterwards, each setting can be
   loaded into the controls, saved from them, or deleted from that keyframe
   individually (or all at once), so different settings can start and stop
@@ -139,7 +153,7 @@ Timeline and video
   define it. Between two of them, float-slider settings (shape dimensions and
   rotations, fuzzing angles/jitters/multipliers, segment multiplier, blur
   radius, obstacle geometry and position, and so on) are interpolated using
-  the method chosen on the later keyframe; everything else (which bounding
+  the method chosen on the later keyframe; everything else (which kind of
   shape, which metric, colors, and so on) holds the earlier keyframe's value
   until the later one is reached, since it isn't a number that could be
   blended.
@@ -161,8 +175,11 @@ Timeline and video
 Exporting a still image
   Export designer: whether the export includes all views or only the selected
   one, where to put the coloration description (none, overlaid on the image,
-  or in a bottom margin) and where to put the simulation description (none,
-  or a left margin); these apply to videos as well. Export: either the
+  or in a bottom margin) and where to put the figure settings (none, or a left
+  margin listing every setting that defines the figure: the stopping limits,
+  segment length, fuzzing and every obstacle's own fields; the margin grows
+  extra columns if they need the room); these apply to videos as well, with
+  the values of that frame. Export: either the
   Current figure (the preview as it was generated) or a New figure generated
   afresh at its own width and height (per view), saved as png, qoi or jxl
   (lossless, or lossy with a quality setting). "Export" saves into the
@@ -172,9 +189,10 @@ Exporting a still image
 Window layout (six panels, in three columns)
   top left       the generated image (512x512). Hover to preview a ray; click
                  to pin the preview to that pixel, freeing the mouse.
-  top middle     Controls, in six tabs: Simulation (which scrolls), Fuzzing,
-                 Coloration, Buddha blur, Decorations and Obstacles; Start
-                 and Revert settings are always visible
+  top middle     Controls, in six tabs: Simulation (stopping limits and the
+                 segment length), Fuzzing, Coloration, Buddha blur, Decorations
+                 and Obstacles (which scroll where they need to); Start and
+                 Revert settings are always visible
   top right      Timeline: the keyframe list (with thumbnails), each
                  keyframe's settings, and the selected keyframe's controls
   bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
@@ -209,7 +227,7 @@ Development startup screenshot
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 78
+FILE_VERSION = 80
 
 import os
 import random
@@ -420,7 +438,7 @@ TERM_OUTCOME_TEXT = {
     TERM_ITER: "Iteration limit reached ({bounces} bounces)",
 }
 
-# Bounding shapes
+# Shapes
 SHAPE_ELLIPSE = 0
 SHAPE_POLYGON = 1
 SHAPE_MOSS_EGG = 2
@@ -431,7 +449,6 @@ SHAPE_REULEAUX = 6
 SHAPE_CAPSULE = 7
 SHAPE_NAMES = ["Ellipse", "Regular polygon", "Moss's egg", "Circular sector",
               "Circular segment", "Two-circle lens", "Reuleaux polygon", "Capsule"]
-DEFAULT_SHAPE = SHAPE_ELLIPSE
 
 # Ellipse controls: full width / height (0..2), rotation in degrees
 ELLIPSE_MIN = 0.0
@@ -524,7 +541,6 @@ RETRO_EPS = 1e-9          # how close to EXACTLY perpendicular (a ray reflecting
 INV_SQRT2 = 1.0 / sqrt(2.0)   # direction (1, 1) / sqrt(2): up and to the right (45 deg)
 
 BACKGROUND = (12, 12, 16)
-RING_HALF_WIDTH_PX = 0.7   # thickness of the white shape outline
 PENDING_OUTLINE = "#7fdbff"   # dashed outline of shape settings not yet generated
 
 # Semi-transparent grey guide lines through the end point of the previewed ray
@@ -550,7 +566,7 @@ KIND_COLOR = {KIND_START: (67, 160, 71), KIND_DISTCUT: (67, 160, 71),   # green
              KIND_ESCAPED: (0, 229, 255)}                               # cyan
 
 # Solid outline colors for obstacles (part of the saved image/video, drawn with
-# the same "outline" decoration flag as the main boundary), by ray effect
+# the same "outline" decoration flag), by ray effect
 OBST_TERMINATE_RGB = (121, 85, 72)     # brown
 OBST_REFLECT_RGB = (179, 229, 252)     # pale light blue
 OBST_PASS_RGB = (0, 0, 0)              # black
@@ -560,7 +576,7 @@ OBST_PASS_HEX = "#000000"
 # An obstacle's outline is two layers, each this many pixels thick: the outer
 # one (just outside its edge) shows its incoming effect, the inner one (just
 # inside) its outgoing effect.
-OBST_RING_LAYER_PX = 1.0
+OBST_RING_LAYER_PX = 1.5
 
 # What happens to a ray as it crosses an obstacle's edge - chosen separately for
 # a ray coming in from outside ("incoming") and one going out from inside
@@ -674,12 +690,12 @@ BOTTOM_H = 400             # height of the bottom row of panels
 
 ERROR_RED = "#c62828"
 
-# Shown under both the bounding shape's ray controls and an obstacle's
-RAY_HELP_TEXT = ("Incoming: what happens to a ray reaching this shape's edge from "
+# Shown in the Obstacles tab, under the ray-effect controls
+RAY_HELP_TEXT = ("Incoming: what happens to a ray reaching a shape's edge from "
                  "outside; outgoing: from inside. Pass through both ways and rays "
                  "ignore the shape. A ray is fired from every pixel that is inside "
-                 "any shape (this one, or an obstacle) with 'Fire rays inside' "
-                 "ticked; a ray with nothing left to hit escapes.")
+                 "any shape with 'Fire rays inside' ticked; a ray with nothing left "
+                 "to hit escapes.")
 
 # Names / paths (based on the file actually being run, even if renamed)
 SCRIPT_PATH = os.path.abspath(__file__)
@@ -693,41 +709,21 @@ EXPORT_DIR = os.path.join(SCRIPT_DIR, "exports")
 DEV_DIR = os.path.join(SCRIPT_DIR, "dev")
 TEMP_DIR = os.path.join(EXPORT_DIR, "TEMP")
 
-# Snapshot: every value of every simulation control, including the parameters of
-# every shape that is not currently selected. This is what "Revert" restores, and
-# what a keyframe's `snapshot` field holds.
-Snapshot = namedtuple("Snapshot", [
-    "max_iter", "max_dist", "seg_mult", "shape", "width", "height", "ell_rotation",
-    "sides", "poly_rotation", "moss_angle", "moss_size", "moss_rotation", "sector_radius",
-    "sector_span", "sector_rotation", "segment_radius", "segment_span",
-    "segment_rotation", "lens_radius1", "lens_radius2", "lens_sep", "lens_rotation",
-    "reuleaux_sides", "reuleaux_rotation", "capsule_length", "capsule_radius",
-    "capsule_rotation", "fuzz", "buddha_blur_radius", "buddha_blur_type",
-    "main_fire", "main_in_effect", "main_out_effect"],
-    defaults=[True, 0, 0])   # main boundary: fires rays inside, reflects in and out (0 = Reflect)
+# Snapshot: every value of every simulation control (what is in the scene -
+# the obstacles and the views - is tracked separately). This is what "Revert"
+# restores, and what a keyframe's `snapshot` field holds.
+Snapshot = namedtuple("Snapshot", ["max_iter", "max_dist", "seg_mult", "fuzz",
+                                   "buddha_blur_radius", "buddha_blur_type"])
 
-# Settings: only what actually determines the generated image. `params` holds the
-# selected shape's own parameters (a different-length tuple per shape - see
-# effective_settings). Start compares these.
-Settings = namedtuple("Settings", ["max_iter", "max_dist", "seg_mult", "shape", "params",
-                                   "fuzz", "buddha_blur_radius", "buddha_blur_type",
-                                   "main_fire", "main_in_effect", "main_out_effect"],
-                      defaults=[True, 0, 0])
+# Settings: what determines the generated image, together with the obstacles.
+# Start compares these.
+Settings = namedtuple("Settings", ["max_iter", "max_dist", "seg_mult", "fuzz",
+                                   "buddha_blur_radius", "buddha_blur_type"])
 
 DEFAULT_SNAPSHOT = Snapshot(
     max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, seg_mult=DEFAULT_SEGMENT_MULT,
-    shape=DEFAULT_SHAPE, width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT,
-    ell_rotation=DEFAULT_ELL_ROTATION, sides=DEFAULT_SIDES,
-    poly_rotation=DEFAULT_POLY_ROTATION, moss_angle=DEFAULT_MOSS_ANGLE,
-    moss_size=DEFAULT_MOSS_SIZE, moss_rotation=0.0, sector_radius=DEFAULT_ARC_RADIUS,
-    sector_span=DEFAULT_SECTOR_SPAN, sector_rotation=0.0,
-    segment_radius=DEFAULT_ARC_RADIUS, segment_span=DEFAULT_SEGMENT_SPAN,
-    segment_rotation=0.0, lens_radius1=DEFAULT_LENS_RADIUS,
-    lens_radius2=DEFAULT_LENS_RADIUS, lens_sep=DEFAULT_LENS_SEP, lens_rotation=0.0,
-    reuleaux_sides=DEFAULT_REULEAUX_SIDES, reuleaux_rotation=0.0,
-    capsule_length=DEFAULT_CAPSULE_LENGTH, capsule_radius=DEFAULT_CAPSULE_RADIUS,
-    capsule_rotation=0.0, fuzz=DEFAULT_FUZZ,
-    buddha_blur_radius=DEFAULT_BUDDHA_BLUR_RADIUS, buddha_blur_type=DEFAULT_BUDDHA_BLUR_TYPE)
+    fuzz=DEFAULT_FUZZ, buddha_blur_radius=DEFAULT_BUDDHA_BLUR_RADIUS,
+    buddha_blur_type=DEFAULT_BUDDHA_BLUR_TYPE)
 
 # A resolved frame's complete simulation settings (what render_full_image
 # needs, aside from the views and obstacles - each resolved separately, the
@@ -929,12 +925,9 @@ class Obstacle:
         self.fire_inside = False
 
     def params(self):
-        """The selected shape's own parameter tuple - see shape_params_tuple,
-        shared with the bounding shape's equivalent (snapshot_shape_params).
-        include_obstacle_only=True since an obstacle, unlike the bounding
-        shape, isn't constrained to the unit circle and so does carry its
-        own radius for polygon and Reuleaux shapes."""
-        return shape_params_tuple(self.shape, self, include_obstacle_only=True)
+        """The selected shape's own parameter tuple - see shape_params_tuple
+        (polygon and Reuleaux tuples end with their radius)."""
+        return shape_params_tuple(self.shape, self)
 
     def center(self):
         """World (x, y) of the obstacle's centre: the polar position (r,
@@ -1056,6 +1049,17 @@ def draw_obstacle_outline(img, shape, bound, x, y, in_effect, out_effect):
     img[inner] = OBST_EFFECT_RGB[int(out_effect)]
 
 
+def default_starting_obstacle(id_):
+    """The obstacle the app starts with: the unit circle at the origin (which
+    fills the image), reflecting rays both ways, and firing rays inside
+    itself."""
+    o = Obstacle(id_)
+    o.width = o.height = DEFAULT_WIDTH
+    o.in_effect = o.out_effect = OBSTACLE_EFFECT_REFLECT
+    o.fire_inside = True
+    return o
+
+
 def build_obstacle_arrays(obstacles):
     """[Obstacle, ...] -> (shapes, bounds, cx, cy, effects, fire_inside)
     parallel numpy arrays, one entry per obstacle (an obstacle that passes
@@ -1093,96 +1097,83 @@ def obstacles_signature(obstacles):
 # Every field of an obstacle that can be saved into a keyframe and animated:
 # (field name, short label, whether it's a float slider - only float fields
 # are ever smoothly interpolated, exactly like the fields in SETTING_INFO).
-# Every bounding-shape parameter's full identity, in one place. This exists
-# because one parameter's "identity" was previously scattered by hand across
-# SETTING_INFO, SETTING_FLOAT_KEYS, DEFAULT_SETTING_VALUES, OBST_FIELD_INFO,
-# short_value_text's formatting rules, read_shape_controls, load_value, and
-# apply_snapshot_to_controls - roughly a dozen places for a single new
-# parameter, discovered the hard way (twice) when a couple of those places
-# got missed. All of those are now generated from, or read directly out of,
-# this one table instead.
-#
-# Three different names for the same parameter had to be reconciled to build
-# this table, and are recorded explicitly rather than assumed to match:
-#   field   the Snapshot field name - also the Obstacle attribute name, since
-#           an obstacle can be any of the same shapes with the same params
-#   key     the string key used in SETTING_INFO / DEFAULT_SETTING_VALUES /
-#           a keyframe's own data dict - equal to `field` except for
-#           ell_rotation/poly_rotation, shortened long ago to ell_rot/poly_rot
-#   widget  the "self.<widget>" control that holds this parameter's live
-#           value on the main Simulation tab (always a FloatEntryHandle- or
-#           tk.Scale-like object with .get()/.set()) - usually "<key>_scale"
-#           but inconsistently abbreviated further for several fields
-#           (moss_rotation -> moss_rot_scale, lens_radius1 -> lens_r1_scale,
-#           etc.) by whoever wrote each one at the time
+# Every shape parameter's identity, in one place: an obstacle can be any of
+# the eight shapes, and each shape's parameters are described by one row of
+# this table instead of being repeated by hand across the obstacle editor,
+# OBST_FIELD_INFO and short_value_text's formatting rules.
+#   field   the Obstacle attribute name (and the ObstacleSnapshot field)
+#   widget  the name (after an "obs_" prefix) of the control that holds this
+#           parameter's live value in the Obstacles tab (a FloatEntryHandle- or
+#           tk.Scale-like object with .get()/.set()) - usually "<field>_scale"
+#           but inconsistently abbreviated for several fields
+#           (moss_rotation -> moss_rot_scale, lens_radius1 -> lens_r1_scale, ...)
+#   label   the text shown for it
+#   default its default value
 #
 # `animate` says whether this parameter smoothly interpolates between
-# keyframes (SETTING_FLOAT_KEYS) rather than holding the nearest earlier
-# keyframe's value - true for every genuinely continuous parameter; false
-# only for the two whole-number "how many sides/points" counts. `fmt` says
-# how short_value_text displays a value: "size" (N.NN), "angle" (N.N followed
-# by a degree sign), or "int" (plain).
+# keyframes rather than holding the nearest earlier keyframe's value - true
+# for every genuinely continuous parameter; false only for the two whole-number
+# "how many sides/points" counts. `fmt` says how short_value_text displays a
+# value: "size" (N.NN), "angle" (N.N followed by a degree sign), or "int" (plain).
 ShapeParamInfo = namedtuple("ShapeParamInfo",
-                            ["field", "key", "widget", "label", "default", "animate", "fmt"])
+                            ["field", "widget", "label", "default", "animate", "fmt"])
 
 SHAPE_PARAM_INFO = [
-    ShapeParamInfo("width", "width", "width_scale", "Width", DEFAULT_WIDTH, True, "size"),
-    ShapeParamInfo("height", "height", "height_scale", "Height", DEFAULT_HEIGHT, True, "size"),
-    ShapeParamInfo("ell_rotation", "ell_rot", "ell_rot_scale", "Ellipse rotation",
+    ShapeParamInfo("width", "width_scale", "Width", DEFAULT_WIDTH, True, "size"),
+    ShapeParamInfo("height", "height_scale", "Height", DEFAULT_HEIGHT, True, "size"),
+    ShapeParamInfo("ell_rotation", "ell_rot_scale", "Ellipse rotation",
                    DEFAULT_ELL_ROTATION, True, "angle"),
-    ShapeParamInfo("sides", "sides", "sides_scale", "Sides", DEFAULT_SIDES, False, "int"),
-    ShapeParamInfo("poly_rotation", "poly_rot", "poly_rot_scale", "Polygon rotation",
+    ShapeParamInfo("sides", "sides_scale", "Sides", DEFAULT_SIDES, False, "int"),
+    ShapeParamInfo("poly_rotation", "poly_rot_scale", "Polygon rotation",
                    DEFAULT_POLY_ROTATION, True, "angle"),
-    ShapeParamInfo("moss_angle", "moss_angle", "moss_angle_scale", "Moss egg angle ACB",
+    ShapeParamInfo("moss_angle", "moss_angle_scale", "Moss egg angle ACB",
                    DEFAULT_MOSS_ANGLE, True, "angle"),
-    ShapeParamInfo("moss_size", "moss_size", "moss_size_scale", "Moss egg size",
+    ShapeParamInfo("moss_size", "moss_size_scale", "Moss egg size",
                    DEFAULT_MOSS_SIZE, True, "size"),
-    ShapeParamInfo("moss_rotation", "moss_rotation", "moss_rot_scale", "Moss egg rotation",
+    ShapeParamInfo("moss_rotation", "moss_rot_scale", "Moss egg rotation",
                    0.0, True, "angle"),
-    ShapeParamInfo("sector_radius", "sector_radius", "sector_radius_scale", "Sector radius",
+    ShapeParamInfo("sector_radius", "sector_radius_scale", "Sector radius",
                    DEFAULT_ARC_RADIUS, True, "size"),
-    ShapeParamInfo("sector_span", "sector_span", "sector_span_scale", "Sector span",
+    ShapeParamInfo("sector_span", "sector_span_scale", "Sector span",
                    DEFAULT_SECTOR_SPAN, True, "angle"),
-    ShapeParamInfo("sector_rotation", "sector_rotation", "sector_rot_scale",
+    ShapeParamInfo("sector_rotation", "sector_rot_scale",
                    "Sector rotation", 0.0, True, "angle"),
-    ShapeParamInfo("segment_radius", "segment_radius", "segment_radius_scale",
+    ShapeParamInfo("segment_radius", "segment_radius_scale",
                    "Segment radius", DEFAULT_ARC_RADIUS, True, "size"),
-    ShapeParamInfo("segment_span", "segment_span", "segment_span_scale", "Segment span",
+    ShapeParamInfo("segment_span", "segment_span_scale", "Segment span",
                    DEFAULT_SEGMENT_SPAN, True, "angle"),
-    ShapeParamInfo("segment_rotation", "segment_rotation", "segment_rot_scale",
+    ShapeParamInfo("segment_rotation", "segment_rot_scale",
                    "Segment rotation", 0.0, True, "angle"),
-    ShapeParamInfo("lens_radius1", "lens_radius1", "lens_r1_scale", "Lens radius 1",
+    ShapeParamInfo("lens_radius1", "lens_r1_scale", "Lens radius 1",
                    DEFAULT_LENS_RADIUS, True, "size"),
-    ShapeParamInfo("lens_radius2", "lens_radius2", "lens_r2_scale", "Lens radius 2",
+    ShapeParamInfo("lens_radius2", "lens_r2_scale", "Lens radius 2",
                    DEFAULT_LENS_RADIUS, True, "size"),
-    ShapeParamInfo("lens_sep", "lens_sep", "lens_sep_scale", "Lens separation",
+    ShapeParamInfo("lens_sep", "lens_sep_scale", "Lens separation",
                    DEFAULT_LENS_SEP, True, "size"),
-    ShapeParamInfo("lens_rotation", "lens_rotation", "lens_rot_scale", "Lens rotation",
+    ShapeParamInfo("lens_rotation", "lens_rot_scale", "Lens rotation",
                    0.0, True, "angle"),
-    ShapeParamInfo("reuleaux_sides", "reuleaux_sides", "reuleaux_sides_scale",
+    ShapeParamInfo("reuleaux_sides", "reuleaux_sides_scale",
                    "Reuleaux sides", DEFAULT_REULEAUX_SIDES, False, "int"),
-    ShapeParamInfo("reuleaux_rotation", "reuleaux_rotation", "reuleaux_rot_scale",
+    ShapeParamInfo("reuleaux_rotation", "reuleaux_rot_scale",
                    "Reuleaux rotation", 0.0, True, "angle"),
-    ShapeParamInfo("capsule_length", "capsule_length", "capsule_length_scale",
+    ShapeParamInfo("capsule_length", "capsule_length_scale",
                    "Capsule length", DEFAULT_CAPSULE_LENGTH, True, "size"),
-    ShapeParamInfo("capsule_radius", "capsule_radius", "capsule_radius_scale",
+    ShapeParamInfo("capsule_radius", "capsule_radius_scale",
                    "Capsule radius", DEFAULT_CAPSULE_RADIUS, True, "size"),
-    ShapeParamInfo("capsule_rotation", "capsule_rotation", "capsule_rot_scale",
+    ShapeParamInfo("capsule_rotation", "capsule_rot_scale",
                    "Capsule rotation", 0.0, True, "angle"),
 ]
-SHAPE_PARAM_BY_KEY = {p.key: p for p in SHAPE_PARAM_INFO}
 SHAPE_PARAM_BY_FIELD = {p.field: p for p in SHAPE_PARAM_INFO}
 
-# Display format for the handful of Obstacle fields that AREN'T shared with
-# the main bounding shape (its own position, and the extra radius a polygon
-# or Reuleaux-polygon obstacle needs that the main shape doesn't) - everything
-# else's format comes from SHAPE_PARAM_BY_FIELD above.
+# Display format for the handful of Obstacle fields that AREN'T in
+# SHAPE_PARAM_INFO (the extra radius a polygon or Reuleaux-polygon obstacle
+# has) - everything else's format comes from SHAPE_PARAM_BY_FIELD above.
 OBST_ONLY_FMT = {"poly_radius": "size", "reuleaux_radius": "size", "r": "size",
                  "theta": "angle"}
 
 def _shared_obst_field(field):
-    """An OBST_FIELD_INFO row for a parameter Obstacle shares with the main
-    bounding shape, read from SHAPE_PARAM_INFO instead of repeated here."""
+    """An OBST_FIELD_INFO row for a shape parameter, read from
+    SHAPE_PARAM_INFO instead of repeated here."""
     p = SHAPE_PARAM_BY_FIELD[field]
     return (p.field, p.label, p.animate)
 
@@ -1254,20 +1245,37 @@ def obstacle_params_from_vals(shape, vals):
     return (vals["capsule_length"], vals["capsule_radius"], vals["capsule_rotation"])
 
 
-def resolve_obstacle_arrays(obstacle_snapshots, keyframes_sorted, frame_number):
-    """(shapes, bounds, cx, cy, effects, fire_inside) parallel arrays for one
-    video frame: the set of obstacles is fixed (whichever existed when the
-    render started), but every field of every one of them is independently
-    resolved (animated or held) from the keyframes, exactly like the other
-    settings - falling back to that obstacle's own value (at render-start
-    time) wherever no keyframe defines a given field."""
-    active = []
+def resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number):
+    """[ObstacleSnapshot, ...] for one video frame: the set of obstacles is
+    fixed (whichever existed when the render started), but every field of
+    every one of them is independently resolved (animated or held) from the
+    keyframes, exactly like the other settings - falling back to that
+    obstacle's own value (at render-start time) wherever no keyframe defines
+    a given field."""
+    resolved = []
     for snap in obstacle_snapshots:
-        vals = {}
+        vals = {"id": snap.id}
         for field, _label, is_float in OBST_FIELD_INFO:
             key = f"obst:{snap.id}:{field}"
             vals[field] = resolve_value(key, keyframes_sorted, frame_number,
                                         getattr(snap, field), is_float)
+        resolved.append(ObstacleSnapshot(**vals))
+    return resolved
+
+
+def resolve_obstacle_arrays(obstacle_snapshots, keyframes_sorted, frame_number):
+    """(shapes, bounds, cx, cy, effects, fire_inside) parallel arrays for one
+    video frame - see resolve_obstacles."""
+    return obstacle_arrays_from_values(
+        resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number))
+
+
+def obstacle_arrays_from_values(values):
+    """The kernels' parallel arrays for a list of already-resolved obstacles
+    (ObstacleSnapshots)."""
+    active = []
+    for v in values:
+        vals = v._asdict()
         shape = vals["shape"]
         params = obstacle_params_from_vals(shape, vals)
         bound = make_bound(shape, params)
@@ -1300,8 +1308,6 @@ SETTING_INFO = [
     ("iter", "Simulation", "Iteration limit"),
     ("dist", "Simulation", "Distance limit"),
     ("seg_mult", "Simulation", "Segment length multiplier"),
-    ("shape", "Simulation", "Shape"),
-    *((p.key, "Simulation", p.label) for p in SHAPE_PARAM_INFO),
     ("fuzz_on", "Fuzzing", "Enabled"),
     ("emit_angle", "Fuzzing", "Emission angle"),
     ("emit_jitter", "Fuzzing", "Emission jitter"),
@@ -1314,9 +1320,6 @@ SETTING_INFO = [
     ("seed", "Fuzzing", "Seed"),
     ("buddha_blur_radius", "Buddha blur", "Radius"),
     ("buddha_blur_type", "Buddha blur", "Blur type"),
-    ("main_fire", "Simulation", "Bounding shape: fire rays inside"),
-    ("main_in_effect", "Simulation", "Bounding shape: incoming ray effect"),
-    ("main_out_effect", "Simulation", "Bounding shape: outgoing ray effect"),
     ("outline", "Decorations", "Outline"),
 ]
 SETTING_TABS_ORDER = ["Simulation", "Fuzzing", "Buddha blur", "Decorations"]
@@ -1324,35 +1327,25 @@ SETTING_LABEL = {key: label for key, _tab, label in SETTING_INFO}
 SETTING_TAB = {key: tab for key, tab, _label in SETTING_INFO}
 
 # Only these are float sliders, so only these are ever smoothly interpolated;
-# everything else (shape choice, colors, metrics, sides, flags, seed) always
+# everything else (which shape, colors, metrics, sides, flags, seed) always
 # holds the value of the nearest earlier keyframe that defines it.
 SETTING_FLOAT_KEYS = {
     "dist", "seg_mult",
-    *(p.key for p in SHAPE_PARAM_INFO if p.animate),
     "emit_angle", "emit_jitter", "bnd_offset", "bnd_jitter",
     "bnd_mult", "self_offset", "self_jitter", "self_mult",
     "buddha_blur_radius",
 }
 
 
-def shape_params_tuple(shape, obj, include_obstacle_only=False):
-    """The selected shape's own parameter tuple, read directly off `obj`
-    (a Snapshot or an Obstacle - both expose the same field names for every
-    shared parameter, so plain attribute access works for either). Shared
-    by snapshot_shape_params, Obstacle.params(), effective_settings(), and
-    the keyframe-resolution path - the single place that maps a shape to
-    its own parameters, instead of two separate copies of that mapping.
-
-    include_obstacle_only=True adds polygon's and Reuleaux's extra radius
-    field (poly_radius / reuleaux_radius) at the end of their tuples - only
-    an obstacle needs it, since the bounding shape is always inscribed in
-    the unit circle for those two shapes and has no radius parameter of its
-    own to read."""
+def shape_params_tuple(shape, obj):
+    """The given shape's own parameter tuple, read directly off `obj` (an
+    Obstacle, or an ObstacleSnapshot - both expose the same field names).
+    The single place that maps a shape to its own parameters. Polygon and
+    Reuleaux tuples end with their radius."""
     if shape == SHAPE_ELLIPSE:
         return (obj.width, obj.height, obj.ell_rotation)
     if shape == SHAPE_POLYGON:
-        base = (obj.sides, obj.poly_rotation)
-        return base + (obj.poly_radius,) if include_obstacle_only else base
+        return (obj.sides, obj.poly_rotation, obj.poly_radius)
     if shape == SHAPE_MOSS_EGG:
         return (obj.moss_angle, obj.moss_size, obj.moss_rotation)
     if shape == SHAPE_SECTOR:
@@ -1362,41 +1355,15 @@ def shape_params_tuple(shape, obj, include_obstacle_only=False):
     if shape == SHAPE_LENS:
         return (obj.lens_radius1, obj.lens_radius2, obj.lens_sep, obj.lens_rotation)
     if shape == SHAPE_REULEAUX:
-        base = (obj.reuleaux_sides, obj.reuleaux_rotation)
-        return base + (obj.reuleaux_radius,) if include_obstacle_only else base
+        return (obj.reuleaux_sides, obj.reuleaux_rotation, obj.reuleaux_radius)
     return (obj.capsule_length, obj.capsule_radius, obj.capsule_rotation)  # CAPSULE
 
 
-def snapshot_shape_params(snap):
-    """The selected shape's own parameter tuple, extracted from a Snapshot -
-    shared by effective_settings() and the keyframe-resolution path."""
-    return shape_params_tuple(snap.shape, snap)
-
-
-def main_ctl_array(fire, in_effect, out_effect):
-    """The main bounding shape's ray behavior, packed for the kernels:
-    [fires rays inside (0/1), incoming effect, outgoing effect]."""
-    return np.array([1 if fire else 0, in_effect, out_effect], dtype=np.int64)
-
-
-# The behavior the bounding shape always had: fires rays inside, reflects them
-# whichever way they cross (in practice only ever from inside).
-MAIN_CTL_DEFAULT = main_ctl_array(True, OBSTACLE_EFFECT_REFLECT, OBSTACLE_EFFECT_REFLECT)
-
-
-def settings_main_ctl(settings):
-    """main_ctl_array() for a Settings."""
-    return main_ctl_array(settings.main_fire, settings.main_in_effect,
-                          settings.main_out_effect)
-
-
 def effective_settings(snap):
-    """The Settings (selected shape's parameters only) implied by a Snapshot."""
+    """The Settings implied by a Snapshot."""
     return Settings(max_iter=snap.max_iter, max_dist=snap.max_dist, seg_mult=snap.seg_mult,
-                    shape=snap.shape, params=snapshot_shape_params(snap), fuzz=snap.fuzz,
-                    buddha_blur_radius=snap.buddha_blur_radius,
-                    buddha_blur_type=snap.buddha_blur_type, main_fire=snap.main_fire,
-                    main_in_effect=snap.main_in_effect, main_out_effect=snap.main_out_effect)
+                    fuzz=snap.fuzz, buddha_blur_radius=snap.buddha_blur_radius,
+                    buddha_blur_type=snap.buddha_blur_type)
 
 
 def blend_value(a, b, t, method):
@@ -1456,50 +1423,9 @@ def resolve_frame_settings(keyframes_sorted, frame_number):
                       int(round(v["seed"])))
     snapshot = Snapshot(
         max_iter=int(round(v["iter"])), max_dist=v["dist"], seg_mult=v["seg_mult"],
-        shape=int(round(v["shape"])), width=v["width"], height=v["height"],
-        ell_rotation=v["ell_rot"], sides=int(round(v["sides"])),
-        poly_rotation=v["poly_rot"], moss_angle=v["moss_angle"], moss_size=v["moss_size"],
-        moss_rotation=v["moss_rotation"], sector_radius=v["sector_radius"],
-        sector_span=v["sector_span"], sector_rotation=v["sector_rotation"],
-        segment_radius=v["segment_radius"], segment_span=v["segment_span"],
-        segment_rotation=v["segment_rotation"], lens_radius1=v["lens_radius1"],
-        lens_radius2=v["lens_radius2"], lens_sep=v["lens_sep"],
-        lens_rotation=v["lens_rotation"], reuleaux_sides=int(round(v["reuleaux_sides"])),
-        reuleaux_rotation=v["reuleaux_rotation"], capsule_length=v["capsule_length"],
-        capsule_radius=v["capsule_radius"], capsule_rotation=v["capsule_rotation"],
         fuzz=fuzz, buddha_blur_radius=v["buddha_blur_radius"],
-        buddha_blur_type=int(round(v["buddha_blur_type"])),
-        main_fire=bool(v["main_fire"]), main_in_effect=int(round(v["main_in_effect"])),
-        main_out_effect=int(round(v["main_out_effect"])))
+        buddha_blur_type=int(round(v["buddha_blur_type"])))
     return KeyframeData(snapshot, bool(v["outline"]))
-
-
-def describe_shape(shape, params):
-    if shape == SHAPE_ELLIPSE:
-        w, h, rot = params
-        return f"Ellipse {w:.2f} \u00d7 {h:.2f}, rotated {rot:.1f}\u00b0"
-    if shape == SHAPE_POLYGON:
-        sides, rot = params
-        return f"Regular {sides}-gon, rotated {rot:.1f}\u00b0"
-    if shape == SHAPE_MOSS_EGG:
-        angle, size, rot = params
-        return (f"Moss's egg, angle ACB {angle:.1f}\u00b0, size {size:.2f}, "
-               f"rotated {rot:.1f}\u00b0")
-    if shape == SHAPE_SECTOR:
-        r, span, rot = params
-        return f"Circular sector, radius {r:.2f}, span {span:.1f}\u00b0, rotated {rot:.1f}\u00b0"
-    if shape == SHAPE_SEGMENT:
-        r, span, rot = params
-        return f"Circular segment, radius {r:.2f}, span {span:.1f}\u00b0, rotated {rot:.1f}\u00b0"
-    if shape == SHAPE_LENS:
-        r1, r2, sep, rot = params
-        return (f"Two-circle lens, radii {r1:.2f}/{r2:.2f}, separation {sep:.2f}, "
-               f"rotated {rot:.1f}\u00b0")
-    if shape == SHAPE_REULEAUX:
-        sides, rot = params
-        return f"Reuleaux {sides}-gon, rotated {rot:.1f}\u00b0"
-    length, r, rot = params                       # SHAPE_CAPSULE
-    return f"Capsule, length {length:.2f}, radius {r:.2f}, rotated {rot:.1f}\u00b0"
 
 
 def describe_fuzz(f):
@@ -1531,33 +1457,9 @@ def fuzz_array(f):
 
 def settings_suffix(settings):
     """Simulation settings as a filename fragment: plain characters, no spaces,
-    e.g. 'iter32-distNONE-ellipse-w2.00-h2.00-rot0.0'."""
+    e.g. 'iter32-distNONE'."""
     parts = [f"iter{settings.max_iter}",
              "distNONE" if settings.max_dist == 0 else f"dist{settings.max_dist}"]
-    if settings.shape == SHAPE_ELLIPSE:
-        w, h, rot = settings.params
-        parts += ["ellipse", f"w{w:.2f}", f"h{h:.2f}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_POLYGON:
-        sides, rot = settings.params
-        parts += ["polygon", f"n{sides}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_MOSS_EGG:
-        angle, size, rot = settings.params
-        parts += ["mossegg", f"a{angle:.1f}", f"sz{size:.2f}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_SECTOR:
-        r, span, rot = settings.params
-        parts += ["sector", f"r{r:.2f}", f"span{span:.1f}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_SEGMENT:
-        r, span, rot = settings.params
-        parts += ["segment", f"r{r:.2f}", f"span{span:.1f}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_LENS:
-        r1, r2, sep, rot = settings.params
-        parts += ["lens", f"r1{r1:.2f}", f"r2{r2:.2f}", f"sep{sep:.2f}", f"rot{rot:.1f}"]
-    elif settings.shape == SHAPE_REULEAUX:
-        sides, rot = settings.params
-        parts += ["reuleaux", f"n{sides}", f"rot{rot:.1f}"]
-    else:                                          # SHAPE_CAPSULE
-        length, r, rot = settings.params
-        parts += ["capsule", f"len{length:.2f}", f"r{r:.2f}", f"rot{rot:.1f}"]
     f = settings.fuzz
     if f.enabled:
         parts += ["fuzz",
@@ -1902,7 +1804,7 @@ JXL_MODES = ["Lossless", "Lossy"]
 
 # Export designer: where (if anywhere) each kind of info text goes
 COLOR_INFO_LOCATIONS = ["None", "Overlay", "Bottom margin"]
-SIM_INFO_LOCATIONS = ["None", "Left margin"]
+FIGURE_INFO_LOCATIONS = ["None", "Left margin"]
 
 
 def encode_and_write(rgb, path, fmt, jxl_lossless=True, jxl_quality=90):
@@ -2032,7 +1934,7 @@ def preview_placeholder(width, height):
 
 
 # --------------------------------------------------------------------------- #
-# Bounding shapes
+# Shape geometry
 #
 # The simulation kernels receive a shape code and a float array `bound`:
 #   bound[0]   area of the shape
@@ -2064,8 +1966,8 @@ def ellipse_bound(width, height, rotation):
 def polygon_bound(sides, rotation, radius=1.0):
     """
     Boundary description of a regular polygon with `sides` sides whose
-    vertices lie on a circle of the given `radius` (1.0 = the unit circle, the
-    main bounding shape's only option). With rotation 0 one vertex points
+    vertices lie on a circle of the given `radius` (1.0 = the unit circle). With
+    rotation 0 one vertex points
     straight up; `rotation` (degrees) turns it counterclockwise.
     """
     n = int(sides)
@@ -2475,30 +2377,9 @@ def sample_boundary_xy(shape, bound, n=181):
     return xs, ys
 
 
-def outline_coords(shape, params):
-    """Canvas coordinates (flat list) of a polygon tracing the bounding shape."""
-    if shape == SHAPE_ELLIPSE:
-        width, height, rotation = params
-        t = np.linspace(0.0, 2.0 * pi, 181)
-        ex, ey = 0.5 * width * np.cos(t), 0.5 * height * np.sin(t)
-        th = radians(rotation)
-        c, s = cos(th), sin(th)
-        wx, wy = c * ex - s * ey, s * ex + c * ey
-    elif shape == SHAPE_POLYGON:
-        sides, rotation = params
-        ang = pi / 2.0 + radians(rotation) + 2.0 * pi * np.arange(sides + 1) / sides
-        wx, wy = np.cos(ang), np.sin(ang)          # first vertex repeated to close
-    else:
-        wx, wy = sample_boundary_xy(shape, make_bound(shape, params))
-    xs = (wx + 1.0) * (SIZE / 2.0)
-    ys = (1.0 - wy) * (SIZE / 2.0)
-    return np.column_stack((xs, ys)).ravel().tolist()
-
-
 def obstacle_outline_coords(o):
     """Canvas coordinates (flat list) of a polygon tracing obstacle `o`'s
-    shape - like outline_coords, but also handles its centre (polar position
-    plus x/y offset)."""
+    shape, at its centre (polar position plus x/y offset)."""
     if o.shape == SHAPE_ELLIPSE:
         t = np.linspace(0.0, 2.0 * pi, 181)
         ex, ey = 0.5 * o.width * np.cos(t), 0.5 * o.height * np.sin(t)
@@ -2576,7 +2457,7 @@ STAT_DESCRIPTIONS = [
     "number of bounces divided by the iteration limit.",
     "bounces off the ray's own earlier path, divided by total bounces "
     "(0 if there were none).",
-    "bounces off the bounding shape, divided by total bounces "
+    "bounces off the edge of a shape (a reflecting edge), divided by total bounces "
     "(0 if there were none).",
     "area of the loop formed when the ray first strikes its own path, "
     "divided by the area of a circle with the same perimeter as the loop "
@@ -2713,8 +2594,8 @@ POINT_DESCRIPTIONS = [
     "the last point of the ray (if the distance limit ended it part-way "
     "along a segment, the cut point).",
     "the average of every point where the ray bounced, of any kind.",
-    "the average of the points where the ray bounced off the bounding "
-    "shape or off a reflecting obstacle.",
+    "the average of the points where the ray bounced off the edge of a "
+    "shape (a reflecting edge).",
     "the average of the points where the ray bounced off its own earlier "
     "path.",
     "the bounce point with the largest vertical coordinate.",
@@ -2867,17 +2748,8 @@ def short_value_text(key, val):
                 f"channel value has stat={stat} (a Constant-only sentinel) but "
                 f"chan_src is {chan_src}, not CHAN_SRC_CONSTANT")
         return STAT_SHORT[stat]
-    if key in ("iter", "dist", "sides", "seed", "reuleaux_sides"):
+    if key in ("iter", "dist", "seed"):
         return str(val)
-    if key == "shape":
-        return SHAPE_NAMES[val]
-    shape_param = SHAPE_PARAM_BY_KEY.get(key)
-    if shape_param is not None:
-        if shape_param.fmt == "size":
-            return f"{val:.2f}"
-        if shape_param.fmt == "angle":
-            return f"{val:.1f}\u00b0"
-        return str(val)                          # "int" fields
     if key == "emit_angle":
         return f"{val:.1f}\u00b0"
     if key in ("emit_jitter", "bnd_offset", "bnd_jitter", "self_offset", "self_jitter"):
@@ -2886,10 +2758,8 @@ def short_value_text(key, val):
         return f"\u00d7{val:.2f}"
     if key == "fuzz_on":
         return "On" if val else "Off"
-    if key == "outline" or key == "main_fire":
+    if key == "outline":
         return "On" if val else "Off"
-    if key in ("main_in_effect", "main_out_effect"):
-        return OBSTACLE_EFFECT_NAMES[val]
     return str(val)
 
 # Defaults per channel. Each channel remembers a point-comparison metric (plus
@@ -3046,8 +2916,6 @@ def resolve_views(view_snapshots, keyframes_sorted, frame_number):
 
 DEFAULT_SETTING_VALUES = {
     "iter": DEFAULT_ITER, "dist": DEFAULT_DIST, "seg_mult": DEFAULT_SEGMENT_MULT,
-    "shape": DEFAULT_SHAPE,
-    **{p.key: p.default for p in SHAPE_PARAM_INFO},
     "fuzz_on": DEFAULT_FUZZ.enabled, "emit_angle": DEFAULT_FUZZ.emit_angle,
     "emit_jitter": DEFAULT_FUZZ.emit_jitter, "bnd_offset": DEFAULT_FUZZ.bnd_offset,
     "bnd_jitter": DEFAULT_FUZZ.bnd_jitter, "bnd_mult": DEFAULT_FUZZ.bnd_mult,
@@ -3055,9 +2923,6 @@ DEFAULT_SETTING_VALUES = {
     "self_mult": DEFAULT_FUZZ.self_mult, "seed": DEFAULT_FUZZ.seed,
     "buddha_blur_radius": DEFAULT_BUDDHA_BLUR_RADIUS,
     "buddha_blur_type": DEFAULT_BUDDHA_BLUR_TYPE,
-    "main_fire": True,
-    "main_in_effect": OBSTACLE_EFFECT_REFLECT,
-    "main_out_effect": OBSTACLE_EFFECT_REFLECT,
     "outline": True,
 }
 
@@ -3132,7 +2997,7 @@ def run_self_checks():
     if "constant_choice" not in ViewConfig.__slots__:
         raise AssertionError("ViewConfig is missing its dedicated constant_choice field")
 
-    for attr in ("field", "key", "widget"):
+    for attr in ("field", "widget"):
         names = [getattr(p, attr) for p in SHAPE_PARAM_INFO]
         if len(names) != len(set(names)):
             dupes = {n for n in names if names.count(n) > 1}
@@ -3140,16 +3005,6 @@ def run_self_checks():
     bad_fmt = [p.field for p in SHAPE_PARAM_INFO if p.fmt not in ("size", "angle", "int")]
     if bad_fmt:
         raise AssertionError(f"SHAPE_PARAM_INFO has invalid fmt for: {bad_fmt}")
-    non_shape_snapshot_fields = {"max_iter", "max_dist", "seg_mult", "shape", "fuzz",
-                                 "buddha_blur_radius", "buddha_blur_type", "main_fire",
-                                 "main_in_effect", "main_out_effect"}
-    table_fields = {p.field for p in SHAPE_PARAM_INFO}
-    snapshot_fields = set(Snapshot._fields) - non_shape_snapshot_fields
-    if table_fields != snapshot_fields:
-        raise AssertionError(
-            "SHAPE_PARAM_INFO and Snapshot's fields disagree - "
-            f"only in SHAPE_PARAM_INFO: {table_fields - snapshot_fields or None}; "
-            f"only in Snapshot: {snapshot_fields - table_fields or None}")
 
 
 run_self_checks()
@@ -3229,40 +3084,103 @@ def coloration_info_lines(view):
     return lines
 
 
-def simulation_info_lines(settings):
-    """The current simulation's settings (shared across every view, since
-    coloration is the only thing that varies by view) as a list of text
-    lines, mirroring the Simulation and Fuzzing tabs' own organization: the
-    iteration and distance limits, the segment length multiplier (if not
-    the default), the bounding shape and its own parameters (one clause per
-    line), its ray behavior (only if not the default), and the fuzzing
-    settings."""
-    lines = [f"Iter limit:{settings.max_iter}"]
-    dist_text = "none" if settings.max_dist == 0 else f"{settings.max_dist:.2f}"
-    lines.append(f"Dist limit:{dist_text}")
-    if settings.seg_mult < 1.0:
-        lines.append(f"Segment:x{settings.seg_mult:.2f}")
-    lines.append("Shape:")
-    for clause in describe_shape(settings.shape, settings.params).split(", "):
-        lines.append(f"  {clause}")
-    if (not settings.main_fire or settings.main_in_effect != OBSTACLE_EFFECT_REFLECT
-            or settings.main_out_effect != OBSTACLE_EFFECT_REFLECT):
-        lines.append("Bound rays:")
-        lines.append(f"  Fire:{'On' if settings.main_fire else 'Off'}")
-        lines.append(f"  In:{OBSTACLE_EFFECT_NAMES[settings.main_in_effect]}")
-        lines.append(f"  Out:{OBSTACLE_EFFECT_NAMES[settings.main_out_effect]}")
+FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines up to this long
+
+
+def obstacle_info_lines(index, o):
+    """Every setting that defines obstacle `o` (an Obstacle or a resolved
+    ObstacleSnapshot; `index` is its number in the list), as text lines no
+    longer than FIGURE_INFO_COLUMN_CHARS, using only glyphs the pixel font
+    has."""
+    shape = int(o.shape)
+    lines = [f"Obstacle {index}: {SHAPE_NAMES[shape]}"]
+    if shape == SHAPE_ELLIPSE:
+        lines += [f"  w{o.width:.2f} h{o.height:.2f}", f"  rot {o.ell_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_POLYGON:
+        lines += [f"  sides {int(round(o.sides))} r{o.poly_radius:.2f}",
+                  f"  rot {o.poly_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_MOSS_EGG:
+        lines += [f"  angle {o.moss_angle:.1f}\u00b0 size {o.moss_size:.2f}",
+                  f"  rot {o.moss_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_SECTOR:
+        lines += [f"  r{o.sector_radius:.2f} span {o.sector_span:.1f}\u00b0",
+                  f"  rot {o.sector_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_SEGMENT:
+        lines += [f"  r{o.segment_radius:.2f} span {o.segment_span:.1f}\u00b0",
+                  f"  rot {o.segment_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_LENS:
+        lines += [f"  r1 {o.lens_radius1:.2f} r2 {o.lens_radius2:.2f} sep {o.lens_sep:.2f}",
+                  f"  rot {o.lens_rotation:.1f}\u00b0"]
+    elif shape == SHAPE_REULEAUX:
+        lines += [f"  sides {int(round(o.reuleaux_sides))} r{o.reuleaux_radius:.2f}",
+                  f"  rot {o.reuleaux_rotation:.1f}\u00b0"]
+    else:                                          # SHAPE_CAPSULE
+        lines += [f"  len {o.capsule_length:.2f} r{o.capsule_radius:.2f}",
+                  f"  rot {o.capsule_rotation:.1f}\u00b0"]
+    lines += [f"  pos r{o.r:.2f} ang {o.theta:.1f}\u00b0",
+              f"  offset {o.cx:+.2f} {o.cy:+.2f}",
+              f"  in:{OBSTACLE_EFFECT_NAMES[int(o.in_effect)]}",
+              f"  out:{OBSTACLE_EFFECT_NAMES[int(o.out_effect)]}",
+              f"  fire:{'On' if o.fire_inside else 'Off'}"]
+    return lines
+
+
+def figure_info_blocks(settings, obstacles):
+    """Every setting that defines the figure - the mathematical result of
+    perfectly simulating these rules, of which each generated image is only a
+    view - as a list of blocks of text lines: the stopping limits and segment
+    length, the fuzzing, and every obstacle. (Coloration, decorations and the
+    Buddha blur only process or decorate the generated data, so they aren't
+    part of it.) The blocks' sizes depend only on how many obstacles there
+    are, never on the settings' values - so a video's frames, whose settings
+    may be animated, all lay out identically."""
+    limits = [f"Iter limit:{settings.max_iter}",
+              "Dist limit:" + ("none" if settings.max_dist == 0
+                               else f"{settings.max_dist:.2f}"),
+              f"Segment:x{settings.seg_mult:.2f}"]
     f = settings.fuzz
     if not f.enabled:
-        lines.append("Fuzz:Off")
+        fuzz = ["Fuzz:Off"] + [" "] * 4
     else:
-        lines.append("Fuzz:On")
-        lines.append(f"  Emit {f.emit_angle:.1f}\u00b0 \u00b1{f.emit_jitter:.1f}\u00b0")
-        lines.append(f"  Bound {f.bnd_offset:+.1f}\u00b0 \u00b1{f.bnd_jitter:.1f}\u00b0 "
-                     f"\u00d7{f.bnd_mult:.2f}")
-        lines.append(f"  Self {f.self_offset:+.1f}\u00b0 \u00b1{f.self_jitter:.1f}\u00b0 "
-                     f"\u00d7{f.self_mult:.2f}")
-        lines.append(f"  Seed {f.seed}")
-    return lines
+        fuzz = ["Fuzz:On",
+                f"  Emit {f.emit_angle:.1f}\u00b0 \u00b1{f.emit_jitter:.1f}\u00b0",
+                f"  Bound {f.bnd_offset:+.1f}\u00b0 \u00b1{f.bnd_jitter:.1f}\u00b0 "
+                f"\u00d7{f.bnd_mult:.2f}",
+                f"  Self {f.self_offset:+.1f}\u00b0 \u00b1{f.self_jitter:.1f}\u00b0 "
+                f"\u00d7{f.self_mult:.2f}",
+                f"  Seed {f.seed}"]
+    blocks = [limits, fuzz]
+    if obstacles:
+        blocks += [obstacle_info_lines(i + 1, o) for i, o in enumerate(obstacles)]
+    else:
+        blocks.append(["no obstacles"])
+    return blocks
+
+
+def figure_info_lines(settings, obstacles):
+    """figure_info_blocks(), flattened into one list of lines."""
+    return [line for block in figure_info_blocks(settings, obstacles) for line in block]
+
+
+def layout_info_columns(blocks, lines_per_column):
+    """Packs blocks of text lines into columns of at most `lines_per_column`
+    lines, top to bottom then left to right, keeping each block together
+    where it fits (a blank line separates blocks within a column) and
+    splitting a block only if it is taller than a whole column."""
+    columns = [[]]
+    for block in blocks:
+        col = columns[-1]
+        if col and len(col) + 1 + len(block) > lines_per_column and len(block) <= lines_per_column:
+            columns.append([])
+            col = columns[-1]
+        if col:
+            col.append(" ")                        # a blank line between blocks
+        for line in block:
+            if len(col) >= lines_per_column:
+                columns.append([])
+                col = columns[-1]
+            col.append(line)
+    return columns
 
 
 def resolution_scale(size):
@@ -3343,32 +3261,42 @@ def add_bottom_color_margin(img, views, view_width):
     return out
 
 
-def add_left_simulation_margin(img, settings):
+def add_left_figure_margin(img, settings, obstacles):
     """Returns a new, wider copy of `img`: a solid black strip added to its
-    left edge, as tall as `img` itself and exactly half as wide as `img`
-    (the figure) itself, holding simulation_info_lines. Never mutates
+    left edge, as tall as `img` itself, holding every setting that defines
+    the figure (see figure_info_blocks). The strip is half as wide as `img`
+    - or wider, with more columns of text, if the settings need more room
+    than that - and its size depends only on `img`'s size and the number of
+    obstacles, so every frame of a video gets the same one. Never mutates
     `img`."""
     h, w, _ = img.shape
-    margin_w = w // 2
-    out = np.empty((h, margin_w + w, 3), dtype=img.dtype)
-    out[:, margin_w:] = img
-    out[:, :margin_w] = COLORATION_INFO_BG
     scale = resolution_scale(h)   # the view's own size, not the margin's (see
                                   # add_bottom_color_margin's identical fix)
     m = COLORATION_INFO_MARGIN * scale
-    _draw_text_block(out, simulation_info_lines(settings), m, m,
-                     margin_w - 2 * m, h - 2 * m, scale, draw_bg=False)
+    line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
+    columns = layout_info_columns(figure_info_blocks(settings, obstacles),
+                                  max(1, (h - 2 * m) // line_h))
+    col_w = 6 * FIGURE_INFO_COLUMN_CHARS * scale
+    col_gap = 12 * scale
+    margin_w = max(w // 2, 2 * m + len(columns) * col_w + (len(columns) - 1) * col_gap)
+    out = np.empty((h, margin_w + w, 3), dtype=img.dtype)
+    out[:, margin_w:] = img
+    out[:, :margin_w] = COLORATION_INFO_BG
+    for k, lines in enumerate(columns):
+        _draw_text_block(out, lines, m + k * (col_w + col_gap), m, col_w, h - 2 * m, scale,
+                         draw_bg=False)
     return out
 
 
-def apply_info_locations(rgb, views, view_width, settings, color_location, sim_location,
-                         mutate_ok):
-    """Applies the Export designer's Color info location and Simulation
-    info location choices to `rgb` (already composed, before any margin
+def apply_info_locations(rgb, views, view_width, settings, obstacles, color_location,
+                         figure_location, mutate_ok):
+    """Applies the Export designer's Color info location and Figure settings
+    location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
     module-level function, safe to call from a background thread, since it
     never reads a Tk variable directly (callers capture color_location/
-    sim_location on the main thread first). mutate_ok=False never draws
+    figure_location on the main thread first). `settings` and `obstacles` are
+    what defines the figure being exported (see figure_info_blocks). mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
     first instead) - needed when `rgb` might be a shared, reused buffer
     like self.frame."""
@@ -3378,8 +3306,8 @@ def apply_info_locations(rgb, views, view_width, settings, color_location, sim_l
         draw_coloration_info(rgb, views, view_width)
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, views, view_width)
-    if sim_location == "Left margin":
-        rgb = add_left_simulation_margin(rgb, settings)
+    if figure_location == "Left margin":
+        rgb = add_left_figure_margin(rgb, settings, obstacles)
     return rgb
 
 
@@ -3395,7 +3323,7 @@ def default_map_help(mode):
 
 # Decorations: (key, label, default). Shown in two groups on the Decorations tab.
 DECO_IMAGE = [      # drawn into the image: they appear in saved files (and keyframes)
-    ("outline", "Bounding shape outline (white)", True),
+    ("outline", "Obstacle outlines", True),
 ]
 DECO_PREVIEW = [    # drawn over the image on screen only: never saved, never in a keyframe
     ("pending", "Pending shape outline (dashed)", True),
@@ -3407,32 +3335,8 @@ DECO_PREVIEW = [    # drawn over the image on screen only: never saved, never in
 ]
 
 # Hints shown under the shape parameter controls
-SHAPE_HINTS = {
-    SHAPE_ELLIPSE: "Full extents; 2.0 \u00d7 2.0 is the unit circle. Rotation is "
-                   "counterclockwise. Changes need Start; a dashed outline "
-                   "previews them.",
-    SHAPE_POLYGON: "Vertices lie on the unit circle; at rotation 0 one points up. "
-                   "Rotation is counterclockwise. Changes need Start; a dashed "
-                   "outline previews them.",
-    SHAPE_MOSS_EGG: "Built from an isosceles triangle with apex angle ACB; the "
-                    "round end is at the bottom, the pointed/capped end at the "
-                    "top, before rotation. Changes need Start.",
-    SHAPE_SECTOR: "A pie slice: Span is the wedge's total angle (up to 180\u00b0), "
-                  "Rotation orients its bisector. Changes need Start.",
-    SHAPE_SEGMENT: "A circle's cap beyond a chord: Span is the angle the chord "
-                   "subtends at the centre, Rotation orients the cap. Changes "
-                   "need Start.",
-    SHAPE_LENS: "The overlap of two circles, Separation apart along Rotation's "
-               "direction. Changes need Start.",
-    SHAPE_REULEAUX: "A constant-width shape built on a regular polygon with an "
-                    "odd number of sides. Changes need Start.",
-    SHAPE_CAPSULE: "A rectangle capped with a semicircle at each end (a "
-                   "\"stadium\"): Length is the straight part, Radius the caps. "
-                   "Changes need Start.",
-}
-
 # Raw measurements filled in by trace_path / compute_stats
-RAW_BOUNDARY = 0    # number of bounces off the bounding shape
+RAW_BOUNDARY = 0    # number of bounces off a shape's edge (not off the ray's own path)
 RAW_SELF_K = 1      # index of the segment hit at the first self-touch (-1: never)
 RAW_SELF_M = 2      # index of the hit point at the first self-touch
 RAW_DEFLECT = 3     # sum of deflection angles, degrees
@@ -3675,7 +3579,7 @@ def circles_entry_hit(px, py, dx, dy, bound):
 # --------------------------------------------------------------------------- #
 @njit(cache=True)
 def inside_boundary(x, y, shape, bound):
-    """Is the point (x, y) strictly inside the bounding shape?"""
+    """Is the point (x, y) strictly inside the shape (whose geometry is `bound`)?"""
     if shape == SHAPE_ELLIPSE:
         return bound[1] * x * x + 2.0 * bound[2] * x * y + bound[3] * y * y < 1.0
     if shape == SHAPE_POLYGON:
@@ -3695,8 +3599,8 @@ def inside_boundary(x, y, shape, bound):
 @njit(cache=True)
 def inside_boundary_grid(gx, gy, shape, bound):
     """inside_boundary(), over a whole (H, W) grid at once - compiled, so this
-    stays fast even though it's a plain loop; used for drawing the outline of
-    shapes without a simple analytic gradient (see compute_ring)."""
+    stays fast even though it's a plain loop; used for drawing shape outlines
+    and thumbnails."""
     h, w = gx.shape
     out = np.empty((h, w), dtype=np.bool_)
     for j in range(h):
@@ -3707,13 +3611,10 @@ def inside_boundary_grid(gx, gy, shape, bound):
 
 
 @njit(cache=True)
-def emits_ray(x, y, shape, bound, main_ctl, obst_shapes, obst_bounds, obst_cx, obst_cy,
-              obst_fire_inside):
+def emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_fire_inside):
     """Does a ray actually start at (x, y)? True if (x, y) is inside any shape
-    whose "fire rays inside" is on - the main bounding shape (main_ctl[0]) or
-    an obstacle. Being inside shapes that have it off makes no difference."""
-    if main_ctl[0] != 0 and inside_boundary(x, y, shape, bound):
-        return True
+    whose "fire rays inside" is on. Being inside shapes that have it off makes
+    no difference."""
     for oi in range(len(obst_shapes)):
         if obst_fire_inside[oi] and inside_boundary(x - obst_cx[oi], y - obst_cy[oi],
                                                      obst_shapes[oi], obst_bounds[oi]):
@@ -3857,8 +3758,8 @@ ESCAPE_OBJ = -3      # trace_path's "what did the ray hit": nothing, it escaped
 
 
 @njit(nogil=True, cache=True)
-def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, seg_mult,
-               fuzz, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw):
+def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
+               obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw):
     """
     Trace one ray, storing the start point and every
     bounce point in pts (needs at least max_iter + 2 rows, 2 columns), the
@@ -3880,16 +3781,12 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
     still reaches its true, unshortened endpoint, since there's no next
     segment to continue into.
 
-    `main_ctl` is [fires rays inside, incoming effect, outgoing effect] for the
-    main bounding shape (see main_ctl_array).
-
     `obst_shapes`/`obst_bounds`/`obst_cx`/`obst_cy`/`obst_effects` describe
     every obstacle (parallel arrays; each obstacle's own bound is centred on
     (obst_cx[i], obst_cy[i]); `obst_effects` is an (n, 2) array of
     OBSTACLE_EFFECT_* codes: column 0 for rays coming in from outside, column
-    1 for rays going out from inside). The main bounding shape and every
-    obstacle are treated alike: what happens to a ray as it reaches an edge
-    depends only on the effect chosen for that direction. Reflect acts like a
+    1 for rays going out from inside). What happens to a ray as it reaches a
+    shape's edge depends only on the effect chosen for that direction. Reflect acts like a
     mirror (using the boundary's fuzzing settings and counting toward the same
     bounce total); Terminate ends the ray the instant the edge is reached;
     Pass through lets the ray cross (flipping whether it is inside that
@@ -3914,7 +3811,6 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
     """
     fuzzing = fuzz[0] > 0.5
     n_obst = len(obst_shapes)
-    n_shapes = n_obst + 1                    # shape 0 = the main bounding shape, then obstacles
 
     pts[0, 0] = x0
     pts[0, 1] = y0
@@ -3933,12 +3829,11 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
     # passes through an edge (see below), and is always decided by this flag
     # rather than re-derived from the geometry, so a ray grazing an edge can't
     # be judged inside by one test and outside by the next.
-    inside = np.zeros(n_shapes, dtype=np.bool_)
-    inside[0] = inside_boundary(x0, y0, shape, bound)
+    inside = np.zeros(n_obst, dtype=np.bool_)
     for oi in range(n_obst):
-        inside[oi + 1] = inside_boundary(x0 - obst_cx[oi], y0 - obst_cy[oi],
-                                         obst_shapes[oi], obst_bounds[oi])
-    max_cross = 2 * n_shapes + 2             # a straight line crosses a convex shape at most twice
+        inside[oi] = inside_boundary(x0 - obst_cx[oi], y0 - obst_cy[oi],
+                                     obst_shapes[oi], obst_bounds[oi])
+    max_cross = 2 * n_obst + 2               # a straight line crosses a convex shape at most twice
 
     px = x0
     py = y0
@@ -3978,30 +3873,17 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
             # Distance to every shape's edge: from inside, the way out; from
             # outside, the way in. A shape that passes rays through in both
             # directions is not there at all.
-            for si in range(n_shapes):
-                if si == 0:
-                    e_in = main_ctl[1]
-                    e_out = main_ctl[2]
-                    ocx = 0.0
-                    ocy = 0.0
-                else:
-                    e_in = obst_effects[si - 1, 0]
-                    e_out = obst_effects[si - 1, 1]
-                    ocx = obst_cx[si - 1]
-                    ocy = obst_cy[si - 1]
+            for si in range(n_obst):
+                e_in = obst_effects[si, 0]
+                e_out = obst_effects[si, 1]
                 if e_in == OBSTACLE_EFFECT_PASS and e_out == OBSTACLE_EFFECT_PASS:
                     continue
-                if si == 0:
-                    if inside[0]:
-                        t, hnx, hny = boundary_hit(qx, qy, dx, dy, shape, bound)
-                    else:
-                        t, hnx, hny = obstacle_hit(qx, qy, dx, dy, shape, bound)
-                elif inside[si]:
-                    t, hnx, hny = boundary_hit(qx - ocx, qy - ocy, dx, dy,
-                                               obst_shapes[si - 1], obst_bounds[si - 1])
+                if inside[si]:
+                    t, hnx, hny = boundary_hit(qx - obst_cx[si], qy - obst_cy[si], dx, dy,
+                                               obst_shapes[si], obst_bounds[si])
                 else:
-                    t, hnx, hny = obstacle_hit(qx - ocx, qy - ocy, dx, dy,
-                                               obst_shapes[si - 1], obst_bounds[si - 1])
+                    t, hnx, hny = obstacle_hit(qx - obst_cx[si], qy - obst_cy[si], dx, dy,
+                                               obst_shapes[si], obst_bounds[si])
                 if t >= 0.0 and t < best_t:
                     best_t = t
                     best_obj = OBST_OBJ_BASE - si
@@ -4143,9 +4025,8 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
 
         # Fuzzing: perturb the deflection angle (incoming -> outgoing) itself,
         # so an unfuzzed bounce (offset 0, jitter 0, multiplier 1) is identical
-        # to a plain mirror reflection. Bounces off any reflecting edge (the
-        # bounding shape or an obstacle) and off the ray's own path have
-        # separate settings.
+        # to a plain mirror reflection. Bounces off any reflecting edge and
+        # off the ray's own path have separate settings.
         if fuzzing:
             if best_obj <= OBST_OBJ_BASE:
                 f_off = fuzz[3]
@@ -4202,10 +4083,9 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, shape, bound, main_ctl, s
         # now wherever that is, which may be on the other side of some of
         # them, so re-derive which shapes it is inside from where it actually is.
         if seg_mult < 1.0 and n_cross > 0:
-            inside[0] = inside_boundary(ex, ey, shape, bound)
             for oi in range(n_obst):
-                inside[oi + 1] = inside_boundary(ex - obst_cx[oi], ey - obst_cy[oi],
-                                                 obst_shapes[oi], obst_bounds[oi])
+                inside[oi] = inside_boundary(ex - obst_cx[oi], ey - obst_cy[oi],
+                                             obst_shapes[oi], obst_bounds[oi])
 
         # Confined to less than one pixel?
         if npts >= CONFINE_WINDOW:
@@ -4448,8 +4328,7 @@ def compute_points(pts, npts, raw, kinds, sp):
 
 
 @njit(nogil=True, parallel=True, cache=True)
-def render_rows(stats, points, status, row0, row1, max_iter, max_dist, shape, bound,
-                main_ctl, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
+def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
                 obst_fire_inside, seed_base):
     """
     Simulate rows [row0, row1). For each pixel that actually fires a ray, fill
@@ -4463,8 +4342,8 @@ def render_rows(stats, points, status, row0, row1, max_iter, max_dist, shape, bo
         i = idx % SIZE
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
-        if not emits_ray(x, y, shape, bound, main_ctl, obst_shapes, obst_bounds, obst_cx,
-                         obst_cy, obst_fire_inside):
+        if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
+                         obst_fire_inside):
             continue
         if fuzzing:
             np.random.seed(seed_base + i * 1000003 + j * 97)
@@ -4473,9 +4352,8 @@ def render_rows(stats, points, status, row0, row1, max_iter, max_dist, shape, bo
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, shape, bound,
-                                main_ctl, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx,
-                                obst_cy, obst_effects, raw)
+        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
+                                obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):
@@ -4500,8 +4378,7 @@ def scatter_one_buddha_point(counts, x, y, w, h):
 
 
 @njit(cache=True)
-def scatter_multi_buddha(row0, row1, max_iter, max_dist, shape, bound, main_ctl, seg_mult,
-                         fuzz, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
+def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
                          obst_fire_inside, seed_base, want_all_self, want_all_mid,
                          want_prog_bounce, want_prog_mid, counts):
     """
@@ -4524,14 +4401,14 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, shape, bound, main_ctl,
         for i in range(w):
             x = (i + 0.5) * PIXEL - 1.0
             y = 1.0 - (j + 0.5) * PIXEL
-            if not emits_ray(x, y, shape, bound, main_ctl, obst_shapes, obst_bounds,
-                             obst_cx, obst_cy, obst_fire_inside):
+            if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
+                             obst_fire_inside):
                 continue
             if fuzzing:
                 np.random.seed(seed_base + i * 1000003 + j * 97)
-            _term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, shape, bound,
-                                     main_ctl, seg_mult, fuzz, obst_shapes, obst_bounds,
-                                     obst_cx, obst_cy, obst_effects, raw)
+            _term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
+                                     obst_shapes, obst_bounds, obst_cx, obst_cy,
+                                     obst_effects, raw)
             nb = int(raw[RAW_BOUNCES])
 
             if want_all_self:
@@ -4568,7 +4445,7 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, shape, bound, main_ctl,
 
 @njit(nogil=True, parallel=True, cache=True)
 def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, max_dist,
-                   shape, bound, main_ctl, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx,
+                   seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx,
                    obst_cy, obst_effects, obst_fire_inside, seed_base):
     """
     Like render_rows, but for an arbitrary out_w x out_h output grid (used for
@@ -4587,8 +4464,8 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
         i = idx % out_w
         x = (i + 0.5) * step_x - 1.0
         y = 1.0 - (j + 0.5) * step_y
-        if not emits_ray(x, y, shape, bound, main_ctl, obst_shapes, obst_bounds, obst_cx,
-                         obst_cy, obst_fire_inside):
+        if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
+                         obst_fire_inside):
             continue
         if fuzzing:
             np.random.seed(seed_base + i * 1000003 + j * 97)
@@ -4597,9 +4474,8 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, shape, bound,
-                                main_ctl, seg_mult, fuzz, obst_shapes, obst_bounds, obst_cx,
-                                obst_cy, obst_effects, raw)
+        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
+                                obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):
@@ -4672,11 +4548,7 @@ class App:
         self.max_iter = DEFAULT_ITER      # values used by the current image
         self.max_dist = effective_dist(DEFAULT_DIST)
         self.gen_seg_mult = DEFAULT_SEGMENT_MULT
-        self.gen_shape = DEFAULT_SHAPE
-        self.gen_bound = ellipse_bound(DEFAULT_WIDTH, DEFAULT_HEIGHT,
-                                       DEFAULT_ELL_ROTATION)
         self.gen_fuzz = fuzz_array(DEFAULT_FUZZ)
-        self.gen_main_ctl = MAIN_CTL_DEFAULT
         self.gen_seed_base = DEFAULT_FUZZ.seed
         self.gen_buddha_blur_radius = DEFAULT_BUDDHA_BLUR_RADIUS
         self.gen_buddha_blur_type = DEFAULT_BUDDHA_BLUR_TYPE
@@ -4726,10 +4598,12 @@ class App:
         self.render_thread = None
         self.render_cancel = None
 
-        # ---- obstacles ---- (scene furniture: not part of Settings/keyframes)
-        self.obstacles = []                # list[Obstacle], in list order
-        self._obst_counter = 0
-        self.selected_obstacle = None
+        # ---- obstacles ---- (the scene: not part of Settings, but every obstacle's
+        # own fields are keyframeable). The app starts with one obstacle: the
+        # unit circle, which reflects rays and fires them inside itself.
+        self.obstacles = [default_starting_obstacle(0)]   # list[Obstacle], in list order
+        self._obst_counter = 1
+        self.selected_obstacle = self.obstacles[0]
         empty_i64 = np.empty(0, dtype=np.int64)
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
         empty_f64 = np.empty(0, dtype=np.float64)
@@ -4741,6 +4615,8 @@ class App:
         self.gen_obst_effects = np.empty((0, 2), dtype=np.int64)
         self.gen_obst_fire_inside = empty_bool
         self.gen_obstacles_sig = ()
+        self.gen_obstacle_snapshots = []   # frozen copies of the obstacles as generated,
+                                           # for the export's figure settings text
         self.gen_obstacles_by_id = {}      # obstacle id -> frozen settings, for the
                                            # dashed "changed since last generation" guide
 
@@ -4761,8 +4637,6 @@ class App:
 
         # World coordinates of every pixel centre (also each ray's start point)
         self.gx, self.gy = make_grid(SIZE, SIZE)
-        self.ring = None
-        self.set_ring(self.gen_shape, self.gen_bound)
 
         self.build_image_quadrant()
         self.build_controls_quadrant()
@@ -4840,7 +4714,6 @@ class App:
         self.sim_canvas, sim_inner = make_scrollable_tab(sim_tab)
         self.build_limits_controls(sim_inner)
         self.build_segment_mult_controls(sim_inner)
-        self.build_shape_controls(sim_inner)
         self.build_fuzzing_controls(fuzz_tab)
         self.build_color_controls(color_tab)
         self.build_buddha_blur_controls(buddha_blur_tab)
@@ -4892,31 +4765,6 @@ class App:
                        "distance limit of 0 means no distance limit. Large limits "
                        "(or fuzzing) can take a very long time."
                   ).grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
-
-    def build_main_ray_controls(self, sh):
-        """The bounding shape's own ray behavior, at the bottom of its frame:
-        whether it fires rays inside it, and what happens to a ray crossing
-        its edge in each direction - the same controls an obstacle has."""
-        box = ttk.Frame(sh)
-        box.grid(row=30, column=0, sticky="ew", padx=8, pady=(4, 6))
-        ttk.Label(box, foreground="#666", wraplength=RIGHT_W - 90,
-                  text=RAY_HELP_TEXT).grid(row=3, column=0, columnspan=2, sticky="w",
-                                           pady=(4, 0))
-        self.main_fire_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(box, text="Fire rays inside", variable=self.main_fire_var,
-                        command=self.on_shape_param_changed).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
-        rows = [("Incoming ray effect:", "main_in_effect_var"),
-                ("Outgoing ray effect:", "main_out_effect_var")]
-        for r, (text, attr) in enumerate(rows, start=1):
-            ttk.Label(box, text=text, width=20).grid(row=r, column=0, sticky="w", pady=1)
-            var = tk.StringVar(value=OBSTACLE_EFFECT_NAMES[OBSTACLE_EFFECT_REFLECT])
-            setattr(self, attr, var)
-            combo = ttk.Combobox(box, textvariable=var, values=OBSTACLE_EFFECT_NAMES,
-                                 state="readonly", width=12)
-            combo.grid(row=r, column=1, sticky="w", padx=(8, 0), pady=1)
-            combo.bind("<<ComboboxSelected>>",
-                       lambda _e, c=combo: (c.selection_clear(), self.on_shape_param_changed()))
 
     def build_segment_mult_controls(self, parent):
         """A single bounded entry: how much of each bounce's true segment
@@ -5006,136 +4854,6 @@ class App:
         entry.bind("<KP_Enter>", commit)
         handle.widget = entry
         return handle
-
-    def build_shape_controls(self, parent):
-        """Shape dropdown, plus the parameter controls of whichever shape is chosen."""
-        sh = ttk.LabelFrame(parent, text="Bounding shape")
-        sh.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 6))
-        sh.columnconfigure(0, weight=1)
-        self.build_main_ray_controls(sh)
-
-        top = ttk.Frame(sh)
-        top.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
-        ttk.Label(top, text="Shape:").pack(side="left")
-        self.shape_var = tk.StringVar(value=SHAPE_NAMES[DEFAULT_SHAPE])
-        self.shape_combo = ttk.Combobox(top, textvariable=self.shape_var,
-                                        values=SHAPE_NAMES, state="readonly",
-                                        width=18)
-        self.shape_combo.pack(side="left", padx=(8, 0))
-        self.shape_combo.bind("<<ComboboxSelected>>", self.on_shape_changed)
-
-        # Ellipse controls (everything that was available for circles/ellipses)
-        eg = ttk.Frame(sh)
-        eg.grid(row=1, column=0, sticky="ew")
-        eg.columnconfigure(1, weight=1)
-        self.width_scale = self.add_slider_row(
-            eg, 0, "Width", ELLIPSE_MIN, ELLIPSE_MAX, 0.01, DEFAULT_WIDTH, "{:.2f}")
-        self.height_scale = self.add_slider_row(
-            eg, 1, "Height", ELLIPSE_MIN, ELLIPSE_MAX, 0.01, DEFAULT_HEIGHT, "{:.2f}")
-        self.ell_rot_scale = self.add_angle_entry(
-            eg, 2, "Rotation (\u00b0)", DEFAULT_ELL_ROTATION,
-            on_change=self.on_shape_param_changed)
-        ttk.Button(eg, text="Reset to unit circle", command=self.reset_ellipse).grid(
-            row=3, column=0, columnspan=3, sticky="ew", padx=8, pady=(4, 2))
-        self.ellipse_group = eg
-
-        # Regular-polygon controls
-        pg = ttk.Frame(sh)
-        pg.grid(row=1, column=0, sticky="ew")
-        pg.columnconfigure(1, weight=1)
-        self.sides_scale = self.add_slider_row(
-            pg, 0, "Sides", POLY_MIN_SIDES, POLY_MAX_SIDES, 1, DEFAULT_SIDES, "{:.0f}")
-        self.poly_rot_scale = self.add_angle_entry(
-            pg, 1, "Rotation (\u00b0)", DEFAULT_POLY_ROTATION,
-            on_change=self.on_shape_param_changed)
-        self.polygon_group = pg
-
-        # Moss's egg controls
-        mg = ttk.Frame(sh)
-        mg.grid(row=1, column=0, sticky="ew")
-        mg.columnconfigure(1, weight=1)
-        self.moss_angle_scale = self.add_slider_row(
-            mg, 0, "Angle ACB (\u00b0)", MOSS_ANGLE_MIN, MOSS_ANGLE_MAX, 0.5,
-            DEFAULT_MOSS_ANGLE, "{:.1f}")
-        self.moss_size_scale = self.add_slider_row(
-            mg, 1, "Size", MOSS_SIZE_MIN, MOSS_SIZE_MAX, 0.01,
-            DEFAULT_MOSS_SIZE, "{:.2f}")
-        self.moss_rot_scale = self.add_angle_entry(
-            mg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.moss_group = mg
-
-        # Circular sector controls
-        secg = ttk.Frame(sh)
-        secg.grid(row=1, column=0, sticky="ew")
-        secg.columnconfigure(1, weight=1)
-        self.sector_radius_scale = self.add_slider_row(
-            secg, 0, "Radius", ARC_RADIUS_MIN, ARC_RADIUS_MAX, 0.01,
-            DEFAULT_ARC_RADIUS, "{:.2f}")
-        self.sector_span_scale = self.add_slider_row(
-            secg, 1, "Span (\u00b0)", ARC_SPAN_MIN, SECTOR_SPAN_MAX, 0.5,
-            DEFAULT_SECTOR_SPAN, "{:.1f}")
-        self.sector_rot_scale = self.add_angle_entry(
-            secg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.sector_group = secg
-
-        # Circular segment controls
-        segg = ttk.Frame(sh)
-        segg.grid(row=1, column=0, sticky="ew")
-        segg.columnconfigure(1, weight=1)
-        self.segment_radius_scale = self.add_slider_row(
-            segg, 0, "Radius", ARC_RADIUS_MIN, ARC_RADIUS_MAX, 0.01,
-            DEFAULT_ARC_RADIUS, "{:.2f}")
-        self.segment_span_scale = self.add_slider_row(
-            segg, 1, "Span (\u00b0)", ARC_SPAN_MIN, ARC_SPAN_MAX, 0.5,
-            DEFAULT_SEGMENT_SPAN, "{:.1f}")
-        self.segment_rot_scale = self.add_angle_entry(
-            segg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.segment_group = segg
-
-        # Two-circle lens controls
-        lg = ttk.Frame(sh)
-        lg.grid(row=1, column=0, sticky="ew")
-        lg.columnconfigure((0, 1), weight=1)
-        self.lens_r1_scale, self.lens_r2_scale = self.add_slider_pair(
-            lg, 0,
-            ("Radius 1", LENS_RADIUS_MIN, LENS_RADIUS_MAX, 0.01, DEFAULT_LENS_RADIUS, "{:.2f}"),
-            ("Radius 2", LENS_RADIUS_MIN, LENS_RADIUS_MAX, 0.01, DEFAULT_LENS_RADIUS, "{:.2f}"))
-        self.lens_sep_scale = self.add_slider_row(
-            lg, 1, "Separation", LENS_SEP_MIN, LENS_SEP_MAX, 0.01, DEFAULT_LENS_SEP, "{:.2f}")
-        self.lens_rot_scale = self.add_angle_entry(
-            lg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.lens_group = lg
-
-        # Reuleaux polygon controls (sides kept odd: resolution 2, starting at 3)
-        rg = ttk.Frame(sh)
-        rg.grid(row=1, column=0, sticky="ew")
-        rg.columnconfigure(1, weight=1)
-        self.reuleaux_sides_scale = self.add_slider_row(
-            rg, 0, "Sides (odd)", REULEAUX_MIN_SIDES, REULEAUX_MAX_SIDES, 2,
-            DEFAULT_REULEAUX_SIDES, "{:.0f}")
-        self.reuleaux_rot_scale = self.add_angle_entry(
-            rg, 1, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.reuleaux_group = rg
-
-        # Capsule (stadium) controls
-        cg = ttk.Frame(sh)
-        cg.grid(row=1, column=0, sticky="ew")
-        cg.columnconfigure(1, weight=1)
-        self.capsule_length_scale = self.add_slider_row(
-            cg, 0, "Length", CAPSULE_LENGTH_MIN, CAPSULE_LENGTH_MAX, 0.01,
-            DEFAULT_CAPSULE_LENGTH, "{:.2f}")
-        self.capsule_radius_scale = self.add_slider_row(
-            cg, 1, "Radius", CAPSULE_RADIUS_MIN, CAPSULE_RADIUS_MAX, 0.01,
-            DEFAULT_CAPSULE_RADIUS, "{:.2f}")
-        self.capsule_rot_scale = self.add_angle_entry(
-            cg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_shape_param_changed)
-        self.capsule_group = cg
-
-        self.shape_hint_var = tk.StringVar()
-        ttk.Label(sh, textvariable=self.shape_hint_var, foreground="#666",
-                  wraplength=RIGHT_W - 70).grid(
-            row=2, column=0, sticky="w", padx=8, pady=(4, 6))
-        self.show_shape_controls()
 
     def build_fuzzing_controls(self, parent):
         """Angle controls for ray emission, bounces off the boundary, and
@@ -5678,7 +5396,7 @@ class App:
     def build_obstacles_controls(self, parent):
         """Obstacle list (scrollable, with New/Dupe/Del stacked to its left)
         plus a shared editor for whichever obstacle is selected: the same
-        shape controls as the main bounding shape (rotation full-width above
+        shape controls (rotation full-width above
         the others, which are paired up to save space), a polar position (r,
         theta) with an x/y offset, incoming and outgoing ray-effect dropdowns,
         and a "fire rays inside" checkbox. Every one of an obstacle's settings can be animated
@@ -5916,10 +5634,9 @@ class App:
 
     def refresh_obstacle_editor(self):
         """Populate the editor controls from the selected obstacle (or leave
-        them as-is, disabled-by-convention, if none is selected). Every
-        field shared with the bounding shape is set the same way
-        apply_snapshot_to_controls sets its own widgets - table-driven off
-        SHAPE_PARAM_INFO, rather than one hand-written line per field."""
+        them as-is, disabled-by-convention, if none is selected). Every shape
+        field is set table-driven off SHAPE_PARAM_INFO, rather than one
+        hand-written line per field."""
         o = self.selected_obstacle
         if o is None:
             return
@@ -6221,12 +5938,13 @@ class App:
         ttk.Combobox(color_info_row, textvariable=self.color_info_location_var,
                     values=COLOR_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
 
-        sim_info_row = ttk.Frame(designer)
-        sim_info_row.grid(row=2, column=0, sticky="w", padx=8, pady=(2, 6))
-        ttk.Label(sim_info_row, text="Simulation info location:").pack(side="left", padx=(0, 6))
-        self.sim_info_location_var = tk.StringVar(value=SIM_INFO_LOCATIONS[0])
-        ttk.Combobox(sim_info_row, textvariable=self.sim_info_location_var,
-                    values=SIM_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
+        figure_info_row = ttk.Frame(designer)
+        figure_info_row.grid(row=2, column=0, sticky="w", padx=8, pady=(2, 6))
+        ttk.Label(figure_info_row, text="Figure settings location:").pack(
+            side="left", padx=(0, 6))
+        self.figure_info_location_var = tk.StringVar(value=FIGURE_INFO_LOCATIONS[0])
+        ttk.Combobox(figure_info_row, textvariable=self.figure_info_location_var,
+                    values=FIGURE_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
 
         # ---- Export: what to export, its format, and the buttons ----
         exp = ttk.LabelFrame(container, text="Export")
@@ -6739,60 +6457,11 @@ class App:
         self.seed_var.set(str(random.randint(0, 999999999)))
         self.on_seed_commit()
 
-    # ---- bounding shape controls -------------------------------------------- #
-    def read_shape_controls(self):
-        """Every shape's own parameter values, as a dict keyed by their exact
-        Snapshot field names (shape, width, height, ..., capsule_rotation) -
-        regardless of which shape is currently selected, so Revert/keyframes
-        can restore them all. Returning a dict (for Snapshot(**...)) rather
-        than a plain positional tuple means a field added here in the wrong
-        place, or left out, fails loudly (TypeError) instead of silently
-        landing in the wrong Snapshot slot."""
-        vals = {"shape": SHAPE_NAMES.index(self.shape_var.get())}
-        for p in SHAPE_PARAM_INFO:
-            raw = getattr(self, p.widget).get()
-            vals[p.field] = int(round(float(raw))) if p.fmt == "int" else round(float(raw), 2)
-        return vals
-
-    def control_shape(self):
-        """(shape, params) of the currently selected shape, from the controls."""
-        mini = Snapshot(max_iter=0, max_dist=0, seg_mult=1.0, fuzz=DEFAULT_FUZZ,
-                        buddha_blur_radius=DEFAULT_BUDDHA_BLUR_RADIUS,
-                        buddha_blur_type=DEFAULT_BUDDHA_BLUR_TYPE,
-                        **self.read_shape_controls())
-        return mini.shape, snapshot_shape_params(mini)
-
-    def show_shape_controls(self):
-        """Show only the parameter controls of the selected shape."""
-        shape = SHAPE_NAMES.index(self.shape_var.get())
-        groups = {
-            SHAPE_ELLIPSE: self.ellipse_group, SHAPE_POLYGON: self.polygon_group,
-            SHAPE_MOSS_EGG: self.moss_group, SHAPE_SECTOR: self.sector_group,
-            SHAPE_SEGMENT: self.segment_group, SHAPE_LENS: self.lens_group,
-            SHAPE_REULEAUX: self.reuleaux_group, SHAPE_CAPSULE: self.capsule_group,
-        }
-        for s, g in groups.items():
-            if s == shape:
-                g.grid()
-            else:
-                g.grid_remove()
-        self.shape_hint_var.set(SHAPE_HINTS[shape])
-
-    def on_shape_changed(self, _event=None):
-        self.shape_combo.selection_clear()
-        self.show_shape_controls()
-        self.on_shape_param_changed()
-
-    def reset_ellipse(self):
-        self.width_scale.set(DEFAULT_WIDTH)
-        self.height_scale.set(DEFAULT_HEIGHT)
-        self.ell_rot_scale.set(DEFAULT_ELL_ROTATION)
-        self.on_shape_param_changed()
-
+    # ---- change handling (obstacle shape parameters and the like) -------------- #
     def on_shape_param_changed(self, _value=None):
         self.invalidate_preview()
-        self.schedule_outline_refresh()           # live white outline before first Start
-        self.update_pending_outline()             # dashed outline afterwards
+        self.schedule_outline_refresh()           # live outlines before first Start
+        self.update_pending_outline()             # dashed outlines afterwards
         self.update_buttons()
         self.refresh_state_text()
         self.refresh_timeline_diffs()
@@ -6831,42 +6500,6 @@ class App:
         self.refresh_state_text()
         self.refresh_timeline_diffs()
 
-    def compute_ring(self, shape, bound, gx=None, gy=None):
-        """Boolean mask of the pixels forming the white outline of a shape, on
-        the given world-coordinate grid (the main image's by default)."""
-        x = self.gx if gx is None else gx
-        y = self.gy if gy is None else gy
-        if shape == SHAPE_ELLIPSE:
-            m11, m12, m22 = bound[1], bound[2], bound[3]
-            q = m11 * x * x + 2.0 * m12 * x * y + m22 * y * y
-            grad = 2.0 * np.sqrt((m11 * x + m12 * y) ** 2 + (m12 * x + m22 * y) ** 2)
-            # first-order distance from each pixel centre to the boundary
-            dist = np.abs(q - 1.0) / np.maximum(grad, 1e-9)
-            return dist < RING_HALF_WIDTH_PX * PIXEL
-        if shape == SHAPE_POLYGON:
-            h = bound[1]
-            n = int(bound[2])
-            f = np.full(x.shape, -1e9)
-            for k in range(n):
-                np.maximum(f, bound[3 + 2 * k] * x + bound[4 + 2 * k] * y, out=f)
-            dist = np.abs(f - h)                  # 0 exactly on the boundary
-            return dist < RING_HALF_WIDTH_PX * PIXEL
-        # The other six shapes don't have as simple an analytic gradient, so
-        # take the boundary between a copy of the shape nudged slightly
-        # bigger and one nudged slightly smaller - by a fixed absolute
-        # distance (offset_bound), not a multiplicative scale, so the ring
-        # comes out a constant width everywhere. (A multiplicative scale's
-        # shift is proportional to distance from the scaling centre, which
-        # for points close to it - e.g. capsule's straight edges, close to
-        # its own middle - could be a tiny fraction of a pixel and invisible.)
-        eps = RING_HALF_WIDTH_PX * PIXEL
-        bigger = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, eps))
-        smaller = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, -eps))
-        return bigger & ~smaller
-
-    def set_ring(self, shape, bound):
-        self.ring = self.compute_ring(shape, bound)
-
     def schedule_outline_refresh(self):
         """Coalesce rapid slider events into one outline redraw."""
         if self.outline_job is None:
@@ -6875,8 +6508,6 @@ class App:
     def refresh_outline(self):
         self.outline_job = None
         if self.generated_settings is None:       # nothing generated yet: live preview
-            shape, params = self.control_shape()
-            self.set_ring(shape, make_bound(shape, params))
             self.draw()
 
     def obstacle_state(self, o):
@@ -6896,18 +6527,14 @@ class App:
         return frozen is None or self.obstacle_state(o) != frozen
 
     def update_pending_outline(self):
-        """Dashed outline of the selected shape (and any pending/disabled
-        obstacle) when it differs from what's actually been generated."""
+        """Dashed outline of every obstacle that is pending: doing nothing, new,
+        or different from what's actually been generated."""
         self.canvas.delete("pending")
         if not self.deco["pending"].get():
             return
         g = self.generated_settings
         if g is None:
             return                                 # nothing generated yet: nothing "pending"
-        shape, params = self.control_shape()
-        if (shape, params) != (g.shape, g.params):
-            self.canvas.create_line(*outline_coords(shape, params),
-                                    fill=PENDING_OUTLINE, dash=(5, 4), tags="pending")
         for o in self.obstacles:
             if self.obstacle_is_pending(o):
                 self.canvas.create_line(*obstacle_outline_coords(o),
@@ -6924,13 +6551,7 @@ class App:
         br = self.buddha_blur_radius_scale.get()
         bt = BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get())
         return Snapshot(max_iter=it, max_dist=ds, seg_mult=sm, fuzz=self.read_fuzz_controls(),
-                        buddha_blur_radius=br, buddha_blur_type=bt,
-                        main_fire=bool(self.main_fire_var.get()),
-                        main_in_effect=OBSTACLE_EFFECT_NAMES.index(
-                            self.main_in_effect_var.get()),
-                        main_out_effect=OBSTACLE_EFFECT_NAMES.index(
-                            self.main_out_effect_var.get()),
-                        **self.read_shape_controls())
+                        buddha_blur_radius=br, buddha_blur_type=bt)
 
     def is_image_current(self):
         """Does the image currently shown in the image panel actually match the
@@ -6979,10 +6600,6 @@ class App:
         self.iter_var.set(str(s.max_iter))
         self.dist_var.set(str(s.max_dist))
         self.seg_mult_scale.set(s.seg_mult)
-        self.shape_var.set(SHAPE_NAMES[s.shape])
-        for p in SHAPE_PARAM_INFO:
-            getattr(self, p.widget).set(getattr(s, p.field))
-        self.show_shape_controls()
         f = s.fuzz
         self.fuzz_enabled_var.set(f.enabled)
         self.emit_angle_scale.set(f.emit_angle)
@@ -6996,9 +6613,6 @@ class App:
         self.seed_var.set(str(f.seed))
         self.buddha_blur_radius_scale.set(s.buddha_blur_radius)
         self.buddha_blur_type_var.set(BUDDHA_BLUR_LABELS[s.buddha_blur_type])
-        self.main_fire_var.set(s.main_fire)
-        self.main_in_effect_var.set(OBSTACLE_EFFECT_NAMES[s.main_in_effect])
-        self.main_out_effect_var.set(OBSTACLE_EFFECT_NAMES[s.main_out_effect])
 
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
@@ -7287,8 +6901,8 @@ class App:
                 touched = True
             if any(want_multi.values()):
                 scatter_multi_buddha(
-                    r0, r1, self.max_iter, self.max_dist, self.gen_shape, self.gen_bound,
-                    self.gen_main_ctl, self.gen_seg_mult, self.gen_fuzz, self.gen_obst_shapes,
+                    r0, r1, self.max_iter, self.max_dist, self.gen_seg_mult, self.gen_fuzz,
+                    self.gen_obst_shapes,
                     self.gen_obst_bounds, self.gen_obst_cx, self.gen_obst_cy,
                     self.gen_obst_effects, self.gen_obst_fire_inside, self.gen_seed_base,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
@@ -7414,18 +7028,16 @@ class App:
         empty_bool = np.empty(0, dtype=np.bool_)
         inside_boundary(0.0, 0.0, SHAPE_ELLIPSE, bound)
         empty_effects = np.empty((0, 2), dtype=np.int64)
-        emits_ray(0.0, 0.0, SHAPE_ELLIPSE, bound, MAIN_CTL_DEFAULT, empty_i64, empty_bounds,
-                 empty_f64, empty_f64, empty_bool)
+        emits_ray(0.0, 0.0, empty_i64, empty_bounds, empty_f64, empty_f64, empty_bool)
         trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, WARM_ITER, big,
-                   SHAPE_ELLIPSE, bound, MAIN_CTL_DEFAULT, DEFAULT_SEGMENT_MULT, fz,
-                   empty_i64, empty_bounds, empty_f64, empty_f64, empty_effects,
-                   self.hover_raw)
+                   DEFAULT_SEGMENT_MULT, fz, empty_i64, empty_bounds, empty_f64, empty_f64,
+                   empty_effects, self.hover_raw)
         compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER,
                       DEFAULT_SEGMENT_MULT, self.hover_vec)
         compute_points(self.hover_pts, 4, self.hover_raw, self.hover_kinds, self.hover_sp)
         render_rows(self.stats, self.points, self.status, 0, 1, WARM_ITER, big,
-                    SHAPE_ELLIPSE, bound, MAIN_CTL_DEFAULT, DEFAULT_SEGMENT_MULT, fz,
-                    empty_i64, empty_bounds, empty_f64, empty_f64, empty_effects, empty_bool, 0)
+                    DEFAULT_SEGMENT_MULT, fz, empty_i64, empty_bounds, empty_f64, empty_f64,
+                    empty_effects, empty_bool, 0)
         self.stats[:] = 0
         self.points[:] = 0
         self.status[:] = 0
@@ -7460,9 +7072,6 @@ class App:
         self.max_iter = settings.max_iter
         self.max_dist = effective_dist(settings.max_dist)
         self.gen_seg_mult = settings.seg_mult
-        self.gen_shape = settings.shape
-        self.gen_bound = make_bound(settings.shape, settings.params)
-        self.gen_main_ctl = settings_main_ctl(settings)
         self.gen_fuzz = fuzz_array(settings.fuzz)
         self.gen_seed_base = settings.fuzz.seed
         self.gen_buddha_blur_radius = settings.buddha_blur_radius
@@ -7471,7 +7080,7 @@ class App:
          self.gen_obst_effects, self.gen_obst_fire_inside) = build_obstacle_arrays(self.obstacles)
         self.gen_obstacles_sig = obstacles_signature(self.obstacles)
         self.gen_obstacles_by_id = {o.id: self.obstacle_state(o) for o in self.obstacles}
-        self.set_ring(self.gen_shape, self.gen_bound)   # white outline = generated shape
+        self.gen_obstacle_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
         self.canvas.delete("pending")
         self.stats[:] = 0
         self.points[:] = 0
@@ -7505,8 +7114,7 @@ class App:
             t0 = time.perf_counter()
             row1 = min(self.rows_done + self.batch_rows, SIZE)
             render_rows(self.stats, self.points, self.status, self.rows_done, row1,
-                        self.max_iter, self.max_dist, self.gen_shape, self.gen_bound,
-                        self.gen_main_ctl, self.gen_seg_mult, self.gen_fuzz,
+                        self.max_iter, self.max_dist, self.gen_seg_mult, self.gen_fuzz,
                         self.gen_obst_shapes,
                         self.gen_obst_bounds, self.gen_obst_cx, self.gen_obst_cy,
                         self.gen_obst_effects, self.gen_obst_fire_inside,
@@ -7558,8 +7166,8 @@ class App:
                  o.out_effect) for o in self.obstacles]
 
     def draw(self):
-        """Push the current image to the screen, with the white shape outline
-        and any obstacle outlines drawn into it if that decoration is enabled
+        """Push the current image to the screen, with the obstacle outlines
+        drawn into it if that decoration is enabled
         (two layers: outer = incoming effect, inner = outgoing effect; brown for
         Terminate, pale light blue for Reflect, black for Pass through),
         then the live view's name in the bottom-left corner - a preview-only
@@ -7569,7 +7177,6 @@ class App:
         np.copyto(self.frame, self.img)
         outline = self.deco.get("outline")
         if outline is None or outline.get():
-            self.frame[self.ring] = 255
             for shape, bound, cx, cy, in_e, out_e in self.obstacle_ring_specs():
                 draw_obstacle_outline(self.frame, shape, bound, self.gx - cx, self.gy - cy,
                                       in_e, out_e)
@@ -7616,18 +7223,11 @@ class App:
         current entries/controls (last valid values) if nothing has been started."""
         if self.generated_settings is not None:
             return self.generated_settings
-        shape, params = self.control_shape()
         return Settings(max_iter=self.last_iter, max_dist=self.last_dist,
-                        seg_mult=self.seg_mult_scale.get(), shape=shape, params=params,
-                        fuzz=self.read_fuzz_controls(),
+                        seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
                         buddha_blur_radius=self.buddha_blur_radius_scale.get(),
                         buddha_blur_type=BUDDHA_BLUR_LABELS.index(
-                            self.buddha_blur_type_var.get()),
-                        main_fire=bool(self.main_fire_var.get()),
-                        main_in_effect=OBSTACLE_EFFECT_NAMES.index(
-                            self.main_in_effect_var.get()),
-                        main_out_effect=OBSTACLE_EFFECT_NAMES.index(
-                            self.main_out_effect_var.get()))
+                            self.buddha_blur_type_var.get()))
 
     def invalidate_preview(self):
         """Called whenever a control that feeds preview_settings() changes,
@@ -7652,11 +7252,11 @@ class App:
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
         ps = self.preview_settings()
-        bound = make_bound(ps.shape, ps.params)
         o_shapes, o_bounds, o_cx, o_cy, _o_eff, o_fire = build_obstacle_arrays(self.obstacles)
-        if not emits_ray(x, y, ps.shape, bound, settings_main_ctl(ps), o_shapes, o_bounds,
-                         o_cx, o_cy, o_fire):
-            return                                 # clicking outside the shape does nothing
+        if (self.pinned_px != (i, j)
+                and not emits_ray(x, y, o_shapes, o_bounds, o_cx, o_cy, o_fire)):
+            return                                 # clicking where no ray fires does nothing -
+                                                   # except on the pinned pixel, to unpin it
         if self.pinned_px == (i, j):
             self.pinned_px = None                  # unpin: resume following the mouse
             self.canvas.configure(cursor="crosshair")
@@ -7675,11 +7275,12 @@ class App:
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
         ps = self.preview_settings()
-        bound = make_bound(ps.shape, ps.params)
         o_shapes, o_bounds, o_cx, o_cy, o_effects, o_fire = build_obstacle_arrays(self.obstacles)
-        main_ctl = settings_main_ctl(ps)
-        if not emits_ray(x, y, ps.shape, bound, main_ctl, o_shapes, o_bounds, o_cx, o_cy,
-                         o_fire):
+        # A hovered pixel that fires no ray has no preview - but a pinned one
+        # stays visible even if the scene changed under it so that it no longer
+        # fires: it then shows the ray such a pixel would trace anyway.
+        if (self.pinned_px != (i, j)
+                and not emits_ray(x, y, o_shapes, o_bounds, o_cx, o_cy, o_fire)):
             self.clear_overlay()                   # not a ray-emitting pixel
             return
         if (i, j) == self.hover_px:
@@ -7692,8 +7293,8 @@ class App:
             np.random.seed(ps.fuzz.seed + i * 1000003 + j * 97)
         pts, kinds = self.hover_pts, self.hover_kinds
         raw, vec, sp = self.hover_raw, self.hover_vec, self.hover_sp
-        term, n = trace_path(x, y, pts, kinds, iters, dist, ps.shape, bound, main_ctl,
-                             ps.seg_mult, fz, o_shapes, o_bounds, o_cx, o_cy, o_effects, raw)
+        term, n = trace_path(x, y, pts, kinds, iters, dist, ps.seg_mult, fz, o_shapes,
+                             o_bounds, o_cx, o_cy, o_effects, raw)
         compute_stats(pts, n, raw, iters, ps.seg_mult, vec)
         compute_points(pts, n, raw, kinds, sp)
         vals = self.component_values(vec, sp, x, y)
@@ -7861,7 +7462,6 @@ class App:
         self.frame/draw(). Only called for more than one view - the
         single-view case is just self.frame, already rendered."""
         mini_settings = Settings(self.max_iter, self.max_dist, self.gen_seg_mult,
-                                 self.gen_shape, (),
                                  FuzzParams(False, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
                                            self.gen_seed_base),
                                  self.gen_buddha_blur_radius, self.gen_buddha_blur_type)
@@ -7873,12 +7473,11 @@ class App:
                               v.point1_choice, v.point2_choice, v.chan_src, v.buddha_points,
                               v.buddha_compression, v.buddha_brightness, v.constant_choice)
             images.append(self.colorize_view(vs, self.stats, self.points, self.status,
-                                             SIZE, SIZE, mini_settings, self.gen_bound,
-                                             self.gen_fuzz, obst_arrays))
+                                             SIZE, SIZE, mini_settings, self.gen_fuzz,
+                                             obst_arrays))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
-                img[self.ring] = 255
                 for shape, bound, cx, cy, in_e, out_e in self.obstacle_ring_specs():
                     draw_obstacle_outline(img, shape, bound, self.gx - cx, self.gy - cy,
                                           in_e, out_e)
@@ -7895,8 +7494,8 @@ class App:
         rgb = self.frame if len(views) == 1 else self.render_current_figure(views)
         rgb = apply_info_locations(
             rgb, views, rgb.shape[1] // len(views), self.generated_settings,
-            self.color_info_location_var.get(), self.sim_info_location_var.get(),
-            mutate_ok=len(views) > 1)   # len(views) > 1 means rgb is already a fresh
+            self.gen_obstacle_snapshots, self.color_info_location_var.get(),
+            self.figure_info_location_var.get(), mutate_ok=len(views) > 1)   # len(views) > 1 means rgb is already a fresh
                                        # array from render_current_figure, not self.frame
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -7941,11 +7540,12 @@ class App:
         fake_kf = Keyframe(-1, 0, settings_dict, DEFAULT_INTERP, None)
         data = resolve_frame_settings([fake_kf], 0)
         obst_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
-        obst_arrays = resolve_obstacle_arrays(obst_snapshots, [fake_kf], 0)
+        obst_values = resolve_obstacles(obst_snapshots, [fake_kf], 0)
+        obst_arrays = obstacle_arrays_from_values(obst_values)
         view_snapshots = [snapshot_view(v) for v in self.views_to_export()]
         views = resolve_views(view_snapshots, [fake_kf], 0)
         color_location = self.color_info_location_var.get()
-        sim_location = self.sim_info_location_var.get()
+        figure_location = self.figure_info_location_var.get()
         if path_or_none is None:
             settings_for_name = effective_settings(data.snapshot)
             path = os.path.join(ensure_export_dir(),
@@ -7956,19 +7556,21 @@ class App:
         self.save_as_btn.state(["disabled"])
         thread = threading.Thread(
             target=self._save_new_image_worker,
-            args=(data, w, h, obst_arrays, views, fmt, jxl_lossless, jxl_quality, path,
-                 color_location, sim_location),
+            args=(data, w, h, obst_arrays, obst_values, views, fmt, jxl_lossless,
+                 jxl_quality, path, color_location, figure_location),
             daemon=True)
         thread.start()
 
-    def _save_new_image_worker(self, data, w, h, obst_arrays, views, fmt, jxl_lossless,
-                               jxl_quality, path, color_location, sim_location):
+    def _save_new_image_worker(self, data, w, h, obst_arrays, obst_values, views, fmt,
+                               jxl_lossless, jxl_quality, path, color_location,
+                               figure_location):
         """Runs on a background thread: never touches a Tk widget directly,
         only via self.root.after(0, ...)."""
         try:
             rgb = self.render_full_image(data, w, h, obst_arrays, views)
             rgb = apply_info_locations(rgb, views, w, effective_settings(data.snapshot),
-                                       color_location, sim_location, mutate_ok=True)
+                                       obst_values, color_location, figure_location,
+                                       mutate_ok=True)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
         except Exception as exc:                    # noqa: BLE001
             self.root.after(0, lambda m=str(exc): self._save_new_image_failed(path, m))
@@ -8002,29 +7604,12 @@ class App:
         f = snap.fuzz
         d = {
             "iter": snap.max_iter, "dist": snap.max_dist, "seg_mult": snap.seg_mult,
-            "shape": snap.shape,
-            "width": snap.width, "height": snap.height, "ell_rot": snap.ell_rotation,
-            "sides": snap.sides, "poly_rot": snap.poly_rotation,
-            "moss_angle": snap.moss_angle, "moss_size": snap.moss_size,
-            "moss_rotation": snap.moss_rotation,
-            "sector_radius": snap.sector_radius, "sector_span": snap.sector_span,
-            "sector_rotation": snap.sector_rotation,
-            "segment_radius": snap.segment_radius, "segment_span": snap.segment_span,
-            "segment_rotation": snap.segment_rotation,
-            "lens_radius1": snap.lens_radius1, "lens_radius2": snap.lens_radius2,
-            "lens_sep": snap.lens_sep, "lens_rotation": snap.lens_rotation,
-            "reuleaux_sides": snap.reuleaux_sides,
-            "reuleaux_rotation": snap.reuleaux_rotation,
-            "capsule_length": snap.capsule_length, "capsule_radius": snap.capsule_radius,
-            "capsule_rotation": snap.capsule_rotation,
             "fuzz_on": f.enabled, "emit_angle": f.emit_angle, "emit_jitter": f.emit_jitter,
             "bnd_offset": f.bnd_offset, "bnd_jitter": f.bnd_jitter, "bnd_mult": f.bnd_mult,
             "self_offset": f.self_offset, "self_jitter": f.self_jitter,
             "self_mult": f.self_mult, "seed": f.seed,
             "buddha_blur_radius": snap.buddha_blur_radius,
             "buddha_blur_type": snap.buddha_blur_type,
-            "main_fire": snap.main_fire, "main_in_effect": snap.main_in_effect,
-            "main_out_effect": snap.main_out_effect,
             "outline": self.deco["outline"].get(),
         }
         for o in self.obstacles:
@@ -8120,11 +7705,6 @@ class App:
             self.dist_var.set(str(val))
         elif key == "seg_mult":
             self.seg_mult_scale.set(val)
-        elif key == "shape":
-            self.shape_var.set(SHAPE_NAMES[val])
-            self.show_shape_controls()
-        elif key in SHAPE_PARAM_BY_KEY:
-            getattr(self, SHAPE_PARAM_BY_KEY[key].widget).set(val)
         elif key == "fuzz_on":
             self.fuzz_enabled_var.set(val)
         elif key == "emit_angle":
@@ -8149,12 +7729,6 @@ class App:
             self.buddha_blur_radius_scale.set(val)
         elif key == "buddha_blur_type":
             self.buddha_blur_type_var.set(BUDDHA_BLUR_LABELS[val])
-        elif key == "main_fire":
-            self.main_fire_var.set(bool(val))
-        elif key == "main_in_effect":
-            self.main_in_effect_var.set(OBSTACLE_EFFECT_NAMES[int(val)])
-        elif key == "main_out_effect":
-            self.main_out_effect_var.set(OBSTACLE_EFFECT_NAMES[int(val)])
         elif key == "outline":
             self.deco["outline"].set(val)
             self.on_decoration_changed("outline")
@@ -8552,35 +8126,31 @@ class App:
         it's always been."""
         o_shapes, o_bounds, o_cx, o_cy, o_effects, o_fire = obst_arrays
         settings = effective_settings(data.snapshot)
-        bound = make_bound(settings.shape, settings.params)
         fz = fuzz_array(settings.fuzz)
         stats = np.zeros((out_h, out_w, N_STATS), dtype=np.float32)
         points = np.zeros((out_h, out_w, N_POINTS, 2), dtype=np.float32)
         status = np.zeros((out_h, out_w), dtype=np.uint8)
         render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, settings.max_iter,
-                       effective_dist(settings.max_dist), settings.shape, bound,
-                       settings_main_ctl(settings), settings.seg_mult, fz, o_shapes,
+                       effective_dist(settings.max_dist), settings.seg_mult, fz, o_shapes,
                        o_bounds, o_cx, o_cy, o_effects, o_fire, settings.fuzz.seed)
 
-        images = [self.colorize_view(v, stats, points, status, out_w, out_h, settings, bound,
-                                     fz, obst_arrays)
+        images = [self.colorize_view(v, stats, points, status, out_w, out_h, settings, fz,
+                                     obst_arrays)
                  for v in views]
 
         if data.outline:
             gx, gy = make_grid(out_w, out_h)
-            ring = self.compute_ring(settings.shape, bound, gx, gy)
             obst_layers = [ring_layer_masks(o_shapes[oi], o_bounds[oi],
                                             gx - o_cx[oi], gy - o_cy[oi])
                            + (o_effects[oi, 0], o_effects[oi, 1]) for oi in range(len(o_shapes))]
             for img in images:
-                img[ring] = 255
                 for outer, inner, in_e, out_e in obst_layers:
                     img[outer] = OBST_EFFECT_RGB[int(in_e)]
                     img[inner] = OBST_EFFECT_RGB[int(out_e)]
 
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def colorize_view(self, v, stats, points, status, out_w, out_h, settings, bound, fz,
+    def colorize_view(self, v, stats, points, status, out_w, out_h, settings, fz,
                       obst_arrays):
         """One view's (out_h, out_w, 3) uint8 image (background color where no
         ray was computed, no outline - that's applied uniformly afterwards)
@@ -8627,7 +8197,6 @@ class App:
                     if any(want_multi.values()):
                         scatter_multi_buddha(
                             0, out_h, settings.max_iter, effective_dist(settings.max_dist),
-                            settings.shape, bound, settings_main_ctl(settings),
                             settings.seg_mult, fz, o_shapes, o_bounds,
                             o_cx, o_cy, o_effects, o_fire, settings.fuzz.seed,
                             want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
@@ -8682,13 +8251,12 @@ class App:
                          view_obj.chan_src, view_obj.buddha_points, view_obj.buddha_compression,
                          view_obj.buddha_brightness, view_obj.constant_choice)
         mini_settings = Settings(self.max_iter, self.max_dist, self.gen_seg_mult,
-                                 self.gen_shape, (),
                                  FuzzParams(False, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
                                            self.gen_seed_base),
                                  self.gen_buddha_blur_radius, self.gen_buddha_blur_type)
         obst_arrays = build_obstacle_arrays(self.obstacles)
         full = self.colorize_view(v, self.stats, self.points, self.status, SIZE, SIZE,
-                                  mini_settings, self.gen_bound, self.gen_fuzz, obst_arrays)
+                                  mini_settings, self.gen_fuzz, obst_arrays)
         ys = (np.arange(size) * SIZE / size).astype(np.int64)
         xs = (np.arange(size) * SIZE / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]
@@ -8831,7 +8399,7 @@ class App:
         obst_snapshot = [snapshot_obstacle(o) for o in self.obstacles]
         view_snapshot = [snapshot_view(v) for v in self.views_to_export()]
         color_location = self.color_info_location_var.get()
-        sim_location = self.sim_info_location_var.get()
+        figure_location = self.figure_info_location_var.get()
 
         self.render_cancel = threading.Event()
         self.render_btn.configure(text="Cancel Render")
@@ -8844,7 +8412,7 @@ class App:
         self.render_thread = threading.Thread(
             target=self._render_worker,
             args=(kf_snapshot, frame_lo, frame_hi, rs, obst_snapshot, view_snapshot,
-                 color_location, sim_location),
+                 color_location, figure_location),
             daemon=True)
         self.render_thread.start()
 
@@ -8960,7 +8528,7 @@ class App:
                     os.remove(jxl_apng_temp)
 
     def _render_worker(self, keyframes, frame_lo, frame_hi, rs, obst_snapshot, view_snapshot,
-                       color_location, sim_location):
+                       color_location, figure_location):
         """Runs on a background thread: never touches a Tk widget directly, only
         via self.root.after(0, ...)."""
         ext, suffix = self.output_extension_and_suffix(rs)
@@ -8976,16 +8544,18 @@ class App:
                     self.root.after(0, lambda: self.set_video_status("Cancelled."))
                     return
                 data = resolve_frame_settings(assigned_sorted, fn)
-                obst_arrays = resolve_obstacle_arrays(obst_snapshot, assigned_sorted, fn)
+                obst_values = resolve_obstacles(obst_snapshot, assigned_sorted, fn)
+                obst_arrays = obstacle_arrays_from_values(obst_values)
                 views = resolve_views(view_snapshot, assigned_sorted, fn)
                 rgb = self.render_full_image(data, rs["video_w"], rs["video_h"], obst_arrays,
                                              views)
-                # Simulation settings can be keyframe-animated, so this is resolved
-                # per frame - but the margin's own size depends only on the fixed
-                # video_w/video_h, so every frame still comes out the same size.
+                # The figure's settings can be keyframe-animated, so this is
+                # resolved per frame - but the margin's own size depends only on
+                # the fixed video_w/video_h and the number of obstacles, so every
+                # frame still comes out the same size.
                 rgb = apply_info_locations(rgb, views, rs["video_w"],
-                                           effective_settings(data.snapshot),
-                                           color_location, sim_location, mutate_ok=True)
+                                           effective_settings(data.snapshot), obst_values,
+                                           color_location, figure_location, mutate_ok=True)
                 path = os.path.join(TEMP_DIR, f"frame_{fn - frame_lo:05d}.png")
                 write_png(path, rgb)
                 done = n + 1

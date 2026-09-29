@@ -124,18 +124,16 @@ def test_dist_animates_smoothly_between_keyframes():
 # Segment length multiplier: core ray-tracing math
 # --------------------------------------------------------------------------- #
 def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
-    bound = m.ellipse_bound(width, height, 0.0)
+    start = m.default_starting_obstacle(0)
+    start.width, start.height = width, height
+    bound = m.make_bound(start.shape, start.params())
+    arrays = m.build_obstacle_arrays([start])
     fz = m.fuzz_array(m.DEFAULT_FUZZ)
-    empty_i = np.empty(0, dtype=np.int64)
-    empty_b = np.empty((0, m.OBST_BOUND_LEN))
-    empty_f = np.empty(0)
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(0.0),
-                              m.SHAPE_ELLIPSE, bound, m.MAIN_CTL_DEFAULT, seg_mult, fz,
-                              empty_i, empty_b,
-                              empty_f, empty_f, np.empty((0, 2), dtype=np.int64), raw)
+    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(0.0), seg_mult,
+                              fz, *arrays[:5], raw)
     return pts[:npts], kinds[:npts], term, raw, bound
 
 
@@ -199,17 +197,6 @@ def test_moss_egg_area_scales_quadratically_with_size():
     area_half = m.moss_egg_bound(90.0, 0.5, 0.0)[0]
     assert np.isclose(area_2x, area_1x * 4, rtol=1e-3)
     assert np.isclose(area_half, area_1x / 4, rtol=1e-3)
-
-
-def test_moss_egg_params_round_trip_through_describe_and_suffix():
-    """Regression test: describe_shape() and settings_suffix() both still
-    unpacked Moss's egg params as a 2-tuple (angle, rotation) right after
-    moss_size was added, which would have raised ValueError the moment
-    either function ran."""
-    m.describe_shape(m.SHAPE_MOSS_EGG, (90.0, 1.0, 0.0))
-    settings = m.Settings(20, 0, 1.0, m.SHAPE_MOSS_EGG, (90.0, 1.0, 0.0), m.DEFAULT_FUZZ,
-                          m.DEFAULT_BUDDHA_BLUR_RADIUS, m.DEFAULT_BUDDHA_BLUR_TYPE)
-    m.settings_suffix(settings)
 
 
 def test_obstacle_and_snapshot_agree_on_moss_egg_param_order():
@@ -343,24 +330,6 @@ def test_downsample_max_is_per_channel_independent():
 # --------------------------------------------------------------------------- #
 # Declarative shape-parameter table (SHAPE_PARAM_INFO)
 # --------------------------------------------------------------------------- #
-def test_shape_param_table_matches_snapshot_fields():
-    non_shape = {"max_iter", "max_dist", "seg_mult", "shape", "fuzz",
-                "buddha_blur_radius", "buddha_blur_type", "main_fire", "main_in_effect",
-                "main_out_effect"}
-    table_fields = {p.field for p in m.SHAPE_PARAM_INFO}
-    assert table_fields == set(m.Snapshot._fields) - non_shape
-
-
-def test_self_checks_catch_a_shape_param_table_snapshot_mismatch():
-    fresh = load_module()
-    fresh.SHAPE_PARAM_INFO = fresh.SHAPE_PARAM_INFO[:-1]
-    try:
-        fresh.run_self_checks()
-        raise AssertionError("expected run_self_checks() to raise")
-    except AssertionError as e:
-        assert "Snapshot" in str(e)
-
-
 def test_self_checks_catch_a_shape_param_table_duplicate():
     fresh = load_module()
     dup = fresh.SHAPE_PARAM_INFO[0]._replace(field="height")
@@ -370,61 +339,6 @@ def test_self_checks_catch_a_shape_param_table_duplicate():
         raise AssertionError("expected run_self_checks() to raise")
     except AssertionError as e:
         assert "duplicate" in str(e)
-
-
-def test_load_value_dispatches_every_shape_param_to_its_widget():
-    """Regression coverage for the load_value/apply_snapshot_to_controls
-    refactor: each of the 23 shape parameters used to have its own hand-
-    written elif/assignment line; this confirms the table-driven version
-    still reaches the exact same widget for every one of them."""
-    class _Get:
-        def __init__(self, value=None):
-            self.value = value
-        def get(self):
-            return self.value
-        def set(self, v):
-            self.value = v
-
-    app = _make_fake_app_for_snapshot()
-    for p in m.SHAPE_PARAM_INFO:
-        setattr(app, p.widget, _Get())
-    app.load_value = m.App.load_value.__get__(app)
-
-    for p in m.SHAPE_PARAM_INFO:
-        test_val = 3 if p.fmt == "int" else 1.75
-        app.load_value(p.key, test_val)
-        assert getattr(app, p.widget).get() == test_val, \
-            f"load_value({p.key!r}, ...) didn't reach {p.widget}"
-
-
-def test_apply_snapshot_to_controls_reaches_every_shape_param_widget():
-    class _Get:
-        def __init__(self, value=None):
-            self.value = value
-        def get(self):
-            return self.value
-        def set(self, v):
-            self.value = v
-
-    app = _make_fake_app_for_snapshot()
-    for p in m.SHAPE_PARAM_INFO:
-        setattr(app, p.widget, _Get())
-    for attr in ["iter_var", "dist_var", "seg_mult_scale", "shape_var", "fuzz_enabled_var",
-                "emit_angle_scale", "emit_jitter_scale", "bnd_offset_scale",
-                "bnd_jitter_scale", "bnd_mult_scale", "self_offset_scale",
-                "self_jitter_scale", "self_mult_scale", "seed_var",
-                "buddha_blur_radius_scale", "buddha_blur_type_var", "main_fire_var",
-                "main_in_effect_var", "main_out_effect_var"]:
-        setattr(app, attr, _Get())
-    app.show_shape_controls = lambda: None
-    app.update_fuzz_enabled_state = lambda: None
-    app.apply_snapshot_to_controls = m.App.apply_snapshot_to_controls.__get__(app)
-
-    s = m.DEFAULT_SNAPSHOT._replace(moss_size=1.9, lens_radius1=0.4, reuleaux_sides=7)
-    app.apply_snapshot_to_controls(s)
-    for p in m.SHAPE_PARAM_INFO:
-        assert getattr(app, p.widget).get() == getattr(s, p.field), \
-            f"apply_snapshot_to_controls didn't set {p.widget} from s.{p.field}"
 
 
 # --------------------------------------------------------------------------- #
@@ -649,11 +563,6 @@ _DESCRIBE_SHAPE_CASES = [
 ]
 
 
-def test_describe_shape_exact_text_for_every_shape():
-    for shape, params, expected in _DESCRIBE_SHAPE_CASES:
-        assert m.describe_shape(shape, params) == expected
-
-
 def _make_obstacle_from_params(shape, params):
     """An Obstacle configured to match a _DESCRIBE_SHAPE_CASES params tuple,
     for the equivalent describe_obstacle case - fills in the one extra
@@ -718,83 +627,6 @@ def test_describe_obstacle_includes_position_and_effect():
 # params() / snapshot_shape_params: exact tuples for every shape, including
 # the polygon/Reuleaux asymmetry (an obstacle carries its own radius; the
 # bounding shape doesn't, since it's always inscribed in the unit circle)
-def test_snapshot_shape_params_matches_obstacle_params_for_shared_fields():
-    for shape, params, _ in _DESCRIBE_SHAPE_CASES:
-        o = _make_obstacle_from_params(shape, params)
-        snap = m.DEFAULT_SNAPSHOT._replace(shape=shape)
-        # apply the same field values to the Snapshot side
-        field_map = {
-            m.SHAPE_ELLIPSE: ("width", "height", "ell_rotation"),
-            m.SHAPE_POLYGON: ("sides", "poly_rotation"),
-            m.SHAPE_MOSS_EGG: ("moss_angle", "moss_size", "moss_rotation"),
-            m.SHAPE_SECTOR: ("sector_radius", "sector_span", "sector_rotation"),
-            m.SHAPE_SEGMENT: ("segment_radius", "segment_span", "segment_rotation"),
-            m.SHAPE_LENS: ("lens_radius1", "lens_radius2", "lens_sep", "lens_rotation"),
-            m.SHAPE_REULEAUX: ("reuleaux_sides", "reuleaux_rotation"),
-            m.SHAPE_CAPSULE: ("capsule_length", "capsule_radius", "capsule_rotation"),
-        }[shape]
-        snap = snap._replace(**dict(zip(field_map, params)))
-        assert m.snapshot_shape_params(snap) == params
-
-        obst_params = o.params()
-        if shape == m.SHAPE_POLYGON:
-            assert obst_params == params + (o.poly_radius,), \
-                "obstacle polygon params must carry an extra trailing radius"
-        elif shape == m.SHAPE_REULEAUX:
-            assert obst_params == params + (o.reuleaux_radius,), \
-                "obstacle Reuleaux params must carry an extra trailing radius"
-        else:
-            assert obst_params == params, \
-                "for every other shape, obstacle and bounding-shape params must match exactly"
-
-
-def test_obstacle_params_polygon_and_reuleaux_have_one_more_field_than_snapshot():
-    """Explicit regression lock for the asymmetry itself, independent of the
-    parametrized comparison above."""
-    o_poly = m.Obstacle(1)
-    o_poly.shape = m.SHAPE_POLYGON
-    assert len(o_poly.params()) == 3   # sides, poly_rotation, poly_radius
-    snap_poly = m.DEFAULT_SNAPSHOT._replace(shape=m.SHAPE_POLYGON)
-    assert len(m.snapshot_shape_params(snap_poly)) == 2   # sides, poly_rotation
-
-    o_reu = m.Obstacle(1)
-    o_reu.shape = m.SHAPE_REULEAUX
-    assert len(o_reu.params()) == 3   # reuleaux_sides, reuleaux_rotation, reuleaux_radius
-    snap_reu = m.DEFAULT_SNAPSHOT._replace(shape=m.SHAPE_REULEAUX)
-    assert len(m.snapshot_shape_params(snap_reu)) == 2   # reuleaux_sides, reuleaux_rotation
-
-
-def test_shape_params_tuple_works_off_either_a_snapshot_or_an_obstacle():
-    """The whole point of the shared function: it reads the same field
-    names off either kind of object without needing to know which."""
-    snap = m.DEFAULT_SNAPSHOT._replace(shape=m.SHAPE_MOSS_EGG, moss_angle=91.0,
-                                       moss_size=1.3, moss_rotation=5.0)
-    o = m.Obstacle(1)
-    o.shape = m.SHAPE_MOSS_EGG
-    o.moss_angle, o.moss_size, o.moss_rotation = 91.0, 1.3, 5.0
-    expected = (91.0, 1.3, 5.0)
-    assert m.shape_params_tuple(m.SHAPE_MOSS_EGG, snap) == expected
-    assert m.shape_params_tuple(m.SHAPE_MOSS_EGG, o) == expected
-
-
-def test_shape_params_tuple_include_obstacle_only_flag_for_every_shape():
-    o = m.Obstacle(1)
-    o.poly_radius = 0.6
-    o.reuleaux_radius = 0.7
-    for shape in (m.SHAPE_ELLIPSE, m.SHAPE_POLYGON, m.SHAPE_MOSS_EGG, m.SHAPE_SECTOR,
-                 m.SHAPE_SEGMENT, m.SHAPE_LENS, m.SHAPE_REULEAUX, m.SHAPE_CAPSULE):
-        o.shape = shape
-        without_extra = m.shape_params_tuple(shape, o, include_obstacle_only=False)
-        with_extra = m.shape_params_tuple(shape, o, include_obstacle_only=True)
-        if shape == m.SHAPE_POLYGON:
-            assert with_extra == without_extra + (0.6,)
-        elif shape == m.SHAPE_REULEAUX:
-            assert with_extra == without_extra + (0.7,)
-        else:
-            assert with_extra == without_extra, f"shape={shape} must be unaffected by the flag"
-
-
-# Keyframe capture/load round-trip for obstacle fields
 def test_obstacle_keyframe_capture_and_load_round_trip():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
@@ -848,8 +680,8 @@ def test_obstacle_keyframe_load_only_touches_the_matching_id():
 # --------------------------------------------------------------------------- #
 def _make_fake_app_for_snapshot():
     """A minimal stand-in for App with just enough stub controls for
-    read_shape_controls(), read_fuzz_controls() and current_snapshot() to
-    run for real, unmodified, off the actual App class."""
+    read_fuzz_controls() and current_snapshot() to run for real, unmodified,
+    off the actual App class."""
     class _Get:
         def __init__(self, value):
             self.value = value
@@ -861,22 +693,8 @@ def _make_fake_app_for_snapshot():
         pass
 
     app = FakeApp()
-    app.read_shape_controls = m.App.read_shape_controls.__get__(app)
     app.read_fuzz_controls = m.App.read_fuzz_controls.__get__(app)
-    app.control_shape = m.App.control_shape.__get__(app)
     app.current_snapshot = m.App.current_snapshot.__get__(app)
-
-    app.shape_var = _Get(m.SHAPE_NAMES[m.SHAPE_MOSS_EGG])
-    shape_fields = {
-        "width": 2.0, "height": 2.0, "ell_rot": 0.0, "sides": 5, "poly_rot": 0.0,
-        "moss_angle": 90.0, "moss_size": 1.3, "moss_rot": 0.0, "sector_radius": 1.0,
-        "sector_span": 90.0, "sector_rot": 0.0, "segment_radius": 1.0,
-        "segment_span": 120.0, "segment_rot": 0.0, "lens_r1": 1.0, "lens_r2": 1.0,
-        "lens_sep": 1.0, "lens_rot": 0.0, "reuleaux_sides": 3, "reuleaux_rot": 0.0,
-        "capsule_length": 1.0, "capsule_radius": 0.5, "capsule_rot": 0.0,
-    }
-    for field, value in shape_fields.items():
-        setattr(app, f"{field}_scale", _Get(value))
 
     app.seed_var = _Get("0")
     app.last_seed = 0
@@ -890,28 +708,7 @@ def _make_fake_app_for_snapshot():
     app.seg_mult_scale = _Get(0.75)
     app.buddha_blur_radius_scale = _Get(m.DEFAULT_BUDDHA_BLUR_RADIUS)
     app.buddha_blur_type_var = _Get(m.BUDDHA_BLUR_LABELS[m.DEFAULT_BUDDHA_BLUR_TYPE])
-    app.main_fire_var = _Get(True)
-    app.main_in_effect_var = _Get(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
-    app.main_out_effect_var = _Get(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
     return app
-
-
-def test_read_shape_controls_feeds_snapshot_by_keyword():
-    """Locks in the keyword-construction refactor: read_shape_controls()
-    returns a dict, and current_snapshot()/control_shape() build a real
-    Snapshot from it with Snapshot(**...). If a key here were ever renamed on
-    one side without the other, or a field forgotten, this fails with a
-    TypeError naming the exact problem - not a silently misplaced value."""
-    app = _make_fake_app_for_snapshot()
-    snap = app.current_snapshot()
-    assert snap is not None
-    assert snap.max_iter == 32 and snap.max_dist == 0 and snap.seg_mult == 0.75
-    assert snap.shape == m.SHAPE_MOSS_EGG
-    assert snap.moss_angle == 90.0 and snap.moss_size == 1.3
-
-    shape, params = app.control_shape()
-    assert shape == m.SHAPE_MOSS_EGG
-    assert params == (90.0, 1.3, 0.0)   # (angle, size, rotation), see snapshot_shape_params
 
 
 # --------------------------------------------------------------------------- #
@@ -923,17 +720,12 @@ def _fake_render_app():
     app = FakeApp()
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.colorize_view = m.App.colorize_view.__get__(app)
-    app.compute_ring = m.App.compute_ring.__get__(app)
     return app
 
 
-def _empty_obst_arrays():
-    empty_i = np.empty(0, dtype=np.int64)
-    empty_b = np.empty((0, m.OBST_BOUND_LEN))
-    empty_f = np.empty(0)
-    empty_bool = np.empty(0, dtype=bool)
-    return (empty_i, empty_b, empty_f, empty_f, np.empty((0, 2), dtype=np.int64),
-            empty_bool)
+def _starting_obst_arrays():
+    """The scene the app starts with: one obstacle, the unit circle."""
+    return m.build_obstacle_arrays([m.default_starting_obstacle(0)])
 
 
 def _view_settings_from_config(v):
@@ -947,7 +739,7 @@ def test_render_full_image_with_a_single_view_matches_pre_views_behavior():
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
     data = m.resolve_frame_settings([kf], 0)
     views = (_view_settings_from_config(m.ViewConfig(0)),)
-    img = app.render_full_image(data, 40, 40, _empty_obst_arrays(), views)
+    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), views)
     assert img.shape == (40, 40, 3)
 
 
@@ -955,7 +747,7 @@ def test_two_identical_views_render_as_two_identical_halves():
     app = _fake_render_app()
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
     data = m.resolve_frame_settings([kf], 0)
-    obst_arrays = _empty_obst_arrays()
+    obst_arrays = _starting_obst_arrays()
     one_view = (_view_settings_from_config(m.ViewConfig(0)),)
     single = app.render_full_image(data, 50, 50, obst_arrays, one_view)
     doubled = app.render_full_image(data, 50, 50, obst_arrays, one_view * 2)
@@ -972,7 +764,7 @@ def test_two_different_views_render_as_two_different_halves():
     v1 = m.ViewConfig(1)
     v1.mode = "HSV"
     views = (_view_settings_from_config(v0), _view_settings_from_config(v1))
-    combined = app.render_full_image(data, 50, 50, _empty_obst_arrays(), views)
+    combined = app.render_full_image(data, 50, 50, _starting_obst_arrays(), views)
     assert not np.array_equal(combined[:, :50], combined[:, 50:])
 
 
@@ -1203,7 +995,7 @@ def _fake_export_app():
     app.selected_view_id = 0
     app.include_all_views_var = _StubVar(True)
     app.color_info_location_var = _StubVar("None")
-    app.sim_info_location_var = _StubVar("None")
+    app.figure_info_location_var = _StubVar("None")
     app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
     app.view_by_id = m.App.view_by_id.__get__(app)
     app.live_view = m.App.live_view.__get__(app)
@@ -1228,7 +1020,6 @@ def _fake_export_app():
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.colorize_view = m.App.colorize_view.__get__(app)
-    app.compute_ring = m.App.compute_ring.__get__(app)
     return app
 
 
@@ -1374,8 +1165,6 @@ def _fake_current_figure_app():
     app.max_iter = m.DEFAULT_ITER
     app.max_dist = m.effective_dist(0.0)
     app.gen_seg_mult = 1.0
-    app.gen_shape = m.SHAPE_ELLIPSE
-    app.gen_bound = m.ellipse_bound(2.0, 2.0, 0.0)
     app.gen_fuzz = m.fuzz_array(m.DEFAULT_FUZZ)
     app.gen_seed_base = 0
     app.gen_buddha_blur_radius = m.DEFAULT_BUDDHA_BLUR_RADIUS
@@ -1388,9 +1177,9 @@ def _fake_current_figure_app():
     app.gen_obst_cx, app.gen_obst_cy = empty_f, empty_f
     app.gen_obst_effects = np.empty((0, 2), dtype=np.int64)
     app.gen_obst_fire_inside = empty_bool
-    app.ring = np.zeros((m.SIZE, m.SIZE), dtype=bool)
     app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
     app.obstacle_ring_specs = lambda: []
+    app.gen_obstacle_snapshots = [m.snapshot_obstacle(m.default_starting_obstacle(0))]
     app.frame = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
     app.render_current_figure = m.App.render_current_figure.__get__(app)
@@ -1517,8 +1306,6 @@ def test_select_view_invalidates_the_incoming_views_stale_cache():
     app.max_iter = m.DEFAULT_ITER
     app.max_dist = m.effective_dist(0.0)
     app.gen_seg_mult = 1.0
-    app.gen_shape = m.SHAPE_ELLIPSE
-    app.gen_bound = m.ellipse_bound(2.0, 2.0, 0.0)
     app.gen_fuzz = m.fuzz_array(m.DEFAULT_FUZZ)
     app.gen_seed_base = 0
     app.gen_buddha_blur_radius = 0.0
@@ -1585,92 +1372,363 @@ def test_render_current_figure_matches_self_frame_for_identical_single_view():
 
 
 # --------------------------------------------------------------------------- #
-# simulation_info_lines / the "Simulation info location" margin
+# figure_info_lines / the "Figure settings location" margin: every setting
+# that defines the figure (limits, segment length, fuzzing, every obstacle)
 # --------------------------------------------------------------------------- #
-_ALL_SHAPES_AND_PARAMS = [
-    (m.SHAPE_ELLIPSE, (2.0, 1.5, 30.0)),
-    (m.SHAPE_POLYGON, (6, 15.0)),
-    (m.SHAPE_MOSS_EGG, (60.0, 1.0, 0.0)),
-    (m.SHAPE_SECTOR, (1.0, 90.0, 45.0)),
-    (m.SHAPE_SEGMENT, (1.0, 120.0, 0.0)),
-    (m.SHAPE_LENS, (1.0, 1.2, 0.5, 10.0)),
-    (m.SHAPE_REULEAUX, (5, 20.0)),
-    (m.SHAPE_CAPSULE, (2.0, 0.5, 0.0)),
-]
+def _settings(**overrides):
+    values = dict(max_iter=64, max_dist=0.0, seg_mult=1.0, fuzz=m.DEFAULT_FUZZ,
+                  buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
+                  buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
+    values.update(overrides)
+    return m.Settings(**values)
 
 
-def test_simulation_info_lines_renders_for_every_shape_and_fuzz_state():
-    """Every shape/fuzz combination must produce lines that are actually
-    renderable - a missing glyph would KeyError mid-export."""
-    for shape, params in _ALL_SHAPES_AND_PARAMS:
-        for fuzz_on in (False, True):
-            fuzz = m.DEFAULT_FUZZ._replace(enabled=fuzz_on)
-            settings = m.Settings(max_iter=64, max_dist=0.0, seg_mult=0.75, shape=shape,
-                                  params=params, fuzz=fuzz,
-                                  buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                                  buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
-            for line in m.simulation_info_lines(settings):
-                m.render_text_line(line, scale=1)   # must not raise
+def _start_scene():
+    return [m.default_starting_obstacle(0)]
 
 
-def test_simulation_info_lines_shows_limits_and_shape():
-    settings = m.Settings(max_iter=42, max_dist=5.0, seg_mult=1.0, shape=m.SHAPE_ELLIPSE,
-                          params=(2.0, 2.0, 0.0), fuzz=m.DEFAULT_FUZZ,
-                          buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                          buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
-    lines = m.simulation_info_lines(settings)
+def _every_kind_of_obstacle():
+    """One obstacle of each of the eight kinds, each with awkward values
+    (negative and large numbers, an offset, every effect)."""
+    out = []
+    for i, shape in enumerate(range(len(m.SHAPE_NAMES))):
+        o = m.Obstacle(i)
+        o.shape = shape
+        o.width, o.height, o.ell_rotation = 1.99, 0.01, -89.9
+        o.sides, o.poly_radius, o.poly_rotation = 64, 1.99, -179.9
+        o.moss_angle, o.moss_size, o.moss_rotation = 179.0, 1.99, -89.9
+        o.sector_radius, o.sector_span, o.sector_rotation = 1.99, 180.0, -89.9
+        o.segment_radius, o.segment_span, o.segment_rotation = 1.99, 359.0, -89.9
+        o.lens_radius1, o.lens_radius2, o.lens_sep, o.lens_rotation = 1.99, 1.99, 1.99, -89.9
+        o.reuleaux_sides, o.reuleaux_radius, o.reuleaux_rotation = 21, 1.99, -89.9
+        o.capsule_length, o.capsule_radius, o.capsule_rotation = 1.99, 0.99, -89.9
+        o.r, o.theta, o.cx, o.cy = 1.0, -179.9, -0.99, 0.99
+        o.in_effect, o.out_effect = i % 3, (i + 1) % 3
+        o.fire_inside = bool(i % 2)
+        out.append(o)
+    return out
+
+
+def test_figure_info_lines_shows_limits_and_segment_length_always():
+    lines = m.figure_info_lines(_settings(max_iter=42, max_dist=5.0, seg_mult=0.5),
+                                _start_scene())
     assert "Iter limit:42" in lines
-    assert any("5.00" in l for l in lines)
-    assert "Shape:" in lines
-    assert any("Fuzz:Off" == l for l in lines)
+    assert "Dist limit:5.00" in lines
+    assert "Segment:x0.50" in lines
+    assert "Segment:x1.00" in m.figure_info_lines(_settings(), _start_scene()), \
+        "shown even at the default, so the layout never depends on the values"
 
 
-def test_simulation_info_lines_shows_none_for_unlimited_distance():
-    settings = m.Settings(max_iter=42, max_dist=0.0, seg_mult=1.0, shape=m.SHAPE_ELLIPSE,
-                          params=(2.0, 2.0, 0.0), fuzz=m.DEFAULT_FUZZ,
-                          buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                          buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
-    lines = m.simulation_info_lines(settings)
-    assert "Dist limit:none" in lines
+def test_figure_info_lines_shows_none_for_unlimited_distance():
+    assert "Dist limit:none" in m.figure_info_lines(_settings(max_dist=0.0), _start_scene())
 
 
-def test_simulation_info_lines_shows_fuzz_details_when_enabled():
-    fuzz = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=5.0)
-    settings = m.Settings(max_iter=42, max_dist=0.0, seg_mult=1.0, shape=m.SHAPE_ELLIPSE,
-                          params=(2.0, 2.0, 0.0), fuzz=fuzz,
-                          buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                          buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
-    lines = m.simulation_info_lines(settings)
-    assert "Fuzz:On" in lines
-    assert any("Seed" in l for l in lines)
+def test_figure_info_lines_shows_fuzz_details_when_enabled_and_just_off_otherwise():
+    off = m.figure_info_lines(_settings(), _start_scene())
+    assert "Fuzz:Off" in off and not any("Seed" in l for l in off)
+    fuzz = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=5.0, seed=12345)
+    on = m.figure_info_lines(_settings(fuzz=fuzz), _start_scene())
+    assert "Fuzz:On" in on
+    assert any("Emit" in l and "5.0" in l for l in on)
+    assert "  Seed 12345" in on
 
 
-def test_simulation_info_lines_omits_segment_mult_when_default():
-    settings_default = m.Settings(64, 0.0, 1.0, m.SHAPE_ELLIPSE, (2.0, 2.0, 0.0),
-                                  m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                                  m.DEFAULT_BUDDHA_BLUR_TYPE)
-    settings_custom = m.Settings(64, 0.0, 0.5, m.SHAPE_ELLIPSE, (2.0, 2.0, 0.0),
-                                 m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                                 m.DEFAULT_BUDDHA_BLUR_TYPE)
-    assert not any("Segment" in l for l in m.simulation_info_lines(settings_default))
-    assert any("Segment" in l for l in m.simulation_info_lines(settings_custom))
+def test_figure_info_lines_no_longer_describes_a_bounding_shape():
+    lines = m.figure_info_lines(_settings(), _start_scene())
+    assert not any("Shape" in l for l in lines)
 
 
-def test_add_left_simulation_margin_does_not_mutate_input():
+def test_figure_info_lines_says_so_when_there_are_no_obstacles():
+    assert "no obstacles" in m.figure_info_lines(_settings(), [])
+
+
+def test_figure_info_lines_lists_every_setting_of_the_starting_obstacle():
+    lines = m.figure_info_lines(_settings(), _start_scene())
+    assert "Obstacle 1: Ellipse" in lines
+    for expected in ("  w2.00 h2.00", "  rot 0.0\u00b0", "  pos r0.00 ang 0.0\u00b0",
+                     "  offset +0.00 +0.00", "  in:Reflect", "  out:Reflect", "  fire:On"):
+        assert expected in lines, expected
+
+
+def test_figure_info_lines_shows_every_field_that_defines_each_kind_of_obstacle():
+    """Changing any one of an obstacle's own settings must change the text - so
+    nothing that defines the figure is left out of the margin."""
+    relevant = {
+        m.SHAPE_ELLIPSE: ["width", "height", "ell_rotation"],
+        m.SHAPE_POLYGON: ["sides", "poly_radius", "poly_rotation"],
+        m.SHAPE_MOSS_EGG: ["moss_angle", "moss_size", "moss_rotation"],
+        m.SHAPE_SECTOR: ["sector_radius", "sector_span", "sector_rotation"],
+        m.SHAPE_SEGMENT: ["segment_radius", "segment_span", "segment_rotation"],
+        m.SHAPE_LENS: ["lens_radius1", "lens_radius2", "lens_sep", "lens_rotation"],
+        m.SHAPE_REULEAUX: ["reuleaux_sides", "reuleaux_radius", "reuleaux_rotation"],
+        m.SHAPE_CAPSULE: ["capsule_length", "capsule_radius", "capsule_rotation"],
+    }
+    everywhere = ["r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"]
+    changed = {"sides": 7, "reuleaux_sides": 9, "in_effect": 2, "out_effect": 1,
+               "fire_inside": False, "theta": 33.0}
+    for shape, fields in relevant.items():
+        base = m.Obstacle(0)
+        base.shape = shape
+        base.fire_inside = True
+        base_text = m.obstacle_info_lines(1, base)
+        for field in fields + everywhere:
+            o = m.Obstacle(0)
+            o.shape = shape
+            o.fire_inside = True
+            setattr(o, field, changed.get(field, getattr(base, field) + 0.37))
+            assert m.obstacle_info_lines(1, o) != base_text, (m.SHAPE_NAMES[shape], field)
+
+
+def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
+    scene = _every_kind_of_obstacle()
+    fuzz = m.DEFAULT_FUZZ._replace(enabled=True, emit_angle=-179.9, emit_jitter=179.9,
+                                   bnd_offset=-179.9, bnd_jitter=179.9, bnd_mult=2.99,
+                                   self_offset=-179.9, self_jitter=179.9, self_mult=2.99,
+                                   seed=999999999)
+    settings = _settings(max_iter=9999, max_dist=9999.0, seg_mult=0.01, fuzz=fuzz)
+    for line in m.figure_info_lines(settings, scene):
+        assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
+        missing = [c for c in line if c not in m.FONT_5X7]
+        assert not missing, (line, missing)
+        m.render_text_line(line, scale=1)          # must not raise
+
+
+def test_figure_info_layout_depends_only_on_how_many_obstacles_there_are():
+    """A video's frames may animate the values, but each must lay out the same
+    way (so every frame has the same size)."""
+    scene_a = _every_kind_of_obstacle()
+    scene_b = _every_kind_of_obstacle()
+    for o in scene_b:
+        o.width, o.r, o.theta, o.fire_inside = 0.5, 0.0, 12.5, not o.fire_inside
+    fuzz_on = m.DEFAULT_FUZZ._replace(enabled=True)
+    shapes = []
+    for settings, scene in [(_settings(), scene_a), (_settings(max_dist=3.0, seg_mult=0.5,
+                            fuzz=fuzz_on), scene_b)]:
+        shapes.append([len(block) for block in m.figure_info_blocks(settings, scene)])
+    assert shapes[0] == shapes[1]
+
+
+def test_layout_info_columns_keeps_blocks_together_and_splits_only_oversized_ones():
+    blocks = [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2"]]
+    cols = m.layout_info_columns(blocks, lines_per_column=7)
+    assert cols == [["a1", "a2", "a3", " ", "b1", "b2", "b3"], ["c1", "c2"]]
+    huge = m.layout_info_columns([["x%d" % i for i in range(10)]], lines_per_column=4)
+    assert [len(c) for c in huge] == [4, 4, 2]
+    assert [l for c in huge for l in c] == ["x%d" % i for i in range(10)]
+
+
+def test_left_margin_is_half_the_image_width_for_an_ordinary_scene():
+    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    out = m.add_left_figure_margin(img, _settings(), _start_scene())
+    assert out.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
+    assert np.array_equal(out[:, m.SIZE // 2:], img), "the image itself is untouched"
+    assert (out[:, :m.SIZE // 2] != m.COLORATION_INFO_BG).any(), "and the text is drawn"
+
+
+def test_left_margin_grows_extra_columns_when_the_settings_need_the_room():
+    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    scene = []
+    for i in range(14):
+        o = m.default_starting_obstacle(i)
+        o.r = 0.1 * i
+        scene.append(o)
+    out = m.add_left_figure_margin(img, _settings(), scene)
+    margin_w = out.shape[1] - m.SIZE
+    assert margin_w > m.SIZE // 2
+    assert margin_w % 2 == 0, "video encoders want even widths"
+    text = (out[:, :margin_w] != m.COLORATION_INFO_BG).any(axis=-1)
+    last_col_x0 = margin_w - 6 * m.FIGURE_INFO_COLUMN_CHARS
+    assert text[:, last_col_x0:].any(), "the last column really has text in it"
+
+
+def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
+    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    scene = _every_kind_of_obstacle()
+    moved = _every_kind_of_obstacle()
+    for o in moved:
+        o.r, o.width = 0.25, 0.5
+    fuzz_on = m.DEFAULT_FUZZ._replace(enabled=True)
+    a = m.add_left_figure_margin(img, _settings(), scene)
+    b = m.add_left_figure_margin(img, _settings(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
+                                 moved)
+    assert a.shape == b.shape
+    assert not np.array_equal(a, b), "but they do show the different values"
+
+
+def test_add_left_figure_margin_does_not_mutate_input():
     img = np.full((40, 60, 3), 33, dtype=np.uint8)
     original = img.copy()
-    settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
-    m.add_left_simulation_margin(img, settings)
+    m.add_left_figure_margin(img, m.effective_settings(m.DEFAULT_SNAPSHOT), _start_scene())
     assert np.array_equal(img, original)
 
 
-def test_add_left_simulation_margin_does_not_crash_for_any_shape():
-    settings_list = [m.Settings(64, 0.0, 1.0, shape, params, m.DEFAULT_FUZZ,
-                                m.DEFAULT_BUDDHA_BLUR_RADIUS, m.DEFAULT_BUDDHA_BLUR_TYPE)
-                     for shape, params in _ALL_SHAPES_AND_PARAMS]
+def test_add_left_figure_margin_does_not_crash_for_any_setting_combination():
     img = np.full((30, 30, 3), 10, dtype=np.uint8)
-    for settings in settings_list:
-        m.add_left_simulation_margin(img, settings)   # must not raise
+    for fuzz_on in (False, True):
+        for seg_mult in (1.0, 0.5):
+            for scene in ([], _start_scene(), _every_kind_of_obstacle()):
+                settings = _settings(seg_mult=seg_mult,
+                                     fuzz=m.DEFAULT_FUZZ._replace(enabled=fuzz_on))
+                m.add_left_figure_margin(img, settings, scene)   # must not raise
+
+
+def test_export_designer_calls_them_figure_settings_not_simulation_info():
+    import inspect
+    source = inspect.getsource(m.App.build_status_quadrant)
+    assert "Figure settings location:" in source
+    assert "Simulation info" not in source
+    assert m.FIGURE_INFO_LOCATIONS == ["None", "Left margin"]
+    assert not hasattr(m, "SIM_INFO_LOCATIONS")
+    for gone in ("simulation_info_lines", "add_left_simulation_margin"):
+        assert not hasattr(m, gone), gone
+
+
+# --------------------------------------------------------------------------- #
+# Obstacle values resolved for one frame (what the margin's text shows)
+# --------------------------------------------------------------------------- #
+def test_resolve_obstacles_interpolates_float_fields_and_holds_the_rest():
+    o = m.Obstacle(3)
+    o.fire_inside = False
+    snap = m.snapshot_obstacle(o)
+    kf0 = m.Keyframe(0, 0, {"obst:3:r": 0.0, "obst:3:fire_inside": False,
+                            "obst:3:in_effect": R}, "Linear", None)
+    kf1 = m.Keyframe(1, 10, {"obst:3:r": 1.0, "obst:3:fire_inside": True,
+                             "obst:3:in_effect": T}, "Linear", None)
+    mid = m.resolve_obstacles([snap], [kf0, kf1], 5)[0]
+    assert mid.id == 3
+    assert np.isclose(mid.r, 0.5)
+    assert mid.fire_inside is False and mid.in_effect == R      # held, not blended
+    end = m.resolve_obstacles([snap], [kf0, kf1], 10)[0]
+    assert end.fire_inside is True and end.in_effect == T
+
+
+def test_resolve_obstacle_arrays_is_the_arrays_of_the_resolved_obstacles():
+    o = m.Obstacle(1)
+    o.shape = m.SHAPE_POLYGON
+    snaps = [m.snapshot_obstacle(o)]
+    kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.2}, "Linear", None),
+           m.Keyframe(1, 4, {"obst:1:r": 0.6}, "Linear", None)]
+    direct = m.resolve_obstacle_arrays(snaps, kfs, 2)
+    via = m.obstacle_arrays_from_values(m.resolve_obstacles(snaps, kfs, 2))
+    for a, b in zip(direct, via):
+        assert np.array_equal(a, b)
+
+
+def test_left_margin_of_a_video_frame_shows_that_frames_animated_values():
+    o = m.Obstacle(1)
+    snaps = [m.snapshot_obstacle(o)]
+    kfs = [m.Keyframe(0, 0, {"obst:1:theta": 0.0}, "Linear", None),
+           m.Keyframe(1, 10, {"obst:1:theta": 90.0}, "Linear", None)]
+    settings = _settings()
+    text0 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 0))
+    text5 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 5))
+    assert "  pos r0.00 ang 0.0\u00b0" in text0
+    assert "  pos r0.00 ang 45.0\u00b0" in text5
+
+
+# --------------------------------------------------------------------------- #
+# A pinned ray preview stays visible even where no ray would fire
+# --------------------------------------------------------------------------- #
+def _fake_preview_app(pinned):
+    import collections
+
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.update_preview = m.App.update_preview.__get__(app)
+    app.pinned_px = pinned
+    app.hover_px = None
+    app.obstacles = []                              # nothing at all fires a ray
+    app.preview_settings = lambda: m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.hover_pts = np.empty((m.ITER_LIMIT_MAX + 2, 2))
+    app.hover_kinds = np.empty(m.ITER_LIMIT_MAX + 2)
+    app.hover_raw = np.empty(m.N_RAW)
+    app.hover_vec = np.empty(m.N_STATS)
+    app.hover_sp = np.empty((m.N_POINTS, 2))
+    app.component_values = lambda vec, sp, x, y: (0.1, 0.2, 0.3)
+    app.draw_segments = lambda pts, kinds, n: None
+    app.deco = {k: _StubVar(k != "samples") for k in
+                ("pending", "outline", "ray_path", "ray_start", "ray_end", "guides", "samples")}
+    app.canvas = _StubWidget()
+    app.hline_img = app.vline_img = None
+    app.live_view = lambda: m.ViewConfig(0)
+    app.map_color = lambda vals: (1, 2, 3)
+    app.info_vars = collections.defaultdict(_StubVar)
+    app.stat_vars = [_StubVar() for _ in range(m.N_STATS)]
+    app.swatch = app.info_placeholder = app.info_rows = _StubWidget()
+    app.cleared = []
+    app.clear_overlay = lambda: app.cleared.append(1)
+    return app
+
+
+def test_a_hovered_pixel_that_fires_no_ray_has_no_preview():
+    app = _fake_preview_app(pinned=None)
+    app.update_preview(100, 100)
+    assert app.cleared == [1]
+    assert "start" not in app.info_vars
+
+
+def test_a_pinned_pixel_keeps_its_preview_even_when_no_ray_would_fire_from_it():
+    app = _fake_preview_app(pinned=(100, 100))
+    app.update_preview(100, 100)
+    assert app.cleared == [], "a pinned preview must stay visible"
+    assert "[pinned]" in app.info_vars["start"].get()
+    assert app.info_vars["outcome"].get(), "and it shows what such a ray would do"
+
+
+def _fake_click_app(pinned, obstacles):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.on_click = m.App.on_click.__get__(app)
+    app.pinned_px = pinned
+    app.hover_px = "stale"
+    app.obstacles = obstacles
+    app.preview_settings = lambda: m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.canvas = _StubWidget()
+    app.previews = []
+    app.update_preview = lambda i, j: app.previews.append((i, j))
+    return app
+
+
+def _click(x, y):
+    import types
+    return types.SimpleNamespace(x=x, y=y)
+
+
+def test_clicking_a_pixel_that_fires_no_ray_does_nothing():
+    app = _fake_click_app(pinned=None, obstacles=[])
+    app.on_click(_click(100, 100))
+    assert app.pinned_px is None and app.previews == []
+
+
+def test_clicking_a_firing_pixel_pins_it_and_clicking_again_unpins_it():
+    app = _fake_click_app(pinned=None, obstacles=_start_scene())
+    app.on_click(_click(256, 256))
+    assert app.pinned_px == (256, 256)
+    app.on_click(_click(256, 256))
+    assert app.pinned_px is None
+
+
+def test_the_pinned_pixel_can_be_unpinned_by_clicking_it_even_after_it_stopped_firing():
+    """A pinned preview now stays visible where no ray fires, so the click that
+    releases it must work there too - or it could never be released."""
+    app = _fake_click_app(pinned=(100, 100), obstacles=[])     # nothing fires any more
+    app.on_click(_click(100, 100))
+    assert app.pinned_px is None
+    assert app.previews == [(100, 100)], "and the preview is refreshed (and so cleared)"
+
+
+def test_clicking_a_different_non_firing_pixel_does_not_move_the_pin():
+    app = _fake_click_app(pinned=(100, 100), obstacles=[])
+    app.on_click(_click(200, 200))
+    assert app.pinned_px == (100, 100)
+
+
+def test_only_the_pinned_pixel_is_exempt_from_the_must_fire_rule():
+    app = _fake_preview_app(pinned=(100, 100))
+    app.update_preview(200, 200)
+    assert app.cleared == [1]
 
 
 def test_font_5x7_covers_every_character_any_coloration_label_could_use():
@@ -1858,12 +1916,12 @@ def test_left_margin_text_scales_with_the_views_own_size_not_the_margin():
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
     settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
     img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out_512 = m.add_left_simulation_margin(img_512, settings)
+    out_512 = m.add_left_figure_margin(img_512, settings, _start_scene())
     margin_w_512 = m.SIZE // 2
     h1 = (out_512[:, :margin_w_512] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
     img_1080 = np.full((1080, 1080, 3), 128, dtype=np.uint8)
-    out_1080 = m.add_left_simulation_margin(img_1080, settings)
+    out_1080 = m.add_left_figure_margin(img_1080, settings, _start_scene())
     margin_w_1080 = 1080 // 2
     h2 = (out_1080[:, :margin_w_1080] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
@@ -1930,12 +1988,12 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     views = m.resolve_views(view_snapshot, keyframes, 0)
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
-    rgb = m.apply_info_locations(rgb, views, 40, m.effective_settings(data.snapshot),
+    rgb = m.apply_info_locations(rgb, views, 40, m.effective_settings(data.snapshot), [],
                                  "Overlay", "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
 
-def test_video_render_worker_adds_simulation_left_margin_when_enabled():
+def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     app = _fake_export_app()
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
     keyframes = [kf]
@@ -1948,22 +2006,22 @@ def test_video_render_worker_adds_simulation_left_margin_when_enabled():
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
     original_width = rgb.shape[1]
     rgb = m.apply_info_locations(rgb, views, 40, m.effective_settings(data.snapshot),
-                                 "None", "Left margin", mutate_ok=True)
-    assert rgb.shape[1] == original_width + 40 // 2
+                                 _start_scene(), "None", "Left margin", mutate_ok=True)
+    assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
 
-def test_color_and_sim_info_location_default_to_none():
+def test_color_info_and_figure_settings_locations_default_to_none():
     app = _fake_export_app()
     assert app.color_info_location_var.get() == "None"
-    assert app.sim_info_location_var.get() == "None"
+    assert app.figure_info_location_var.get() == "None"
 
 
 def test_apply_info_locations_none_leaves_the_image_unchanged():
     settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
-    out = m.apply_info_locations(img, [v], 40, settings, "None", "None", mutate_ok=True)
+    out = m.apply_info_locations(img, [v], 40, settings, [], "None", "None", mutate_ok=True)
     assert out.shape == img.shape
     assert (out == 77).all()
 
@@ -1977,7 +2035,7 @@ def test_apply_info_locations_margin_cases_never_mutate_when_not_ok():
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     original = img.copy()
-    m.apply_info_locations(img, [v], 40, settings, "Overlay", "None", mutate_ok=False)
+    m.apply_info_locations(img, [v], 40, settings, [], "Overlay", "None", mutate_ok=False)
     assert np.array_equal(img, original), "mutate_ok=False must not draw into the input array"
 
 
@@ -1995,7 +2053,7 @@ def test_write_with_bottom_margin_produces_a_taller_image():
 
 def test_write_with_left_margin_produces_a_wider_image():
     app = _fake_current_figure_app()
-    app.sim_info_location_var = _StubVar("Left margin")
+    app.figure_info_location_var = _StubVar("Left margin")
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
@@ -2008,7 +2066,7 @@ def test_write_with_left_margin_produces_a_wider_image():
 def test_write_with_both_margins_composes_correctly():
     app = _fake_current_figure_app()
     app.color_info_location_var = _StubVar("Bottom margin")
-    app.sim_info_location_var = _StubVar("Left margin")
+    app.figure_info_location_var = _StubVar("Left margin")
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
@@ -2540,13 +2598,11 @@ def test_colorize_view_produces_uniform_color_for_two_constant_points():
     v.point1_choice[0] = m.POINT_ORIGIN
     v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
-    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
-                               m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
+    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
                                m.DEFAULT_BUDDHA_BLUR_TYPE)
-    bound = m.ellipse_bound(2.0, 2.0, 0.0)
     fz = m.fuzz_array(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, bound, fz,
+    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, fz,
                             obst_arrays)
     assert (img[..., 0] == img[0, 0, 0]).all()
     assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
@@ -2639,13 +2695,11 @@ def test_colorize_view_renders_constant_channels_correctly():
     v.constant_choice[0] = m.NONE_ONE
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ZERO
-    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
-                               m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
+    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
                                m.DEFAULT_BUDDHA_BLUR_TYPE)
-    bound = m.ellipse_bound(2.0, 2.0, 0.0)
     fz = m.fuzz_array(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, bound, fz,
+    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, fz,
                             obst_arrays)
     assert (img[..., 0] == 255).all()
     assert (img[..., 1] == 0).all()
@@ -2984,20 +3038,15 @@ def test_colorize_view_spreads_a_buddha_point_with_blur_enabled():
     # index 0 in BUDDHA_POINT_CATALOG is "All bounces mean" -> POINT_ALL_MEAN
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
 
-    bound = m.ellipse_bound(2.0, 2.0, 0.0)
     fz = m.fuzz_array(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
 
-    settings_no_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
-                                  m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_BOKEH)
-    img_no_blur = app.colorize_view(v, stats, points, status, size, size, settings_no_blur,
-                                    bound, fz, obst_arrays)
+    settings_no_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_BOKEH)
+    img_no_blur = app.colorize_view(v, stats, points, status, size, size, settings_no_blur, fz, obst_arrays)
     lit_no_blur = (img_no_blur[8:13, 8:13, 0] > 0).sum()
 
-    settings_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
-                               m.DEFAULT_FUZZ, 0.1, m.BUDDHA_BLUR_BOKEH)
-    img_blur = app.colorize_view(v, stats, points, status, size, size, settings_blur,
-                                 bound, fz, obst_arrays)
+    settings_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, 0.1, m.BUDDHA_BLUR_BOKEH)
+    img_blur = app.colorize_view(v, stats, points, status, size, size, settings_blur, fz, obst_arrays)
     lit_blur = (img_blur[8:13, 8:13, 0] > 0).sum()
 
     assert lit_no_blur == 1, f"with no blur, exactly one pixel should be nonzero, got {lit_no_blur}"
@@ -3067,13 +3116,12 @@ def test_large_blur_radius_completes_quickly():
                        list(m.DEFAULT_CONSTANT_CHOICES))
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
-    bound = m.ellipse_bound(2.0, 2.0, 0.0)
     fz = m.fuzz_array(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (), m.DEFAULT_FUZZ,
+    settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ,
                           0.15, m.BUDDHA_BLUR_GAUSSIAN)   # a large, expensive-looking radius
     t0 = time.time()
-    app.colorize_view(v, stats, points, status, size, size, settings, bound, fz, obst_arrays)
+    app.colorize_view(v, stats, points, status, size, size, settings, fz, obst_arrays)
     elapsed = time.time() - t0
     assert elapsed < 3.0, f"large-radius blur took {elapsed:.2f}s - performance regression?"
 
@@ -3342,54 +3390,52 @@ def test_a_pass_through_both_ways_obstacle_counts_as_pending_even_if_unchanged()
 # "Fire rays inside": a ray starts at a point iff the point is inside ANY
 # shape (the main bounding shape, or an obstacle) that has it switched on
 # --------------------------------------------------------------------------- #
-def _emit_fixture(main_fire=True, obstacles=()):
-    """(emits(x, y) -> bool) for a unit-circle main shape plus `obstacles`, a
-    list of (cx, cy, radius, fire) circles."""
-    shape, bound = m.SHAPE_ELLIPSE, m.ellipse_bound(2.0, 2.0, 0.0)
-    obs = []
-    for i, (cx, cy, radius, fire) in enumerate(obstacles):
-        o = m.Obstacle(i)
-        o.width = o.height = 2.0 * radius
-        o.r, o.theta = 0.0, 0.0
-        o.cx, o.cy = cx, cy
-        o.fire_inside = fire
-        obs.append(o)
-    shapes, bounds, ocx, ocy, _eff, ofire = m.build_obstacle_arrays(obs)
-    ctl = m.main_ctl_array(main_fire, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT)
-    return lambda x, y: bool(m.emits_ray(x, y, shape, bound, ctl, shapes, bounds, ocx, ocy,
-                                         ofire))
+def _emit_fixture(circle=True, obstacles=()):
+    """(emits(x, y) -> bool) for an optional unit circle (True: fires rays
+    inside it; False: present but not firing; None: absent) plus
+    `obstacles`, a list of (cx, cy, radius, fire) circles."""
+    scene = []
+    if circle is not None:
+        scene.append(_circle_obstacle(0.0, 0.0, 1.0, R, R, fire=circle))
+    for i, (cx, cy, radius, fire) in enumerate(obstacles, start=1):
+        scene.append(_circle_obstacle(cx, cy, radius, R, R, fire=fire, id_=i))
+    shapes, bounds, ocx, ocy, _eff, ofire = m.build_obstacle_arrays(scene)
+    return lambda x, y: bool(m.emits_ray(x, y, shapes, bounds, ocx, ocy, ofire))
 
 
-def test_main_shape_fires_rays_inside_by_default_and_not_outside():
+def test_a_circle_fires_rays_inside_it_and_not_outside():
     emits = _emit_fixture()
     assert emits(0.0, 0.0) and emits(0.5, -0.5)
     assert not emits(0.9, 0.9)          # outside the unit circle
 
 
-def test_main_shape_with_fire_off_fires_nothing_on_its_own():
-    emits = _emit_fixture(main_fire=False)
-    assert not emits(0.0, 0.0)
+def test_a_circle_with_fire_off_fires_nothing_on_its_own():
+    assert not _emit_fixture(circle=False)(0.0, 0.0)
 
 
-def test_obstacle_with_fire_on_fires_inside_it_even_if_main_is_off():
-    emits = _emit_fixture(main_fire=False, obstacles=[(0.4, 0.0, 0.2, True)])
+def test_no_shapes_at_all_fire_nothing():
+    assert not _emit_fixture(circle=None)(0.0, 0.0)
+
+
+def test_obstacle_with_fire_on_fires_inside_it_even_if_the_circle_is_off():
+    emits = _emit_fixture(circle=False, obstacles=[(0.4, 0.0, 0.2, True)])
     assert emits(0.4, 0.0)
     assert not emits(-0.4, 0.0)
 
 
-def test_obstacle_with_fire_off_no_longer_punches_a_hole_in_the_main_shape():
+def test_obstacle_with_fire_off_does_not_punch_a_hole_in_a_shape_that_fires():
     """Being inside a shape that has fire off makes no difference: a point
-    inside both the main shape (fire on) and a fire-off obstacle still fires."""
+    inside both a firing shape and a fire-off obstacle still fires."""
     emits = _emit_fixture(obstacles=[(0.4, 0.0, 0.2, False)])
     assert emits(0.4, 0.0)
 
 
 def test_obstacle_with_fire_off_alone_fires_nothing():
-    emits = _emit_fixture(main_fire=False, obstacles=[(0.4, 0.0, 0.2, False)])
+    emits = _emit_fixture(circle=False, obstacles=[(0.4, 0.0, 0.2, False)])
     assert not emits(0.4, 0.0)
 
 
-def test_obstacle_with_fire_on_can_fire_outside_the_main_shape():
+def test_obstacle_with_fire_on_can_fire_outside_the_circle():
     emits = _emit_fixture(obstacles=[(1.2, 0.0, 0.2, True)])
     assert emits(1.2, 0.0)
     assert not emits(0.0, 1.2)
@@ -3398,82 +3444,6 @@ def test_obstacle_with_fire_on_can_fire_outside_the_main_shape():
 # --------------------------------------------------------------------------- #
 # The main bounding shape's own ray behavior is an ordinary keyframeable setting
 # --------------------------------------------------------------------------- #
-def test_main_ray_behavior_defaults_preserve_the_old_behavior():
-    s = m.DEFAULT_SNAPSHOT
-    assert s.main_fire is True
-    assert s.main_in_effect == m.OBSTACLE_EFFECT_REFLECT
-    assert s.main_out_effect == m.OBSTACLE_EFFECT_REFLECT
-    assert m.settings_main_ctl(m.effective_settings(s)).tolist() == \
-        m.MAIN_CTL_DEFAULT.tolist() == [1, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT]
-
-
-def test_settings_built_the_old_way_still_get_the_default_main_ray_behavior():
-    """Settings/Snapshot gained fields with defaults, so code constructing
-    them without the new fields (like older call sites) keeps working."""
-    settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
-                          m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_GAUSSIAN)
-    assert (settings.main_fire, settings.main_in_effect, settings.main_out_effect) == \
-        (True, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT)
-
-
-def test_effective_settings_carries_the_main_ray_behavior():
-    snap = m.DEFAULT_SNAPSHOT._replace(main_fire=False,
-                                       main_in_effect=m.OBSTACLE_EFFECT_PASS,
-                                       main_out_effect=m.OBSTACLE_EFFECT_TERMINATE)
-    settings = m.effective_settings(snap)
-    assert settings.main_fire is False
-    assert settings.main_in_effect == m.OBSTACLE_EFFECT_PASS
-    assert settings.main_out_effect == m.OBSTACLE_EFFECT_TERMINATE
-    assert m.settings_main_ctl(settings).tolist() == [0, m.OBSTACLE_EFFECT_PASS,
-                                                      m.OBSTACLE_EFFECT_TERMINATE]
-
-
-def test_main_ray_settings_are_registered_in_the_keyframe_tables():
-    keys = {k for k, _tab, _label in m.SETTING_INFO}
-    for key in ("main_fire", "main_in_effect", "main_out_effect"):
-        assert key in keys and key in m.DEFAULT_SETTING_VALUES
-        assert key not in m.SETTING_FLOAT_KEYS, "never interpolated: held until the next keyframe"
-
-
-def test_capture_and_resolve_round_trip_the_main_ray_settings():
-    app = _make_fake_app_for_snapshot()
-    app.main_fire_var = _StubVar(False)
-    app.main_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_PASS])
-    app.main_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_TERMINATE])
-    app.deco = {"outline": _StubVar(True)}
-    app.obstacles = []
-    app.views = []
-    app.capture_all_settings = m.App.capture_all_settings.__get__(app)
-    data = app.capture_all_settings()
-    assert data["main_fire"] is False
-    assert data["main_in_effect"] == m.OBSTACLE_EFFECT_PASS
-    assert data["main_out_effect"] == m.OBSTACLE_EFFECT_TERMINATE
-    snap = app.current_snapshot()
-    assert (snap.main_fire, snap.main_in_effect, snap.main_out_effect) == \
-        (False, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE)
-
-    kf = m.Keyframe(0, 0, data, "Linear", None)
-    resolved = m.resolve_frame_settings([kf], 0).snapshot
-    assert (resolved.main_fire, resolved.main_in_effect, resolved.main_out_effect) == \
-        (False, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE)
-
-
-def test_main_ray_settings_hold_between_keyframes_rather_than_blend():
-    kf0 = m.Keyframe(0, 0, {"main_fire": True, "main_out_effect": m.OBSTACLE_EFFECT_REFLECT})
-    kf1 = m.Keyframe(1, 10, {"main_fire": False, "main_out_effect": m.OBSTACLE_EFFECT_PASS})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
-    assert mid.main_fire is True and mid.main_out_effect == m.OBSTACLE_EFFECT_REFLECT
-    end = m.resolve_frame_settings([kf0, kf1], 10).snapshot
-    assert end.main_fire is False and end.main_out_effect == m.OBSTACLE_EFFECT_PASS
-
-
-def test_short_value_text_for_the_main_ray_settings():
-    assert m.short_value_text("main_fire", True) == "On"
-    assert m.short_value_text("main_fire", False) == "Off"
-    assert m.short_value_text("main_in_effect", m.OBSTACLE_EFFECT_PASS) == "Pass through"
-    assert m.short_value_text("main_out_effect", m.OBSTACLE_EFFECT_TERMINATE) == "Terminate"
-
-
 # --------------------------------------------------------------------------- #
 # Ray effects on crossing an edge (incoming / outgoing: Reflect, Terminate or
 # Pass through) and rays that escape (nothing left to hit)
@@ -3497,79 +3467,35 @@ def _circle_obstacle(cx, cy, radius, in_effect, out_effect, fire=False, id_=0):
     return o
 
 
-def _kernel_trace(x0, y0, angle_deg, obstacles=(), main=(R, R), main_fire=True,
-                  main_shape=None, max_iter=12, max_dist=0.0, seg_mult=1.0):
+def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, max_dist=0.0,
+                  seg_mult=1.0):
     """One ray through the real trace_path, heading `angle_deg` (fuzzing is
     switched on with all jitter zero purely to set the direction, and is
-    otherwise the identity). Returns (points, kinds, term, raw)."""
-    shape, bound = main_shape or (m.SHAPE_ELLIPSE, UNIT_CIRCLE)
-    arrays = m.build_obstacle_arrays(list(obstacles))
+    otherwise the identity). `circle` is (incoming effect, outgoing effect[,
+    fires rays inside]) of a unit-circle obstacle at the origin, listed first;
+    None for no circle. Returns (points, kinds, term, raw)."""
+    scene = list(obstacles)
+    if circle is not None:
+        fire = circle[2] if len(circle) > 2 else True
+        scene.insert(0, _circle_obstacle(0.0, 0.0, 1.0, circle[0], circle[1], fire=fire))
+    arrays = m.build_obstacle_arrays(scene)
     fz = m.fuzz_array(m.FuzzParams(True, angle_deg, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0))
-    ctl = m.main_ctl_array(main_fire, main[0], main[1])
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(max_dist), shape,
-                              bound, ctl, seg_mult, fz, *arrays[:5], raw)
+    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(max_dist), seg_mult,
+                              fz, *arrays[:5], raw)
     return pts[:npts].copy(), kinds[:npts].copy(), term, raw
 
 
 def test_a_trapped_obstacle_keeps_its_ray_inside_forever():
     """Reflect both ways = a container: the ray started inside never leaves."""
     box = _circle_obstacle(0.2, 0.0, 0.5, R, R, fire=True)
-    pts, _k, term, raw = _kernel_trace(0.2, -0.3, 0.0, [box], main=(P, P), main_fire=False,
-                                       max_iter=40)
+    pts, _k, term, raw = _kernel_trace(0.2, -0.3, 0.0, [box], circle=None, max_iter=40)
     assert term in (m.TERM_ITER, m.TERM_CONFINED)   # its own segments may confine it
     assert int(raw[m.RAW_BOUNCES]) >= 8
     assert (np.hypot(pts[:, 0] - 0.2, pts[:, 1]) <= 0.5 + 1e-9).all()
     assert np.isclose(np.hypot(pts[1, 0] - 0.2, pts[1, 1]), 0.5)
-
-
-def test_an_obstacle_reflecting_both_ways_behaves_exactly_like_the_bounding_shape():
-    """The differential test for the whole design: for every shape kind, a
-    Reflect/Reflect obstacle of that shape (with the bounding shape itself
-    switched to pass-through and fire off) traces every ray identically to
-    the classic bounding shape with no obstacle - including with fuzzing and
-    a segment length multiplier."""
-    cases = [(m.SHAPE_ELLIPSE, m.ellipse_bound(1.7, 1.1, 25.0)),
-             (m.SHAPE_POLYGON, m.polygon_bound(5, 12.0)),
-             (m.SHAPE_MOSS_EGG, m.moss_egg_bound(90.0, 1.0, 10.0)),
-             (m.SHAPE_SECTOR, m.sector_bound(1.0, 100.0, 15.0)),
-             (m.SHAPE_LENS, m.lens_bound(1.0, 1.0, 1.0, 20.0)),
-             (m.SHAPE_CAPSULE, m.capsule_bound(1.0, 0.5, 30.0))]
-    fuzz = m.fuzz_array(m.FuzzParams(True, 45.0, 3.0, 2.0, 5.0, 1.1, 1.0, 4.0, 0.9, 7))
-    rng = np.random.RandomState(3)
-    for shape, bound in cases:
-        obst_shapes = np.array([shape], dtype=np.int64)
-        obst_bounds = np.zeros((1, m.OBST_BOUND_LEN))
-        obst_bounds[0, :len(bound)] = bound
-        zero, one_eff = np.zeros(1), np.array([[R, R]], dtype=np.int64)
-        classic_ctl = m.main_ctl_array(True, R, R)
-        absent_ctl = m.main_ctl_array(False, P, P)
-        empty = m.build_obstacle_arrays([])
-        checked = 0
-        for _ in range(60):
-            x, y = rng.uniform(-1, 1, 2)
-            if not m.inside_boundary(x, y, shape, bound):
-                continue
-            for seg_mult, fz in ((1.0, m.fuzz_array(m.DEFAULT_FUZZ)), (0.6, fuzz)):
-                results = []
-                for ctl, arrs in ((classic_ctl, empty[:5]),
-                                  (absent_ctl, (obst_shapes, obst_bounds, zero, zero, one_eff))):
-                    m_shape, m_bound = (shape, bound) if ctl is classic_ctl else \
-                        (m.SHAPE_ELLIPSE, UNIT_CIRCLE)
-                    pts = np.empty((32, 2))
-                    kinds = np.empty(32)
-                    raw = np.empty(m.N_RAW)
-                    _seed_kernel_rng(0)
-                    term, n = m.trace_path(x, y, pts, kinds, 30, m.effective_dist(0.0), m_shape,
-                                           m_bound, ctl, seg_mult, fz, *arrs, raw)
-                    results.append((term, n, pts[:n].copy(), kinds[:n].copy()))
-                (t1, n1, p1, k1), (t2, n2, p2, k2) = results
-                assert (t1, n1) == (t2, n2), (shape, x, y, seg_mult)
-                assert np.allclose(p1, p2, atol=1e-9) and np.allclose(k1, k2), (shape, x, y)
-                checked += 1
-        assert checked > 20, shape
 
 
 def test_an_obstacle_passing_rays_through_both_ways_is_as_if_it_were_not_there():
@@ -3603,7 +3529,7 @@ def test_incoming_terminate_stops_a_ray_at_the_edge_it_meets_from_outside():
 
 def test_outgoing_terminate_stops_a_ray_fired_inside_at_the_edge_it_reaches():
     stop = _circle_obstacle(0.5, 0.0, 0.3, R, T, fire=True)
-    pts, kinds, term, _raw = _kernel_trace(0.6, -0.1, 90.0, [stop], main=(P, P), main_fire=False)
+    pts, kinds, term, _raw = _kernel_trace(0.6, -0.1, 90.0, [stop], circle=None)
     assert term == m.TERM_OBSTACLE
     assert np.allclose(pts[-1], (0.6, np.sqrt(0.09 - 0.01)))
     assert kinds[-1] == m.KIND_OBSTACLE_TERM
@@ -3611,12 +3537,12 @@ def test_outgoing_terminate_stops_a_ray_fired_inside_at_the_edge_it_reaches():
 
 def test_outgoing_pass_through_lets_a_ray_fired_inside_carry_on_to_the_bounding_shape():
     hole = _circle_obstacle(0.0, 0.0, 0.3, R, P, fire=True)
-    pts, _k, _term, _raw = _kernel_trace(0.1, 0.2, 0.0, [hole], main_fire=False)
+    pts, _k, _term, _raw = _kernel_trace(0.1, 0.2, 0.0, [hole], circle=(R, R, False))
     assert np.isclose(np.hypot(*pts[1]), 1.0), "first bounce is on the bounding shape"
 
 
 def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_image_edge():
-    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P))
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert len(pts) == 2 and int(raw[m.RAW_BOUNCES]) == 0
     assert np.allclose(pts[-1], (1.0, -0.5)), "ends where it leaves the [-1, 1] square"
@@ -3626,7 +3552,7 @@ def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_image_edge():
 def test_a_ray_escapes_after_bouncing_when_it_finally_meets_nothing():
     wall = _circle_obstacle(0.0, 0.0, 0.3, R, P, fire=False)
     # leaves the (pass-through) bounding shape... bounces off the obstacle first
-    pts, _k, term, raw = _kernel_trace(-0.9, 0.2, 0.0, [wall], main=(R, P))
+    pts, _k, term, raw = _kernel_trace(-0.9, 0.2, 0.0, [wall], circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert int(raw[m.RAW_BOUNCES]) == 1
     assert abs(pts[-1, 0]) == 1.0 or abs(pts[-1, 1]) == 1.0
@@ -3642,12 +3568,12 @@ def test_an_obstacle_outside_the_bounding_shape_can_fire_rays_that_meet_it_from_
 
 def test_a_ray_can_pass_into_the_bounding_shape_from_outside_and_cross_it():
     far = _circle_obstacle(1.3, 0.3, 0.2, R, P, fire=True)
-    pts, _k, _term, _raw = _kernel_trace(1.3, 0.3, 180.0, [far], main=(P, R), max_iter=3)
+    pts, _k, _term, _raw = _kernel_trace(1.3, 0.3, 180.0, [far], circle=(P, R), max_iter=3)
     assert np.allclose(pts[1], (-np.sqrt(1.0 - 0.09), 0.3)), "reflects off the FAR inner wall"
 
 
 def test_a_distance_limit_cuts_an_escaping_ray_before_the_image_edge():
-    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P), max_dist=0.4)
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P), max_dist=0.4)
     assert term == m.TERM_DIST
     assert np.allclose(pts[-1], (0.4, -0.5))
     assert np.isclose(raw[m.RAW_LAST_FULL], 1.0), "the uncut segment reached the image edge"
@@ -3688,7 +3614,7 @@ def test_termination_tables_cover_escaped_and_are_evenly_spaced():
 
 
 def test_stats_and_points_are_sane_for_an_escaped_ray():
-    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P))
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P))
     out = np.empty(m.N_STATS)
     sp = np.empty((m.N_POINTS, 2))
     m.compute_stats(pts, len(pts), raw, 12, 1.0, out)
@@ -3728,35 +3654,16 @@ def _terminated_view(**_):
     return _view_settings_from_config(v)
 
 
-def test_render_full_image_colors_escaped_rays_when_the_bounding_shape_lets_rays_out():
-    app = _fake_render_app()
-    values = dict(m.DEFAULT_SETTING_VALUES, main_out_effect=P)
-    data = m.resolve_frame_settings([m.Keyframe(1, 0, values, "Linear", None)], 0)
-    img = app.render_full_image(data, 40, 40, _empty_obst_arrays(), (_terminated_view(),))
-    assert tuple(img[20, 20]) == (255, 0, 0), "escaped rays are termination value 1.0"
-    assert tuple(img[0, 0]) == tuple(m.BACKGROUND), "outside the shape nothing fires"
-
-
-def test_render_full_image_default_bounding_shape_produces_no_escaped_rays():
-    app = _fake_render_app()
-    data = m.resolve_frame_settings(
-        [m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)], 0)
-    img = app.render_full_image(data, 40, 40, _empty_obst_arrays(), (_terminated_view(),))
-    inside = img[20, 20]
-    assert inside[0] != 255
-
-
 def test_render_rows_fires_only_from_shapes_with_fire_on():
-    """The real (parallel) render kernel: with the bounding shape's fire off, only
-    pixels inside an obstacle with fire on emit a ray."""
+    """The real (parallel) render kernel: with no firing circle, only pixels
+    inside an obstacle with fire on emit a ray."""
     obstacle = _circle_obstacle(0.3, 0.0, 0.25, R, R, fire=True)
     arrays = m.build_obstacle_arrays([obstacle])
-    ctl = m.main_ctl_array(False, R, R)
     stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
-    m.render_rows(stats, points, status, 0, m.SIZE, 8, m.effective_dist(0.0), m.SHAPE_ELLIPSE,
-                  UNIT_CIRCLE, ctl, 1.0, m.fuzz_array(m.DEFAULT_FUZZ), *arrays, 0)
+    m.render_rows(stats, points, status, 0, m.SIZE, 8, m.effective_dist(0.0), 1.0,
+                  m.fuzz_array(m.DEFAULT_FUZZ), *arrays, 0)
     ys, xs = np.nonzero(status)
     wx = (xs + 0.5) * m.PIXEL - 1.0
     wy = 1.0 - (ys + 0.5) * m.PIXEL
@@ -3770,10 +3677,11 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
 
 def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.SIZE, m.SIZE))
-    ctl = m.main_ctl_array(True, R, P)              # rays leave the bounding shape
-    m.scatter_multi_buddha(250, 252, 8, m.effective_dist(0.0), m.SHAPE_ELLIPSE, UNIT_CIRCLE,
-                           ctl, 1.0, m.fuzz_array(m.DEFAULT_FUZZ),
-                           *m.build_obstacle_arrays([]), 0, False, True, False, False, counts)
+    circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
+    m.scatter_multi_buddha(250, 252, 8, m.effective_dist(0.0), 1.0,
+                           m.fuzz_array(m.DEFAULT_FUZZ),
+                           *m.build_obstacle_arrays([circle]), 0, False, True, False, False,
+                           counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the image edge) with exactly one midpoint: the total is the firing pixels.
     xs = (np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0
@@ -3798,23 +3706,6 @@ def test_obstacle_effect_dropdowns_write_both_effects_to_the_selected_obstacle()
     app.on_obstacle_effect_changed()
     assert app.selected_obstacle.in_effect == T and app.selected_obstacle.out_effect == R
     assert changed
-
-
-def test_simulation_info_text_mentions_bounding_shape_ray_behavior_only_when_not_default():
-    default = m.simulation_info_lines(m.effective_settings(m.DEFAULT_SNAPSHOT))
-    assert not any(line.startswith("Bound rays") for line in default)
-    custom = m.effective_settings(m.DEFAULT_SNAPSHOT._replace(
-        main_fire=False, main_in_effect=P, main_out_effect=T))
-    lines = m.simulation_info_lines(custom)
-    at = lines.index("Bound rays:")
-    assert lines[at + 1:at + 4] == ["  Fire:Off", "  In:Pass through", "  Out:Terminate"]
-
-
-def test_every_glyph_in_the_new_info_text_exists_in_the_pixel_font():
-    for text in ("Bound rays:", "  Fire:On", "  Fire:Off", "  In:Reflect", "  In:Pass through",
-                 "  Out:Terminate"):
-        missing = [c for c in text if c not in m.FONT_5X7]
-        assert not missing, (text, missing)
 
 
 # --------------------------------------------------------------------------- #
@@ -3913,6 +3804,223 @@ def test_the_simulation_and_obstacles_tabs_are_built_inside_scrollable_frames():
     assert "self.build_limits_controls(sim_inner)" in source
     assert "self.obst_canvas, obst_inner = make_scrollable_tab(obst_tab)" in source
     assert "self.build_obstacles_controls(obst_inner)" in source
+
+
+# --------------------------------------------------------------------------- #
+# Parity with the classic bounding shape. The old system (a fixed shape at the
+# origin, with its own settings) is being replaced by ordinary obstacles; an
+# obstacle that is a plain stand-in - Reflect both ways, fires rays inside, at the
+# origin - must produce exactly what the classic shape produced. The recorded
+# golden data (dev/testing/classic_boundary_golden.npz) was generated from the
+# classic implementation, so it keeps guarding this after that code is gone.
+# --------------------------------------------------------------------------- #
+CLASSIC_GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev",
+                                   "testing", "classic_boundary_golden.npz")
+GOLDEN_GRID = 13
+
+# name, shape, classic main-shape params, the equivalent obstacle's fields, and
+# the simulation settings to run it under
+CLASSIC_SCENES = [
+    dict(name="circle", shape=m.SHAPE_ELLIPSE, main=(2.0, 2.0, 0.0),
+         fields=dict(width=2.0, height=2.0, ell_rotation=0.0), iters=32),
+    dict(name="ellipse", shape=m.SHAPE_ELLIPSE, main=(1.7, 1.1, 25.0),
+         fields=dict(width=1.7, height=1.1, ell_rotation=25.0), iters=30),
+    dict(name="polygon", shape=m.SHAPE_POLYGON, main=(5, 10.0),
+         fields=dict(sides=5, poly_rotation=10.0, poly_radius=1.0), iters=30),
+    dict(name="moss", shape=m.SHAPE_MOSS_EGG, main=(90.0, 1.0, 10.0),
+         fields=dict(moss_angle=90.0, moss_size=1.0, moss_rotation=10.0), iters=30),
+    dict(name="sector", shape=m.SHAPE_SECTOR, main=(1.0, 100.0, 15.0),
+         fields=dict(sector_radius=1.0, sector_span=100.0, sector_rotation=15.0), iters=30),
+    dict(name="segment", shape=m.SHAPE_SEGMENT, main=(1.0, 120.0, 20.0),
+         fields=dict(segment_radius=1.0, segment_span=120.0, segment_rotation=20.0), iters=30),
+    dict(name="lens", shape=m.SHAPE_LENS, main=(1.0, 1.0, 1.0, 20.0),
+         fields=dict(lens_radius1=1.0, lens_radius2=1.0, lens_sep=1.0, lens_rotation=20.0),
+         iters=30),
+    dict(name="reuleaux", shape=m.SHAPE_REULEAUX, main=(3, 0.0),
+         fields=dict(reuleaux_sides=3, reuleaux_rotation=0.0, reuleaux_radius=1.0), iters=30),
+    dict(name="capsule", shape=m.SHAPE_CAPSULE, main=(1.0, 0.5, 30.0),
+         fields=dict(capsule_length=1.0, capsule_radius=0.5, capsule_rotation=30.0), iters=30),
+    dict(name="ellipse_fuzz_seg_dist", shape=m.SHAPE_ELLIPSE, main=(1.8, 1.3, -20.0),
+         fields=dict(width=1.8, height=1.3, ell_rotation=-20.0), iters=40,
+         fuzz=(True, 45.0, 3.0, 2.0, 5.0, 1.1, 1.0, 4.0, 0.9, 7), seg_mult=0.7, dist=4.0),
+]
+
+
+def _scene_obstacle(scene):
+    """The obstacle equivalent to a classic bounding shape."""
+    o = m.Obstacle(0)
+    o.shape = scene["shape"]
+    for field, value in scene["fields"].items():
+        setattr(o, field, value)
+    o.r = o.theta = o.cx = o.cy = 0.0
+    o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    o.fire_inside = True
+    return o
+
+
+def _render_scene(scene, n):
+    """(stats, points, status) of an n x n render of a classic scene, drawn as
+    the equivalent obstacle."""
+    fuzz = m.FuzzParams(*scene["fuzz"]) if "fuzz" in scene else m.DEFAULT_FUZZ
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
+    m.render_rows_wh(stats, points, status, 0, n, n, n, scene["iters"],
+                     m.effective_dist(scene.get("dist", 0.0)), scene.get("seg_mult", 1.0),
+                     m.fuzz_array(fuzz), *arrays, fuzz.seed)
+    return stats, points, status
+
+
+def test_every_classic_scene_is_expressible_as_an_obstacle_with_identical_geometry():
+    for scene in CLASSIC_SCENES:
+        o = _scene_obstacle(scene)
+        classic = m.make_bound(scene["shape"], scene["main"])
+        equivalent = m.make_bound(o.shape, o.params())
+        assert np.allclose(classic, equivalent), scene["name"]
+
+
+def test_an_obstacle_reproduces_the_recorded_classic_golden_data():
+    golden = np.load(CLASSIC_GOLDEN_PATH)
+    assert len(CLASSIC_SCENES) == int(golden["n_scenes"])
+    for idx, scene in enumerate(CLASSIC_SCENES):
+        stats, points, status = _render_scene(scene, n=GOLDEN_GRID)
+        assert np.array_equal(status, golden[f"status_{idx}"]), scene["name"]
+        assert np.allclose(stats, golden[f"stats_{idx}"], atol=1e-5), scene["name"]
+        assert np.allclose(points, golden[f"points_{idx}"], atol=1e-5), scene["name"]
+
+
+# --------------------------------------------------------------------------- #
+# The fixed bounding shape is gone: the scene is only obstacles, starting with
+# an obstacle that stands in for it
+# --------------------------------------------------------------------------- #
+def test_the_starting_obstacle_is_the_unit_circle_that_reflects_and_fires_rays_inside():
+    start = m.default_starting_obstacle(7)
+    assert start.id == 7
+    assert start.shape == m.SHAPE_ELLIPSE
+    assert (start.width, start.height, start.ell_rotation) == (2.0, 2.0, 0.0)
+    assert (start.r, start.theta, start.cx, start.cy) == (0.0, 0.0, 0.0, 0.0)
+    assert (start.in_effect, start.out_effect) == (m.OBSTACLE_EFFECT_REFLECT,
+                                                     m.OBSTACLE_EFFECT_REFLECT)
+    assert start.fire_inside is True
+    assert np.allclose(m.make_bound(start.shape, start.params()), UNIT_CIRCLE)
+
+
+def test_the_app_starts_with_the_starting_obstacle_selected():
+    import inspect
+    source = inspect.getsource(m.App.__init__)
+    assert "self.obstacles = [default_starting_obstacle(0)]" in source
+    assert "self._obst_counter = 1" in source
+    assert "self.selected_obstacle = self.obstacles[0]" in source
+
+
+def test_the_old_bounding_shape_system_is_gone():
+    for name in ("describe_shape", "outline_coords", "snapshot_shape_params", "main_ctl_array",
+                 "settings_main_ctl", "MAIN_CTL_DEFAULT", "SHAPE_HINTS", "DEFAULT_SHAPE",
+                 "RING_HALF_WIDTH_PX", "SHAPE_PARAM_BY_KEY"):
+        assert not hasattr(m, name), name
+    for name in ("build_shape_controls", "build_main_ray_controls", "read_shape_controls",
+                 "control_shape", "show_shape_controls", "on_shape_changed", "reset_ellipse",
+                 "compute_ring", "set_ring"):
+        assert not hasattr(m.App, name), name
+
+
+def test_the_kernels_no_longer_take_a_bounding_shape():
+    import inspect
+    for fn in (m.emits_ray, m.trace_path, m.render_rows, m.render_rows_wh,
+               m.scatter_multi_buddha):
+        params = inspect.signature(fn.py_func).parameters
+        for gone in ("shape", "bound", "main_ctl"):
+            assert gone not in params, (fn.py_func.__name__, gone)
+        assert "obst_shapes" in params
+
+
+def test_snapshot_and_settings_hold_only_the_simulation_controls():
+    assert m.Snapshot._fields == ("max_iter", "max_dist", "seg_mult", "fuzz",
+                                  "buddha_blur_radius", "buddha_blur_type")
+    assert m.Settings._fields == m.Snapshot._fields
+    assert m.effective_settings(m.DEFAULT_SNAPSHOT) == m.Settings(*m.DEFAULT_SNAPSHOT)
+
+
+def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
+    keys = {k for k, _tab, _label in m.SETTING_INFO}
+    assert keys == {"iter", "dist", "seg_mult", "fuzz_on", "emit_angle", "emit_jitter",
+                    "bnd_offset", "bnd_jitter", "bnd_mult", "self_offset", "self_jitter",
+                    "self_mult", "seed", "buddha_blur_radius", "buddha_blur_type", "outline"}
+    assert keys == set(m.DEFAULT_SETTING_VALUES)
+    tabs = {tab for _k, tab, _label in m.SETTING_INFO}
+    assert tabs == {"Simulation", "Fuzzing", "Buddha blur", "Decorations"}
+
+
+def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():
+    data = m.resolve_frame_settings([], 0)
+    assert data.snapshot == m.DEFAULT_SNAPSHOT
+    assert data.outline is True
+
+
+def test_settings_suffix_is_only_the_limits_and_fuzzing():
+    assert m.settings_suffix(m.effective_settings(m.DEFAULT_SNAPSHOT)) == "iter32-distNONE"
+    limited = _settings(max_iter=10, max_dist=2.5)
+    assert m.settings_suffix(limited) == "iter10-dist2.5"
+    fuzzed = _settings(fuzz=m.DEFAULT_FUZZ._replace(enabled=True, seed=9))
+    suffix = m.settings_suffix(fuzzed)
+    assert suffix.startswith("iter64-distNONE-fuzz-") and suffix.endswith("-seed9")
+    for word in ("ellipse", "polygon", "moss", "sector", "segment", "lens", "reuleaux",
+                 "capsule"):
+        assert word not in suffix
+
+
+def test_obstacle_params_for_polygon_and_reuleaux_end_with_their_radius():
+    o = m.Obstacle(0)
+    o.sides, o.poly_rotation, o.poly_radius = 6, 15.0, 0.7
+    o.reuleaux_sides, o.reuleaux_rotation, o.reuleaux_radius = 5, 20.0, 0.4
+    assert m.shape_params_tuple(m.SHAPE_POLYGON, o) == (6, 15.0, 0.7)
+    assert m.shape_params_tuple(m.SHAPE_REULEAUX, o) == (5, 20.0, 0.4)
+    o.shape = m.SHAPE_POLYGON
+    assert o.params() == (6, 15.0, 0.7)
+
+
+def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_rays_out():
+    app = _fake_render_app()
+    start = m.default_starting_obstacle(0)
+    start.out_effect = P
+    data = m.resolve_frame_settings([], 0)
+    img = app.render_full_image(data, 40, 40, m.build_obstacle_arrays([start]),
+                                (_terminated_view(),))
+    assert tuple(img[20, 20]) == (255, 0, 0), "escaped rays are termination value 1.0"
+    assert tuple(img[0, 0]) == tuple(m.BACKGROUND), "outside the obstacle nothing fires"
+
+
+def test_render_full_image_with_the_starting_obstacle_produces_no_escaped_rays():
+    app = _fake_render_app()
+    data = m.resolve_frame_settings([], 0)
+    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), (_terminated_view(),))
+    assert img[20, 20][0] != 255
+
+
+def test_render_full_image_of_an_empty_scene_is_just_the_background():
+    app = _fake_render_app()
+    data = m.resolve_frame_settings([], 0)
+    empty = m.build_obstacle_arrays([])
+    img = app.render_full_image(data, 24, 24, empty, (_terminated_view(),))
+    assert (img == np.array(m.BACKGROUND, dtype=np.uint8)).all()
+
+
+# --------------------------------------------------------------------------- #
+# Obstacle outlines are drawn a bit thicker than they used to be
+# --------------------------------------------------------------------------- #
+def test_each_obstacle_outline_layer_is_one_and_a_half_pixels_thick():
+    assert m.OBST_RING_LAYER_PX == 1.5
+
+
+def test_the_default_outline_layers_measure_their_full_thickness_on_a_circle():
+    gx, gy = _grid_around(1.2, 1600)
+    step = float(gx[0, 1] - gx[0, 0])
+    outer, inner = m.ring_layer_masks(m.SHAPE_ELLIPSE, UNIT_CIRCLE, gx, gy)
+    r = np.hypot(gx, gy)
+    width = m.OBST_RING_LAYER_PX * m.PIXEL
+    assert np.isclose(r[outer].max() - 1.0, width, atol=2 * step)
+    assert np.isclose(1.0 - r[inner].min(), width, atol=2 * step)
 
 
 # --------------------------------------------------------------------------- #
@@ -4467,7 +4575,6 @@ def test_draw_never_lets_the_view_name_overlay_leak_into_the_export_buffer():
     app.frame = np.empty_like(app.img)
     app.display_frame = np.empty_like(app.img)
     app.deco = {"outline": type("X", (), {"get": lambda self: False})()}
-    app.ring = np.zeros((m.SIZE, m.SIZE), dtype=bool)
     app.views = [m.ViewConfig(0)]
     app.selected_view_id = 0
     app.view_by_id = m.App.view_by_id.__get__(app)
