@@ -1,0 +1,12 @@
+#!/bin/bash
+# Fake `cjxl` for test_light_bounces.py (POSIX). Windows counterpart: cjxl.cmd.
+# Usage mimics the real tool's `cjxl <input> <output> ...`: copies <input> to
+# <output> and exits 0. If the FAKE_CJXL_FAIL_ON environment variable is set
+# and <input>'s path contains that text, instead prints a message to stderr
+# and exits 1, so tests can exercise the failure path.
+if [[ -n "$FAKE_CJXL_FAIL_ON" && "$1" == *"$FAKE_CJXL_FAIL_ON"* ]]; then
+  echo "fake cjxl: simulated encoder failure" >&2
+  exit 1
+fi
+cp "$1" "$2"
+exit 0
