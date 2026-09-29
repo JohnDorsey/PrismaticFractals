@@ -52,5 +52,5 @@ Key design points that span multiple places:
   effect, say so and explain the tradeoff before proceeding.
 - Keep a visible, incrementing version counter in a long-lived file,
   updated on every delivery. This is `FILE_VERSION` near the top of
-  `light_bounces.py` (currently 70): bump it by exactly 1 once per
+  `light_bounces.py`: bump it by exactly 1 once per
   completed task/turn that changed the file, not per individual edit.

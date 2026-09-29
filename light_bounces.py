@@ -2,92 +2,175 @@
 """
 Light-bounce image / video generator.
 
-A mirrored bounding shape centred on the origin sits in a 512x512 image that
-spans [-1, 1] in both directions. The shape is either
+A mirrored bounding shape centred on the origin sits in a 512x512 preview
+image that spans [-1, 1] in both directions (the simulation itself always
+runs in that fixed square, whatever resolution is later exported). The shape
+is one of eight, each with its own size/angle parameters and rotation:
 
-  * an ellipse (width and height 0.0 to 2.0, plus rotation) - the defaults
-    (2.0 x 2.0, no rotation) give the unit circle, which fills the image, or
-  * a regular polygon (number of sides, plus rotation), inscribed in the unit
-    circle.
+  * an ellipse - the defaults (2.0 x 2.0, no rotation) give the unit circle,
+    which fills the image,
+  * a regular polygon (number of sides), inscribed in the unit circle,
+  * a Moss's egg, a circular sector, a circular segment, a two-circle lens,
+    a Reuleaux polygon (odd number of sides), or a capsule.
 
-For every pixel inside the shape, a ray starts at the pixel centre and travels
-up and to the right (unless fuzzing perturbs its emission angle - see below).
-It reflects off the shape AND off any earlier segment of its own path. A ray
-stops when
+Obstacles
+  Any number of extra mirrored shapes (the same eight kinds), each placed by a
+  polar position (r, theta) from the origin plus an x/y offset. An obstacle's
+  effect is Reflect (an extra piece of boundary, using the boundary's fuzzing
+  settings), Terminate (the ray stops the instant it reaches it) or Disabled
+  (ignored entirely). Pixels inside an obstacle emit no ray unless that
+  obstacle's "Fire rays inside" box is ticked.
 
-  * it becomes confined to a region smaller than one pixel, or
-  * it has bounced as many times as the iteration limit allows, or
+Rays
+  For every pixel inside the shape, a ray starts at the pixel centre and
+  travels up and to the right (45 degrees, unless fuzzing perturbs its
+  emission angle - see below). It reflects off the shape, off reflecting
+  obstacles, AND off any earlier segment of its own path. A ray stops when
+
+  * it becomes confined to a region smaller than one pixel,
+  * it has bounced as many times as the iteration limit allows (1 to 9999),
   * its total path length reaches the distance limit (in units, where one unit
     is half the image width; 0, the default, means no distance limit). If the
-    limit is reached part-way along a segment, the segment is cut off there.
+    limit is reached part-way along a segment, the segment is cut off there,
+  * it reaches a Terminate obstacle, or
+  * it strikes a reflective surface at exactly perpendicular incidence (which
+    side it would retrace along is undefined, so it stops there).
+
+  A segment length multiplier (0.01 to 1; 1 means no effect) shortens every
+  ordinary bounce's segment to that fraction of its true length, after which
+  the ray continues in the newly bounced direction from where it stopped.
 
 Fuzzing
   Optional randomness/offsets applied to three kinds of angle: the ray's
   emission angle (once, when it leaves its start pixel - a plain angle slider,
   defaulting to 45 degrees, the unfuzzed direction, plus jitter), the
-  deflection angle of each bounce off the bounding shape, and the deflection
-  angle of each bounce off the ray's own earlier path (each of the latter two
-  with an offset, a jitter range and a multiplier). A seed makes the
-  randomness reproducible. The whole tab is greyed out while fuzzing is off.
+  deflection angle of each bounce off the bounding shape or a reflecting
+  obstacle, and the deflection angle of each bounce off the ray's own earlier
+  path (each of the latter two with an offset, a jitter range and a
+  multiplier). A seed makes the randomness reproducible. The whole tab is
+  greyed out while fuzzing is off.
 
 Coloration
-  For every ray, twelve metrics are measured (each scaled to 0..1) and nine
-  candidate "sample points" are picked out of its path (its end, the mean of
-  its bounce points, the bounce point furthest from the start, ...). For each
-  of the three color channels (RGB or HSV) a table row chooses a type -
-  "point-based" or "other" - then a metric of that type, and, for point-based
-  metrics, which sample point the metric looks at. Everything is stored per
-  pixel, so changing the table recolors the image immediately, with no need
-  to regenerate it.
+  For every ray, thirteen metrics are measured (each scaled to 0..1): four
+  that compare two chosen sample points (horizontal, vertical, Manhattan and
+  Euclidean distance) and nine others (bounce counts and fractions, loop area,
+  bounce angles, path length, last-segment direction and length, and why the
+  ray stopped). Fifteen sample points can be chosen: thirteen picked out of the
+  ray's path (its start and end, the means of its bounce points, its
+  uppermost/lowermost/rightmost/leftmost bounces overall and among only its
+  self-bounces) plus two fixed ones (the origin and the top-left corner).
+
+  A view is a color model (RGB or HSV) plus three channels. Each channel has a
+  source:
+    Query     a metric, evaluated once per ray for the pixel it was emitted
+              from - either a point comparison (with its two sample points)
+              or one of the other metrics,
+    Buddha    named after the Buddhabrot: characteristic points of every ray
+              are scattered into a visit-count histogram, and a pixel's
+              brightness comes from how often its own location was landed on
+              by any ray. Any number of point kinds can be scattered at once
+              (means, termination points by reason, every self-bounce, every
+              segment midpoint, progressive means). Counts are compressed to
+              0..1 (arctangent or modulus) with an optional brightness boost,
+              and the Buddha blur tab spreads each scattered point over a
+              neighborhood (Gaussian, triangular, bokeh or catadioptric
+              bokeh; radius 0 means no blur),
+    Constant  always 0 or always 1, taking no part in the simulation.
+  Per-pixel results are stored, so changing a view's coloration recolors the
+  image without regenerating it (Buddha channels rebuild their histograms
+  first; that never restarts the generation either).
+
+  Several views can exist at once, listed in the Coloration tab. Whichever
+  one is selected is the one shown in the preview (with its name overlaid,
+  in the preview only); exports and videos can include all of them, side by
+  side, so more than three channels' worth of information can be shown at once.
+
+Decorations
+  The outline of the bounding shape (and of each obstacle - brown for
+  Terminate, pale blue for Reflect) is drawn into the image and so appears in
+  exports; everything else (the dashed outline of not-yet-generated shape
+  changes, the previewed ray's path, markers and guide lines, the color
+  sample points) is drawn over the preview only and never saved.
 
 Timeline and video
-  A keyframe is a complete snapshot of every setting needed to generate an
-  image (Simulation + Fuzzing + Coloration + the bounding-shape outline),
-  plus a small thumbnail and an interpolation method. Keyframes are managed
+  A keyframe has a frame index, an interpolation method (Linear or Step), a
+  small thumbnail, and a set of settings - any subset of every setting in the
+  Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
+  obstacle's and every view's own fields. "New keyframe" defines every
+  setting from the controls' current values; afterwards, each setting can be
+  loaded into the controls, saved from them, or deleted from that keyframe
+  individually (or all at once), so different settings can start and stop
+  animating at different points on the timeline. Keyframes are managed
   independently of the live controls: selecting one doesn't touch the
-  controls, and changing the controls doesn't touch any keyframe. "Load"
-  copies a keyframe's settings into the controls; "Save" overwrites a
-  keyframe (and its thumbnail) with the controls' current settings; "Split"
+  controls, and changing the controls doesn't touch any keyframe. "Split"
   makes a duplicate right after the original, with the same frame index;
   editing the selected keyframe's frame-index field re-sorts the list. Every
   keyframe always has a frame index (0 for the first one created, one more
-  than the highest existing index for each new one after that); a render
-  refuses to start if two keyframes share an index, or if the TEMP folder
-  already has files in it - this program never deletes a file, including its
-  own temporary ones. A keyframe's thumbnail is a small bilinearly-resized
-  copy of whatever the image panel showed at the moment it was saved, or a
-  black "no img" placeholder if that image didn't match the keyframe's own
-  settings. Between two keyframes, every float-slider setting (ellipse and
-  polygon dimensions/rotation, every fuzzing angle/jitter/multiplier) is
-  interpolated using the method chosen on the later keyframe; everything
-  else (which bounding shape, which metric, colors, and so on) holds the
-  earlier keyframe's value until the later one is reached, since it isn't a
-  number that could be blended. A render walks every whole frame from the
-  lowest to the highest frame index, writes each as a PNG into a TEMP folder
-  next to this program, then combines them with ffmpeg into an .mp4 saved
-  next to the program.
+  than the highest existing index for each new one after that). A keyframe's
+  thumbnail is a small bilinearly-resized copy of whatever the image panel
+  showed at the moment it was saved, or a black "no img" placeholder if that
+  image didn't match the current settings.
+
+  Each setting is resolved independently, using only the keyframes that
+  define it. Between two of them, float-slider settings (shape dimensions and
+  rotations, fuzzing angles/jitters/multipliers, segment multiplier, blur
+  radius, obstacle geometry and position, and so on) are interpolated using
+  the method chosen on the later keyframe; everything else (which bounding
+  shape, which metric, colors, and so on) holds the earlier keyframe's value
+  until the later one is reached, since it isn't a number that could be
+  blended.
+
+  A render walks every whole frame from the lowest to the highest frame index
+  (optionally skipping the first), draws every frame at the chosen width and
+  height (the same world area as the preview), and writes each as a PNG into
+  a TEMP folder next to this program. It then combines them with ffmpeg into
+  an .mp4 (h264), .gif, .apng or .mkv (ffv1), or, through the external cjxl
+  tool, an animated .jxl, saved next to the program; the bitrate mode
+  (constant quality, target or variable bitrate) and a downsampling factor
+  apply to that combined video only, never to the PNG frames. "Re-encode"
+  combines whatever frames are already in TEMP using the current encoding
+  settings. A render refuses to start if two keyframes share a frame index or
+  if the TEMP folder already has any files in it. This program never deletes a
+  file on its own; the one exception is the Video panel's Clear button, which,
+  after a confirmation, deletes only frame_NNNNN.png files from TEMP.
+
+Exporting a still image
+  Export designer: whether the export includes all views or only the selected
+  one, where to put the coloration description (none, overlaid on the image,
+  or in a bottom margin) and where to put the simulation description (none,
+  or a left margin); these apply to videos as well. Export: either the
+  Current figure (the preview as it was generated) or a New figure generated
+  afresh at its own width and height (per view), saved as png, qoi or jxl
+  (lossless, or lossy with a quality setting). "Export" saves next to the
+  program under a default name; "Export As..." asks for one. Both are
+  disabled until an image has finished generating.
 
 Window layout (six panels, in three columns)
   top left       the generated image (512x512). Hover to preview a ray; click
                  to pin the preview to that pixel, freeing the mouse.
-  top middle     controls, in four tabs: Simulation, Fuzzing, Coloration and
-                 Decorations; Start and Revert are always visible
-  top right      Timeline: the keyframe list (with thumbnails) and its
-                 Load/Save/Split controls
-  bottom left    the previewed ray, in Numbers and Graphics tabs
-  bottom middle  generation status, plus Save / Save As once generation is done
-  bottom right   Video: framerate/quality/bitrate settings and the render button
+  top middle     Controls, in six tabs: Simulation, Fuzzing, Coloration, Buddha
+                 blur, Decorations and Obstacles; Start and Revert settings
+                 are always visible
+  top right      Timeline: the keyframe list (with thumbnails), each
+                 keyframe's settings, and the selected keyframe's controls
+  bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
+  bottom middle  the Export designer, and Export
+  bottom right   Video: render settings (size, skip first frame), encoding
+                 settings (fps, format, bitrate, downsampling), a preview of
+                 the latest frame, and Start Render / Re-encode / Clear
 
 Saved image files are named
-  <program name>-YYYYMMDD-hhmmss-<simulation settings>.png
+  <program name>-YYYYMMDD-hhmmss-<simulation settings>.<png|qoi|jxl>
 and rendered videos
-  <program name>-video-YYYYMMDD-hhmmss.mp4
+  <program name>-video-YYYYMMDD-hhmmss.<mp4|gif|apng|jxl>  (.ffv1.mkv for mkv)
 where the program name is taken from this file's own name (so it follows any
 renaming).
 
 Requirements:  pip install numpy numba ffmpeg-python   (tkinter ships with
-Python; the ffmpeg command-line tool must also be installed and on PATH for
-video rendering, which is otherwise unnecessary for still images).
+Python). The ffmpeg command-line tool must also be installed and on PATH for
+video rendering and for saving a still as JPEG XL; the cjxl command-line tool
+(part of libjxl) is additionally needed for animated JXL video. All three are
+otherwise unnecessary: PNG and QOI stills need only the packages above.
 """
 
 # FILE_VERSION increments by exactly 1 each time work on this file is
@@ -95,7 +178,7 @@ video rendering, which is otherwise unnecessary for still images).
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 71
+FILE_VERSION = 72
 
 import os
 import random
@@ -2757,8 +2840,8 @@ DEFAULT_SETTING_VALUES = {
 def run_self_checks():
     """Consistency checks between tables that must independently agree (each
     setting/field/termination-reason has to be listed correctly in several
-    separate places - see the module docstring's "known trouble spots" note,
-    or just SETTING_INFO vs DEFAULT_SETTING_VALUES vs SETTING_FLOAT_KEYS)
+    separate places - for example SETTING_INFO vs DEFAULT_SETTING_VALUES vs
+    SETTING_FLOAT_KEYS)
     but have nothing else enforcing that agreement. Run once at import time,
     so a table that's missing an entry (as happened twice already this
     project - TERM_PERPENDICULAR once missing from a color dict and once
