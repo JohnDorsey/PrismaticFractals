@@ -133,8 +133,9 @@ def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
     term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(0.0),
-                              m.SHAPE_ELLIPSE, bound, seg_mult, fz, empty_i, empty_b,
-                              empty_f, empty_f, empty_i, raw)
+                              m.SHAPE_ELLIPSE, bound, m.MAIN_CTL_DEFAULT, seg_mult, fz,
+                              empty_i, empty_b,
+                              empty_f, empty_f, np.empty((0, 2), dtype=np.int64), raw)
     return pts[:npts], kinds[:npts], term, raw, bound
 
 
@@ -177,14 +178,14 @@ def test_self_loop_area_zeroed_when_multiplier_active():
     "the ray's own enclosed area" once bounce points are pulled back."""
     pts, kinds, term, raw, bound = _trace(1.0, max_iter=10)
     out = np.empty(m.N_STATS)
-    m.compute_stats(pts, len(pts), raw, 10, bound, 1.0, out)
+    m.compute_stats(pts, len(pts), raw, 10, 1.0, out)
     assert int(raw[m.RAW_SELF_K]) >= 0, "test setup needs an actual self-bounce"
     assert raw[m.RAW_AREA] > 0, "seg_mult=1.0 should compute a real nonzero area"
 
     for bad_mult in (0.99, 0.5, m.SEGMENT_MULT_MIN):
         pts2, kinds2, term2, raw2, bound2 = _trace(bad_mult, max_iter=10)
         out2 = np.empty(m.N_STATS)
-        m.compute_stats(pts2, len(pts2), raw2, 10, bound2, bad_mult, out2)
+        m.compute_stats(pts2, len(pts2), raw2, 10, bad_mult, out2)
         assert raw2[m.RAW_AREA] == 0.0
         assert out2[m.ST_LOOP_AREA] == 0.0
 
@@ -344,7 +345,8 @@ def test_downsample_max_is_per_channel_independent():
 # --------------------------------------------------------------------------- #
 def test_shape_param_table_matches_snapshot_fields():
     non_shape = {"max_iter", "max_dist", "seg_mult", "shape", "fuzz",
-                "buddha_blur_radius", "buddha_blur_type"}
+                "buddha_blur_radius", "buddha_blur_type", "main_fire", "main_in_effect",
+                "main_out_effect"}
     table_fields = {p.field for p in m.SHAPE_PARAM_INFO}
     assert table_fields == set(m.Snapshot._fields) - non_shape
 
@@ -411,7 +413,8 @@ def test_apply_snapshot_to_controls_reaches_every_shape_param_widget():
                 "emit_angle_scale", "emit_jitter_scale", "bnd_offset_scale",
                 "bnd_jitter_scale", "bnd_mult_scale", "self_offset_scale",
                 "self_jitter_scale", "self_mult_scale", "seed_var",
-                "buddha_blur_radius_scale", "buddha_blur_type_var"]:
+                "buddha_blur_radius_scale", "buddha_blur_type_var", "main_fire_var",
+                "main_in_effect_var", "main_out_effect_var"]:
         setattr(app, attr, _Get())
     app.show_shape_controls = lambda: None
     app.update_fuzz_enabled_state = lambda: None
@@ -446,7 +449,8 @@ def _fake_obstacle_editor_app():
     app.show_obstacle_shape_controls = m.App.show_obstacle_shape_controls.__get__(app)
 
     app.obs_shape_var = _StubVar(m.SHAPE_NAMES[m.SHAPE_ELLIPSE])
-    app.obs_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
+    app.obs_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
+    app.obs_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_PASS])
     app.obs_fire_inside_var = _StubVar(False)
 
     app.obs_ellipse_group = _TrackedFrame()
@@ -498,7 +502,8 @@ def _make_distinct_obstacle(shape=None):
     o.theta = 45.0
     o.cx = 0.1
     o.cy = -0.2
-    o.effect = m.OBSTACLE_EFFECT_TERMINATE
+    o.in_effect = m.OBSTACLE_EFFECT_TERMINATE
+    o.out_effect = m.OBSTACLE_EFFECT_REFLECT
     o.fire_inside = True
     return o
 
@@ -526,7 +531,8 @@ def test_refresh_obstacle_editor_loads_obstacle_only_fields():
     assert app.obs_theta_scale.get() == o.theta
     assert app.obs_cx_scale.get() == o.cx
     assert app.obs_cy_scale.get() == o.cy
-    assert app.obs_effect_var.get() == m.OBSTACLE_EFFECT_NAMES[o.effect]
+    assert app.obs_in_effect_var.get() == m.OBSTACLE_EFFECT_NAMES[o.in_effect]
+    assert app.obs_out_effect_var.get() == m.OBSTACLE_EFFECT_NAMES[o.out_effect]
     assert app.obs_fire_inside_var.get() == o.fire_inside
 
 
@@ -700,11 +706,13 @@ def test_describe_obstacle_exact_shape_text_for_every_shape():
 def test_describe_obstacle_includes_position_and_effect():
     o = _make_obstacle_from_params(m.SHAPE_ELLIPSE, (1.0, 1.0, 0.0))
     o.r, o.theta, o.cx, o.cy = 0.5, 45.0, 0.1, -0.2
-    o.effect = m.OBSTACLE_EFFECT_TERMINATE
+    o.in_effect = m.OBSTACLE_EFFECT_TERMINATE
+    o.out_effect = m.OBSTACLE_EFFECT_REFLECT
     text = m.describe_obstacle(o)
     assert "r0.50 @ 45.0\u00b0" in text
     assert "+(+0.10, -0.20)" in text
-    assert m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_TERMINATE] in text
+    assert f"in: {m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_TERMINATE]}" in text
+    assert f"out: {m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT]}" in text
 
 
 # params() / snapshot_shape_params: exact tuples for every shape, including
@@ -882,6 +890,9 @@ def _make_fake_app_for_snapshot():
     app.seg_mult_scale = _Get(0.75)
     app.buddha_blur_radius_scale = _Get(m.DEFAULT_BUDDHA_BLUR_RADIUS)
     app.buddha_blur_type_var = _Get(m.BUDDHA_BLUR_LABELS[m.DEFAULT_BUDDHA_BLUR_TYPE])
+    app.main_fire_var = _Get(True)
+    app.main_in_effect_var = _Get(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
+    app.main_out_effect_var = _Get(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
     return app
 
 
@@ -921,7 +932,8 @@ def _empty_obst_arrays():
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
     empty_bool = np.empty(0, dtype=bool)
-    return (empty_i, empty_b, empty_f, empty_f, empty_i, empty_bool)
+    return (empty_i, empty_b, empty_f, empty_f, np.empty((0, 2), dtype=np.int64),
+            empty_bool)
 
 
 def _view_settings_from_config(v):
@@ -1079,6 +1091,9 @@ def _fake_view_list_app():
     app.rows_done = 0
     app.pinned_px = None
     app.view_thumb_cache = {}
+    app.keyframes = []
+    app.refresh_timeline_diffs = lambda: None
+    app.purge_keyframe_settings = m.App.purge_keyframe_settings.__get__(app)
     return app
 
 
@@ -1371,7 +1386,8 @@ def _fake_current_figure_app():
     empty_bool = np.empty(0, dtype=bool)
     app.gen_obst_shapes, app.gen_obst_bounds = empty_i, empty_b
     app.gen_obst_cx, app.gen_obst_cy = empty_f, empty_f
-    app.gen_obst_effects, app.gen_obst_fire_inside = empty_i, empty_bool
+    app.gen_obst_effects = np.empty((0, 2), dtype=np.int64)
+    app.gen_obst_fire_inside = empty_bool
     app.ring = np.zeros((m.SIZE, m.SIZE), dtype=bool)
     app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
     app.obstacle_ring_specs = lambda: []
@@ -3089,6 +3105,814 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
         assert img.shape == (40 + 40 // 4, 40, 3)
     finally:
         m.EXPORT_DIR = orig_export_dir
+
+
+# --------------------------------------------------------------------------- #
+# Deleting an obstacle or view removes its "obst:<id>:*" / "view:<id>:*"
+# settings from every keyframe immediately (they used to be left behind as
+# orphans: invisible in the Timeline's settings list, so impossible to remove)
+# --------------------------------------------------------------------------- #
+def _kf(id_, frame_index, data):
+    return m.Keyframe(id_, frame_index, dict(data))
+
+
+def test_remove_keyframe_keys_removes_only_that_ids_keys_from_every_keyframe():
+    kfs = [_kf(0, 0, {"iter": 5, "obst:3:r": 0.5, "obst:3:theta": 10.0, "obst:30:r": 0.9}),
+           _kf(1, 10, {"obst:3:r": 0.7, "view:3:mode": "RGB"}),
+           _kf(2, 20, {"iter": 9})]
+    removed = m.remove_keyframe_keys(kfs, "obst:3:")
+    assert removed == 3
+    assert kfs[0].data == {"iter": 5, "obst:30:r": 0.9}, \
+        "obst:30:* must survive removal of obst:3:* (ids that merely start alike)"
+    assert kfs[1].data == {"view:3:mode": "RGB"}, "view:3 is not obstacle 3"
+    assert kfs[2].data == {"iter": 9}
+
+
+def test_remove_keyframe_keys_with_no_matches_changes_nothing():
+    kfs = [_kf(0, 0, {"iter": 5})]
+    assert m.remove_keyframe_keys(kfs, "obst:1:") == 0
+    assert kfs[0].data == {"iter": 5}
+
+
+def _fake_delete_obstacle_app():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.obstacles = []
+    app._obst_counter = 0
+    app.selected_obstacle = None
+    app.keyframes = []
+    app.delete_obstacle = m.App.delete_obstacle.__get__(app)
+    app.purge_keyframe_settings = m.App.purge_keyframe_settings.__get__(app)
+    app.rebuild_obstacle_list = lambda: None
+    app.on_shape_param_changed = lambda: None
+    app.diff_refreshes = []
+    app.refresh_timeline_diffs = lambda: app.diff_refreshes.append(1)
+    return app
+
+
+def test_delete_obstacle_purges_its_settings_from_every_keyframe():
+    app = _fake_delete_obstacle_app()
+    keep, doomed = m.Obstacle(0), m.Obstacle(1)
+    app.obstacles = [keep, doomed]
+    app.selected_obstacle = doomed
+    app.keyframes = [_kf(0, 0, {"iter": 5, "obst:0:r": 0.1, "obst:1:r": 0.5,
+                                "view:1:mode": "RGB"}),
+                     _kf(1, 10, {"obst:1:theta": 45.0, "obst:1:effect": 1})]
+    app.delete_obstacle()
+    assert app.obstacles == [keep]
+    assert app.keyframes[0].data == {"iter": 5, "obst:0:r": 0.1, "view:1:mode": "RGB"}
+    assert app.keyframes[1].data == {}
+    assert app.diff_refreshes, "the Timeline's settings list must be refreshed"
+
+
+def test_delete_obstacle_with_nothing_selected_changes_no_keyframe():
+    app = _fake_delete_obstacle_app()
+    o = m.Obstacle(0)
+    app.obstacles = [o]
+    app.keyframes = [_kf(0, 0, {"obst:0:r": 0.1})]
+    app.delete_obstacle()
+    assert app.obstacles == [o]
+    assert app.keyframes[0].data == {"obst:0:r": 0.1}
+
+
+def test_delete_view_purges_its_settings_from_every_keyframe():
+    app = _fake_view_list_app()
+    app.new_view()                       # view id 1, selected
+    app.keyframes = [_kf(0, 0, {"iter": 5, "view:0:mode": "RGB", "view:1:mode": "HSV",
+                                "view:1:chan0": ("x",), "obst:1:r": 0.2}),
+                     _kf(1, 10, {"view:1:chan2": ("y",)})]
+    app.delete_view()
+    assert app.all_view_ids() == [0]
+    assert app.keyframes[0].data == {"iter": 5, "view:0:mode": "RGB", "obst:1:r": 0.2}
+    assert app.keyframes[1].data == {}
+
+
+def test_refused_delete_of_the_only_view_purges_nothing():
+    app = _fake_view_list_app()
+    app.keyframes = [_kf(0, 0, {"view:0:mode": "RGB"})]
+    app.delete_view()
+    assert app.all_view_ids() == [0]
+    assert app.keyframes[0].data == {"view:0:mode": "RGB"}
+
+
+def test_render_keyframe_snapshot_is_unaffected_by_later_edits_to_the_keyframes():
+    """Regression guard for the immediate cleanup above: editing (or purging)
+    keyframe settings while a render is running must not change that
+    render, so the render works from independent copies."""
+    live = [_kf(0, 0, {"obst:1:r": 0.5}), _kf(1, 10, {"obst:1:r": 0.9})]
+    snap = m.snapshot_keyframes(live)
+    m.remove_keyframe_keys(live, "obst:1:")
+    live[0].data["iter"] = 99
+    assert [(k.frame_index, k.data) for k in snap] == [(0, {"obst:1:r": 0.5}),
+                                                     (10, {"obst:1:r": 0.9})]
+    assert snap[0].interp == live[0].interp and snap[0].id == live[0].id
+
+
+# --------------------------------------------------------------------------- #
+# Obstacle incoming / outgoing ray effects (replacing the single "effect")
+# --------------------------------------------------------------------------- #
+def test_new_obstacle_defaults_to_reflecting_in_and_passing_out():
+    o = m.Obstacle(0)
+    assert o.in_effect == m.OBSTACLE_EFFECT_REFLECT
+    assert o.out_effect == m.OBSTACLE_EFFECT_PASS
+    assert not hasattr(o, "effect")
+
+
+def test_effect_names_and_colors_cover_every_effect():
+    assert m.OBSTACLE_EFFECT_NAMES == ["Reflect", "Terminate", "Pass through"]
+    assert m.OBST_EFFECT_RGB == {m.OBSTACLE_EFFECT_REFLECT: (179, 229, 252),
+                                 m.OBSTACLE_EFFECT_TERMINATE: (121, 85, 72),
+                                 m.OBSTACLE_EFFECT_PASS: (0, 0, 0)}
+
+
+def test_obstacle_field_info_has_both_effects_and_no_old_effect_field():
+    fields = [f for f, _label, _is_float in m.OBST_FIELD_INFO]
+    assert "in_effect" in fields and "out_effect" in fields
+    assert "effect" not in fields
+
+
+def test_build_obstacle_arrays_effects_are_n_by_2_and_keep_pass_through_obstacles():
+    a, b, c = m.Obstacle(0), m.Obstacle(1), m.Obstacle(2)
+    a.in_effect, a.out_effect = m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_REFLECT
+    b.in_effect, b.out_effect = m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS
+    c.in_effect, c.out_effect = m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE
+    shapes, bounds, cx, cy, effects, fire = m.build_obstacle_arrays([a, b, c])
+    assert len(shapes) == len(bounds) == len(cx) == len(cy) == len(fire) == 3
+    assert effects.shape == (3, 2)
+    assert effects.tolist() == [[m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_REFLECT],
+                                [m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS],
+                                [m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE]]
+
+
+def test_build_obstacle_arrays_with_no_obstacles_gives_an_empty_n_by_2_effects_array():
+    effects = m.build_obstacle_arrays([])[4]
+    assert effects.shape == (0, 2)
+
+
+def test_resolve_obstacle_arrays_animates_nothing_but_holds_each_effect_per_keyframe():
+    o = m.Obstacle(3)
+    snap = m.snapshot_obstacle(o)
+    kf0 = m.Keyframe(0, 0, {"obst:3:in_effect": m.OBSTACLE_EFFECT_TERMINATE,
+                            "obst:3:out_effect": m.OBSTACLE_EFFECT_REFLECT})
+    kf1 = m.Keyframe(1, 10, {"obst:3:in_effect": m.OBSTACLE_EFFECT_PASS,
+                             "obst:3:out_effect": m.OBSTACLE_EFFECT_TERMINATE})
+    kfs = [kf0, kf1]
+    for frame, expect in [(0, [1, 0]), (5, [1, 0]), (10, [2, 1])]:
+        effects = m.resolve_obstacle_arrays([snap], kfs, frame)[4]
+        assert effects.tolist() == [expect], (frame, effects.tolist())
+
+
+def test_short_value_text_names_both_effects():
+    for field in ("in_effect", "out_effect"):
+        assert m.short_value_text(f"obst:1:{field}", m.OBSTACLE_EFFECT_PASS) == "Pass through"
+
+
+def _grid_around(bound_extent=1.3, n=400):
+    xs = np.linspace(-bound_extent, bound_extent, n)
+    return np.meshgrid(xs, xs[::-1])
+
+
+def test_ring_layers_for_every_shape_kind_are_disjoint_outer_outside_inner_inside():
+    gx, gy = _grid_around()
+    cases = [(m.SHAPE_ELLIPSE, m.ellipse_bound(1.6, 1.0, 20.0)),
+             (m.SHAPE_POLYGON, m.polygon_bound(5, 10.0, 0.9)),
+             (m.SHAPE_CAPSULE, m.capsule_bound(1.0, 0.4, 30.0)),
+             (m.SHAPE_LENS, m.lens_bound(1.0, 1.0, 1.0, 0.0))]
+    for shape, bound in cases:
+        outer, inner = m.ring_layer_masks(shape, bound, gx, gy, layer_px=8.0)
+        inside = m.inside_boundary_grid(gx, gy, shape, bound)
+        assert outer.any() and inner.any(), shape
+        assert not (outer & inner).any(), shape
+        assert not (outer & inside).any(), f"outer layer must lie outside (shape {shape})"
+        assert not (inner & ~inside).any(), f"inner layer must lie inside (shape {shape})"
+
+
+def test_ring_layers_have_the_requested_thickness_for_a_circle():
+    gx, gy = _grid_around(1.2, 1200)
+    step = float(gx[0, 1] - gx[0, 0])
+    layer_px = 10.0
+    outer, inner = m.ring_layer_masks(m.SHAPE_ELLIPSE, m.ellipse_bound(2.0, 2.0, 0.0),
+                                      gx, gy, layer_px=layer_px)
+    r = np.hypot(gx, gy)
+    width = layer_px * m.PIXEL
+    assert r[outer].min() >= 1.0 - 2 * step and r[outer].max() <= 1.0 + width + 2 * step
+    assert r[inner].max() <= 1.0 + 2 * step and r[inner].min() >= 1.0 - width - 2 * step
+
+
+def test_draw_obstacle_outline_paints_outer_layer_incoming_and_inner_layer_outgoing():
+    gx, gy = _grid_around(1.2, 500)
+    bound = m.ellipse_bound(1.0, 1.0, 0.0)
+    img = np.full(gx.shape + (3,), 77, dtype=np.uint8)
+    m.draw_obstacle_outline(img, m.SHAPE_ELLIPSE, bound, gx, gy,
+                            m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS)
+    r = np.hypot(gx, gy)
+    outer_px = (img == np.array(m.OBST_TERMINATE_RGB)).all(axis=-1)
+    inner_px = (img == np.array(m.OBST_PASS_RGB)).all(axis=-1)
+    assert outer_px.any() and inner_px.any()
+    assert (r[outer_px] > 0.5 - 0.01).all(), "incoming color must be the OUTER layer"
+    assert (r[inner_px] < 0.5 + 0.01).all(), "outgoing color must be the INNER layer"
+
+
+def test_obstacle_thumbnail_shows_both_effect_colors():
+    o = m.Obstacle(0)
+    o.in_effect, o.out_effect = m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_REFLECT
+    thumb = m.render_obstacle_thumbnail(o, m.THUMB_SIZE)
+    assert thumb.shape == (m.THUMB_SIZE, m.THUMB_SIZE, 3)
+    assert (thumb == np.array(m.OBST_TERMINATE_RGB)).all(axis=-1).any()
+    assert (thumb == np.array(m.OBST_REFLECT_RGB)).all(axis=-1).any()
+
+
+def test_a_pass_through_both_ways_obstacle_counts_as_pending_even_if_unchanged():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    o = m.Obstacle(0)
+    o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_PASS
+    app.obstacle_state = m.App.obstacle_state.__get__(app)
+    app.obstacle_is_pending = m.App.obstacle_is_pending.__get__(app)
+    app.gen_obstacles_by_id = {0: app.obstacle_state(o)}     # unchanged since generation
+    assert app.obstacle_is_pending(o)
+    o.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    app.gen_obstacles_by_id = {0: app.obstacle_state(o)}
+    assert not app.obstacle_is_pending(o)
+
+
+# --------------------------------------------------------------------------- #
+# "Fire rays inside": a ray starts at a point iff the point is inside ANY
+# shape (the main bounding shape, or an obstacle) that has it switched on
+# --------------------------------------------------------------------------- #
+def _emit_fixture(main_fire=True, obstacles=()):
+    """(emits(x, y) -> bool) for a unit-circle main shape plus `obstacles`, a
+    list of (cx, cy, radius, fire) circles."""
+    shape, bound = m.SHAPE_ELLIPSE, m.ellipse_bound(2.0, 2.0, 0.0)
+    obs = []
+    for i, (cx, cy, radius, fire) in enumerate(obstacles):
+        o = m.Obstacle(i)
+        o.width = o.height = 2.0 * radius
+        o.r, o.theta = 0.0, 0.0
+        o.cx, o.cy = cx, cy
+        o.fire_inside = fire
+        obs.append(o)
+    shapes, bounds, ocx, ocy, _eff, ofire = m.build_obstacle_arrays(obs)
+    ctl = m.main_ctl_array(main_fire, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT)
+    return lambda x, y: bool(m.emits_ray(x, y, shape, bound, ctl, shapes, bounds, ocx, ocy,
+                                         ofire))
+
+
+def test_main_shape_fires_rays_inside_by_default_and_not_outside():
+    emits = _emit_fixture()
+    assert emits(0.0, 0.0) and emits(0.5, -0.5)
+    assert not emits(0.9, 0.9)          # outside the unit circle
+
+
+def test_main_shape_with_fire_off_fires_nothing_on_its_own():
+    emits = _emit_fixture(main_fire=False)
+    assert not emits(0.0, 0.0)
+
+
+def test_obstacle_with_fire_on_fires_inside_it_even_if_main_is_off():
+    emits = _emit_fixture(main_fire=False, obstacles=[(0.4, 0.0, 0.2, True)])
+    assert emits(0.4, 0.0)
+    assert not emits(-0.4, 0.0)
+
+
+def test_obstacle_with_fire_off_no_longer_punches_a_hole_in_the_main_shape():
+    """Being inside a shape that has fire off makes no difference: a point
+    inside both the main shape (fire on) and a fire-off obstacle still fires."""
+    emits = _emit_fixture(obstacles=[(0.4, 0.0, 0.2, False)])
+    assert emits(0.4, 0.0)
+
+
+def test_obstacle_with_fire_off_alone_fires_nothing():
+    emits = _emit_fixture(main_fire=False, obstacles=[(0.4, 0.0, 0.2, False)])
+    assert not emits(0.4, 0.0)
+
+
+def test_obstacle_with_fire_on_can_fire_outside_the_main_shape():
+    emits = _emit_fixture(obstacles=[(1.2, 0.0, 0.2, True)])
+    assert emits(1.2, 0.0)
+    assert not emits(0.0, 1.2)
+
+
+# --------------------------------------------------------------------------- #
+# The main bounding shape's own ray behavior is an ordinary keyframeable setting
+# --------------------------------------------------------------------------- #
+def test_main_ray_behavior_defaults_preserve_the_old_behavior():
+    s = m.DEFAULT_SNAPSHOT
+    assert s.main_fire is True
+    assert s.main_in_effect == m.OBSTACLE_EFFECT_REFLECT
+    assert s.main_out_effect == m.OBSTACLE_EFFECT_REFLECT
+    assert m.settings_main_ctl(m.effective_settings(s)).tolist() == \
+        m.MAIN_CTL_DEFAULT.tolist() == [1, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT]
+
+
+def test_settings_built_the_old_way_still_get_the_default_main_ray_behavior():
+    """Settings/Snapshot gained fields with defaults, so code constructing
+    them without the new fields (like older call sites) keeps working."""
+    settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.SHAPE_ELLIPSE, (),
+                          m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_GAUSSIAN)
+    assert (settings.main_fire, settings.main_in_effect, settings.main_out_effect) == \
+        (True, m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT)
+
+
+def test_effective_settings_carries_the_main_ray_behavior():
+    snap = m.DEFAULT_SNAPSHOT._replace(main_fire=False,
+                                       main_in_effect=m.OBSTACLE_EFFECT_PASS,
+                                       main_out_effect=m.OBSTACLE_EFFECT_TERMINATE)
+    settings = m.effective_settings(snap)
+    assert settings.main_fire is False
+    assert settings.main_in_effect == m.OBSTACLE_EFFECT_PASS
+    assert settings.main_out_effect == m.OBSTACLE_EFFECT_TERMINATE
+    assert m.settings_main_ctl(settings).tolist() == [0, m.OBSTACLE_EFFECT_PASS,
+                                                      m.OBSTACLE_EFFECT_TERMINATE]
+
+
+def test_main_ray_settings_are_registered_in_the_keyframe_tables():
+    keys = {k for k, _tab, _label in m.SETTING_INFO}
+    for key in ("main_fire", "main_in_effect", "main_out_effect"):
+        assert key in keys and key in m.DEFAULT_SETTING_VALUES
+        assert key not in m.SETTING_FLOAT_KEYS, "never interpolated: held until the next keyframe"
+
+
+def test_capture_and_resolve_round_trip_the_main_ray_settings():
+    app = _make_fake_app_for_snapshot()
+    app.main_fire_var = _StubVar(False)
+    app.main_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_PASS])
+    app.main_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_TERMINATE])
+    app.deco = {"outline": _StubVar(True)}
+    app.obstacles = []
+    app.views = []
+    app.capture_all_settings = m.App.capture_all_settings.__get__(app)
+    data = app.capture_all_settings()
+    assert data["main_fire"] is False
+    assert data["main_in_effect"] == m.OBSTACLE_EFFECT_PASS
+    assert data["main_out_effect"] == m.OBSTACLE_EFFECT_TERMINATE
+    snap = app.current_snapshot()
+    assert (snap.main_fire, snap.main_in_effect, snap.main_out_effect) == \
+        (False, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE)
+
+    kf = m.Keyframe(0, 0, data, "Linear", None)
+    resolved = m.resolve_frame_settings([kf], 0).snapshot
+    assert (resolved.main_fire, resolved.main_in_effect, resolved.main_out_effect) == \
+        (False, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE)
+
+
+def test_main_ray_settings_hold_between_keyframes_rather_than_blend():
+    kf0 = m.Keyframe(0, 0, {"main_fire": True, "main_out_effect": m.OBSTACLE_EFFECT_REFLECT})
+    kf1 = m.Keyframe(1, 10, {"main_fire": False, "main_out_effect": m.OBSTACLE_EFFECT_PASS})
+    mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
+    assert mid.main_fire is True and mid.main_out_effect == m.OBSTACLE_EFFECT_REFLECT
+    end = m.resolve_frame_settings([kf0, kf1], 10).snapshot
+    assert end.main_fire is False and end.main_out_effect == m.OBSTACLE_EFFECT_PASS
+
+
+def test_short_value_text_for_the_main_ray_settings():
+    assert m.short_value_text("main_fire", True) == "On"
+    assert m.short_value_text("main_fire", False) == "Off"
+    assert m.short_value_text("main_in_effect", m.OBSTACLE_EFFECT_PASS) == "Pass through"
+    assert m.short_value_text("main_out_effect", m.OBSTACLE_EFFECT_TERMINATE) == "Terminate"
+
+
+# --------------------------------------------------------------------------- #
+# Ray effects on crossing an edge (incoming / outgoing: Reflect, Terminate or
+# Pass through) and rays that escape (nothing left to hit)
+# --------------------------------------------------------------------------- #
+R, T, P = m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS
+UNIT_CIRCLE = m.ellipse_bound(2.0, 2.0, 0.0)
+
+
+@m.njit
+def _seed_kernel_rng(seed):
+    """Seeds the RNG the compiled kernels use - which is NOT the one
+    np.random.seed() seeds from ordinary Python code."""
+    np.random.seed(seed)
+
+
+def _circle_obstacle(cx, cy, radius, in_effect, out_effect, fire=False, id_=0):
+    o = m.Obstacle(id_)
+    o.width = o.height = 2.0 * radius
+    o.r, o.theta, o.cx, o.cy = 0.0, 0.0, cx, cy
+    o.in_effect, o.out_effect, o.fire_inside = in_effect, out_effect, fire
+    return o
+
+
+def _kernel_trace(x0, y0, angle_deg, obstacles=(), main=(R, R), main_fire=True,
+                  main_shape=None, max_iter=12, max_dist=0.0, seg_mult=1.0):
+    """One ray through the real trace_path, heading `angle_deg` (fuzzing is
+    switched on with all jitter zero purely to set the direction, and is
+    otherwise the identity). Returns (points, kinds, term, raw)."""
+    shape, bound = main_shape or (m.SHAPE_ELLIPSE, UNIT_CIRCLE)
+    arrays = m.build_obstacle_arrays(list(obstacles))
+    fz = m.fuzz_array(m.FuzzParams(True, angle_deg, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0))
+    ctl = m.main_ctl_array(main_fire, main[0], main[1])
+    pts = np.empty((max_iter + 2, 2))
+    kinds = np.empty(max_iter + 2)
+    raw = np.empty(m.N_RAW)
+    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(max_dist), shape,
+                              bound, ctl, seg_mult, fz, *arrays[:5], raw)
+    return pts[:npts].copy(), kinds[:npts].copy(), term, raw
+
+
+def test_a_trapped_obstacle_keeps_its_ray_inside_forever():
+    """Reflect both ways = a container: the ray started inside never leaves."""
+    box = _circle_obstacle(0.2, 0.0, 0.5, R, R, fire=True)
+    pts, _k, term, raw = _kernel_trace(0.2, -0.3, 0.0, [box], main=(P, P), main_fire=False,
+                                       max_iter=40)
+    assert term in (m.TERM_ITER, m.TERM_CONFINED)   # its own segments may confine it
+    assert int(raw[m.RAW_BOUNCES]) >= 8
+    assert (np.hypot(pts[:, 0] - 0.2, pts[:, 1]) <= 0.5 + 1e-9).all()
+    assert np.isclose(np.hypot(pts[1, 0] - 0.2, pts[1, 1]), 0.5)
+
+
+def test_an_obstacle_reflecting_both_ways_behaves_exactly_like_the_bounding_shape():
+    """The differential test for the whole design: for every shape kind, a
+    Reflect/Reflect obstacle of that shape (with the bounding shape itself
+    switched to pass-through and fire off) traces every ray identically to
+    the classic bounding shape with no obstacle - including with fuzzing and
+    a segment length multiplier."""
+    cases = [(m.SHAPE_ELLIPSE, m.ellipse_bound(1.7, 1.1, 25.0)),
+             (m.SHAPE_POLYGON, m.polygon_bound(5, 12.0)),
+             (m.SHAPE_MOSS_EGG, m.moss_egg_bound(90.0, 1.0, 10.0)),
+             (m.SHAPE_SECTOR, m.sector_bound(1.0, 100.0, 15.0)),
+             (m.SHAPE_LENS, m.lens_bound(1.0, 1.0, 1.0, 20.0)),
+             (m.SHAPE_CAPSULE, m.capsule_bound(1.0, 0.5, 30.0))]
+    fuzz = m.fuzz_array(m.FuzzParams(True, 45.0, 3.0, 2.0, 5.0, 1.1, 1.0, 4.0, 0.9, 7))
+    rng = np.random.RandomState(3)
+    for shape, bound in cases:
+        obst_shapes = np.array([shape], dtype=np.int64)
+        obst_bounds = np.zeros((1, m.OBST_BOUND_LEN))
+        obst_bounds[0, :len(bound)] = bound
+        zero, one_eff = np.zeros(1), np.array([[R, R]], dtype=np.int64)
+        classic_ctl = m.main_ctl_array(True, R, R)
+        absent_ctl = m.main_ctl_array(False, P, P)
+        empty = m.build_obstacle_arrays([])
+        checked = 0
+        for _ in range(60):
+            x, y = rng.uniform(-1, 1, 2)
+            if not m.inside_boundary(x, y, shape, bound):
+                continue
+            for seg_mult, fz in ((1.0, m.fuzz_array(m.DEFAULT_FUZZ)), (0.6, fuzz)):
+                results = []
+                for ctl, arrs in ((classic_ctl, empty[:5]),
+                                  (absent_ctl, (obst_shapes, obst_bounds, zero, zero, one_eff))):
+                    m_shape, m_bound = (shape, bound) if ctl is classic_ctl else \
+                        (m.SHAPE_ELLIPSE, UNIT_CIRCLE)
+                    pts = np.empty((32, 2))
+                    kinds = np.empty(32)
+                    raw = np.empty(m.N_RAW)
+                    _seed_kernel_rng(0)
+                    term, n = m.trace_path(x, y, pts, kinds, 30, m.effective_dist(0.0), m_shape,
+                                           m_bound, ctl, seg_mult, fz, *arrs, raw)
+                    results.append((term, n, pts[:n].copy(), kinds[:n].copy()))
+                (t1, n1, p1, k1), (t2, n2, p2, k2) = results
+                assert (t1, n1) == (t2, n2), (shape, x, y, seg_mult)
+                assert np.allclose(p1, p2, atol=1e-9) and np.allclose(k1, k2), (shape, x, y)
+                checked += 1
+        assert checked > 20, shape
+
+
+def test_an_obstacle_passing_rays_through_both_ways_is_as_if_it_were_not_there():
+    ghost = _circle_obstacle(0.3, 0.1, 0.3, P, P, fire=False)
+    with_it = _kernel_trace(-0.6, -0.4, 30.0, [ghost])
+    without = _kernel_trace(-0.6, -0.4, 30.0)
+    assert with_it[2] == without[2]
+    assert np.allclose(with_it[0], without[0]) and np.allclose(with_it[1], without[1])
+
+
+def test_enter_but_never_exit_traps_a_ray_that_started_outside():
+    """Incoming Pass through, outgoing Reflect: rays enter freely, then stay."""
+    trap = _circle_obstacle(0.5, 0.0, 0.3, P, R)
+    pts, _k, term, raw = _kernel_trace(0.6, -0.7, 90.0, [trap], max_iter=30)
+    wall_y = np.sqrt(0.09 - 0.01)
+    # the entry crossing isn't a bounce and doesn't shorten the segment: the
+    # first recorded point is the far wall, reached after crossing the trap
+    assert np.allclose(pts[1], (0.6, wall_y))
+    assert (np.hypot(pts[1:, 0] - 0.5, pts[1:, 1]) <= 0.3 + 1e-9).all()
+    assert term in (m.TERM_ITER, m.TERM_CONFINED)   # its own segments may confine it
+    assert int(raw[m.RAW_BOUNCES]) >= 5
+
+
+def test_incoming_terminate_stops_a_ray_at_the_edge_it_meets_from_outside():
+    stop = _circle_obstacle(0.5, 0.0, 0.3, T, P)
+    pts, kinds, term, _raw = _kernel_trace(0.6, -0.7, 90.0, [stop])
+    assert term == m.TERM_OBSTACLE
+    assert np.allclose(pts[-1], (0.6, -np.sqrt(0.09 - 0.01)))
+    assert kinds[-1] == m.KIND_OBSTACLE_TERM
+
+
+def test_outgoing_terminate_stops_a_ray_fired_inside_at_the_edge_it_reaches():
+    stop = _circle_obstacle(0.5, 0.0, 0.3, R, T, fire=True)
+    pts, kinds, term, _raw = _kernel_trace(0.6, -0.1, 90.0, [stop], main=(P, P), main_fire=False)
+    assert term == m.TERM_OBSTACLE
+    assert np.allclose(pts[-1], (0.6, np.sqrt(0.09 - 0.01)))
+    assert kinds[-1] == m.KIND_OBSTACLE_TERM
+
+
+def test_outgoing_pass_through_lets_a_ray_fired_inside_carry_on_to_the_bounding_shape():
+    hole = _circle_obstacle(0.0, 0.0, 0.3, R, P, fire=True)
+    pts, _k, _term, _raw = _kernel_trace(0.1, 0.2, 0.0, [hole], main_fire=False)
+    assert np.isclose(np.hypot(*pts[1]), 1.0), "first bounce is on the bounding shape"
+
+
+def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_image_edge():
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P))
+    assert term == m.TERM_ESCAPED
+    assert len(pts) == 2 and int(raw[m.RAW_BOUNCES]) == 0
+    assert np.allclose(pts[-1], (1.0, -0.5)), "ends where it leaves the [-1, 1] square"
+    assert kinds[-1] == m.KIND_ESCAPED
+
+
+def test_a_ray_escapes_after_bouncing_when_it_finally_meets_nothing():
+    wall = _circle_obstacle(0.0, 0.0, 0.3, R, P, fire=False)
+    # leaves the (pass-through) bounding shape... bounces off the obstacle first
+    pts, _k, term, raw = _kernel_trace(-0.9, 0.2, 0.0, [wall], main=(R, P))
+    assert term == m.TERM_ESCAPED
+    assert int(raw[m.RAW_BOUNCES]) == 1
+    assert abs(pts[-1, 0]) == 1.0 or abs(pts[-1, 1]) == 1.0
+
+
+def test_an_obstacle_outside_the_bounding_shape_can_fire_rays_that_meet_it_from_outside():
+    far = _circle_obstacle(1.3, 0.3, 0.2, R, P, fire=True)
+    pts, _k, term, _raw = _kernel_trace(1.3, 0.3, 180.0, [far], max_iter=4)
+    hit = (np.sqrt(1.0 - 0.09), 0.3)
+    assert np.allclose(pts[1], hit), "meets the bounding shape's OUTSIDE and reflects"
+    assert not np.allclose(pts[2], (0.0, 0.0))
+
+
+def test_a_ray_can_pass_into_the_bounding_shape_from_outside_and_cross_it():
+    far = _circle_obstacle(1.3, 0.3, 0.2, R, P, fire=True)
+    pts, _k, _term, _raw = _kernel_trace(1.3, 0.3, 180.0, [far], main=(P, R), max_iter=3)
+    assert np.allclose(pts[1], (-np.sqrt(1.0 - 0.09), 0.3)), "reflects off the FAR inner wall"
+
+
+def test_a_distance_limit_cuts_an_escaping_ray_before_the_image_edge():
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P), max_dist=0.4)
+    assert term == m.TERM_DIST
+    assert np.allclose(pts[-1], (0.4, -0.5))
+    assert np.isclose(raw[m.RAW_LAST_FULL], 1.0), "the uncut segment reached the image edge"
+
+
+def test_the_segment_multiplier_treats_pass_through_crossings_as_part_of_one_segment():
+    """With a multiplier, the recorded point is pulled back along the WHOLE
+    segment from its start - past the crossings in it - and the ray's inside/
+    outside state must follow, or it would carry on as if still inside a
+    shape it was pulled back out of."""
+    trap = _circle_obstacle(0.5, 0.0, 0.3, P, R)
+    full = _kernel_trace(0.6, -0.7, 90.0, [trap], max_iter=3)[0]
+    pulled = _kernel_trace(0.6, -0.7, 90.0, [trap], max_iter=3, seg_mult=0.1)[0]
+    total = full[1, 1] - (-0.7)
+    assert np.allclose(pulled[1], (0.6, -0.7 + 0.1 * total)), "pulled back along the whole segment"
+    # It is now back OUTSIDE the trap, so its next segment must run to the
+    # bounding shape - not off an edge of a shape it was pulled back out of.
+    # (Every recorded point is pulled back to 10% of its true hit, so undo that
+    # to find where this segment really ended.)
+    true_hit = pulled[1] + (pulled[2] - pulled[1]) / 0.1
+    assert np.isclose(np.hypot(*true_hit), 1.0), true_hit
+
+
+def test_coincident_pass_through_walls_cannot_hang_a_ray():
+    a = _circle_obstacle(0.5, 0.0, 0.3, P, R, id_=0)
+    b = _circle_obstacle(0.5, 0.0, 0.3, P, R, id_=1)
+    _pts, _k, term, _raw = _kernel_trace(0.6, -0.7, 90.0, [a, b], max_iter=10)
+    assert term in (m.TERM_ITER, m.TERM_CONFINED, m.TERM_PERPENDICULAR)
+
+
+def test_termination_tables_cover_escaped_and_are_evenly_spaced():
+    assert m.TERM_ESCAPED in m.TERM_CODES
+    order = [m.TERM_ITER, m.TERM_CONFINED, m.TERM_DIST, m.TERM_OBSTACLE,
+             m.TERM_PERPENDICULAR, m.TERM_ESCAPED]
+    assert [m.TERM_STAT_VALUE[t] for t in order] == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    assert m.TERM_ESCAPED in m.TERM_END_COLOR and m.TERM_ESCAPED in m.TERM_OUTCOME_TEXT
+    assert m.KIND_ESCAPED in m.KIND_COLOR
+
+
+def test_stats_and_points_are_sane_for_an_escaped_ray():
+    pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, main=(R, P))
+    out = np.empty(m.N_STATS)
+    sp = np.empty((m.N_POINTS, 2))
+    m.compute_stats(pts, len(pts), raw, 12, 1.0, out)
+    m.compute_points(pts, len(pts), raw, kinds, sp)
+    assert out[m.ST_TERMINATION] == 1.0
+    assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
+    assert np.allclose(sp[m.POINT_END], (1.0, -0.5)) and np.allclose(sp[m.POINT_START], (0.0, -0.5))
+    assert out[m.ST_BOUNCES] == 0.0
+
+
+def test_every_termination_reason_maps_to_its_own_stat_value_in_compute_stats():
+    seen = {}
+    for term, value in m.TERM_STAT_VALUE.items():
+        pts = np.array([[0.0, 0.0], [0.5, 0.1], [0.6, 0.3]])
+        raw = np.zeros(m.N_RAW)
+        raw[m.RAW_TERM] = term
+        raw[m.RAW_BOUNCES] = 1
+        out = np.empty(m.N_STATS)
+        m.compute_stats(pts, 3, raw, 10, 1.0, out)
+        seen[term] = out[m.ST_TERMINATION]
+        assert np.isclose(out[m.ST_TERMINATION], value), term
+    assert len(set(np.round(list(seen.values()), 6))) == len(m.TERM_CODES)
+
+
+# --------------------------------------------------------------------------- #
+# The new ray behavior end to end: the real render paths, not just trace_path
+# --------------------------------------------------------------------------- #
+def _terminated_view(**_):
+    """A view whose channel 0 is the termination-reason metric and whose other
+    channels are constant 0: a pixel's red value then says why its ray stopped
+    (255 = escaped)."""
+    v = m.ViewConfig(0)
+    v.kinds[0] = m.KIND_OTHER
+    v.other_metric[0] = m.ST_TERMINATION
+    v.chan_src[1] = v.chan_src[2] = m.CHAN_SRC_CONSTANT
+    v.constant_choice[1] = v.constant_choice[2] = m.NONE_ZERO
+    return _view_settings_from_config(v)
+
+
+def test_render_full_image_colors_escaped_rays_when_the_bounding_shape_lets_rays_out():
+    app = _fake_render_app()
+    values = dict(m.DEFAULT_SETTING_VALUES, main_out_effect=P)
+    data = m.resolve_frame_settings([m.Keyframe(1, 0, values, "Linear", None)], 0)
+    img = app.render_full_image(data, 40, 40, _empty_obst_arrays(), (_terminated_view(),))
+    assert tuple(img[20, 20]) == (255, 0, 0), "escaped rays are termination value 1.0"
+    assert tuple(img[0, 0]) == tuple(m.BACKGROUND), "outside the shape nothing fires"
+
+
+def test_render_full_image_default_bounding_shape_produces_no_escaped_rays():
+    app = _fake_render_app()
+    data = m.resolve_frame_settings(
+        [m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)], 0)
+    img = app.render_full_image(data, 40, 40, _empty_obst_arrays(), (_terminated_view(),))
+    inside = img[20, 20]
+    assert inside[0] != 255
+
+
+def test_render_rows_fires_only_from_shapes_with_fire_on():
+    """The real (parallel) render kernel: with the bounding shape's fire off, only
+    pixels inside an obstacle with fire on emit a ray."""
+    obstacle = _circle_obstacle(0.3, 0.0, 0.25, R, R, fire=True)
+    arrays = m.build_obstacle_arrays([obstacle])
+    ctl = m.main_ctl_array(False, R, R)
+    stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
+    points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
+    m.render_rows(stats, points, status, 0, m.SIZE, 8, m.effective_dist(0.0), m.SHAPE_ELLIPSE,
+                  UNIT_CIRCLE, ctl, 1.0, m.fuzz_array(m.DEFAULT_FUZZ), *arrays, 0)
+    ys, xs = np.nonzero(status)
+    wx = (xs + 0.5) * m.PIXEL - 1.0
+    wy = 1.0 - (ys + 0.5) * m.PIXEL
+    assert len(xs) > 1000
+    assert (np.hypot(wx - 0.3, wy) <= 0.25 + m.PIXEL).all(), "only inside the obstacle"
+    inside_count = int((np.hypot(*np.meshgrid((np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0 - 0.3,
+                                              1.0 - (np.arange(m.SIZE) + 0.5) * m.PIXEL)) <= 0.25
+                        ).sum())
+    assert abs(len(xs) - inside_count) <= 4, "and from essentially every pixel inside it"
+
+
+def test_buddha_multi_scatter_includes_the_escaping_segment():
+    counts = np.zeros((m.SIZE, m.SIZE))
+    ctl = m.main_ctl_array(True, R, P)              # rays leave the bounding shape
+    m.scatter_multi_buddha(250, 252, 8, m.effective_dist(0.0), m.SHAPE_ELLIPSE, UNIT_CIRCLE,
+                           ctl, 1.0, m.fuzz_array(m.DEFAULT_FUZZ),
+                           *m.build_obstacle_arrays([]), 0, False, True, False, False, counts)
+    # Nothing to bounce off, so every firing ray is a single segment (start to
+    # the image edge) with exactly one midpoint: the total is the firing pixels.
+    xs = (np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0
+    gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * m.PIXEL)
+    assert counts.sum() == int((np.hypot(gx, gy) < 1.0).sum())
+
+
+def test_obstacle_effect_dropdowns_write_both_effects_to_the_selected_obstacle():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app._obst_editor_loading = False
+    app.selected_obstacle = m.Obstacle(0)
+    app.obs_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[T])
+    app.obs_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[R])
+    app.obs_in_effect_combo = _StubWidget()
+    app.obs_out_effect_combo = _StubWidget()
+    app.rebuild_obstacle_list = lambda: None
+    changed = []
+    app.on_shape_param_changed = lambda: changed.append(1)
+    app.on_obstacle_effect_changed = m.App.on_obstacle_effect_changed.__get__(app)
+    app.on_obstacle_effect_changed()
+    assert app.selected_obstacle.in_effect == T and app.selected_obstacle.out_effect == R
+    assert changed
+
+
+def test_simulation_info_text_mentions_bounding_shape_ray_behavior_only_when_not_default():
+    default = m.simulation_info_lines(m.effective_settings(m.DEFAULT_SNAPSHOT))
+    assert not any(line.startswith("Bound rays") for line in default)
+    custom = m.effective_settings(m.DEFAULT_SNAPSHOT._replace(
+        main_fire=False, main_in_effect=P, main_out_effect=T))
+    lines = m.simulation_info_lines(custom)
+    at = lines.index("Bound rays:")
+    assert lines[at + 1:at + 4] == ["  Fire:Off", "  In:Pass through", "  Out:Terminate"]
+
+
+def test_every_glyph_in_the_new_info_text_exists_in_the_pixel_font():
+    for text in ("Bound rays:", "  Fire:On", "  Fire:Off", "  In:Reflect", "  In:Pass through",
+                 "  Out:Terminate"):
+        missing = [c for c in text if c not in m.FONT_5X7]
+        assert not missing, (text, missing)
+
+
+# --------------------------------------------------------------------------- #
+# Loop-area metric: the first self-loop's area divided by the area of a circle
+# with the same perimeter as the loop (the isoperimetric ratio), so it never
+# depends on any shape's size and 1 means a perfect circle
+# --------------------------------------------------------------------------- #
+def _loop_stats(loop_vertices, seg_mult=1.0):
+    """compute_stats() for a synthetic path: a start point, then `loop_vertices`
+    as bounce points 1..n whose polygon is the first self-loop (self-touch at
+    the last one, hitting segment 0)."""
+    loop = np.asarray(loop_vertices, dtype=float)
+    pts = np.vstack([[-5.0, -5.0], loop])
+    raw = np.zeros(m.N_RAW)
+    raw[m.RAW_BOUNCES] = len(loop)
+    raw[m.RAW_SELF_K] = 0
+    raw[m.RAW_SELF_M] = len(loop)
+    raw[m.RAW_TERM] = m.TERM_ITER
+    out = np.empty(m.N_STATS)
+    m.compute_stats(pts, len(pts), raw, 20, seg_mult, out)
+    return out[m.ST_LOOP_AREA], raw[m.RAW_AREA]
+
+
+def _regular_polygon(n, radius=1.0):
+    ang = 2.0 * np.pi * np.arange(n) / n
+    return np.column_stack((radius * np.cos(ang), radius * np.sin(ang)))
+
+
+def test_loop_area_metric_is_the_isoperimetric_ratio_for_regular_polygons():
+    for n in (3, 4, 6, 12, 60):
+        ratio, area = _loop_stats(_regular_polygon(n, 0.4))
+        expected = np.pi / (n * np.tan(np.pi / n))
+        assert np.isclose(ratio, expected, atol=1e-6), (n, ratio, expected)
+        assert area > 0
+    assert np.isclose(_loop_stats(_regular_polygon(4, 0.3))[0], np.pi / 4)   # a square
+
+
+def test_loop_area_metric_does_not_depend_on_the_loops_size():
+    small = _loop_stats(_regular_polygon(6, 0.05))[0]
+    large = _loop_stats(_regular_polygon(6, 0.9))[0]
+    assert np.isclose(small, large, atol=1e-6)
+
+
+def test_loop_area_metric_is_lower_for_a_thin_loop_than_a_round_one():
+    thin = _loop_stats([(0.0, 0.0), (0.9, 0.05), (0.9, -0.05), (0.0, -0.1)])[0]
+    round_ = _loop_stats(_regular_polygon(24, 0.4))[0]
+    assert 0.0 < thin < 0.5 < round_ <= 1.0
+
+
+def test_loop_area_metric_stays_within_zero_and_one_even_for_a_self_crossing_loop():
+    bowtie = _loop_stats([(0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (0.0, 1.0)])[0]
+    assert 0.0 <= bowtie <= 1.0
+
+
+def test_loop_area_metric_is_zero_when_the_ray_never_touches_itself():
+    pts = np.array([[0.0, 0.0], [0.5, 0.1], [0.6, 0.3]])
+    raw = np.zeros(m.N_RAW)
+    raw[m.RAW_SELF_K] = -1
+    raw[m.RAW_BOUNCES] = 1
+    raw[m.RAW_TERM] = m.TERM_ITER
+    out = np.empty(m.N_STATS)
+    m.compute_stats(pts, 3, raw, 10, 1.0, out)
+    assert out[m.ST_LOOP_AREA] == 0.0
+
+
+def test_loop_area_metric_is_zero_not_nan_for_a_zero_length_loop():
+    ratio, _area = _loop_stats([(0.2, 0.2), (0.2, 0.2), (0.2, 0.2)])
+    assert ratio == 0.0
+
+
+def test_loop_area_metric_is_still_zero_when_the_segment_multiplier_is_active():
+    assert _loop_stats(_regular_polygon(6, 0.4), seg_mult=0.5)[0] == 0.0
+
+
+def test_loop_area_metric_is_described_as_relative_to_a_same_perimeter_circle():
+    label = m.STAT_LABELS[m.ST_LOOP_AREA].lower()
+    assert "circle" in label and "boundary" not in label
+    assert "perimeter" in m.STAT_DESCRIPTIONS[m.ST_LOOP_AREA]
+
+
+# --------------------------------------------------------------------------- #
+# Tabs whose contents can outgrow them (depending on font size and display
+# scaling) scroll instead of squeezing their contents
+# --------------------------------------------------------------------------- #
+def test_make_scrollable_tab_returns_a_canvas_and_a_separate_inner_frame():
+    tab = object.__new__(m.tk.Frame)
+    canvas, inner = m.make_scrollable_tab(tab)
+    assert canvas is not None and inner is not None
+    assert canvas is not inner, "widgets go in the inner frame, not the canvas itself"
+
+
+def test_the_simulation_and_obstacles_tabs_are_built_inside_scrollable_frames():
+    import inspect
+    source = inspect.getsource(m.App.build_controls_quadrant)
+    assert "self.sim_canvas, sim_inner = make_scrollable_tab(sim_tab)" in source
+    assert "self.build_limits_controls(sim_inner)" in source
+    assert "self.obst_canvas, obst_inner = make_scrollable_tab(obst_tab)" in source
+    assert "self.build_obstacles_controls(obst_inner)" in source
 
 
 # --------------------------------------------------------------------------- #
