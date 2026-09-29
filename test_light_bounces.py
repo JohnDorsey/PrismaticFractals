@@ -1255,8 +1255,8 @@ def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_inclu
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_script_dir = m.SCRIPT_DIR
-    m.SCRIPT_DIR = tmpdir
+    orig_export_dir = m.EXPORT_DIR
+    m.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1274,7 +1274,7 @@ def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_inclu
         assert img_two_views.shape == (20, 40, 3), \
             f"adding a second view should double the export width, got {img_two_views.shape}"
     finally:
-        m.SCRIPT_DIR = orig_script_dir
+        m.EXPORT_DIR = orig_export_dir
 
 
 def test_include_all_views_defaults_to_true():
@@ -1304,8 +1304,8 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
 
     app.new_view()
     tmpdir = tempfile.mkdtemp()
-    orig_script_dir = m.SCRIPT_DIR
-    m.SCRIPT_DIR = tmpdir
+    orig_export_dir = m.EXPORT_DIR
+    m.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1314,7 +1314,7 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
         assert img.shape == (20, 20, 3), \
             f"with 'Include all views' off, export must stay single-width, got {img.shape}"
     finally:
-        m.SCRIPT_DIR = orig_script_dir
+        m.EXPORT_DIR = orig_export_dir
 
 
 def test_video_frame_render_widens_when_a_second_view_is_added_and_included():
@@ -1887,8 +1887,8 @@ def test_save_new_image_draws_coloration_info_when_enabled():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_script_dir = m.SCRIPT_DIR
-    m.SCRIPT_DIR = tmpdir
+    orig_export_dir = m.EXPORT_DIR
+    m.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1896,7 +1896,7 @@ def test_save_new_image_draws_coloration_info_when_enabled():
         img = m.read_png(os.path.join(tmpdir, files[0]))
         assert (img == m.COLORATION_INFO_BG).all(axis=-1).any()
     finally:
-        m.SCRIPT_DIR = orig_script_dir
+        m.EXPORT_DIR = orig_export_dir
 
 
 def test_video_render_worker_draws_coloration_info_when_enabled():
@@ -2771,8 +2771,8 @@ def test_save_new_image_rounds_a_non_multiple_of_4_resolution():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_script_dir = m.SCRIPT_DIR
-    m.SCRIPT_DIR = tmpdir
+    orig_export_dir = m.EXPORT_DIR
+    m.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -2781,7 +2781,7 @@ def test_save_new_image_rounds_a_non_multiple_of_4_resolution():
         assert img.shape == (24, 20, 3), \
             f"21x22 should round to 20x24, got {img.shape}"
     finally:
-        m.SCRIPT_DIR = orig_script_dir
+        m.EXPORT_DIR = orig_export_dir
 
 
 def test_read_render_settings_rounds_a_non_multiple_of_4_resolution():
@@ -3079,8 +3079,8 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_script_dir = m.SCRIPT_DIR
-    m.SCRIPT_DIR = tmpdir
+    orig_export_dir = m.EXPORT_DIR
+    m.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -3088,7 +3088,234 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
         img = m.read_png(os.path.join(tmpdir, files[0]))
         assert img.shape == (40 + 40 // 4, 40, 3)
     finally:
-        m.SCRIPT_DIR = orig_script_dir
+        m.EXPORT_DIR = orig_export_dir
+
+
+# --------------------------------------------------------------------------- #
+# Startup screenshot (development aid): once per launch, and only if a dev/
+# folder exists next to the program, the app grabs a picture of its own
+# window into dev/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss.png
+# --------------------------------------------------------------------------- #
+class _FakeGrabbedImage:
+    def __init__(self):
+        self.saved_to = None
+
+    def save(self, path):
+        self.saved_to = path
+        with open(path, "wb") as f:
+            f.write(b"fake png bytes")
+
+
+class _FakeImageGrab:
+    def __init__(self):
+        self.bboxes = []
+        self.images = []
+
+    def grab(self, bbox=None):
+        self.bboxes.append(bbox)
+        img = _FakeGrabbedImage()
+        self.images.append(img)
+        return img
+
+
+class _FakeGeometryRoot:
+    """winfo_* values a real root would report: window at (100, 50), 1500x900."""
+    updates = 0
+
+    def update(self):
+        self.updates += 1
+
+    def winfo_rootx(self):
+        return 100
+
+    def winfo_rooty(self):
+        return 50
+
+    def winfo_width(self):
+        return 1500
+
+    def winfo_height(self):
+        return 900
+
+
+class _ScreenshotEnv:
+    """Points m.DEV_DIR at a scratch directory (created only if
+    `with_dev_dir`) and m.ImageGrab at a fake (or None), restoring both."""
+    def __init__(self, with_dev_dir=True, grab="fake"):
+        self.with_dev_dir = with_dev_dir
+        self.grab = _FakeImageGrab() if grab == "fake" else grab
+
+    def __enter__(self):
+        self.parent = tempfile.mkdtemp()
+        self.dev_dir = os.path.join(self.parent, "dev")
+        if self.with_dev_dir:
+            os.makedirs(self.dev_dir)
+        self.orig_dev, self.orig_grab = m.DEV_DIR, m.ImageGrab
+        m.DEV_DIR, m.ImageGrab = self.dev_dir, self.grab
+        return self
+
+    def __exit__(self, *exc):
+        m.DEV_DIR, m.ImageGrab = self.orig_dev, self.orig_grab
+
+
+def test_dev_dir_is_dev_next_to_the_program():
+    assert m.DEV_DIR == os.path.join(m.SCRIPT_DIR, "dev")
+
+
+def test_screenshot_is_skipped_without_a_dev_dir():
+    with _ScreenshotEnv(with_dev_dir=False) as env:
+        assert m.take_ui_screenshot(_FakeGeometryRoot()) is None
+        assert env.grab.bboxes == [], "must not even attempt a grab"
+        assert not os.path.exists(env.dev_dir), "must not create dev/ itself"
+
+
+def test_screenshot_is_skipped_without_pillow():
+    with _ScreenshotEnv(grab=None) as env:
+        assert m.take_ui_screenshot(_FakeGeometryRoot()) is None
+        assert not os.path.exists(os.path.join(env.dev_dir, "screenshots"))
+
+
+def test_screenshot_grabs_the_windows_own_rectangle_and_saves_it_named_by_version():
+    import re
+    root = _FakeGeometryRoot()
+    with _ScreenshotEnv() as env:
+        path = m.take_ui_screenshot(root)
+        shots_dir = os.path.join(env.dev_dir, "screenshots")
+        assert os.path.dirname(path) == shots_dir
+        assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}\.png",
+                            os.path.basename(path)), os.path.basename(path)
+        assert os.path.isfile(path)
+        assert env.grab.bboxes == [(100, 50, 1600, 950)]
+        assert env.grab.images[0].saved_to == path
+    assert root.updates >= 1, "must let Tk finish drawing before grabbing"
+
+
+def test_startup_screenshot_happens_once_per_launch():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.root = _FakeGeometryRoot()
+    app.take_startup_screenshot = m.App.take_startup_screenshot.__get__(app)
+    with _ScreenshotEnv() as env:
+        app.take_startup_screenshot()
+        app.take_startup_screenshot()
+        assert len(env.grab.bboxes) == 1
+
+
+def test_startup_screenshot_failure_never_breaks_the_app():
+    class BoomGrab:
+        def grab(self, bbox=None):
+            raise OSError("screen unavailable")
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.root = _FakeGeometryRoot()
+    app.take_startup_screenshot = m.App.take_startup_screenshot.__get__(app)
+    with _ScreenshotEnv(grab=BoomGrab()):
+        app.take_startup_screenshot()      # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Output locations: everything exported goes to exports/ next to the program,
+# and the video frames' TEMP folder lives inside it
+# --------------------------------------------------------------------------- #
+def test_export_dir_is_exports_next_to_the_program_and_temp_is_inside_it():
+    assert m.EXPORT_DIR == os.path.join(m.SCRIPT_DIR, "exports")
+    assert m.TEMP_DIR == os.path.join(m.EXPORT_DIR, "TEMP")
+
+
+def test_ensure_export_dir_creates_a_missing_directory_and_returns_it():
+    parent = tempfile.mkdtemp()
+    target = os.path.join(parent, "exports")
+    orig = m.EXPORT_DIR
+    m.EXPORT_DIR = target
+    try:
+        assert not os.path.exists(target)
+        assert m.ensure_export_dir() == target
+        assert os.path.isdir(target)
+        assert m.ensure_export_dir() == target      # already existing is fine
+    finally:
+        m.EXPORT_DIR = orig
+
+
+def test_export_writes_the_current_figure_into_the_export_dir():
+    """Regression test for the exports/ move: "Export" (no dialog) used to
+    write next to the program itself. Also confirms the directory is created
+    if it doesn't exist yet."""
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
+    app.save_format_var = _StubVar("png")
+    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    written = []
+    app._write = lambda path: written.append(path)
+    app.save = m.App.save.__get__(app)
+    parent = tempfile.mkdtemp()
+    target = os.path.join(parent, "exports")
+    orig = m.EXPORT_DIR
+    m.EXPORT_DIR = target
+    try:
+        app.save()
+    finally:
+        m.EXPORT_DIR = orig
+    assert len(written) == 1
+    assert os.path.dirname(written[0]) == target
+    assert os.path.basename(written[0]).endswith(".png")
+    assert os.path.isdir(target)
+
+
+def test_export_as_dialog_opens_in_the_export_dir():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.root = None
+    app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
+    app.save_format_var = _StubVar("png")
+    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app._write = lambda path: None
+    app.save_as = m.App.save_as.__get__(app)
+    seen = {}
+    orig_dialog = m.filedialog.asksaveasfilename
+    m.filedialog.asksaveasfilename = lambda *a, **k: seen.update(k) or ""
+    parent = tempfile.mkdtemp()
+    target = os.path.join(parent, "exports")
+    orig = m.EXPORT_DIR
+    m.EXPORT_DIR = target
+    try:
+        app.save_as()
+    finally:
+        m.EXPORT_DIR = orig
+        m.filedialog.asksaveasfilename = orig_dialog
+    assert seen["initialdir"] == target
+    assert os.path.isdir(target)
+
+
+def test_new_image_export_creates_the_export_dir_if_missing():
+    app = _fake_export_app()
+    app.color_info_location_var = _StubVar("None")
+    app.save_new_w_var = _StubVar("20")
+    app.save_new_h_var = _StubVar("20")
+    app.save_format_var = _StubVar("png")
+    app.save_jxl_mode_var = _StubVar("Lossless")
+    app.save_jxl_quality_scale = _StubVar(90)
+    app.save_btn = _StubWidget()
+    app.save_as_btn = _StubWidget()
+    app.save_new_image = m.App.save_new_image.__get__(app)
+    app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)
+    app._save_new_image_done = m.App._save_new_image_done.__get__(app)
+    app._save_new_image_failed = m.App._save_new_image_failed.__get__(app)
+    app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
+    parent = tempfile.mkdtemp()
+    target = os.path.join(parent, "exports")
+    orig = m.EXPORT_DIR
+    m.EXPORT_DIR = target
+    try:
+        _run_save_new_image_synchronously(app)
+    finally:
+        m.EXPORT_DIR = orig
+    assert [f for f in os.listdir(target) if f.endswith(".png")], \
+        "the exported image should have been written into the freshly created dir"
 
 
 # --------------------------------------------------------------------------- #

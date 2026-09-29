@@ -123,9 +123,9 @@ Timeline and video
   A render walks every whole frame from the lowest to the highest frame index
   (optionally skipping the first), draws every frame at the chosen width and
   height (the same world area as the preview), and writes each as a PNG into
-  a TEMP folder next to this program. It then combines them with ffmpeg into
+  exports/TEMP, next to this program. It then combines them with ffmpeg into
   an .mp4 (h264), .gif, .apng or .mkv (ffv1), or, through the external cjxl
-  tool, an animated .jxl, saved next to the program; the bitrate mode
+  tool, an animated .jxl, saved in the exports folder; the bitrate mode
   (constant quality, target or variable bitrate) and a downsampling factor
   apply to that combined video only, never to the PNG frames. "Re-encode"
   combines whatever frames are already in TEMP using the current encoding
@@ -141,8 +141,8 @@ Exporting a still image
   or a left margin); these apply to videos as well. Export: either the
   Current figure (the preview as it was generated) or a New figure generated
   afresh at its own width and height (per view), saved as png, qoi or jxl
-  (lossless, or lossy with a quality setting). "Export" saves next to the
-  program under a default name; "Export As..." asks for one. Both are
+  (lossless, or lossy with a quality setting). "Export" saves into the
+  exports folder (next to the program) under a default name; "Export As..." asks for one. Both are
   disabled until an image has finished generating.
 
 Window layout (six panels, in three columns)
@@ -159,7 +159,7 @@ Window layout (six panels, in three columns)
                  settings (fps, format, bitrate, downsampling), a preview of
                  the latest frame, and Start Render / Re-encode / Clear
 
-Saved image files are named
+Saved image files (all written to the exports folder) are named
   <program name>-YYYYMMDD-hhmmss-<simulation settings>.<png|qoi|jxl>
 and rendered videos
   <program name>-video-YYYYMMDD-hhmmss.<mp4|gif|apng|jxl>  (.ffv1.mkv for mkv)
@@ -171,6 +171,13 @@ Python). The ffmpeg command-line tool must also be installed and on PATH for
 video rendering and for saving a still as JPEG XL; the cjxl command-line tool
 (part of libjxl) is additionally needed for animated JXL video. All three are
 otherwise unnecessary: PNG and QOI stills need only the packages above.
+Pillow is optional too, and used only for the development startup screenshot.
+
+Development startup screenshot
+  If a dev folder exists next to this program, then once per launch (shortly
+  after the numba warm-up finishes) the program grabs a picture of its own
+  window into dev/screenshots/<file version>-YYYYMMDD-hhmmss.png. There is no
+  button for it, and nothing happens if the dev folder or Pillow is missing.
 """
 
 # FILE_VERSION increments by exactly 1 each time work on this file is
@@ -178,7 +185,7 @@ otherwise unnecessary: PNG and QOI stills need only the packages above.
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 72
+FILE_VERSION = 74
 
 import os
 import random
@@ -215,6 +222,11 @@ try:
     import ffmpeg               # the ffmpeg-python package
 except ImportError:
     ffmpeg = None                # video rendering is disabled; stills still work
+
+try:
+    from PIL import ImageGrab   # Pillow: only used for the development startup screenshot
+except ImportError:
+    ImageGrab = None             # no startup screenshot; nothing else needs Pillow
 
 # --------------------------------------------------------------------------- #
 # Parameters
@@ -615,7 +627,13 @@ ERROR_RED = "#c62828"
 SCRIPT_PATH = os.path.abspath(__file__)
 SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
 PROGRAM_NAME = os.path.splitext(os.path.basename(SCRIPT_PATH))[0]
-TEMP_DIR = os.path.join(SCRIPT_DIR, "TEMP")
+# Everything the program writes (exported images and videos) goes in EXPORT_DIR;
+# the video frames' TEMP folder lives inside it.
+EXPORT_DIR = os.path.join(SCRIPT_DIR, "exports")
+# Development aid: if this folder exists, the app screenshots its own window once
+# per launch into DEV_DIR/screenshots (see take_ui_screenshot).
+DEV_DIR = os.path.join(SCRIPT_DIR, "dev")
+TEMP_DIR = os.path.join(EXPORT_DIR, "TEMP")
 
 # Snapshot: every value of every simulation control, including the parameters of
 # every shape that is not currently selected. This is what "Revert" restores, and
@@ -1375,6 +1393,31 @@ def settings_suffix(settings):
                   f"so{f.self_offset:.1f}", f"sj{f.self_jitter:.1f}",
                   f"sm{f.self_mult:.2f}", f"seed{f.seed}"]
     return "-".join(parts)
+
+
+def ensure_export_dir():
+    """EXPORT_DIR, created first if it doesn't exist yet."""
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    return EXPORT_DIR
+
+
+def take_ui_screenshot(root):
+    """Development aid: grabs the app's own window from the screen and saves
+    it as DEV_DIR/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss.png, returning the
+    path - but only if the DEV_DIR folder already exists (this never creates
+    it) and Pillow is installed; otherwise does nothing and returns None. It
+    grabs the actual screen pixels inside the window's rectangle, so anything
+    covering the window at that moment appears in the shot instead."""
+    if ImageGrab is None or not os.path.isdir(DEV_DIR):
+        return None
+    root.update()                                  # finish drawing, settle geometry
+    x, y = root.winfo_rootx(), root.winfo_rooty()
+    img = ImageGrab.grab(bbox=(x, y, x + root.winfo_width(), y + root.winfo_height()))
+    shots_dir = os.path.join(DEV_DIR, "screenshots")
+    os.makedirs(shots_dir, exist_ok=True)
+    path = os.path.join(shots_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}.png")
+    img.save(path)
+    return path
 
 
 def default_filename(settings=None, ext="png"):
@@ -6131,10 +6174,10 @@ class App:
         note = "" if ffmpeg is not None else ("\nffmpeg-python was not found - install "
                                               "it with:  pip install ffmpeg-python")
         ttk.Label(vp, foreground="#666", wraplength=TIMELINE_W - 30,
-                  text=f"Frames are written as PNGs to {os.path.basename(TEMP_DIR)}/ "
+                  text=f"Frames are written as PNGs to exports/{os.path.basename(TEMP_DIR)}/ "
                        "next to this program at the resolution above (same world "
                        "area as the viewport), then combined with ffmpeg into an "
-                       ".mp4, .gif or .apng saved alongside the program. Downsampling "
+                       ".mp4, .gif or .apng saved in exports/. Downsampling "
                        "shrinks only that combined video, not the PNG sequence. "
                        "Re-encode combines whatever frames are already in TEMP with "
                        "the current encoding settings (ignoring width/height - it "
@@ -6999,6 +7042,18 @@ class App:
         self.ready = True
         self.update_buttons()
         self.update_status()
+        self.root.after(500, self.take_startup_screenshot)   # let the UI settle first
+
+    def take_startup_screenshot(self):
+        """At most once per launch (see take_ui_screenshot for the conditions).
+        A development aid, so any failure is reported and otherwise ignored."""
+        if getattr(self, "_startup_screenshot_taken", False):
+            return
+        self._startup_screenshot_taken = True
+        try:
+            take_ui_screenshot(self.root)
+        except Exception as exc:                   # noqa: BLE001
+            print(f"Startup screenshot failed: {exc}", file=sys.stderr)
 
     def start(self):
         """(Re)start generation using the current settings."""
@@ -7372,7 +7427,8 @@ class App:
             self.save_new_image(None)
         else:
             fmt = self.save_format_var.get()
-            self._write(os.path.join(SCRIPT_DIR, default_filename(self.generated_settings, fmt)))
+            self._write(os.path.join(ensure_export_dir(),
+                                     default_filename(self.generated_settings, fmt)))
 
     def save_as(self):
         if self.save_source_var.get() == SAVE_SOURCE_OPTIONS[1]:
@@ -7382,7 +7438,7 @@ class App:
             label = {"png": "PNG image", "qoi": "QOI image", "jxl": "JPEG XL image"}[fmt]
             path = filedialog.asksaveasfilename(
                 parent=self.root, title="Save image as",
-                initialdir=SCRIPT_DIR,
+                initialdir=ensure_export_dir(),
                 initialfile=default_filename(self.generated_settings, fmt),
                 defaultextension="." + fmt, filetypes=[(label, f"*.{fmt}")])
             if path:
@@ -7458,7 +7514,7 @@ class App:
         initial = default_filename(self.generated_settings, fmt)
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Save new image as",
-            initialdir=SCRIPT_DIR, initialfile=initial,
+            initialdir=ensure_export_dir(), initialfile=initial,
             defaultextension="." + fmt, filetypes=[(label, f"*.{fmt}")])
         if path:
             self.save_new_image(path)
@@ -7494,7 +7550,8 @@ class App:
         sim_location = self.sim_info_location_var.get()
         if path_or_none is None:
             settings_for_name = effective_settings(data.snapshot)
-            path = os.path.join(SCRIPT_DIR, default_filename(settings_for_name, fmt))
+            path = os.path.join(ensure_export_dir(),
+                                default_filename(settings_for_name, fmt))
         else:
             path = path_or_none
         self.save_btn.state(["disabled"])
@@ -8503,7 +8560,7 @@ class App:
         via self.root.after(0, ...)."""
         ext, suffix = self.output_extension_and_suffix(rs)
         out_name = f"{PROGRAM_NAME}-video-{time.strftime('%Y%m%d-%H%M%S')}{suffix}.{ext}"
-        out_path = os.path.join(SCRIPT_DIR, out_name)
+        out_path = os.path.join(ensure_export_dir(), out_name)
         pattern = os.path.join(TEMP_DIR, "frame_%05d.png")
         scratch_dir = None
         try:
@@ -8589,7 +8646,7 @@ class App:
         via self.root.after(0, ...)."""
         ext, suffix = self.output_extension_and_suffix(rs)
         out_name = f"{PROGRAM_NAME}-video-{time.strftime('%Y%m%d-%H%M%S')}{suffix}.{ext}"
-        out_path = os.path.join(SCRIPT_DIR, out_name)
+        out_path = os.path.join(ensure_export_dir(), out_name)
         pattern = os.path.join(TEMP_DIR, "frame_%05d.png")
         scratch_dir = None
         try:
