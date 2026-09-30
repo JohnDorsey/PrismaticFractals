@@ -242,7 +242,7 @@ Development startup screenshot
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 83
+FILE_VERSION = 85
 
 import math
 import os
@@ -2874,6 +2874,36 @@ def buddha_compress(count, method, brightness_mult=1.0):
     return v
 
 
+DIFF_PRESENCE_CHOICES = ("present", "absent", "present or absent")
+DIFF_SAMENESS_CHOICES = ("same", "different", "same or different")
+
+
+def setting_passes_diff_filters(in_keyframe, matches_current, presence, sameness):
+    """Whether a setting shows in the keyframe settings list under the two
+    filters. `in_keyframe`: the selected keyframe itself defines it.
+    `matches_current`: the program's current value equals the keyframe's stored
+    one; a setting the keyframe does not define counts as different. `presence`
+    and `sameness` are values from DIFF_PRESENCE_CHOICES / DIFF_SAMENESS_CHOICES."""
+    if presence == "present" and not in_keyframe:
+        return False
+    if presence == "absent" and in_keyframe:
+        return False
+    same = in_keyframe and matches_current
+    if sameness == "same" and not same:
+        return False
+    if sameness == "different" and same:
+        return False
+    return True
+
+
+def diff_section_header_text(title, expanded, n_set, n_total):
+    """A section header of the keyframe settings list: an arrow showing whether
+    it is expanded, its title, and how many of its settings the selected
+    keyframe itself defines (so a collapsed section still says something)."""
+    arrow = "\u25bc" if expanded else "\u25b6"
+    return f"{arrow} {title}  ({n_set} of {n_total} set)"
+
+
 def short_value_text(key, val):
     """A compact display of one setting's value, for the Load/Save button
     text in the keyframe settings list."""
@@ -4846,6 +4876,8 @@ class App:
         self.keyframes = []               # list[Keyframe], in the order shown
         self._kf_counter = 0
         self.selected_keyframe = None
+        self.diff_expanded = set()        # titles of the expanded sections of the keyframe
+                                          # settings list (everything starts collapsed)
         self.render_thread = None
         self.render_cancel = None
 
@@ -6493,12 +6525,23 @@ class App:
         diff_container = ttk.Frame(tl)
         diff_container.grid(row=2, column=1, sticky="nsew", padx=8, pady=(2, 4))
         diff_container.columnconfigure(0, weight=1)
-        diff_container.rowconfigure(0, weight=1)
+        diff_container.rowconfigure(1, weight=1)
+        self.diff_presence_var = tk.StringVar(value=DIFF_PRESENCE_CHOICES[-1])
+        self.diff_sameness_var = tk.StringVar(value=DIFF_SAMENESS_CHOICES[-1])
+        filters = ttk.Frame(diff_container)
+        filters.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        for var, choices, pad in ((self.diff_presence_var, DIFF_PRESENCE_CHOICES, (0, 8)),
+                                  (self.diff_sameness_var, DIFF_SAMENESS_CHOICES, (0, 0))):
+            ttk.Label(filters, text="Show", font=self.small_font).pack(side="left")
+            combo = ttk.Combobox(filters, textvariable=var, values=choices,
+                                 state="readonly", width=17)
+            combo.pack(side="left", padx=(4, pad[0] + pad[1]))
+            combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_timeline_diffs())
         diff_canvas = tk.Canvas(diff_container, highlightthickness=0)
         dvsb = ttk.Scrollbar(diff_container, orient="vertical", command=diff_canvas.yview)
         diff_canvas.configure(yscrollcommand=dvsb.set)
-        diff_canvas.grid(row=0, column=0, sticky="nsew")
-        dvsb.grid(row=0, column=1, sticky="ns")
+        diff_canvas.grid(row=1, column=0, sticky="nsew")
+        dvsb.grid(row=1, column=1, sticky="ns")
         self.diff_list_frame = ttk.Frame(diff_canvas)
         diff_window = diff_canvas.create_window((0, 0), window=self.diff_list_frame, anchor="nw")
         self.diff_list_frame.bind(
@@ -8375,7 +8418,9 @@ class App:
 
     def refresh_timeline_diffs(self):
         """Rebuild the settings list for the selected keyframe: every setting,
-        grouped by the tab it lives on, each showing whether it's defined here,
+        grouped into collapsible sections (by the tab it lives on, or the obstacle
+        or view it belongs to; all collapsed until expanded, see
+        toggle_diff_section), each setting showing whether it's defined here,
         animated by surrounding keyframes, or neither."""
         if not hasattr(self, "diff_list_frame"):
             return                                 # Timeline panel not built yet
@@ -8409,48 +8454,84 @@ class App:
 
         row = 0
         entries = self.all_setting_entries()
+        presence = self.diff_presence_var.get()
+        sameness = self.diff_sameness_var.get()
+
+        def passes(key):
+            return setting_passes_diff_filters(
+                key in kf.data, key in kf.data and kf.data[key] == current[key],
+                presence, sameness)
+
         for tab in self.all_setting_tabs():
-            tab_entries = [e for e in entries if e[1] == tab]
+            all_tab_entries = [e for e in entries if e[1] == tab]
+            tab_entries = [e for e in all_tab_entries if passes(e[0])]
             if not tab_entries:
-                continue
-            ttk.Label(self.diff_list_frame, text=tab, font=self.small_bold_font).grid(
-                row=row, column=0, sticky="w", padx=4, pady=(6, 1))
+                continue                       # nothing here matches the filters
+            expanded = tab in self.diff_expanded
+            n_set = sum(1 for e in all_tab_entries if e[0] in kf.data)
+            header = ttk.Label(self.diff_list_frame, cursor="hand2",
+                               text=diff_section_header_text(tab, expanded, n_set,
+                                                             len(all_tab_entries)),
+                               font=self.small_bold_font)
+            header.grid(row=row, column=0, sticky="w", padx=4, pady=(6, 1))
+            header.bind("<Button-1>", lambda _e, t=tab: self.toggle_diff_section(t))
             row += 1
+            if not expanded:
+                continue
             for key, _tab, label, is_float, fallback in tab_entries:
-                status = self.setting_status(kf, key, sorted_kfs, idx_kf)
-                r = ttk.Frame(self.diff_list_frame)
-                r.grid(row=row, column=0, sticky="ew", padx=4, pady=(1, 3))
-                ttk.Label(r, text=label, font=self.small_font).grid(
-                    row=0, column=0, sticky="w")
-                btns = ttk.Frame(r)
-                btns.grid(row=1, column=0, sticky="w")
-
-                if status == "present":
-                    load_text = f"Load {short_value_text(key, kf.data[key])}"
-                    ttk.Button(btns, text=load_text,
-                              command=lambda kf=kf, k=key: self.load_settings(
-                                  kf, [k])).pack(side="left", padx=(0, 2))
-                elif status == "animated":
-                    val = resolve_value(key, sorted_kfs, kf.frame_index, fallback, is_float)
-                    load_text = f"Load {short_value_text(key, val)}"
-                    ttk.Button(btns, text=load_text,
-                              command=lambda kf=kf, k=key: self.load_animated_setting(
-                                  kf, k)).pack(side="left", padx=(0, 2))
-
-                save_text = f"Save {short_value_text(key, current[key])}"
-                ttk.Button(btns, text=save_text,
-                          command=lambda kf=kf, k=key: self.save_settings(
-                              kf, [k])).pack(side="left", padx=2)
-
-                if status == "present":
-                    ttk.Button(btns, text="Delete",
-                              command=lambda kf=kf, k=key: self.delete_setting(
-                                  kf, k)).pack(side="left", padx=(2, 0))
-                elif status == "animated":
-                    ttk.Label(btns, text="(animated by neighbors)",
-                             foreground="#666", font=self.small_font).pack(
-                        side="left", padx=(4, 0))
+                self.add_setting_row(row, kf, key, label, is_float, fallback, current,
+                                     sorted_kfs, idx_kf)
                 row += 1
+        if row == 0:
+            ttk.Label(self.diff_list_frame, text="(no settings match the filters)",
+                     foreground="#666", font=self.small_font).grid(
+                row=0, column=0, sticky="w", padx=4, pady=4)
+
+    def toggle_diff_section(self, tab):
+        """Expand or collapse one section of the keyframe settings list. Sections
+        are remembered by title, and all start collapsed."""
+        if tab in self.diff_expanded:
+            self.diff_expanded.discard(tab)
+        else:
+            self.diff_expanded.add(tab)
+        self.refresh_timeline_diffs()
+
+    def add_setting_row(self, row, kf, key, label, is_float, fallback, current, sorted_kfs,
+                        idx_kf):
+        """One setting's row in the keyframe settings list: its label, and
+        Load / Save / Delete buttons as they apply."""
+        status = self.setting_status(kf, key, sorted_kfs, idx_kf)
+        r = ttk.Frame(self.diff_list_frame)
+        r.grid(row=row, column=0, sticky="ew", padx=4, pady=(1, 3))
+        ttk.Label(r, text=label, font=self.small_font).grid(row=0, column=0, sticky="w")
+        btns = ttk.Frame(r)
+        btns.grid(row=1, column=0, sticky="w")
+
+        if status == "present":
+            load_text = f"Load {short_value_text(key, kf.data[key])}"
+            ttk.Button(btns, text=load_text,
+                      command=lambda kf=kf, k=key: self.load_settings(
+                          kf, [k])).pack(side="left", padx=(0, 2))
+        elif status == "animated":
+            val = resolve_value(key, sorted_kfs, kf.frame_index, fallback, is_float)
+            load_text = f"Load {short_value_text(key, val)}"
+            ttk.Button(btns, text=load_text,
+                      command=lambda kf=kf, k=key: self.load_animated_setting(
+                          kf, k)).pack(side="left", padx=(0, 2))
+
+        save_text = f"Save {short_value_text(key, current[key])}"
+        ttk.Button(btns, text=save_text,
+                  command=lambda kf=kf, k=key: self.save_settings(
+                      kf, [k])).pack(side="left", padx=2)
+
+        if status == "present":
+            ttk.Button(btns, text="Delete",
+                      command=lambda kf=kf, k=key: self.delete_setting(
+                          kf, k)).pack(side="left", padx=(2, 0))
+        elif status == "animated":
+            ttk.Label(btns, text="(animated by neighbors)",
+                     foreground="#666", font=self.small_font).pack(
+                side="left", padx=(4, 0))
 
     def load_all_diffs(self):
         kf = self.selected_keyframe

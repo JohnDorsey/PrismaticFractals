@@ -5415,6 +5415,183 @@ def test_buddha_confined_channel_present():
 
 
 # --------------------------------------------------------------------------- #
+# Collapsible sections of the keyframe settings list
+# --------------------------------------------------------------------------- #
+class _RecordingLabel:
+    """Records the text of every ttk.Label built, and keeps its click handler."""
+    made = []
+
+    def __init__(self, _parent=None, text="", **_k):
+        self.text = text
+        self.handler = None
+        _RecordingLabel.made.append(self)
+
+    def grid(self, *a, **k):
+        return self
+
+    def bind(self, _event, fn):
+        self.handler = fn
+
+
+class _RecordingRow:
+    """Stands in for the ttk.Frame/Button of one setting row; counts rows."""
+    frames = 0
+
+    def __init__(self, *a, **k):
+        pass
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: self
+
+
+def _fake_diff_app():
+    import types
+    keyframe_cls = m.Keyframe
+    tabs = ["Limits", "Fuzzing"]
+    entries = [("max_iter", "Limits", "Iteration limit", False, 256),
+               ("max_dist", "Limits", "Distance limit", True, 1.0),
+               ("fuzz_seed", "Fuzzing", "Seed", False, 0)]
+
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.diff_expanded = set()
+    app.diff_presence_var = m.tk.StringVar(value="present or absent")
+    app.diff_sameness_var = m.tk.StringVar(value="same or different")
+    app.diff_list_frame = types.SimpleNamespace(winfo_children=lambda: [])
+    app.diff_load_all_btn = _StubWidget()
+    app.diff_save_all_btn = _StubWidget()
+    app.diff_delete_all_btn = _StubWidget()
+    app.small_font = app.small_bold_font = None
+    app.kf = keyframe_cls(1, 0, {"max_iter": 10})
+    app.keyframes = [app.kf]
+    app.selected_keyframe = app.kf
+    app.capture_all_settings = lambda show_error=True: {e[0]: e[4] for e in entries}
+    app.all_setting_entries = lambda: entries
+    app.all_setting_tabs = lambda: tabs
+    app.setting_status = lambda kf, key, sk, i: "present" if key in kf.data else "none"
+    app.rows = []
+    app.add_setting_row = lambda row, kf, key, *a: app.rows.append(key)
+    for name in ("refresh_timeline_diffs", "toggle_diff_section"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    return app
+
+
+def _headers_of(app):
+    _RecordingLabel.made = []
+    saved = m.ttk.Label
+    m.ttk.Label = _RecordingLabel
+    try:
+        app.refresh_timeline_diffs()
+    finally:
+        m.ttk.Label = saved
+    return list(_RecordingLabel.made)
+
+
+def test_section_header_text_shows_arrow_title_and_defined_count():
+    assert m.diff_section_header_text("Limits", False, 1, 3) == "\u25b6 Limits  (1 of 3 set)"
+    assert m.diff_section_header_text("Limits", True, 0, 3) == "\u25bc Limits  (0 of 3 set)"
+
+
+def test_keyframe_settings_sections_start_collapsed():
+    """Every section is collapsed by default: headers only, no setting rows."""
+    app = _fake_diff_app()
+    labels = _headers_of(app)
+    assert [l.text for l in labels] == [
+        "\u25b6 Limits  (1 of 2 set)", "\u25b6 Fuzzing  (0 of 1 set)"]
+    assert app.rows == []
+
+
+def test_clicking_a_section_header_expands_only_that_section_and_again_collapses():
+    app = _fake_diff_app()
+    _headers_of(app)[0].handler(None)          # expand Limits
+    labels = _headers_of(app)
+    assert labels[0].text.startswith("\u25bc Limits")
+    assert labels[1].text.startswith("\u25b6 Fuzzing")
+    app.rows = []
+    _headers_of(app)
+    assert app.rows == ["max_iter", "max_dist"]
+    _headers_of(app)[0].handler(None)          # collapse again
+    assert app.diff_expanded == set()
+    app.rows = []
+    _headers_of(app)
+    assert app.rows == []
+
+
+def test_expanded_sections_stay_expanded_across_rebuilds():
+    app = _fake_diff_app()
+    _headers_of(app)[1].handler(None)          # expand Fuzzing
+    for _ in range(3):
+        labels = _headers_of(app)
+        assert labels[1].text.startswith("\u25bc Fuzzing")
+
+
+def test_collapsing_does_not_change_what_load_all_save_all_delete_all_act_on():
+    """Those buttons work from the keyframe's data and all_setting_entries, never
+    from the visible rows, so collapsed sections are still included."""
+    import inspect
+    for name in ("load_all_diffs", "save_all_diffs", "delete_all_diffs"):
+        src = inspect.getsource(getattr(m.App, name))
+        assert "diff_expanded" not in src, name
+
+
+def test_diff_filter_truth_table():
+    f = m.setting_passes_diff_filters
+    P, S = m.DIFF_PRESENCE_CHOICES, m.DIFF_SAMENESS_CHOICES
+    # (in_keyframe, matches_current) -> the four possible states
+    states = {"present+same": (True, True), "present+diff": (True, False),
+              "absent": (False, False), "absent(matching flag ignored)": (False, True)}
+    for presence in P:
+        for sameness in S:
+            for name, (inkf, match) in states.items():
+                same = inkf and match
+                want = ((presence != "present" or inkf) and (presence != "absent" or not inkf)
+                        and (sameness != "same" or same) and (sameness != "different" or not same))
+                assert f(inkf, match, presence, sameness) == want, (presence, sameness, name)
+    # spot checks of the spec: a setting the keyframe lacks counts as different
+    assert f(False, False, "present or absent", "different")
+    assert not f(False, False, "present or absent", "same")
+    assert f(True, True, "present", "same") and not f(True, False, "present", "same")
+
+
+def test_diff_filter_defaults_show_everything():
+    assert m.DIFF_PRESENCE_CHOICES[-1] == "present or absent"
+    assert m.DIFF_SAMENESS_CHOICES[-1] == "same or different"
+    for inkf in (True, False):
+        for match in (True, False):
+            assert m.setting_passes_diff_filters(inkf, match, "present or absent",
+                                                 "same or different")
+
+
+def test_keyframe_list_filters_by_presence_sameness_and_hides_empty_sections():
+    """Current values: max_iter 256, max_dist 1.0, fuzz_seed 0; the keyframe stores
+    max_iter=10 (present, different) and nothing else."""
+    app = _fake_diff_app()
+    app.diff_expanded = {"Limits", "Fuzzing"}
+
+    def shown(presence, sameness):
+        app.diff_presence_var.set(presence)
+        app.diff_sameness_var.set(sameness)
+        app.rows = []
+        labels = _headers_of(app)
+        return app.rows, [l.text.split("  ")[0][2:] for l in labels]
+
+    assert shown("present or absent", "same or different")[0] == [
+        "max_iter", "max_dist", "fuzz_seed"]
+    assert shown("present", "same or different") == (["max_iter"], ["Limits"])
+    assert shown("absent", "same or different") == (["max_dist", "fuzz_seed"],
+                                                    ["Limits", "Fuzzing"])
+    assert shown("present or absent", "same")[0] == []          # nothing matches
+    assert shown("present or absent", "different")[0] == ["max_iter", "max_dist", "fuzz_seed"]
+    app.kf.data["max_iter"] = 256                                # now equals the current value
+    assert shown("present or absent", "same") == (["max_iter"], ["Limits"])
+    assert shown("present", "different")[0] == []
+    # every section filtered away -> a placeholder, not a blank list
+    labels = _headers_of(app)
+    assert [l.text for l in labels] == ["(no settings match the filters)"]
+
+
+# --------------------------------------------------------------------------- #
 # Runner
 # --------------------------------------------------------------------------- #
 class SkipTest(Exception):
