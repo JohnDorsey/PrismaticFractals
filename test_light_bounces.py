@@ -101,7 +101,7 @@ def test_dist_is_not_rounded_during_keyframe_resolution():
     int(round(...)), so a keyframe with dist=0.4 resolved to max_dist=0 -
     which means "no limit" in this program's convention. A short-distance
     keyframe would silently become an unlimited-distance one."""
-    kf = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.4}, "Linear", None)
+    kf = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.4})
     data = m.resolve_frame_settings([kf], 0)
     assert data.snapshot.max_dist == 0.4
     assert m.effective_dist(data.snapshot.max_dist) == 0.4
@@ -112,8 +112,8 @@ def test_dist_animates_smoothly_between_keyframes():
     (jumping only at the second keyframe's exact frame) instead of
     interpolated - the actual bug report was "Buddha colors don't appear
     until the very last frame" of a video animating the distance limit."""
-    kf0 = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.01}, "Linear", None)
-    kf1 = m.Keyframe(2, 59, {**m.DEFAULT_SETTING_VALUES, "dist": 16}, "Linear", None)
+    kf0 = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.01})
+    kf1 = m.Keyframe(2, 59, {**m.DEFAULT_SETTING_VALUES, "dist": 16})
     dists = [m.resolve_frame_settings([kf0, kf1], fn).snapshot.max_dist for fn in range(60)]
     assert dists[0] == 0.01 and dists[59] == 16
     assert all(dists[i] < dists[i + 1] for i in range(59)), \
@@ -743,7 +743,7 @@ def _view_settings_from_config(v):
 
 def test_render_full_image_with_a_single_view_matches_pre_views_behavior():
     app = _fake_render_app()
-    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
     data = m.resolve_frame_settings([kf], 0)
     views = (_view_settings_from_config(m.ViewConfig(0)),)
     img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), views)
@@ -752,7 +752,7 @@ def test_render_full_image_with_a_single_view_matches_pre_views_behavior():
 
 def test_two_identical_views_render_as_two_identical_halves():
     app = _fake_render_app()
-    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
     data = m.resolve_frame_settings([kf], 0)
     obst_arrays = _starting_obst_arrays()
     one_view = (_view_settings_from_config(m.ViewConfig(0)),)
@@ -765,7 +765,7 @@ def test_two_identical_views_render_as_two_identical_halves():
 
 def test_two_different_views_render_as_two_different_halves():
     app = _fake_render_app()
-    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
     data = m.resolve_frame_settings([kf], 0)
     v0 = m.ViewConfig(0)
     v1 = m.ViewConfig(1)
@@ -806,7 +806,7 @@ def test_resolve_views_works_uniformly_for_id_zero():
     v = m.ViewConfig(0)
     v.mode = "HSV"
     snap = m.snapshot_view(v)
-    kf = m.Keyframe(1, 0, {"view:0:mode": "Grayscale"}, "Linear", None)
+    kf = m.Keyframe(1, 0, {"view:0:mode": "Grayscale"})
     resolved = m.resolve_views([snap], [kf], 0)[0]
     assert resolved.mode == "Grayscale"
 
@@ -818,7 +818,7 @@ def test_resolve_views_honors_keyframe_overrides_per_channel():
     snap = m.snapshot_view(v)
     custom_chan = (m.CHAN_SRC_QUERY, m.KIND_OTHER, m.ST_BOUNCES, m.POINT_START, m.POINT_END,
                   m.DEFAULT_BUDDHA_POINTS, m.BUDDHA_COMPRESS_MODULUS, 3, m.NONE_ZERO)
-    kf = m.Keyframe(1, 0, {"view:9:mode": "HSV", "view:9:chan0": custom_chan}, "Linear", None)
+    kf = m.Keyframe(1, 0, {"view:9:mode": "HSV", "view:9:chan0": custom_chan})
     resolved = m.resolve_views([snap], [kf], 0)[0]
     assert resolved.mode == "HSV"
     assert resolved.kinds[0] == m.KIND_OTHER and resolved.buddha_brightness[0] == 3
@@ -1137,7 +1137,7 @@ def test_video_frame_render_widens_when_a_second_view_is_added_and_included():
     views' on."""
     app = _fake_export_app()
     app.include_all_views_var = _StubVar(True)
-    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
@@ -1598,9 +1598,9 @@ def test_resolve_obstacles_interpolates_float_fields_and_holds_the_rest():
     o.fire_inside = False
     snap = m.snapshot_obstacle(o)
     kf0 = m.Keyframe(0, 0, {"obst:3:r": 0.0, "obst:3:fire_inside": False,
-                            "obst:3:in_effect": R}, "Linear", None)
+                            "obst:3:in_effect": R})
     kf1 = m.Keyframe(1, 10, {"obst:3:r": 1.0, "obst:3:fire_inside": True,
-                             "obst:3:in_effect": T}, "Linear", None)
+                             "obst:3:in_effect": T})
     mid = m.resolve_obstacles([snap], [kf0, kf1], 5)[0]
     assert mid.id == 3
     assert np.isclose(mid.r, 0.5)
@@ -1613,8 +1613,8 @@ def test_resolve_obstacle_arrays_is_the_arrays_of_the_resolved_obstacles():
     o = m.Obstacle(1)
     o.shape = m.SHAPE_POLYGON
     snaps = [m.snapshot_obstacle(o)]
-    kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.2}, "Linear", None),
-           m.Keyframe(1, 4, {"obst:1:r": 0.6}, "Linear", None)]
+    kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.2}),
+           m.Keyframe(1, 4, {"obst:1:r": 0.6})]
     direct = m.resolve_obstacle_arrays(snaps, kfs, 2)
     via = m.obstacle_arrays_from_values(m.resolve_obstacles(snaps, kfs, 2))
     for a, b in zip(direct, via):
@@ -1624,8 +1624,8 @@ def test_resolve_obstacle_arrays_is_the_arrays_of_the_resolved_obstacles():
 def test_left_margin_of_a_video_frame_shows_that_frames_animated_values():
     o = m.Obstacle(1)
     snaps = [m.snapshot_obstacle(o)]
-    kfs = [m.Keyframe(0, 0, {"obst:1:theta": 0.0}, "Linear", None),
-           m.Keyframe(1, 10, {"obst:1:theta": 90.0}, "Linear", None)]
+    kfs = [m.Keyframe(0, 0, {"obst:1:theta": 0.0}),
+           m.Keyframe(1, 10, {"obst:1:theta": 90.0})]
     settings = _settings()
     text0 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 0))
     text5 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 5))
@@ -1986,7 +1986,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     the same call (apply_info_locations, as _render_worker actually calls
     it), and check the overlay landed."""
     app = _fake_export_app()
-    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
@@ -2002,7 +2002,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
 
 def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     app = _fake_export_app()
-    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES), "Linear", None)
+    kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
@@ -3009,7 +3009,7 @@ def test_capture_and_resolve_round_trip_buddha_blur_settings():
     assert data["buddha_blur_radius"] == 0.2
     assert data["buddha_blur_type"] == m.BUDDHA_BLUR_BOKEH
 
-    kf = m.Keyframe(0, 0, data, "Linear", None)
+    kf = m.Keyframe(0, 0, data)
     resolved = m.resolve_frame_settings([kf], 0)
     assert resolved.snapshot.buddha_blur_radius == 0.2
     assert resolved.snapshot.buddha_blur_type == m.BUDDHA_BLUR_BOKEH
@@ -3261,7 +3261,7 @@ def test_render_keyframe_snapshot_is_unaffected_by_later_edits_to_the_keyframes(
     live[0].data["iter"] = 99
     assert [(k.frame_index, k.data) for k in snap] == [(0, {"obst:1:r": 0.5}),
                                                      (10, {"obst:1:r": 0.9})]
-    assert snap[0].interp == live[0].interp and snap[0].id == live[0].id
+    assert snap[0].id == live[0].id
 
 
 # --------------------------------------------------------------------------- #
@@ -4316,16 +4316,16 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert data["confine_window"] == 9 and data["confine_method"] == PATH
     assert data["confine_threshold"] == 1e-12
-    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data, "Linear", None)], 0).snapshot
+    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).snapshot
     assert (resolved.confine_window, resolved.confine_method, resolved.confine_threshold) \
         == (9, PATH, 1e-12)
 
 
 def test_confinement_threshold_interpolates_but_window_and_method_hold():
     kf0 = m.Keyframe(0, 0, {"confine_window": 4, "confine_method": BOX,
-                            "confine_threshold": 0.0}, "Linear", None)
+                            "confine_threshold": 0.0})
     kf1 = m.Keyframe(1, 10, {"confine_window": 20, "confine_method": PATH,
-                             "confine_threshold": 1.0}, "Linear", None)
+                             "confine_threshold": 1.0})
     mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
     assert mid.confine_window == 4 and mid.confine_method == BOX
     assert np.isclose(mid.confine_threshold, 0.5)
@@ -4696,16 +4696,16 @@ def test_emission_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert (data["emit_mode"], data["emit_target_x"], data["emit_target_y"],
             data["emit_offset"]) == (TOWARDS, -2500.0, 0.75, 12.5)
-    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data, "Linear", None)], 0).snapshot
+    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).snapshot
     assert (snap.emit_mode, snap.emit_target_x, snap.emit_target_y, snap.emit_offset) == \
         (TOWARDS, -2500.0, 0.75, 12.5)
 
 
 def test_emission_target_and_offset_interpolate_but_the_mode_holds():
     kf0 = m.Keyframe(0, 0, {"emit_mode": UP, "emit_target_x": -1.0, "emit_target_y": 0.0,
-                            "emit_offset": -45.0}, "Linear", None)
+                            "emit_offset": -45.0})
     kf1 = m.Keyframe(1, 10, {"emit_mode": TOWARDS, "emit_target_x": 1.0, "emit_target_y": 4.0,
-                             "emit_offset": 45.0}, "Linear", None)
+                             "emit_offset": 45.0})
     mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
     assert mid.emit_mode == UP
     assert (mid.emit_target_x, mid.emit_target_y, mid.emit_offset) == (0.0, 2.0, 0.0)
@@ -5457,9 +5457,8 @@ def _fake_diff_app():
     app = FakeApp()
     app.diff_expanded = set()
     app.diff_presence_var = m.tk.StringVar(value="present or absent")
-    app.diff_sameness_var = m.tk.StringVar(value="same or different")
     app.diff_list_frame = types.SimpleNamespace(winfo_children=lambda: [])
-    app.diff_load_all_btn = _StubWidget()
+    app.kf_modified = set()
     app.diff_save_all_btn = _StubWidget()
     app.diff_delete_all_btn = _StubWidget()
     app.small_font = app.small_bold_font = None
@@ -5472,7 +5471,8 @@ def _fake_diff_app():
     app.setting_status = lambda kf, key, sk, i: "present" if key in kf.data else "none"
     app.rows = []
     app.add_setting_row = lambda row, kf, key, *a: app.rows.append(key)
-    for name in ("refresh_timeline_diffs", "toggle_diff_section"):
+    app.fit_diff_scroll = lambda: None
+    for name in ("refresh_timeline_diffs", "_rebuild_timeline_diffs", "toggle_diff_section"):
         setattr(app, name, getattr(m.App, name).__get__(app))
     return app
 
@@ -5530,65 +5530,383 @@ def test_collapsing_does_not_change_what_load_all_save_all_delete_all_act_on():
     """Those buttons work from the keyframe's data and all_setting_entries, never
     from the visible rows, so collapsed sections are still included."""
     import inspect
-    for name in ("load_all_diffs", "save_all_diffs", "delete_all_diffs"):
+    for name in ("save_modified_settings", "delete_all_diffs"):
         src = inspect.getsource(getattr(m.App, name))
         assert "diff_expanded" not in src, name
 
 
-def test_diff_filter_truth_table():
-    f = m.setting_passes_diff_filters
-    P, S = m.DIFF_PRESENCE_CHOICES, m.DIFF_SAMENESS_CHOICES
-    # (in_keyframe, matches_current) -> the four possible states
-    states = {"present+same": (True, True), "present+diff": (True, False),
-              "absent": (False, False), "absent(matching flag ignored)": (False, True)}
-    for presence in P:
-        for sameness in S:
-            for name, (inkf, match) in states.items():
-                same = inkf and match
-                want = ((presence != "present" or inkf) and (presence != "absent" or not inkf)
-                        and (sameness != "same" or same) and (sameness != "different" or not same))
-                assert f(inkf, match, presence, sameness) == want, (presence, sameness, name)
-    # spot checks of the spec: a setting the keyframe lacks counts as different
-    assert f(False, False, "present or absent", "different")
-    assert not f(False, False, "present or absent", "same")
-    assert f(True, True, "present", "same") and not f(True, False, "present", "same")
+def test_presence_filter_truth_table():
+    f = m.setting_passes_presence_filter
+    assert m.DIFF_PRESENCE_CHOICES[-1] == "present or absent"   # the default shows everything
+    for in_kf in (True, False):
+        assert f(in_kf, "present or absent")
+        assert f(in_kf, "present") == in_kf
+        assert f(in_kf, "absent") == (not in_kf)
 
 
-def test_diff_filter_defaults_show_everything():
-    assert m.DIFF_PRESENCE_CHOICES[-1] == "present or absent"
-    assert m.DIFF_SAMENESS_CHOICES[-1] == "same or different"
-    for inkf in (True, False):
-        for match in (True, False):
-            assert m.setting_passes_diff_filters(inkf, match, "present or absent",
-                                                 "same or different")
-
-
-def test_keyframe_list_filters_by_presence_sameness_and_hides_empty_sections():
-    """Current values: max_iter 256, max_dist 1.0, fuzz_seed 0; the keyframe stores
-    max_iter=10 (present, different) and nothing else."""
+def test_keyframe_list_filters_by_presence_and_hides_empty_sections():
+    """The keyframe stores only max_iter, so "present" shows just it (hiding the
+    Fuzzing section), and "absent" shows the rest."""
     app = _fake_diff_app()
     app.diff_expanded = {"Limits", "Fuzzing"}
 
-    def shown(presence, sameness):
+    def shown(presence):
         app.diff_presence_var.set(presence)
-        app.diff_sameness_var.set(sameness)
         app.rows = []
         labels = _headers_of(app)
         return app.rows, [l.text.split("  ")[0][2:] for l in labels]
 
-    assert shown("present or absent", "same or different")[0] == [
-        "max_iter", "max_dist", "fuzz_seed"]
-    assert shown("present", "same or different") == (["max_iter"], ["Limits"])
-    assert shown("absent", "same or different") == (["max_dist", "fuzz_seed"],
-                                                    ["Limits", "Fuzzing"])
-    assert shown("present or absent", "same")[0] == []          # nothing matches
-    assert shown("present or absent", "different")[0] == ["max_iter", "max_dist", "fuzz_seed"]
-    app.kf.data["max_iter"] = 256                                # now equals the current value
-    assert shown("present or absent", "same") == (["max_iter"], ["Limits"])
-    assert shown("present", "different")[0] == []
+    assert shown("present or absent")[0] == ["max_iter", "max_dist", "fuzz_seed"]
+    assert shown("present") == (["max_iter"], ["Limits"])
+    assert shown("absent") == (["max_dist", "fuzz_seed"], ["Limits", "Fuzzing"])
+    for k in ("max_dist", "fuzz_seed"):
+        app.kf.data[k] = 1
     # every section filtered away -> a placeholder, not a blank list
     labels = _headers_of(app)
     assert [l.text for l in labels] == ["(no settings match the filters)"]
+
+
+def test_tooltip_popup_is_built_from_options_the_widget_class_accepts():
+    """Regression test: Tooltip._show made a ttk.Label with padx/pady, which ttk
+    labels reject (TclError: unknown option "-padx"), so no tooltip ever appeared.
+    A stand-in ttk.Label that rejects those options like the real one does."""
+    import types
+
+    class StrictTtkLabel:
+        def __init__(self, _parent=None, **kw):
+            for bad in ("padx", "pady"):
+                if bad in kw:
+                    raise Exception(f'unknown option "-{bad}"')
+
+        def pack(self, *a, **k):
+            pass
+
+    class Popup:
+        def __init__(self, *a, **k):
+            pass
+
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+
+    saved = (m.ttk.Label, m.tk.Toplevel)
+    m.ttk.Label, m.tk.Toplevel = StrictTtkLabel, Popup
+    try:
+        tip = m.Tooltip.__new__(m.Tooltip)
+        tip.text, tip.tip = "hello", None
+        tip.widget = types.SimpleNamespace(winfo_rootx=lambda: 0, winfo_rooty=lambda: 0,
+                                           winfo_height=lambda: 10)
+        tip._show()
+        assert tip.tip is not None
+    finally:
+        m.ttk.Label, m.tk.Toplevel = saved
+
+
+def test_floats_interpolate_linearly_and_everything_else_holds():
+    kfs = [m.Keyframe(0, 0, {"max_dist": 2.0, "max_iter": 10}),
+           m.Keyframe(1, 10, {"max_dist": 4.0, "max_iter": 50})]
+    for frame, want in ((0, 2.0), (5, 3.0), (10, 4.0), (2, 2.4)):
+        got = m.resolve_value("max_dist", kfs, frame, 0.0, True)
+        assert abs(got - want) < 1e-12, (frame, got)
+    for frame in (0, 5, 9):
+        assert m.resolve_value("max_iter", kfs, frame, 0, False) == 10
+    assert m.resolve_value("max_iter", kfs, 10, 0, False) == 50
+
+
+# --------------------------------------------------------------------------- #
+# Selecting a keyframe loads it; edits are marked modified (blue outlines)
+# --------------------------------------------------------------------------- #
+def test_detect_modified_keys_marks_changes_and_ignores_new_keys():
+    d = m.detect_modified_keys
+    assert d({"a": 1, "b": 2}, {"a": 1, "b": 2}, set()) == set()
+    assert d({"a": 1, "b": 2}, {"a": 5, "b": 2}, set()) == {"a"}
+    # sticky: the value going back to where it started does not clear the mark
+    assert d({"a": 5}, {"a": 1}, {"a"}) == {"a"}
+    assert d({"a": 1}, {"a": 1}, {"a"}) == {"a"}
+    # a key that is new (a just-added obstacle) is not an edit ...
+    assert d({"a": 1}, {"a": 1, "new": 3}, set()) == set()
+    # ... and a key that vanished (a deleted obstacle) stops being modified
+    assert d({"a": 1, "gone": 2}, {"a": 1}, {"gone"}) == set()
+
+
+def test_self_checks_catch_a_missing_setting_widget_entry():
+    fresh = load_module()
+    del fresh.SETTING_WIDGET_ATTRS["seed"]
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "SETTING_WIDGET_ATTRS" in str(e)
+
+
+def test_self_checks_catch_a_missing_obstacle_field_widget_entry():
+    fresh = load_module()
+    del fresh.OBSTACLE_FIELD_WIDGET_ATTRS["cx"]
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "OBSTACLE_FIELD_WIDGET_ATTRS" in str(e)
+
+
+def _fake_kf_app():
+    """K0 (frame 0) {a: 0.0, c: 0.0}, K1 (frame 5) {b: 5}, K2 (frame 10) {a: 10.0,
+    c: 10.0}. a and c are animated through K1; d is defined by no keyframe."""
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.keyframes = [m.Keyframe(0, 0, {"a": 0.0, "c": 0.0}), m.Keyframe(1, 5, {"b": 5}),
+                     m.Keyframe(2, 10, {"a": 10.0, "c": 10.0})]
+    app._kf_counter = 10
+    app.selected_keyframe = None
+    app.kf_modified, app.kf_last_seen, app.kf_applying = set(), None, False
+    app.current = {"a": 99.0, "b": 99, "c": 99.0, "d": 7}
+    app.loaded = []
+    app.capture_all_settings = lambda show_error=True: dict(app.current)
+    app.all_setting_entries = lambda: [(k, "T", k, isinstance(v, float), v)
+                                       for k, v in app.current.items()]
+    app.setting_fallback = lambda key: app.current[key]
+    app.setting_is_float = lambda key: isinstance(app.current[key], float)
+
+    def load_value(key, val):
+        app.loaded.append(key)
+        app.current[key] = val
+    app.load_value = load_value
+    for name in ("on_limit_var_changed", "on_shape_param_changed", "on_fuzz_changed",
+                 "rebuild_keyframe_list", "refresh_timeline_diffs",
+                 "refresh_modified_outlines"):
+        setattr(app, name, lambda *a, **k: None)
+    for name in ("select_keyframe", "deselect_keyframe", "apply_keyframe_settings",
+                 "check_modified", "save_settings", "save_modified_settings",
+                 "setting_status", "load_animated_setting", "new_keyframe",
+                 "new_keyframe_empty", "delete_selected_keyframe"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    return app
+
+
+def test_selecting_a_keyframe_loads_its_settings_and_the_ones_neighbors_animate():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[1])
+    assert sorted(app.loaded) == ["a", "b", "c"]            # d: nobody defines it
+    assert app.current == {"a": 5.0, "b": 5, "c": 5.0, "d": 7}   # a, c blended at frame 5
+    assert app.selected_keyframe is app.keyframes[1]
+    assert app.kf_modified == set() and app.kf_last_seen == app.current
+
+
+def test_edits_are_marked_modified_and_stay_marked():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[1])
+    assert app.check_modified() is False
+    app.current["d"] = 8
+    assert app.check_modified() is True and app.kf_modified == {"d"}
+    app.current["d"] = 7                                    # typed back to the old value
+    app.check_modified()
+    assert app.kf_modified == {"d"}
+    app.current["a"] = 1.5
+    app.check_modified()
+    assert app.kf_modified == {"a", "d"}
+
+
+def test_loading_a_keyframe_never_counts_as_a_user_edit():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[0])
+    app.select_keyframe(app.keyframes[2])                   # overwrites a and c
+    assert app.kf_modified == set()
+    app.kf_applying = True
+    app.current["d"] = 0
+    assert app.check_modified() is False and app.kf_modified == set()
+
+
+def test_nothing_is_tracked_while_no_keyframe_is_selected():
+    app = _fake_kf_app()
+    app.current["d"] = 8
+    assert app.check_modified() is False and app.kf_modified == set()
+
+
+def test_deselecting_keeps_values_but_drops_modified_status_so_reselecting_overwrites():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[0])
+    app.current["a"] = 42.0
+    app.check_modified()
+    assert app.kf_modified == {"a"}
+    app.deselect_keyframe()
+    assert app.selected_keyframe is None and app.kf_modified == set()
+    assert app.current["a"] == 42.0                         # not lost immediately
+    app.select_keyframe(app.keyframes[2])
+    assert app.current["a"] == 10.0 and app.kf_modified == set()
+
+
+def test_selecting_another_keyframe_equals_deselect_then_select():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[0])
+    app.current["b"] = 1
+    app.check_modified()
+    app.select_keyframe(app.keyframes[1])
+    assert app.kf_modified == set() and app.current["b"] == 5
+
+
+def test_reselecting_the_selected_keyframe_changes_nothing():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[1])
+    app.current["d"] = 8
+    app.check_modified()
+    app.loaded.clear()
+    app.select_keyframe(app.keyframes[1])
+    assert app.loaded == [] and app.kf_modified == {"d"} and app.current["d"] == 8
+
+
+def test_save_all_modified_saves_only_modified_settings_and_clears_them():
+    app = _fake_kf_app()
+    kf = app.keyframes[1]
+    app.select_keyframe(kf)
+    app.current["d"] = 8                                    # absent from the keyframe
+    app.current["b"] = 6                                    # present in the keyframe
+    app.check_modified()
+    assert app.kf_modified == {"b", "d"}
+    app.save_modified_settings()
+    assert kf.data == {"b": 6, "d": 8}                      # a and c (loaded, unedited) not saved
+    assert app.kf_modified == set()
+
+
+def test_saving_one_setting_clears_only_that_settings_mark():
+    app = _fake_kf_app()
+    kf = app.keyframes[1]
+    app.select_keyframe(kf)
+    app.current["d"] = 8
+    app.current["b"] = 6
+    app.check_modified()
+    app.save_settings(kf, ["d"])
+    assert kf.data == {"b": 5, "d": 8} and app.kf_modified == {"b"}
+
+
+def test_new_empty_keyframe_is_selected_and_loads_only_what_neighbors_animate():
+    app = _fake_kf_app()
+    app.keyframes[2].frame_index = 20                       # next new one lands at 21
+    app.new_keyframe_empty()
+    kf = app.selected_keyframe
+    assert kf.data == {} and kf.frame_index == 21 and kf is app.keyframes[-1]
+    assert app.kf_modified == set()
+
+
+def test_new_keyframe_from_current_is_selected_without_reloading_anything():
+    app = _fake_kf_app()
+    app.new_keyframe()
+    kf = app.selected_keyframe
+    assert kf.data == {"a": 99.0, "b": 99, "c": 99.0, "d": 7}
+    assert app.loaded == [] and app.kf_modified == set()
+
+
+def test_deleting_the_selected_keyframe_deselects_it_and_clears_modified():
+    app = _fake_kf_app()
+    app.select_keyframe(app.keyframes[1])
+    app.current["d"] = 8
+    app.check_modified()
+    app.delete_selected_keyframe()
+    assert app.selected_keyframe is None and app.kf_modified == set()
+    assert len(app.keyframes) == 2
+
+
+def test_settings_list_marks_modified_sections_and_save_button_state():
+    app = _fake_diff_app()
+    app.diff_expanded = {"Limits"}
+    app.kf_modified = {"max_dist"}
+    labels = _headers_of(app)
+    assert labels[0].text == "\u25bc Limits  (1 of 2 set, 1 modified)"
+    assert labels[1].text == "\u25b6 Fuzzing  (0 of 1 set)"
+
+
+def test_a_setting_defined_on_one_side_only_is_animated_from_that_side():
+    """The width example: #1 stores 1.4, #2 stores 1.5, #3 stores nothing. #3 gets
+    1.5 (only earlier keyframes define it); #1 and #2 keep their own values; a
+    keyframe before the first one to define a setting gets the first one's value;
+    and once a later keyframe defines it too, #3 is blended like normal."""
+    app = _fake_kf_app()
+    app.current = {"w": 9.9}
+    app.keyframes = [m.Keyframe(0, 0, {"w": 1.4}), m.Keyframe(1, 5, {"w": 1.5}),
+                     m.Keyframe(2, 10, {})]
+    early = m.Keyframe(3, -3, {})
+    app.keyframes.append(early)
+    app.select_keyframe(app.keyframes[0])
+    assert app.current["w"] == 1.4
+    app.select_keyframe(app.keyframes[2])
+    assert app.current["w"] == 1.5                     # held from the last defining keyframe
+    app.select_keyframe(early)
+    assert app.current["w"] == 1.4                     # held from the first defining keyframe
+    app.select_keyframe(app.keyframes[1])
+    assert app.current["w"] == 1.5
+    app.keyframes.append(m.Keyframe(4, 20, {"w": 2.5}))    # a keyframe after #3 defines it too
+    app.select_keyframe(app.keyframes[2])
+    assert abs(app.current["w"] - (1.5 + 1.0 / 3)) < 1e-9   # blended: frame 10 of 5..20
+
+
+def test_frames_before_the_first_defining_keyframe_hold_its_value():
+    """Regression test: resolve_value blended backwards past the first keyframe
+    that defines a float setting (frame -3 of keyframes at 0 and 5 gave
+    1.4 - 0.6 * (1.5 - 1.4)), instead of holding the first keyframe's value."""
+    kfs = [m.Keyframe(0, 0, {"w": 1.4}), m.Keyframe(1, 5, {"w": 1.5})]
+    assert m.resolve_value("w", kfs, -3, 0.0, True) == 1.4
+    assert m.resolve_value("w", kfs, 0, 0.0, True) == 1.4
+    assert abs(m.resolve_value("w", kfs, 2.5, 0.0, True) - 1.45) < 1e-12
+    assert m.resolve_value("w", kfs, 50, 0.0, True) == 1.5
+
+
+def test_settings_list_scroll_is_refitted_after_every_rebuild():
+    """Regression test: with the list scrolled down, choosing the "present" filter
+    (or collapsing a section) left it scrolled past its shorter content - a blank
+    list - because the scroll area only followed the list frame's <Configure>
+    event, which never comes when the canvas is showing none of the frame."""
+    calls = []
+    app = _fake_diff_app()
+    app.fit_diff_scroll = lambda: calls.append("fit")
+    app.refresh_timeline_diffs()
+    app.toggle_diff_section("Limits")
+    assert calls == ["fit", "fit"]
+
+    class Canvas:
+        def __init__(self):
+            self.log = []
+        def bbox(self, _tag):
+            return (0, 0, 355, 116)
+        def configure(self, **kw):
+            self.log.append(("configure", kw))
+        def yview(self):
+            return (0.7, 0.78)
+        def yview_moveto(self, f):
+            self.log.append(("moveto", f))
+
+    fit_app = _fake_diff_app()
+    fit_app.diff_canvas = Canvas()
+    fit_app.diff_list_frame = type("F", (), {"update_idletasks": lambda self: None})()
+    m.App.fit_diff_scroll(fit_app)
+    assert fit_app.diff_canvas.log == [("configure", {"scrollregion": (0, 0, 355, 116)}),
+                                       ("moveto", 0.7)]
+
+
+class _WidgetsApp:
+    """Just enough App to ask which controls show a setting."""
+
+
+def test_every_setting_and_obstacle_field_resolves_to_a_control():
+    import types
+    app = _WidgetsApp()
+    names = set(m.SETTING_WIDGET_ATTRS.values()) | set(m.OBSTACLE_FIELD_WIDGET_ATTRS.values())
+    names |= {"obs_" + p.widget for p in m.SHAPE_PARAM_INFO}
+    names |= {"mode_combo"}
+    for name in names:
+        setattr(app, name, types.SimpleNamespace(name=name))
+    app.chan_blocks = [types.SimpleNamespace(name=f"block{c}") for c in range(3)]
+    o = m.Obstacle(4)
+    v = m.ViewConfig(2)
+    app.selected_obstacle = o
+    app.selected_view_obj = lambda: v
+    app.widgets_for_setting = m.App.widgets_for_setting.__get__(app)
+    for key in m.SETTING_WIDGET_ATTRS:
+        assert [w.name for w in app.widgets_for_setting(key)] == [m.SETTING_WIDGET_ATTRS[key]]
+    for field, _label, _f in m.OBST_FIELD_INFO:
+        assert len(app.widgets_for_setting(f"obst:4:{field}")) == 1, field
+        assert app.widgets_for_setting(f"obst:5:{field}") == []     # not the edited obstacle
+    assert [w.name for w in app.widgets_for_setting("view:2:mode")] == ["mode_combo"]
+    assert [w.name for w in app.widgets_for_setting("view:2:chan1")] == ["block1"]
+    assert app.widgets_for_setting("view:3:chan1") == []
 
 
 # --------------------------------------------------------------------------- #

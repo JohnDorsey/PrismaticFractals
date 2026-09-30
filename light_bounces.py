@@ -145,30 +145,32 @@ Decorations
   sample points) is drawn over the preview only and never saved.
 
 Timeline and video
-  A keyframe has a frame index, an interpolation method (Linear or Step), a
-  small thumbnail, and a set of settings - any subset of every setting in the
+  A keyframe has a frame index and a set of settings - any subset of every setting in the
   Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
   obstacle's and every view's own fields (an obstacle's shape and ray effects
-  included). "New keyframe" defines every
-  setting from the controls' current values; afterwards, each setting can be
-  loaded into the controls, saved from them, or deleted from that keyframe
+  included). "New keyframe (from current settings)" defines every setting
+  from the controls' current values; "New keyframe (empty)" defines none.
+  Selecting a keyframe loads into the controls every setting it defines and
+  every setting its neighbors animate through it (settings nobody defines are
+  left alone). While a keyframe is selected, any setting you change gets a blue
+  outline on its control and in the keyframe's settings list, until you save it
+  ("Save all modified", or a setting's own Save) or deselect the keyframe (click
+  the empty part of the keyframe list, or select another one) - the values then
+  stay in the controls, but no longer count as modified, so selecting another
+  keyframe can overwrite them. Each setting can also be deleted from the keyframe
   individually (or all at once), so different settings can start and stop
-  animating at different points on the timeline. Keyframes are managed
-  independently of the live controls: selecting one doesn't touch the
-  controls, and changing the controls doesn't touch any keyframe. "Split"
+  animating at different points on the timeline. Changing the controls never
+  touches a keyframe until you save. "Split"
   makes a duplicate right after the original, with the same frame index;
   editing the selected keyframe's frame-index field re-sorts the list. Every
   keyframe always has a frame index (0 for the first one created, one more
-  than the highest existing index for each new one after that). A keyframe's
-  thumbnail is a small bilinearly-resized copy of whatever the image panel
-  showed at the moment it was saved, or a black "no img" placeholder if that
-  image didn't match the current settings.
+  than the highest existing index for each new one after that).
 
   Each setting is resolved independently, using only the keyframes that
   define it. Between two of them, float-slider settings (shape dimensions and
   rotations, fuzzing angles/jitters/multipliers, segment multiplier, blur
-  radius, obstacle geometry and position, and so on) are interpolated using
-  the method chosen on the later keyframe; everything else (which kind of
+  radius, obstacle geometry and position, and so on) are interpolated
+  linearly; everything else (which kind of
   shape, which metric, colors, and so on) holds the earlier keyframe's value
   until the later one is reached, since it isn't a number that could be
   blended.
@@ -208,7 +210,7 @@ Window layout (six panels, in three columns)
                  segment length), Fuzzing, Coloration, Buddha blur, Decorations
                  and Obstacles (which scroll where they need to); Start and
                  Revert settings are always visible
-  top right      Timeline: the keyframe list (with thumbnails), each
+  top right      Timeline: the keyframe list, each
                  keyframe's settings, and the selected keyframe's controls
   bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
   bottom middle  the Export designer, and Export
@@ -242,7 +244,7 @@ Development startup screenshot
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 85
+FILE_VERSION = 90
 
 import math
 import os
@@ -637,13 +639,11 @@ OBST_EFFECT_RGB = {OBSTACLE_EFFECT_REFLECT: OBST_REFLECT_RGB,
                    OBSTACLE_EFFECT_TERMINATE: OBST_TERMINATE_RGB,
                    OBSTACLE_EFFECT_PASS: OBST_PASS_RGB}
 
-# Keyframe thumbnails
+# Obstacle and view thumbnails
 THUMB_SIZE = 48            # small resolution, per pixel
 THUMB_BACKGROUND = (110, 110, 110)   # obstacle thumbnails: background and shape fill
 THUMB_FILL = (150, 150, 150)
 PREVIEW_SIZE = 150         # side length of the video-panel frame preview
-INTERP_METHODS = ["Linear", "Step"]
-DEFAULT_INTERP = "Linear"
 SELECTED_OUTLINE = "#ffeb3b"       # yellow
 SELECTED_OUTLINE_PX = 4
 
@@ -832,6 +832,57 @@ def make_scrollable_tab(tab):
     return canvas, inner
 
 
+MODIFIED_OUTLINE = "#1e88e5"     # blue: a setting changed since the selected keyframe was
+MODIFIED_OUTLINE_PX = 2          # loaded / last saved (see App.check_modified)
+MODIFIED_POLL_MS = 100
+
+
+class ModifiedOutline:
+    """A blue frame drawn just behind, and MODIFIED_OUTLINE_PX around, one
+    widget - without touching how that widget is laid out (it is placed in the
+    widget's own parent and follows the widget's geometry). place() measures from
+    the parent's inner area, which for some parents (a ttk labelframe, say) is
+    offset from the origin winfo_x/winfo_y use, so that offset is measured once
+    per outline."""
+    def __init__(self, widget):
+        self.widget = widget
+        self.frame = tk.Frame(widget.master, background=MODIFIED_OUTLINE)
+        self.frame.place(x=0, y=0, width=1, height=1)
+        self.frame.update_idletasks()
+        self.dx, self.dy = self.frame.winfo_x(), self.frame.winfo_y()
+        self.frame.place_forget()
+        self.shown = False
+        widget.bind("<Configure>", lambda _e: self._place(), add="+")
+
+    def _place(self):
+        if not self.shown:
+            return
+        w, n = self.widget, MODIFIED_OUTLINE_PX
+        self.frame.place(x=w.winfo_x() - n - self.dx, y=w.winfo_y() - n - self.dy,
+                         width=w.winfo_width() + 2 * n, height=w.winfo_height() + 2 * n)
+        self.frame.lower(w)
+
+    def show(self, on):
+        if on == self.shown:
+            return
+        self.shown = on
+        if on:
+            self._place()
+        else:
+            self.frame.place_forget()
+
+
+def detect_modified_keys(last_seen, current, modified):
+    """The set of modified setting keys after comparing the settings seen at the
+    previous check (`last_seen`) with `current`: any key whose value differs is
+    added (and stays until saved or the keyframe is deselected, even if the value
+    later goes back); keys that no longer exist are dropped; keys that are new
+    (e.g. a just-added obstacle) are not counted as edits."""
+    result = {k for k in modified if k in current}
+    result.update(k for k, v in current.items() if k in last_seen and last_seen[k] != v)
+    return result
+
+
 class Tooltip:
     """A small hover tooltip attached to one widget: shows `text` in a
     borderless popup near the cursor on <Enter>, hides it on <Leave>.
@@ -857,8 +908,8 @@ class Tooltip:
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)
         self.tip.wm_geometry(f"+{x}+{y}")
-        ttk.Label(self.tip, text=self.text, background="#ffffe0",
-                 relief="solid", borderwidth=1, padx=4, pady=2).pack()
+        tk.Label(self.tip, text=self.text, background="#ffffe0",
+                relief="solid", borderwidth=1, padx=4, pady=2).pack()
 
     def _hide(self, _event=None):
         if self.tip is not None:
@@ -915,18 +966,15 @@ class Keyframe:
     """One entry in the timeline. `data` is a dict of setting-key -> value -
     only for the settings this keyframe actually defines (see SETTING_INFO);
     a keyframe may define any subset, which is how different settings can
-    start/stop animating at different points on the timeline. `interp` is the
-    method used for the interval ENDING at this keyframe (i.e. the one
-    leading up to it), applied per setting only where that setting is a float
-    slider - see SETTING_FLOAT_KEYS."""
-    __slots__ = ("id", "frame_index", "data", "interp", "thumb")
+    start/stop animating at different points on the timeline. Between two
+    keyframes a setting that is a float slider (SETTING_FLOAT_KEYS) is
+    interpolated linearly; every other setting holds the earlier value."""
+    __slots__ = ("id", "frame_index", "data")
 
-    def __init__(self, id_, frame_index, data, interp=DEFAULT_INTERP, thumb=None):
+    def __init__(self, id_, frame_index, data):
         self.id = id_
         self.frame_index = frame_index
         self.data = data
-        self.interp = interp
-        self.thumb = thumb
 
 
 def remove_keyframe_keys(keyframes, prefix):
@@ -944,11 +992,10 @@ def remove_keyframe_keys(keyframes, prefix):
 
 
 def snapshot_keyframes(keyframes):
-    """Independent copies of `keyframes` (own data dicts; no thumbnails, which
-    a render never uses), so a running render is unaffected by anything done
+    """Independent copies of `keyframes` (own data dicts), so a running render is unaffected by anything done
     to the real keyframes meanwhile - including the cleanup of a deleted
     obstacle's or view's settings."""
-    return [Keyframe(kf.id, kf.frame_index, dict(kf.data), kf.interp) for kf in keyframes]
+    return [Keyframe(kf.id, kf.frame_index, dict(kf.data)) for kf in keyframes]
 
 
 class Obstacle:
@@ -1292,6 +1339,17 @@ OBST_FIELD_INFO = [
     ("fire_inside", "Fire rays inside", False),
 ]
 
+# The same for obstacle fields that are not in SHAPE_PARAM_INFO (those use
+# "obs_" + their ShapeParamInfo.widget). The editor's controls show whichever
+# obstacle is selected.
+OBSTACLE_FIELD_WIDGET_ATTRS = {
+    "shape": "obs_shape_combo", "poly_radius": "obs_radius_scale",
+    "reuleaux_radius": "obs_reuleaux_radius_scale", "r": "obs_r_scale",
+    "theta": "obs_theta_scale", "cx": "obs_cx_scale", "cy": "obs_cy_scale",
+    "in_effect": "obs_in_effect_combo", "out_effect": "obs_out_effect_combo",
+    "fire_inside": "obs_fire_inside_check",
+}
+
 ObstacleSnapshot = namedtuple("ObstacleSnapshot", list(Obstacle.__slots__))
 
 
@@ -1421,6 +1479,24 @@ SETTING_FLOAT_KEYS = {
 }
 
 
+# Which attribute of App holds the main control of each SETTING_INFO setting (a
+# widget, or a handle whose `.widget` is the entry) - where its blue "modified"
+# outline is drawn. run_self_checks() keeps this in step with SETTING_INFO.
+SETTING_WIDGET_ATTRS = {
+    "iter": "iter_entry", "dist": "dist_entry", "seg_mult": "seg_mult_scale",
+    "emit_mode": "emit_mode_combo", "emit_target_x": "emit_target_x_entry",
+    "emit_target_y": "emit_target_y_entry", "emit_offset": "emit_offset_scale",
+    "confine_window": "confine_window_entry", "confine_method": "confine_method_combo",
+    "confine_threshold": "confine_threshold_entry", "fuzz_on": "fuzz_enable_check",
+    "emit_jitter": "emit_jitter_scale", "bnd_offset": "bnd_offset_scale",
+    "bnd_jitter": "bnd_jitter_scale", "bnd_mult": "bnd_mult_scale",
+    "self_offset": "self_offset_scale", "self_jitter": "self_jitter_scale",
+    "self_mult": "self_mult_scale", "seed": "seed_entry",
+    "buddha_blur_radius": "buddha_blur_radius_scale",
+    "buddha_blur_type": "buddha_blur_type_combo", "outline": "deco_outline_check",
+}
+
+
 def shape_params_tuple(shape, obj):
     """The given shape's own parameter tuple, read directly off `obj` (an
     Obstacle, or an ObstacleSnapshot - both expose the same field names).
@@ -1489,20 +1565,13 @@ def settings_confine(settings):
                          settings.confine_threshold)
 
 
-def blend_value(a, b, t, method):
-    """One interpolated float, using the method chosen on the *later* keyframe."""
-    if method == "Step":
-        return a
-    return a + (b - a) * t
-
-
 def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):
     """The value of one setting at `frame_number`, using only the keyframes
     (already sorted by frame_index) that actually define `key` - keyframes
     lacking it are skipped entirely, both for holding and for interpolation,
     so different settings can animate over different stretches of the
     timeline. `fallback` is used when no keyframe defines it at all;
-    `is_float` says whether it's ever smoothly interpolated (True) or always
+    `is_float` says whether it's ever linearly interpolated (True) or always
     held (False)."""
     have = [kf for kf in keyframes_sorted if key in kf.data]
     if not have:
@@ -1517,13 +1586,15 @@ def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):
         else:
             break
 
-    if not is_float or active.frame_index == frame_number or active_i + 1 >= len(have):
-        return active.data[key]
+    if (not is_float or frame_number <= active.frame_index
+            or active_i + 1 >= len(have)):
+        return active.data[key]      # held (before the first / after the last too)
     nxt = have[active_i + 1]
     if nxt.frame_index == active.frame_index:
         return active.data[key]
     t = (frame_number - active.frame_index) / (nxt.frame_index - active.frame_index)
-    return blend_value(active.data[key], nxt.data[key], t, nxt.interp)
+    a, b = active.data[key], nxt.data[key]
+    return a + (b - a) * t
 
 
 def resolve_setting(key, keyframes_sorted, frame_number):
@@ -2078,11 +2149,6 @@ def render_word_lines(size_w, size_h, words, scale=1):
             region[line] = (255, 0, 255)
         y += h + gap
     return canvas
-
-
-def no_img_thumbnail(size):
-    """A black `size` x `size` RGB image with 'no' / 'img' centred in magenta."""
-    return render_word_lines(size, size, ["no", "img"], scale=2)
 
 
 def preview_placeholder(width, height):
@@ -2875,33 +2941,26 @@ def buddha_compress(count, method, brightness_mult=1.0):
 
 
 DIFF_PRESENCE_CHOICES = ("present", "absent", "present or absent")
-DIFF_SAMENESS_CHOICES = ("same", "different", "same or different")
 
 
-def setting_passes_diff_filters(in_keyframe, matches_current, presence, sameness):
-    """Whether a setting shows in the keyframe settings list under the two
-    filters. `in_keyframe`: the selected keyframe itself defines it.
-    `matches_current`: the program's current value equals the keyframe's stored
-    one; a setting the keyframe does not define counts as different. `presence`
-    and `sameness` are values from DIFF_PRESENCE_CHOICES / DIFF_SAMENESS_CHOICES."""
-    if presence == "present" and not in_keyframe:
-        return False
-    if presence == "absent" and in_keyframe:
-        return False
-    same = in_keyframe and matches_current
-    if sameness == "same" and not same:
-        return False
-    if sameness == "different" and same:
-        return False
+def setting_passes_presence_filter(in_keyframe, presence):
+    """Whether a setting shows in the keyframe settings list under the "Show"
+    filter. `in_keyframe`: the selected keyframe itself defines it; `presence` is
+    a value from DIFF_PRESENCE_CHOICES."""
+    if presence == "present":
+        return in_keyframe
+    if presence == "absent":
+        return not in_keyframe
     return True
 
 
-def diff_section_header_text(title, expanded, n_set, n_total):
+def diff_section_header_text(title, expanded, n_set, n_total, n_modified=0):
     """A section header of the keyframe settings list: an arrow showing whether
     it is expanded, its title, and how many of its settings the selected
     keyframe itself defines (so a collapsed section still says something)."""
     arrow = "\u25bc" if expanded else "\u25b6"
-    return f"{arrow} {title}  ({n_set} of {n_total} set)"
+    modified = f", {n_modified} modified" if n_modified else ""
+    return f"{arrow} {title}  ({n_set} of {n_total} set{modified})"
 
 
 def short_value_text(key, val):
@@ -3217,6 +3276,19 @@ def run_self_checks():
     bad_fmt = [p.field for p in SHAPE_PARAM_INFO if p.fmt not in ("size", "angle", "int")]
     if bad_fmt:
         raise AssertionError(f"SHAPE_PARAM_INFO has invalid fmt for: {bad_fmt}")
+
+    if set(SETTING_WIDGET_ATTRS) != info_keys:
+        raise AssertionError(
+            "SETTING_WIDGET_ATTRS and SETTING_INFO disagree - "
+            f"only in SETTING_WIDGET_ATTRS: {set(SETTING_WIDGET_ATTRS) - info_keys or None}; "
+            f"only in SETTING_INFO: {info_keys - set(SETTING_WIDGET_ATTRS) or None}")
+    obst_widget_fields = set(OBSTACLE_FIELD_WIDGET_ATTRS) | {p.field for p in SHAPE_PARAM_INFO}
+    obst_info_fields = {f for f, _label, _is_float in OBST_FIELD_INFO}
+    if obst_widget_fields != obst_info_fields:
+        raise AssertionError(
+            "OBSTACLE_FIELD_WIDGET_ATTRS/SHAPE_PARAM_INFO and OBST_FIELD_INFO disagree - "
+            f"only in the widget tables: {obst_widget_fields - obst_info_fields or None}; "
+            f"only in OBST_FIELD_INFO: {obst_info_fields - obst_widget_fields or None}")
 
 
 run_self_checks()
@@ -4876,6 +4948,11 @@ class App:
         self.keyframes = []               # list[Keyframe], in the order shown
         self._kf_counter = 0
         self.selected_keyframe = None
+        self.kf_modified = set()          # setting keys the user changed since the selected
+                                          # keyframe was selected / last saved (blue outlines)
+        self.kf_last_seen = None          # capture_all_settings() at the previous check
+        self.kf_applying = False          # True while a keyframe's values are being loaded
+        self.outlines = {}                # widget -> ModifiedOutline
         self.diff_expanded = set()        # titles of the expanded sections of the keyframe
                                           # settings list (everything starts collapsed)
         self.render_thread = None
@@ -5108,6 +5185,7 @@ class App:
                                     values=CONFINE_METHOD_NAMES, state="readonly", width=12)
         method_combo.grid(row=1, column=1, padx=(0, 8), pady=2)
         method_combo.bind("<<ComboboxSelected>>", lambda _e: method_combo.selection_clear())
+        self.confine_method_combo = method_combo
 
         ttk.Label(cf, textvariable=self.confine_threshold_label_var).grid(
             row=2, column=0, sticky="w", padx=(8, 6), pady=2)
@@ -5153,6 +5231,7 @@ class App:
                                   state="readonly", width=14)
         mode_combo.grid(row=0, column=1, padx=(0, 8), pady=(6, 2))
         mode_combo.bind("<<ComboboxSelected>>", lambda _e: mode_combo.selection_clear())
+        self.emit_mode_combo = mode_combo
 
         self.emit_target_entries = []
         for r, (text, var) in enumerate((("Target x:", self.emit_target_x_var),
@@ -5295,8 +5374,10 @@ class App:
         fz.columnconfigure((0, 1), weight=1, uniform="fuzzcols")
 
         self.fuzz_enabled_var = tk.BooleanVar(value=DEFAULT_FUZZ.enabled)
-        ttk.Checkbutton(fz, text="Enable fuzzing", variable=self.fuzz_enabled_var,
-                        command=self.on_fuzz_changed).grid(
+        self.fuzz_enable_check = ttk.Checkbutton(
+            fz, text="Enable fuzzing", variable=self.fuzz_enabled_var,
+            command=self.on_fuzz_changed)
+        self.fuzz_enable_check.grid(
             row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 4))
         ttk.Label(fz, foreground="#666", wraplength=RIGHT_W - 70,
                   text="Perturbs the ray's angles. Emission jitter is added to the "
@@ -5629,6 +5710,7 @@ class App:
         self.constant_frames = []
         self.constant_vars = []
         self.constant_combos = []
+        self.chan_blocks = []
 
         for c, (name, color) in enumerate(MODES[view.mode]):
             block = ttk.Frame(chan_list_frame, relief="groove", borderwidth=1)
@@ -5721,6 +5803,7 @@ class App:
             const_combo.bind("<<ComboboxSelected>>",
                              lambda _e, c=c: self.on_constant_changed(c))
 
+            self.chan_blocks.append(block)
             self.comp_labels.append(lbl)
             self.chan_src_vars.append(svar)
             self.chan_src_combos.append(scombo)
@@ -5813,10 +5896,11 @@ class App:
             frame.columnconfigure(0, weight=1)
             for r, (key, label, default) in enumerate(items):
                 var = tk.BooleanVar(value=default)
-                ttk.Checkbutton(
+                check = ttk.Checkbutton(
                     frame, text=label, variable=var,
-                    command=lambda k=key: self.on_decoration_changed(k)).grid(
-                    row=r, column=0, sticky="w", padx=10, pady=2)
+                    command=lambda k=key: self.on_decoration_changed(k))
+                check.grid(row=r, column=0, sticky="w", padx=10, pady=2)
+                setattr(self, f"deco_{key}_check", check)
                 self.deco[key] = var
             ttk.Label(frame, text=note, foreground="#666",
                       wraplength=RIGHT_W - 70).grid(
@@ -6029,9 +6113,10 @@ class App:
         self.obs_out_effect_combo.bind("<<ComboboxSelected>>", self.on_obstacle_effect_changed)
 
         self.obs_fire_inside_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(editor, text="Fire rays inside", variable=self.obs_fire_inside_var,
-                        command=self.on_obstacle_fire_inside_changed).grid(
-            row=5, column=0, sticky="w", padx=8, pady=2)
+        self.obs_fire_inside_check = ttk.Checkbutton(
+            editor, text="Fire rays inside", variable=self.obs_fire_inside_var,
+            command=self.on_obstacle_fire_inside_changed)
+        self.obs_fire_inside_check.grid(row=5, column=0, sticky="w", padx=8, pady=2)
 
         ttk.Label(parent, foreground="#666", wraplength=RIGHT_W - 70,
                   text="Every one of an obstacle's settings can be saved "
@@ -6474,7 +6559,7 @@ class App:
         self.save_new_frame.grid_remove()
 
     def build_timeline_panel(self):
-        """Top right: the keyframe list (with thumbnails), and beside it, a
+        """Top right: the keyframe list, and beside it, a
         list of every setting, showing how each relates to the selected
         keyframe, grouped by tab."""
         tl = ttk.LabelFrame(self.root, text="Timeline", width=TIMELINE_W, height=SIZE)
@@ -6484,9 +6569,14 @@ class App:
         tl.columnconfigure(1, weight=1)
         tl.rowconfigure(2, weight=1)
 
-        ttk.Button(tl, text="New keyframe (from current settings)",
-                  command=self.new_keyframe).grid(
-            row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(8, 4))
+        new_row = ttk.Frame(tl)
+        new_row.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(8, 4))
+        new_row.columnconfigure((0, 1), weight=1)
+        ttk.Button(new_row, text="New keyframe (from current settings)",
+                  command=self.new_keyframe).grid(row=0, column=0, sticky="ew", padx=(0, 2))
+        ttk.Button(new_row, text="New keyframe (empty)",
+                  command=self.new_keyframe_empty).grid(row=0, column=1, sticky="ew",
+                                                        padx=(2, 0))
 
         ttk.Label(tl, text="Keyframes:", foreground="#666").grid(
             row=1, column=0, sticky="w", padx=8)
@@ -6497,14 +6587,11 @@ class App:
         self.diff_delete_all_btn = ttk.Button(diff_header, text="Delete all",
                                               command=self.delete_all_diffs)
         self.diff_delete_all_btn.pack(side="right")
-        self.diff_save_all_btn = ttk.Button(diff_header, text="Save all",
-                                            command=self.save_all_diffs)
-        self.diff_save_all_btn.pack(side="right", padx=(4, 4))
-        self.diff_load_all_btn = ttk.Button(diff_header, text="Load all",
-                                            command=self.load_all_diffs)
-        self.diff_load_all_btn.pack(side="right")
+        self.diff_save_all_btn = ttk.Button(diff_header, text="Save all modified",
+                                            command=self.save_modified_settings)
+        self.diff_save_all_btn.pack(side="right", padx=(0, 4))
 
-        # Keyframe list (left column): thumbnail + label, click either to select
+        # Keyframe list (left column): one label per keyframe, click to select
         list_container = ttk.Frame(tl)
         list_container.grid(row=2, column=0, sticky="nsew", padx=8, pady=(2, 4))
         list_container.columnconfigure(0, weight=1)
@@ -6520,6 +6607,8 @@ class App:
             "<Configure>", lambda _e: kf_canvas.configure(scrollregion=kf_canvas.bbox("all")))
         kf_canvas.bind(
             "<Configure>", lambda e: kf_canvas.itemconfigure(kf_window, width=e.width))
+        for background in (kf_canvas, self.kf_list_frame):      # empty background deselects
+            background.bind("<Button-1>", lambda _e: self.deselect_keyframe())
 
         # Settings list (right column): every setting, grouped by tab
         diff_container = ttk.Frame(tl)
@@ -6527,17 +6616,14 @@ class App:
         diff_container.columnconfigure(0, weight=1)
         diff_container.rowconfigure(1, weight=1)
         self.diff_presence_var = tk.StringVar(value=DIFF_PRESENCE_CHOICES[-1])
-        self.diff_sameness_var = tk.StringVar(value=DIFF_SAMENESS_CHOICES[-1])
         filters = ttk.Frame(diff_container)
         filters.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
-        for var, choices, pad in ((self.diff_presence_var, DIFF_PRESENCE_CHOICES, (0, 8)),
-                                  (self.diff_sameness_var, DIFF_SAMENESS_CHOICES, (0, 0))):
-            ttk.Label(filters, text="Show", font=self.small_font).pack(side="left")
-            combo = ttk.Combobox(filters, textvariable=var, values=choices,
-                                 state="readonly", width=17)
-            combo.pack(side="left", padx=(4, pad[0] + pad[1]))
-            combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_timeline_diffs())
-        diff_canvas = tk.Canvas(diff_container, highlightthickness=0)
+        ttk.Label(filters, text="Show", font=self.small_font).pack(side="left")
+        combo = ttk.Combobox(filters, textvariable=self.diff_presence_var,
+                             values=DIFF_PRESENCE_CHOICES, state="readonly", width=17)
+        combo.pack(side="left", padx=(4, 0))
+        combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_timeline_diffs())
+        diff_canvas = self.diff_canvas = tk.Canvas(diff_container, highlightthickness=0)
         dvsb = ttk.Scrollbar(diff_container, orient="vertical", command=diff_canvas.yview)
         diff_canvas.configure(yscrollcommand=dvsb.set)
         diff_canvas.grid(row=1, column=0, sticky="nsew")
@@ -6568,17 +6654,8 @@ class App:
         self.kf_frame_entry.bind("<Return>", self.on_kf_frame_commit)
         self.kf_frame_entry.bind("<KP_Enter>", self.on_kf_frame_commit)
 
-        ttk.Label(det, text="Interpolation:").grid(
-            row=2, column=0, sticky="w", padx=8, pady=2)
-        self.kf_interp_var = tk.StringVar(value=DEFAULT_INTERP)
-        self.kf_interp_combo = ttk.Combobox(det, textvariable=self.kf_interp_var,
-                                            values=INTERP_METHODS, state="readonly",
-                                            width=10)
-        self.kf_interp_combo.grid(row=2, column=1, sticky="w", padx=(0, 8), pady=2)
-        self.kf_interp_combo.bind("<<ComboboxSelected>>", self.on_kf_interp_changed)
-
         btnrow = ttk.Frame(det)
-        btnrow.grid(row=3, column=0, columnspan=2, sticky="ew", padx=8, pady=(2, 8))
+        btnrow.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(2, 8))
         self.kf_split_btn = ttk.Button(btnrow, text="Split",
                                        command=self.split_selected_keyframe)
         self.kf_split_btn.pack(side="left", padx=(0, 4))
@@ -6587,13 +6664,17 @@ class App:
         self.kf_delete_btn.pack(side="left")
 
         ttk.Label(tl, foreground="#666", wraplength=TIMELINE_W - 30,
-                  text="Only float values will be interpolated according to the "
-                       "next keyframe's interpolation values. Other values will "
-                       "be held until the next keyframe."
+                  text="Selecting a keyframe loads its settings (and the settings "
+                       "its neighbors animate through it) into the controls; a setting "
+                       "you then change gets a blue outline until you save it or "
+                       "deselect (click the empty part of the keyframe list). Only float "
+                       "values are interpolated (linearly) between keyframes. Other "
+                       "values are held until the next keyframe."
                  ).grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
 
         self.update_kf_detail_panel()
         self.rebuild_keyframe_list()
+        self.root.after(MODIFIED_POLL_MS, self.poll_modified)
         self.refresh_timeline_diffs()
 
     def build_video_panel(self):
@@ -7060,14 +7141,6 @@ class App:
                         emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
                         emit_target_x=tx, emit_target_y=ty,
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
-
-    def is_image_current(self):
-        """Does the image currently shown in the image panel actually match the
-        current control settings (used to decide what a keyframe's thumbnail
-        should show)?"""
-        if self.generated_settings is None or self.running or self.rows_done < SIZE:
-            return False
-        return not self.settings_changed()
 
     def settings_changed(self):
         """Do the controls now describe a different image than the one generated?"""
@@ -8063,7 +8136,7 @@ class App:
         fmt = self.save_format_var.get()
         jxl_lossless = self.save_jxl_mode_var.get() == "Lossless"
         jxl_quality = int(round(float(self.save_jxl_quality_scale.get())))
-        fake_kf = Keyframe(-1, 0, settings_dict, DEFAULT_INTERP, None)
+        fake_kf = Keyframe(-1, 0, settings_dict)
         data = resolve_frame_settings([fake_kf], 0)
         obst_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
         obst_values = resolve_obstacles(obst_snapshots, [fake_kf], 0)
@@ -8151,16 +8224,6 @@ class App:
                 d[f"view:{v.id}:chan{c}"] = view_channel_value(v, c)
         return d
 
-    def capture_thumbnail(self):
-        """A THUMB_SIZE x THUMB_SIZE PhotoImage: a bilinearly-resized copy of the
-        image panel if it currently matches the controls, else a 'no img'
-        placeholder."""
-        if self.is_image_current():
-            small = bilinear_resize(self.frame, THUMB_SIZE, THUMB_SIZE)
-        else:
-            small = no_img_thumbnail(THUMB_SIZE)
-        return tk.PhotoImage(data=encode_png_bytes(small), format="png")
-
     def new_keyframe(self):
         """A new keyframe that defines every setting, from the controls' current
         values."""
@@ -8169,13 +8232,20 @@ class App:
             return
         frame_index = (0 if not self.keyframes
                       else max(kf.frame_index for kf in self.keyframes) + 1)
-        kf = Keyframe(self._kf_counter, frame_index, data, DEFAULT_INTERP,
-                     self.capture_thumbnail())
+        kf = Keyframe(self._kf_counter, frame_index, data)
         self._kf_counter += 1
         self.keyframes.append(kf)
-        self.selected_keyframe = kf
-        self.rebuild_keyframe_list()
-        self.refresh_timeline_diffs()
+        self.select_keyframe(kf, apply=False)      # it holds exactly the current values
+
+    def new_keyframe_empty(self):
+        """A new keyframe that defines no settings at all; selecting it loads
+        whatever its neighbors animate through it."""
+        frame_index = (0 if not self.keyframes
+                      else max(kf.frame_index for kf in self.keyframes) + 1)
+        kf = Keyframe(self._kf_counter, frame_index, {})
+        self._kf_counter += 1
+        self.keyframes.append(kf)
+        self.select_keyframe(kf)
 
     def load_value(self, key, val):
         """Apply one resolved value to whichever control(s) hold that setting.
@@ -8275,21 +8345,6 @@ class App:
             self.deco["outline"].set(val)
             self.on_decoration_changed("outline")
 
-    def load_setting(self, kf, key):
-        """Apply kf.data[key] to the controls, if kf actually defines it."""
-        if key in kf.data:
-            self.load_value(key, kf.data[key])
-
-    def load_settings(self, kf, keys):
-        """Load several settings from `kf` into the controls, then refresh
-        everything that depends on them once."""
-        for key in keys:
-            self.load_setting(kf, key)
-        self.on_limit_var_changed()
-        self.on_shape_param_changed()
-        self.on_fuzz_changed()
-        self.refresh_timeline_diffs()
-
     def setting_fallback(self, key):
         """The value to fall back to when no keyframe defines `key` at all:
         the static default for a normal setting, that obstacle's own current
@@ -8322,8 +8377,7 @@ class App:
         side effects (each of which re-walks every current setting, so
         they're too expensive to repeat once per key) - callers loading
         several settings at once should pass False here and do one shared
-        refresh afterwards, the same way load_settings() already does for
-        "present" keys."""
+        refresh afterwards (see apply_keyframe_settings)."""
         sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
         val = resolve_value(key, sorted_kfs, kf.frame_index,
                             self.setting_fallback(key), self.setting_is_float(key))
@@ -8341,10 +8395,12 @@ class App:
         if current is None:
             return
         for key in keys:
-            kf.data[key] = current[key]
-        kf.thumb = self.capture_thumbnail()
+            if key in current:
+                kf.data[key] = current[key]
+        self.kf_modified.difference_update(keys)
         self.rebuild_keyframe_list()
         self.refresh_timeline_diffs()
+        self.refresh_modified_outlines()
 
     def delete_setting(self, kf, key):
         """Remove `key` from `kf`, so it goes back to being either animated by
@@ -8356,19 +8412,137 @@ class App:
 
     def setting_status(self, kf, key, sorted_kfs, idx_kf):
         """How `key` relates to `kf`: 'present' (kf defines it), 'animated'
-        (kf doesn't, but some keyframe before AND some keyframe after it in
-        timeline order do, so it can still be loaded/saved here), or 'none'
-        (nobody nearby defines it)."""
+        (kf doesn't, but some other keyframe does - on either side or both, so
+        its value at kf comes from the neighbors: blended between the nearest
+        one on each side, or, with one side only, held from the first/last
+        keyframe defining it), or 'none' (no keyframe defines it)."""
         if key in kf.data:
             return "present"
-        before = any(key in k2.data for k2 in sorted_kfs[:idx_kf])
-        after = any(key in k2.data for k2 in sorted_kfs[idx_kf + 1:])
-        return "animated" if before and after else "none"
+        others = sorted_kfs[:idx_kf] + sorted_kfs[idx_kf + 1:]
+        return "animated" if any(key in k2.data for k2 in others) else "none"
 
-    def select_keyframe(self, kf):
+    def select_keyframe(self, kf, apply=True):
+        """Select `kf`: equivalent to deselecting the current keyframe first (its
+        unsaved modifications stop counting as modifications; the values stay in
+        the controls until overwritten below), then, with `apply`, loading into
+        the controls every setting `kf` defines and every setting its
+        neighbors animate through it. Selecting the selected keyframe again
+        does nothing."""
+        if kf is self.selected_keyframe:
+            return
         self.selected_keyframe = kf
+        self.kf_modified = set()
+        if apply:
+            self.apply_keyframe_settings(kf)
+        self.kf_last_seen = self.capture_all_settings(show_error=False)
         self.rebuild_keyframe_list()
         self.refresh_timeline_diffs()
+        self.refresh_modified_outlines()
+
+    def deselect_keyframe(self):
+        """No keyframe selected. The controls keep their values, but none of them
+        counts as modified any more, so selecting another keyframe overwrites
+        them freely."""
+        if self.selected_keyframe is None:
+            return
+        self.selected_keyframe = None
+        self.kf_modified = set()
+        self.kf_last_seen = None
+        self.rebuild_keyframe_list()
+        self.refresh_timeline_diffs()
+        self.refresh_modified_outlines()
+
+    def apply_keyframe_settings(self, kf):
+        """Load into the controls every setting `kf` defines, and every one it
+        lacks but its neighbors animate through its frame index, then refresh
+        what depends on them once."""
+        sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
+        idx_kf = sorted_kfs.index(kf)
+        self.kf_applying = True
+        try:
+            for key, _tab, _label, _is_float, _fallback in self.all_setting_entries():
+                status = self.setting_status(kf, key, sorted_kfs, idx_kf)
+                if status == "present":
+                    self.load_value(key, kf.data[key])
+                elif status == "animated":
+                    self.load_animated_setting(kf, key, refresh=False)
+            self.on_limit_var_changed()
+            self.on_shape_param_changed()
+            self.on_fuzz_changed()
+        finally:
+            self.kf_applying = False
+
+    def poll_modified(self):
+        """Runs every MODIFIED_POLL_MS for the life of the program."""
+        try:
+            self.check_modified()
+            self.refresh_modified_outlines()
+        finally:
+            self.root.after(MODIFIED_POLL_MS, self.poll_modified)
+
+    def check_modified(self):
+        """With a keyframe selected, mark every setting whose value changed since
+        the previous check as modified (see detect_modified_keys). Polling the
+        settings, rather than hooking every control, catches every way a setting
+        can be edited (entries, sliders, dropdowns, the obstacle and view
+        editors) and costs well under a millisecond. Returns whether the set of
+        modified settings changed."""
+        if self.selected_keyframe is None or self.kf_applying:
+            return False
+        current = self.capture_all_settings(show_error=False)
+        if current is None:                       # a limit field is mid-edit
+            return False
+        last = self.kf_last_seen if self.kf_last_seen is not None else current
+        new = detect_modified_keys(last, current, self.kf_modified)
+        self.kf_last_seen = current
+        if new == self.kf_modified:
+            return False
+        self.kf_modified = new
+        self.refresh_timeline_diffs()
+        return True
+
+    def widgets_for_setting(self, key):
+        """The main control(s) currently showing setting `key`: [] when it has
+        none visible now (an obstacle or view other than the one being edited)."""
+        def attr(name):
+            obj = getattr(self, name, None)
+            return getattr(obj, "widget", obj) if obj is not None else None
+
+        if key.startswith("obst:"):
+            _prefix, obst_id, field = key.split(":", 2)
+            o = self.selected_obstacle
+            if o is None or o.id != int(obst_id):
+                return []
+            name = OBSTACLE_FIELD_WIDGET_ATTRS.get(field)
+            if name is None:
+                name = "obs_" + next(p.widget for p in SHAPE_PARAM_INFO if p.field == field)
+            widget = attr(name)
+            return [widget] if widget is not None else []
+        if key.startswith("view:"):
+            _prefix, view_id, field = key.split(":", 2)
+            v = self.selected_view_obj()
+            if v is None or v.id != int(view_id):
+                return []
+            if field == "mode":
+                widget = attr("mode_combo")
+            else:
+                blocks = getattr(self, "chan_blocks", [])
+                widget = blocks[int(field[-1])] if int(field[-1]) < len(blocks) else None
+            return [widget] if widget is not None else []
+        widget = attr(SETTING_WIDGET_ATTRS[key])
+        return [widget] if widget is not None else []
+
+    def refresh_modified_outlines(self):
+        """Show a blue outline around the control of every modified setting, and
+        remove the outline from every other."""
+        want = set()
+        for key in self.kf_modified:
+            want.update(self.widgets_for_setting(key))
+        for widget in want:
+            if widget not in self.outlines:
+                self.outlines[widget] = ModifiedOutline(widget)
+        for widget, outline in self.outlines.items():
+            outline.show(widget in want)
 
     def rebuild_keyframe_list(self):
         for w in self.kf_list_frame.winfo_children():
@@ -8380,15 +8554,12 @@ class App:
                           highlightbackground=SELECTED_OUTLINE,
                           highlightcolor=SELECTED_OUTLINE)
             row.grid(row=idx, column=0, sticky="ew", pady=2, padx=1)
-            row.columnconfigure(1, weight=1)
-
-            thumb_lbl = tk.Label(row, image=kf.thumb, bd=0, cursor="hand2")
-            thumb_lbl.grid(row=0, column=0, padx=(2, 6), pady=2)
-            thumb_lbl.bind("<Button-1>", lambda _e, kf=kf: self.select_keyframe(kf))
+            row.columnconfigure(0, weight=1)
+            row.bind("<Button-1>", lambda _e, kf=kf: self.select_keyframe(kf))
 
             lbl = tk.Label(row, text=f"#{idx + 1}  frame {kf.frame_index}",
                           anchor="w", cursor="hand2", font=self.small_font)
-            lbl.grid(row=0, column=1, sticky="ew")
+            lbl.grid(row=0, column=0, sticky="ew", padx=4, pady=6)
             lbl.bind("<Button-1>", lambda _e, kf=kf: self.select_keyframe(kf))
         self.update_kf_detail_panel()
 
@@ -8417,6 +8588,26 @@ class App:
                + [f"View {i}" for i in range(len(self.views))])
 
     def refresh_timeline_diffs(self):
+        """Rebuild the settings list (see _rebuild_timeline_diffs), then refit its
+        scrolling to the new content."""
+        self._rebuild_timeline_diffs()
+        self.fit_diff_scroll()
+
+    def fit_diff_scroll(self):
+        """Make the settings list's scroll area match its content right now, and keep
+        the view inside it. Waiting for the list frame's <Configure> event is not
+        enough: when a rebuild leaves the list shorter than the current scroll
+        position (a filter or a collapsed section shrinking it), the canvas shows
+        none of the frame, never resizes it, and so never sends that event - the
+        list stayed scrolled past its end, blank."""
+        canvas = getattr(self, "diff_canvas", None)
+        if canvas is None:
+            return
+        self.diff_list_frame.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.yview_moveto(canvas.yview()[0])      # clamps into the new scroll area
+
+    def _rebuild_timeline_diffs(self):
         """Rebuild the settings list for the selected keyframe: every setting,
         grouped into collapsible sections (by the tab it lives on, or the obstacle
         or view it belongs to; all collapsed until expanded, see
@@ -8429,7 +8620,6 @@ class App:
         kf = self.selected_keyframe
 
         if kf is None:
-            self.diff_load_all_btn.state(["disabled"])
             self.diff_save_all_btn.state(["disabled"])
             self.diff_delete_all_btn.state(["disabled"])
             ttk.Label(self.diff_list_frame, text="(select a keyframe)",
@@ -8438,7 +8628,6 @@ class App:
             return
         current = self.capture_all_settings(show_error=False)
         if current is None:
-            self.diff_load_all_btn.state(["disabled"])
             self.diff_save_all_btn.state(["disabled"])
             self.diff_delete_all_btn.state(["disabled"])
             ttk.Label(self.diff_list_frame, text="(fix the limit fields first)",
@@ -8448,19 +8637,16 @@ class App:
 
         sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
         idx_kf = sorted_kfs.index(kf)
-        self.diff_load_all_btn.state(["!disabled"])
-        self.diff_save_all_btn.state(["!disabled"])
+        self.diff_save_all_btn.state(["!disabled"] if self.kf_modified else ["disabled"])
         self.diff_delete_all_btn.state(["!disabled"] if kf.data else ["disabled"])
 
         row = 0
         entries = self.all_setting_entries()
+        modified = self.kf_modified
         presence = self.diff_presence_var.get()
-        sameness = self.diff_sameness_var.get()
 
         def passes(key):
-            return setting_passes_diff_filters(
-                key in kf.data, key in kf.data and kf.data[key] == current[key],
-                presence, sameness)
+            return setting_passes_presence_filter(key in kf.data, presence)
 
         for tab in self.all_setting_tabs():
             all_tab_entries = [e for e in entries if e[1] == tab]
@@ -8469,9 +8655,12 @@ class App:
                 continue                       # nothing here matches the filters
             expanded = tab in self.diff_expanded
             n_set = sum(1 for e in all_tab_entries if e[0] in kf.data)
+            n_modified = sum(1 for e in all_tab_entries if e[0] in modified)
             header = ttk.Label(self.diff_list_frame, cursor="hand2",
                                text=diff_section_header_text(tab, expanded, n_set,
-                                                             len(all_tab_entries)),
+                                                             len(all_tab_entries),
+                                                             n_modified),
+                               foreground=MODIFIED_OUTLINE if n_modified else "",
                                font=self.small_bold_font)
             header.grid(row=row, column=0, sticky="w", padx=4, pady=(6, 1))
             header.bind("<Button-1>", lambda _e, t=tab: self.toggle_diff_section(t))
@@ -8498,26 +8687,17 @@ class App:
 
     def add_setting_row(self, row, kf, key, label, is_float, fallback, current, sorted_kfs,
                         idx_kf):
-        """One setting's row in the keyframe settings list: its label, and
-        Load / Save / Delete buttons as they apply."""
+        """One setting's row in the keyframe settings list: its label, and Save /
+        Delete buttons as they apply, outlined in blue while the setting is
+        modified."""
         status = self.setting_status(kf, key, sorted_kfs, idx_kf)
-        r = ttk.Frame(self.diff_list_frame)
+        r = tk.Frame(self.diff_list_frame,
+                     highlightthickness=MODIFIED_OUTLINE_PX if key in self.kf_modified else 0,
+                     highlightbackground=MODIFIED_OUTLINE, highlightcolor=MODIFIED_OUTLINE)
         r.grid(row=row, column=0, sticky="ew", padx=4, pady=(1, 3))
         ttk.Label(r, text=label, font=self.small_font).grid(row=0, column=0, sticky="w")
         btns = ttk.Frame(r)
         btns.grid(row=1, column=0, sticky="w")
-
-        if status == "present":
-            load_text = f"Load {short_value_text(key, kf.data[key])}"
-            ttk.Button(btns, text=load_text,
-                      command=lambda kf=kf, k=key: self.load_settings(
-                          kf, [k])).pack(side="left", padx=(0, 2))
-        elif status == "animated":
-            val = resolve_value(key, sorted_kfs, kf.frame_index, fallback, is_float)
-            load_text = f"Load {short_value_text(key, val)}"
-            ttk.Button(btns, text=load_text,
-                      command=lambda kf=kf, k=key: self.load_animated_setting(
-                          kf, k)).pack(side="left", padx=(0, 2))
 
         save_text = f"Save {short_value_text(key, current[key])}"
         ttk.Button(btns, text=save_text,
@@ -8533,38 +8713,12 @@ class App:
                      foreground="#666", font=self.small_font).pack(
                 side="left", padx=(4, 0))
 
-    def load_all_diffs(self):
+    def save_modified_settings(self):
+        """Save into the selected keyframe every setting marked modified."""
         kf = self.selected_keyframe
-        if kf is None:
+        if kf is None or not self.kf_modified:
             return
-        sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
-        idx_kf = sorted_kfs.index(kf)
-        present_keys = []
-        animated_keys = []
-        for key, _tab, _label, _is_float, _fallback in self.all_setting_entries():
-            status = self.setting_status(kf, key, sorted_kfs, idx_kf)
-            if status == "present":
-                present_keys.append(key)
-            elif status == "animated":
-                animated_keys.append(key)
-        for key in animated_keys:
-            self.load_animated_setting(kf, key, refresh=False)   # one shared refresh below
-        if present_keys:
-            self.load_settings(kf, present_keys)   # refreshes once, covering the
-                                                   # animated keys loaded above too
-        elif animated_keys:
-            self.on_limit_var_changed()
-            self.on_shape_param_changed()
-            self.on_fuzz_changed()
-            self.refresh_timeline_diffs()
-        else:
-            self.refresh_timeline_diffs()
-
-    def save_all_diffs(self):
-        kf = self.selected_keyframe
-        if kf is None:
-            return
-        self.save_settings(kf, [key for key, _t, _l, _f, _fb in self.all_setting_entries()])
+        self.save_settings(kf, sorted(self.kf_modified))
 
     def delete_all_diffs(self):
         """Delete every setting the selected keyframe defines, leaving it
@@ -8582,18 +8736,14 @@ class App:
         if kf is None:
             self.kf_detail_label_var.set("(none selected)")
             self.kf_frame_var.set("")
-            self.kf_interp_var.set(DEFAULT_INTERP)
             self.kf_frame_entry.state(["disabled"])
-            self.kf_interp_combo.state(["disabled"])
             self.kf_split_btn.state(["disabled"])
             self.kf_delete_btn.state(["disabled"])
             return
         idx = self.keyframes.index(kf)
         self.kf_detail_label_var.set(f"Keyframe #{idx + 1}")
         self.kf_frame_var.set(str(kf.frame_index))
-        self.kf_interp_var.set(kf.interp)
         self.kf_frame_entry.state(["!disabled"])
-        self.kf_interp_combo.state(["!disabled"])
         self.kf_split_btn.state(["!disabled"])
         self.kf_delete_btn.state(["!disabled"])
 
@@ -8609,13 +8759,6 @@ class App:
         self.reorder_keyframes()
         self.rebuild_keyframe_list()
 
-    def on_kf_interp_changed(self, _event=None):
-        kf = self.selected_keyframe
-        if kf is None:
-            return
-        kf.interp = self.kf_interp_var.get()
-        self.kf_interp_combo.selection_clear()
-
     def reorder_keyframes(self):
         """Sort keyframes ascending by frame index (stable, so ties keep their
         relative order)."""
@@ -8625,7 +8768,7 @@ class App:
         kf = self.selected_keyframe
         if kf is None:
             return
-        new_kf = Keyframe(self._kf_counter, kf.frame_index, dict(kf.data), kf.interp, kf.thumb)
+        new_kf = Keyframe(self._kf_counter, kf.frame_index, dict(kf.data))
         self._kf_counter += 1
         idx = self.keyframes.index(kf)
         self.keyframes.insert(idx + 1, new_kf)
@@ -8636,9 +8779,7 @@ class App:
         if kf is None:
             return
         self.keyframes.remove(kf)
-        self.selected_keyframe = None
-        self.rebuild_keyframe_list()
-        self.refresh_timeline_diffs()
+        self.deselect_keyframe()
 
     # ---- video rendering ------------------------------------------------------ #
     def set_video_status(self, text):
