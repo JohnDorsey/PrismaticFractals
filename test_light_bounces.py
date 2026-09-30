@@ -712,8 +712,8 @@ def _make_fake_app_for_snapshot():
     app.confine_method_var = _Get(m.CONFINE_METHOD_NAMES[m.DEFAULT_CONFINE_METHOD])
     app.confine_threshold_var = _Get(str(m.DEFAULT_CONFINE_THRESHOLD))
     app.emit_mode_var = _Get(m.EMIT_MODE_NAMES[m.DEFAULT_EMIT_MODE])
-    app.emit_target_x_var = _Get(str(m.DEFAULT_EMIT_TARGET_X))
-    app.emit_target_y_var = _Get(str(m.DEFAULT_EMIT_TARGET_Y))
+    for field in m.EMIT_TARGET_FIELDS:
+        setattr(app, f"emit_target_{field}_var", _Get("0.0"))
     app.emit_offset_scale = _Get(m.DEFAULT_EMIT_OFFSET)
     return app
 
@@ -3267,11 +3267,11 @@ def test_render_keyframe_snapshot_is_unaffected_by_later_edits_to_the_keyframes(
 # --------------------------------------------------------------------------- #
 # Obstacle incoming / outgoing ray effects (replacing the single "effect")
 # --------------------------------------------------------------------------- #
-def test_new_obstacle_defaults_to_reflecting_in_and_passing_out():
+def test_new_obstacle_defaults_to_reflecting_both_ways_and_firing_rays_inside():
     o = m.Obstacle(0)
     assert o.in_effect == m.OBSTACLE_EFFECT_REFLECT
-    assert o.out_effect == m.OBSTACLE_EFFECT_PASS
-    assert not hasattr(o, "effect")
+    assert o.out_effect == m.OBSTACLE_EFFECT_REFLECT
+    assert o.fire_inside is True
 
 
 def test_effect_names_and_colors_cover_every_effect():
@@ -3949,7 +3949,8 @@ def test_snapshot_and_settings_hold_only_the_simulation_controls():
     assert m.Snapshot._fields == ("max_iter", "max_dist", "seg_mult", "fuzz",
                                   "buddha_blur_radius", "buddha_blur_type",
                                   "confine_window", "confine_method", "confine_threshold",
-                                  "emit_mode", "emit_target_x", "emit_target_y", "emit_offset")
+                                  "emit_mode", "emit_target_r", "emit_target_theta",
+                                  "emit_target_cx", "emit_target_cy", "emit_offset")
     assert m.Settings._fields == m.Snapshot._fields
     assert m.effective_settings(m.DEFAULT_SNAPSHOT) == m.Settings(*m.DEFAULT_SNAPSHOT)
 
@@ -3960,7 +3961,8 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
                     "bnd_offset", "bnd_jitter", "bnd_mult", "self_offset", "self_jitter",
                     "self_mult", "seed", "buddha_blur_radius", "buddha_blur_type", "outline",
                     "confine_window", "confine_method", "confine_threshold",
-                    "emit_mode", "emit_target_x", "emit_target_y", "emit_offset"}
+                    "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
+                    "emit_target_cy", "emit_offset"}
     assert keys == set(m.DEFAULT_SETTING_VALUES)
     tabs = {tab for _k, tab, _label in m.SETTING_INFO}
     assert tabs == {"Simulation", "Fuzzing", "Buddha blur", "Decorations"}
@@ -4358,8 +4360,9 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
     app.confine_window_var = _StubVar(window)
     app.confine_method_var = _StubVar(method)
     app.confine_threshold_var = _StubVar(threshold)
-    app.emit_target_x_var, app.emit_target_y_var = _StubVar("0.0"), _StubVar("0.0")
-    app.last_emit_target_x = app.last_emit_target_y = 0.0
+    for field in m.EMIT_TARGET_FIELDS:
+        setattr(app, f"emit_target_{field}_var", _StubVar("0.0"))
+        setattr(app, f"last_emit_target_{field}", 0.0)
     app.last_iter, app.last_dist = 256, 0
     app.last_confine_window = 4
     app.last_confine_threshold = m.PIXEL
@@ -4373,7 +4376,8 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
             app.styles[self.name] = style
     app.iter_entry, app.dist_entry = Entry("iter"), Entry("dist")
     app.confine_window_entry, app.confine_threshold_entry = Entry("window"), Entry("threshold")
-    app.emit_target_x_entry, app.emit_target_y_entry = Entry("target_x"), Entry("target_y")
+    for field in m.EMIT_TARGET_FIELDS:
+        setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
     app.limit_msg_var, app.confine_msg_var = _StubVar(""), _StubVar("")
     app.emit_msg_var = _StubVar("")
     app.invalidate_preview = app.update_buttons = app.refresh_state_text = lambda: None
@@ -4518,11 +4522,13 @@ def _angle_deg(direction):
 
 def test_the_default_emission_is_up_with_a_minus_45_degree_offset():
     assert m.EMIT_MODE_NAMES == ["Up", "Towards point"]
-    assert (m.DEFAULT_EMIT_MODE, m.DEFAULT_EMIT_TARGET_X, m.DEFAULT_EMIT_TARGET_Y,
-            m.DEFAULT_EMIT_OFFSET) == (UP, 0.0, 0.0, -45.0)
+    assert (m.DEFAULT_EMIT_MODE, m.DEFAULT_EMIT_TARGET_R, m.DEFAULT_EMIT_TARGET_THETA,
+            m.DEFAULT_EMIT_TARGET_CX, m.DEFAULT_EMIT_TARGET_CY,
+            m.DEFAULT_EMIT_OFFSET) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
     assert m.EMISSION_DEFAULT.tolist() == [0.0, 0.0, 0.0, -45.0]
     s = m.DEFAULT_SNAPSHOT
-    assert (s.emit_mode, s.emit_target_x, s.emit_target_y, s.emit_offset) == (UP, 0.0, 0.0, -45.0)
+    assert (s.emit_mode, s.emit_target_r, s.emit_target_theta, s.emit_target_cx,
+            s.emit_target_cy, s.emit_offset) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
     assert m.settings_emission(m.effective_settings(s)).tolist() == m.EMISSION_DEFAULT.tolist()
 
 
@@ -4650,6 +4656,33 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert start_r.max() <= 1.0
 
 
+def test_the_target_point_is_positioned_like_an_obstacle():
+    """Distance r at angle theta from the origin, plus an x and y offset: the same
+    formula as Obstacle.center."""
+    s = _settings(emit_mode=TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
+                  emit_target_cx=0.5, emit_target_cy=-0.25)
+    _mode, tx, ty, _off = m.settings_emission(s).tolist()
+    assert abs(tx - 0.5) < 1e-12 and abs(ty - 1.75) < 1e-12
+    o = m.Obstacle(0)
+    o.r, o.theta, o.cx, o.cy = 2.0, 90.0, 0.5, -0.25
+    assert (tx, ty) == o.center()
+    # a negative r flips through the origin; theta is not limited to one turn
+    s = _settings(emit_mode=TOWARDS, emit_target_r=-1.0, emit_target_theta=720.0 + 180.0)
+    _mode, tx, ty, _off = m.settings_emission(s).tolist()
+    assert abs(tx - 1.0) < 1e-9 and abs(ty) < 1e-9
+
+
+def test_rays_fired_towards_a_polar_target_head_for_it():
+    s = _settings(emit_mode=TOWARDS, emit_target_r=1.0, emit_target_theta=90.0,
+                  emit_target_cx=0.0, emit_target_cy=0.0, emit_offset=0.0)
+    emission = m.settings_emission(s)
+    d = _first_direction(0.0, -0.5, emission)
+    assert abs(_angle_deg(d) - 90.0) < 1e-6          # straight up, at (0, 1)
+    d = _first_direction(-0.5, 0.0, emission)
+    want = np.degrees(np.arctan2(1.0 - 0.0, 0.0 - -0.5))
+    assert abs(_angle_deg(d) - want) < 1e-6
+
+
 # ---- parsing and key checks ---------------------------------------------------------------
 def test_target_coordinates_accept_any_finite_number_of_either_sign():
     for text, value in [("0", 0.0), ("-0.5", -0.5), ("0.5", 0.5), ("3.", 3.0), (".5", 0.5),
@@ -4675,9 +4708,10 @@ def test_the_coordinate_field_accepts_partial_typing_of_any_valid_number():
 # ---- keyframes, settings plumbing -----------------------------------------------------------
 def test_emission_settings_are_registered_and_the_right_ones_interpolate():
     keys = {k: tab for k, tab, _label in m.SETTING_INFO}
-    for key in ("emit_mode", "emit_target_x", "emit_target_y", "emit_offset"):
+    target = ["emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy"]
+    for key in ["emit_mode", *target, "emit_offset"]:
         assert keys[key] == "Simulation" and key in m.DEFAULT_SETTING_VALUES
-    for key in ("emit_target_x", "emit_target_y", "emit_offset"):
+    for key in [*target, "emit_offset"]:
         assert key in m.SETTING_FLOAT_KEYS
     assert "emit_mode" not in m.SETTING_FLOAT_KEYS
     assert "emit_angle" not in keys and "emit_angle" not in m.DEFAULT_SETTING_VALUES
@@ -4686,29 +4720,35 @@ def test_emission_settings_are_registered_and_the_right_ones_interpolate():
 def test_emission_settings_round_trip_through_capture_and_resolve():
     app = _make_fake_app_for_snapshot()
     app.emit_mode_var = _StubVar("Towards point")
-    app.emit_target_x_var = _StubVar("-2.5e3")
-    app.emit_target_y_var = _StubVar("0.75")
+    app.emit_target_r_var = _StubVar("-2.5e3")
+    app.emit_target_theta_var = _StubVar("90")
+    app.emit_target_cx_var = _StubVar("0.75")
+    app.emit_target_cy_var = _StubVar("-4")
     app.emit_offset_scale = _StubVar(12.5)
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
     app.views = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     data = app.capture_all_settings()
-    assert (data["emit_mode"], data["emit_target_x"], data["emit_target_y"],
-            data["emit_offset"]) == (TOWARDS, -2500.0, 0.75, 12.5)
+    assert (data["emit_mode"], data["emit_target_r"], data["emit_target_theta"],
+            data["emit_target_cx"], data["emit_target_cy"],
+            data["emit_offset"]) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
     snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).snapshot
-    assert (snap.emit_mode, snap.emit_target_x, snap.emit_target_y, snap.emit_offset) == \
-        (TOWARDS, -2500.0, 0.75, 12.5)
+    assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
+            snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
 
 
 def test_emission_target_and_offset_interpolate_but_the_mode_holds():
-    kf0 = m.Keyframe(0, 0, {"emit_mode": UP, "emit_target_x": -1.0, "emit_target_y": 0.0,
+    kf0 = m.Keyframe(0, 0, {"emit_mode": UP, "emit_target_r": 0.0, "emit_target_theta": 0.0,
+                            "emit_target_cx": -1.0, "emit_target_cy": 0.0,
                             "emit_offset": -45.0})
-    kf1 = m.Keyframe(1, 10, {"emit_mode": TOWARDS, "emit_target_x": 1.0, "emit_target_y": 4.0,
-                             "emit_offset": 45.0})
+    kf1 = m.Keyframe(1, 10, {"emit_mode": TOWARDS, "emit_target_r": 2.0,
+                             "emit_target_theta": 90.0, "emit_target_cx": 1.0,
+                             "emit_target_cy": 4.0, "emit_offset": 45.0})
     mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
     assert mid.emit_mode == UP
-    assert (mid.emit_target_x, mid.emit_target_y, mid.emit_offset) == (0.0, 2.0, 0.0)
+    assert (mid.emit_target_r, mid.emit_target_theta, mid.emit_target_cx, mid.emit_target_cy,
+            mid.emit_offset) == (1.0, 45.0, 0.0, 2.0, 0.0)
     assert m.resolve_frame_settings([kf0, kf1], 10).snapshot.emit_mode == TOWARDS
 
 
@@ -4716,35 +4756,42 @@ def test_short_value_text_for_the_emission_settings():
     assert m.short_value_text("emit_mode", TOWARDS) == "Towards point"
     assert m.short_value_text("emit_offset", -45.0) == "-45.0\u00b0"
     assert m.short_value_text("emit_offset", 12.34) == "+12.3\u00b0"
-    assert m.short_value_text("emit_target_x", 0.5) == "0.5"
+    assert m.short_value_text("emit_target_r", 0.5) == "0.5"
+    assert m.short_value_text("emit_target_theta", 30.0) == "30\u00b0"
+    assert m.short_value_text("emit_target_cx", -2.0) == "-2"
 
 
 def test_a_changed_emission_makes_the_settings_differ():
     a = m.effective_settings(m.DEFAULT_SNAPSHOT)
-    for change in (dict(emit_mode=TOWARDS), dict(emit_target_x=1.0),
-                   dict(emit_target_y=-1.0), dict(emit_offset=0.0)):
+    for change in (dict(emit_mode=TOWARDS), dict(emit_target_r=1.0),
+                   dict(emit_target_theta=10.0), dict(emit_target_cx=1.0),
+                   dict(emit_target_cy=-1.0), dict(emit_offset=0.0)):
         assert m.effective_settings(m.DEFAULT_SNAPSHOT._replace(**change)) != a
 
 
 def test_settings_built_without_the_emission_fields_get_the_defaults():
     settings = m.Settings(30, 0.0, 1.0, m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_GAUSSIAN)
-    assert (settings.emit_mode, settings.emit_target_x, settings.emit_target_y,
-            settings.emit_offset) == (UP, 0.0, 0.0, -45.0)
+    assert (settings.emit_mode, settings.emit_target_r, settings.emit_target_theta,
+            settings.emit_target_cx, settings.emit_target_cy,
+            settings.emit_offset) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
 
 
 # ---- the entry handlers and UI ----------------------------------------------------------------
 def test_valid_target_entries_update_the_last_good_values():
     app = _fake_limits_app()
-    app.emit_target_x_var.set("-12.5")
-    app.emit_target_y_var.set("3e8")
+    app.emit_target_r_var.set("-12.5")
+    app.emit_target_theta_var.set("-720")
+    app.emit_target_cx_var.set("3e8")
+    app.emit_target_cy_var.set("0.25")
     app.on_limit_var_changed()
-    assert (app.last_emit_target_x, app.last_emit_target_y) == (-12.5, 3e8)
-    assert app.styles["target_x"] == "TEntry" and app.styles["target_y"] == "TEntry"
+    assert (app.last_emit_target_r, app.last_emit_target_theta, app.last_emit_target_cx,
+            app.last_emit_target_cy) == (-12.5, -720.0, 3e8, 0.25)
+    assert all(app.styles[f"target_{f}"] == "TEntry" for f in m.EMIT_TARGET_FIELDS)
     assert app.emit_msg_var.get() == ""
 
 
 def test_an_invalid_target_is_flagged_and_the_last_good_value_restored_on_commit():
-    for field in ("x", "y"):
+    for field in m.EMIT_TARGET_FIELDS:
         app = _fake_limits_app()
         getattr(app, f"emit_target_{field}_var").set("abc")
         app.on_limit_var_changed()
@@ -4757,13 +4804,15 @@ def test_an_invalid_target_is_flagged_and_the_last_good_value_restored_on_commit
 def test_current_snapshot_reads_the_emission_controls_and_is_none_when_a_target_is_bad():
     app = _make_fake_app_for_snapshot()
     app.emit_mode_var = _StubVar("Towards point")
-    app.emit_target_x_var = _StubVar("-0.25")
-    app.emit_target_y_var = _StubVar("1e3")
+    app.emit_target_r_var = _StubVar("-0.25")
+    app.emit_target_theta_var = _StubVar("45")
+    app.emit_target_cx_var = _StubVar("1e3")
+    app.emit_target_cy_var = _StubVar("-2")
     app.emit_offset_scale = _StubVar(33.333)
     snap = app.current_snapshot()
-    assert (snap.emit_mode, snap.emit_target_x, snap.emit_target_y, snap.emit_offset) == \
-        (TOWARDS, -0.25, 1000.0, 33.33)
-    app.emit_target_y_var = _StubVar("x")
+    assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
+            snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -0.25, 45.0, 1000.0, -2.0, 33.33)
+    app.emit_target_theta_var = _StubVar("x")
     assert app.current_snapshot() is None
 
 
@@ -4773,8 +4822,8 @@ def test_the_simulation_tab_has_a_ray_emission_section_with_all_its_controls():
         inspect.getsource(m.App.build_controls_quadrant)
     source = inspect.getsource(m.App.build_emission_controls)
     assert 'text="Ray emission"' in source
-    for control in ("emit_mode_var", "emit_target_x_var", "emit_target_y_var",
-                    "emit_offset_scale"):
+    for control in ("emit_mode_var", "emit_offset_scale", "EMIT_TARGET_FIELDS",
+                    "EMIT_TARGET_LABELS"):
         assert control in source
 
 
@@ -4795,30 +4844,34 @@ def test_the_target_entries_are_only_enabled_when_firing_towards_a_point():
     class Entry:
         def state(self, s):
             states.append(list(s))
-    app.emit_target_entries = [Entry(), Entry()]
+    app.emit_target_entries = [Entry() for _ in range(4)]
     app.update_emission_state()
-    assert states == [["disabled"], ["disabled"]]
+    assert states == [["disabled"]] * 4
     states.clear()
     app.emit_mode_var.set("Towards point")
     app.update_emission_state()
-    assert states == [["!disabled"], ["!disabled"]]
+    assert states == [["!disabled"]] * 4
 
 
 # ---- the figure settings margin --------------------------------------------------------------
 def test_figure_info_lists_the_emission_direction():
     lines = m.figure_info_lines(_settings(), _start_scene())
     assert "Emit:Up" in lines and "  angle offset -45.00\u00b0" in lines
-    lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_x=-0.5,
-                                          emit_target_y=1.25, emit_offset=10.0), _start_scene())
+    lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_r=-0.5,
+                                          emit_target_theta=30.0, emit_target_cx=1.25,
+                                          emit_target_cy=-2.0, emit_offset=10.0),
+                                _start_scene())
     assert "Emit:Towards point" in lines
-    assert "  target x -0.5" in lines and "  target y 1.25" in lines
+    assert "  target r -0.5" in lines and "  target angle 30" in lines
+    assert "  offset x 1.25" in lines and "  offset y -2" in lines
     assert "  angle offset +10.00\u00b0" in lines
 
 
 def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
-    for tx, ty in ((-1.7976931348623157e308, 1.7976931348623157e308), (5e-324, -5e-324)):
-        lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_x=tx,
-                                              emit_target_y=ty, emit_offset=-179.99),
+    for big, small in ((-1.7976931348623157e308, 1.7976931348623157e308), (5e-324, -5e-324)):
+        lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_r=big,
+                                              emit_target_theta=small, emit_target_cx=big,
+                                              emit_target_cy=small, emit_offset=-179.99),
                                     _start_scene())
         for line in lines:
             assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
@@ -4827,8 +4880,9 @@ def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
 
 def test_the_emission_block_has_the_same_size_whatever_its_values():
     a = m.figure_info_blocks(_settings(), _start_scene())
-    b = m.figure_info_blocks(_settings(emit_mode=TOWARDS, emit_target_x=3.0,
-                                       emit_target_y=-2.0, emit_offset=120.0), _start_scene())
+    b = m.figure_info_blocks(_settings(emit_mode=TOWARDS, emit_target_r=3.0,
+                                       emit_target_theta=-20.0, emit_target_cx=3.0,
+                                       emit_target_cy=-2.0, emit_offset=120.0), _start_scene())
     assert [len(x) for x in a] == [len(x) for x in b]
 
 
@@ -4905,25 +4959,25 @@ def test_dev_dir_is_dev_next_to_the_program():
 
 def test_screenshot_is_skipped_without_a_dev_dir():
     with _ScreenshotEnv(with_dev_dir=False) as env:
-        assert m.take_ui_screenshot(_FakeGeometryRoot()) is None
+        assert m.take_ui_screenshot(_FakeGeometryRoot(), "startup") is None
         assert env.grab.bboxes == [], "must not even attempt a grab"
         assert not os.path.exists(env.dev_dir), "must not create dev/ itself"
 
 
 def test_screenshot_is_skipped_without_pillow():
     with _ScreenshotEnv(grab=None) as env:
-        assert m.take_ui_screenshot(_FakeGeometryRoot()) is None
+        assert m.take_ui_screenshot(_FakeGeometryRoot(), "manual") is None
         assert not os.path.exists(os.path.join(env.dev_dir, "screenshots"))
 
 
-def test_screenshot_grabs_the_windows_own_rectangle_and_saves_it_named_by_version():
+def test_screenshot_grabs_the_windows_own_rectangle_and_saves_it_named_by_version_and_cause():
     import re
     root = _FakeGeometryRoot()
     with _ScreenshotEnv() as env:
-        path = m.take_ui_screenshot(root)
+        path = m.take_ui_screenshot(root, "startup")
         shots_dir = os.path.join(env.dev_dir, "screenshots")
         assert os.path.dirname(path) == shots_dir
-        assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}\.png",
+        assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}-startup\.png",
                             os.path.basename(path)), os.path.basename(path)
         assert os.path.isfile(path)
         assert env.grab.bboxes == [(100, 50, 1600, 950)]
@@ -5881,6 +5935,65 @@ def test_settings_list_scroll_is_refitted_after_every_rebuild():
                                        ("moveto", 0.7)]
 
 
+def _recorded_angle_entries(build_name):
+    """Build a controls section on a fake app whose add_angle_entry only records
+    (label, lo, hi) for each angle entry asked for."""
+    calls = []
+
+    class Handle:
+        widget = None
+
+    class FakeApp:
+        root = _StubWidget()
+        fuzz_ttk_widgets = []
+
+        def add_angle_entry(self, parent, row, label, default, on_change=None,
+                            lo=None, hi=None, fmt="{:.2f}"):
+            calls.append((label, lo, hi))
+            return Handle()
+
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+    app = FakeApp()
+    getattr(m.App, build_name)(app, _StubWidget())
+    return calls
+
+
+def test_angle_offset_and_rotation_style_entries_have_no_limits():
+    """The emission angle offset, and the fuzzing offsets, take any number of
+    degrees (many revolutions, either direction)."""
+    (emission,) = _recorded_angle_entries("build_emission_controls")
+    assert emission[1:] == (None, None), emission
+    fuzz = {label: (lo, hi) for label, lo, hi in _recorded_angle_entries("build_fuzzing_controls")}
+    assert fuzz["Offset (\u00b0)"] == (None, None)
+
+
+def test_fuzzing_jitter_ranges_stay_limited_to_0_through_180_degrees():
+    """Jitter is a +/- range, so it keeps its 0..180 limits (only offsets and
+    rotations are unlimited)."""
+    jitters = [(lo, hi) for label, lo, hi in _recorded_angle_entries("build_fuzzing_controls")
+               if label.startswith("Jitter")]
+    assert len(jitters) == 3 and all(j == (0.0, 180.0) for j in jitters), jitters
+
+
+def test_huge_emission_offsets_point_the_same_way_as_their_remainder():
+    base = _angle_deg(_first_direction(0.2, 0.1, _emission(UP, offset=30.0)))
+    for offset in (30.0 + 360.0, 30.0 - 720.0, 30.0 + 360.0 * 1000):
+        got = _angle_deg(_first_direction(0.2, 0.1, _emission(UP, offset=offset)))
+        assert abs(((got - base + 180.0) % 360.0) - 180.0) < 1e-6, offset
+
+
+def test_default_moss_egg_fits_inside_the_view_at_every_apex_angle():
+    """Regression test: at the old default size (1.0) the default egg (90 degree
+    apex) reached y = 1.034, past the top edge of the view (which spans -1 to 1)."""
+    g = np.linspace(-1.2, 1.2, 1201)
+    gx, gy = np.meshgrid(g, g)
+    for angle in range(60, 181, 10):
+        bound = m.moss_egg_bound(float(angle), m.DEFAULT_MOSS_SIZE, 0.0)
+        inside = m.inside_boundary_grid(gx, gy, m.SHAPE_MOSS_EGG, bound)
+        assert np.abs(gy[inside]).max() < 1.0 and np.abs(gx[inside]).max() < 1.0, angle
+
+
 class _WidgetsApp:
     """Just enough App to ask which controls show a setting."""
 
@@ -5907,6 +6020,600 @@ def test_every_setting_and_obstacle_field_resolves_to_a_control():
     assert [w.name for w in app.widgets_for_setting("view:2:mode")] == ["mode_combo"]
     assert [w.name for w in app.widgets_for_setting("view:2:chan1")] == ["block1"]
     assert app.widgets_for_setting("view:3:chan1") == []
+
+
+# --------------------------------------------------------------------------- #
+# Debug dumps (dev/debug_dump.py), the Debug menu, and their triggers
+# --------------------------------------------------------------------------- #
+def _load_dumper():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "debug_dump_under_test", os.path.join(os.path.dirname(os.path.abspath(m.__file__)),
+                                              "dev", "debug_dump.py"))
+    dumper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dumper)
+    return dumper
+
+
+class _Unpicklable:
+    """Like real Tk objects, which hold a live interpreter and never pickle."""
+    def __reduce__(self):
+        raise TypeError(f"cannot pickle {type(self).__name__!r} object")
+
+
+class _FakeVar(_Unpicklable):
+    _name = "PY_VAR7"
+
+    def get(self):
+        return "256"
+
+    def set(self, v):
+        pass
+
+    def trace_add(self, *a):
+        pass
+
+
+class _FakeWidget(_Unpicklable):
+    def winfo_class(self):
+        return "TEntry"
+
+    def winfo_children(self):
+        return []
+
+    def configure(self):
+        return {"width": ("width", "w", "W", 20, 8), "text": ("text", "t", "T", "", "hi")}
+
+    def __str__(self):
+        return ".frame.entry"
+
+
+class _Plain:
+    """Picklable, with attributes that are not."""
+    def __init__(self):
+        self.count = 3
+        self.var = _FakeVar()
+        self.helper = lambda: None
+
+
+class _ModuleRegistered:
+    """Pickle finds a class by looking its module up in sys.modules, but other tests
+    load fresh copies of light_bounces under the same name; make sys.modules
+    point at the copy these tests use."""
+    def __enter__(self):
+        self.saved = sys.modules.get(m.__name__)
+        sys.modules[m.__name__] = m
+
+    def __exit__(self, *exc):
+        if self.saved is None:
+            sys.modules.pop(m.__name__, None)
+        else:
+            sys.modules[m.__name__] = self.saved
+
+
+def _load_test_dump(path):
+    """Test doubles live in the test runner (__main__), so map __main__ to itself."""
+    with _ModuleRegistered():
+        return _load_dumper().load_dump(path, module_name="__main__")
+
+
+def _dump_roundtrip(app, cause="manual", include_large_arrays=True, exc_info=None,
+                    module_globals=None, large_array_bytes=None):
+    import tempfile
+    dumper = _load_dumper()
+    path = os.path.join(tempfile.mkdtemp(), "x.pkl")
+    with _ModuleRegistered():
+        extra = {} if large_array_bytes is None else {"large_array_bytes": large_array_bytes}
+        dumper.dump_everything(app, module_globals or {}, path, cause,
+                               include_large_arrays=include_large_arrays, exc_info=exc_info,
+                               file_version=7, **extra)
+    return _load_test_dump(path)
+
+
+def test_dump_keeps_picklable_values_exactly_as_they_are():
+    class App:
+        pass
+    app = App()
+    app.arr = np.arange(12.0).reshape(3, 4)
+    app.nested = {"a": [1, (2, 3)], "b": m.Obstacle(4), "c": m.DEFAULT_SNAPSHOT}
+    app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
+    app.obstacles[1].r = 0.75
+    data = _dump_roundtrip(app)["app"]
+    assert np.array_equal(data["arr"], app.arr)
+    assert data["nested"]["a"] == [1, (2, 3)]
+    assert data["nested"]["b"].id == 4 and data["nested"]["c"] == m.DEFAULT_SNAPSHOT
+    assert [o.r for o in data["obstacles"]] == [0.0, 0.75]
+    assert isinstance(data["obstacles"][0], m.Obstacle)       # still the real class
+
+
+def test_dump_replaces_what_cannot_be_pickled_with_readable_stand_ins():
+    class App:
+        pass
+    app = App()
+    app.var = _FakeVar()
+    app.widget = _FakeWidget()
+    app.callback = lambda: None
+    app.plain = _Plain()
+    app.mixed = {"ok": 1, "bad": [_FakeVar(), 5, lambda: None]}
+    app.handle = m.FloatEntryHandle(_FakeVar(), "{:.2f}", 1.0)
+    data = _dump_roundtrip(app)["app"]
+    assert data["var"] == {"__standin__": "tk variable", "type": data["var"]["type"],
+                           "name": "PY_VAR7", "value": "256"}
+    assert data["widget"]["__standin__"] == "widget" and data["widget"]["path"] == ".frame.entry"
+    assert data["widget"]["options"] == {"width": "8", "text": "hi"}
+    assert data["callback"]["__standin__"] == "callable"
+    assert "lambda" in data["callback"]["name"]
+    obj = data["plain"]
+    assert obj["__standin__"] == "object" and obj["state"]["count"] == 3
+    assert obj["state"]["var"]["value"] == "256"
+    assert data["mixed"]["ok"] == 1
+    assert data["mixed"]["bad"][0]["__standin__"] == "tk variable" and data["mixed"]["bad"][1] == 5
+    assert data["mixed"]["bad"][2]["__standin__"] == "callable"
+    assert data["handle"]["__standin__"] == "object"            # structure kept, not flattened
+    assert data["handle"]["state"]["fmt"] == "{:.2f}"
+
+
+def test_dump_survives_cycles_and_objects_that_fail_when_read():
+    class App:
+        pass
+
+    class Hostile:
+        def __init__(self):
+            self.fn = lambda: None
+            self.me = self
+
+        def __repr__(self):
+            raise RuntimeError("no repr")
+    app = App()
+    app.loop = {"self": None, "fn": lambda: None}
+    app.loop["self"] = app.loop
+    app.hostile = Hostile()
+    data = _dump_roundtrip(app)["app"]
+    assert data["loop"]["self"]["__standin__"] == "cycle"
+    assert data["hostile"]["state"]["me"]["__standin__"] == "cycle"
+
+
+class _Holder:
+    """Picklable, with a large array inside."""
+    def __init__(self, big):
+        self.big = big
+        self.label = "held"
+
+
+def test_dump_without_large_arrays_replaces_big_arrays_wherever_they_are():
+    class App:
+        pass
+    app = App()
+    big = np.zeros((200, 200), dtype=np.float64)              # 320 KB
+    app.top = big
+    app.in_list = [big, None, np.arange(5.0)]
+    app.in_dict = {"k": {"deep": big}}
+    app.in_object = _Holder(big)
+    app.small = np.arange(5.0)
+    app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
+    data = _dump_roundtrip(app, include_large_arrays=False, module_globals={"GRID": big, "SMALL": np.ones(3)})
+    want = {"__standin__": "large array", "shape": (200, 200), "dtype": "float64",
+            "nbytes": 320000}
+    assert data["app"]["top"] == want
+    assert data["app"]["in_list"][0] == want and data["app"]["in_list"][1] is None
+    assert np.array_equal(data["app"]["in_list"][2], np.arange(5.0))     # small: kept
+    assert data["app"]["in_dict"]["k"]["deep"] == want
+    held = data["app"]["in_object"]
+    assert held["__standin__"] == "object" and held["state"]["big"] == want
+    assert held["state"]["label"] == "held"
+    assert np.array_equal(data["app"]["small"], np.arange(5.0))
+    assert data["module"]["GRID"] == want and np.array_equal(data["module"]["SMALL"], np.ones(3))
+    # values with no large array inside are still stored exactly, real classes and all
+    assert [type(o).__name__ for o in data["app"]["obstacles"]] == ["Obstacle", "Obstacle"]
+    assert data["meta"]["large_arrays_included"] is False
+    assert data["meta"]["large_array_bytes"] == 64 * 1024
+
+
+def test_dump_with_large_arrays_keeps_them_and_the_size_limit_can_be_changed():
+    class App:
+        pass
+    app = App()
+    app.top = np.zeros((200, 200))
+    app.mid = np.zeros(1000)                                  # 8 KB
+    full = _dump_roundtrip(app, include_large_arrays=True)
+    assert np.array_equal(full["app"]["top"], app.top) and full["meta"]["large_arrays_included"]
+    tiny = _dump_roundtrip(app, include_large_arrays=False, large_array_bytes=1000)
+    assert tiny["app"]["mid"]["__standin__"] == "large array"
+
+
+def test_dump_records_the_cause_the_exception_the_threads_and_module_data():
+    class App:
+        pass
+    try:
+        raise KeyError("boom")
+    except KeyError:
+        exc_info = sys.exc_info()
+    data = _dump_roundtrip(App(), cause="crash", exc_info=exc_info,
+                           module_globals={"LIMIT": 5, "helper": len, "__name__": "x", "np": np,
+                                           "TABLE": {"a": _FakeVar()}})
+    assert data["meta"]["cause"] == "crash" and "KeyError: 'boom'" in data["meta"]["exception"]
+    assert data["meta"]["file_version"] == 7
+    assert any(t["name"] == threading.current_thread().name for t in data["threads"])
+    assert set(data["module"]) == {"LIMIT", "TABLE"}           # no dunders, modules, callables
+    assert data["module"]["TABLE"]["a"]["__standin__"] == "tk variable"
+
+
+def test_a_dump_written_by_a_script_loads_by_mapping___main___to_the_module():
+    import tempfile, types
+    main = sys.modules["__main__"]
+
+    class Zed:
+        def __init__(self):
+            self.n = 9
+    Zed.__module__ = "__main__"
+    Zed.__qualname__ = "Zed"
+    main.Zed = Zed
+    try:
+        class App:
+            pass
+        app = App()
+        app.zed = Zed()
+        dumper = _load_dumper()
+        path = os.path.join(tempfile.mkdtemp(), "x.pkl")
+        dumper.dump_everything(app, {}, path, "manual")
+    finally:
+        del main.Zed
+    fake_module = types.ModuleType("zed_module")
+    fake_module.Zed = Zed
+    sys.modules["zed_module"] = fake_module
+    try:
+        assert dumper.load_dump(path, module_name="zed_module")["app"]["zed"].n == 9
+    finally:
+        del sys.modules["zed_module"]
+
+
+def test_one_unpicklable_value_never_costs_the_whole_dump():
+    """Regression guard found while writing the dumper: a namedtuple of a class
+    pickle cannot find by name was rebuilt as that same class, and the final
+    write then failed for the entire dump. Such values become stand-ins."""
+    import collections
+    Lost = collections.namedtuple("Lost", ["a", "b"])
+    Lost.__module__ = "no_such_module_anywhere"
+
+    class App:
+        pass
+    app = App()
+    app.lost = Lost(1, _FakeVar())
+    app.fine = 5
+    data = _dump_roundtrip(app)["app"]
+    assert data["fine"] == 5
+    assert data["lost"]["__standin__"] == "object" and data["lost"]["state"]["a"] == 1
+    assert data["lost"]["state"]["b"]["__standin__"] == "tk variable"
+
+
+def _fake_debug_app():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.root = _FakeGeometryRoot()
+    app._crash_dumps = 0
+    app.keep_window_on_screen = lambda: None
+    app.points = np.zeros((200, 200, 2), dtype=np.float32)   # 320 KB: a large array
+    app.iter_var = _FakeVar()
+    for name in ("take_startup_screenshot", "take_startup_captures", "manual_screenshot",
+                 "manual_dump", "report_debug_result", "on_callback_exception", "dump_crash"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    return app
+
+
+class _DumpEnv(_ScreenshotEnv):
+    """A scratch dev/ folder containing the real dumper."""
+    def __enter__(self):
+        import shutil
+        super().__enter__()
+        shutil.copy(os.path.join(os.path.dirname(os.path.abspath(m.__file__)), "dev",
+                                 "debug_dump.py"), self.dev_dir)
+        return self
+
+    def dumps(self):
+        folder = os.path.join(self.dev_dir, "dumps")
+        return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+
+def test_captures_in_the_same_second_do_not_overwrite_each_other():
+    with tempfile.TemporaryDirectory() as d:
+        first = m.unused_path(os.path.join(d, "a.pkl"))
+        assert first == os.path.join(d, "a.pkl")
+        open(first, "w").close()
+        second = m.unused_path(os.path.join(d, "a.pkl"))
+        assert second == os.path.join(d, "a-2.pkl")
+        open(second, "w").close()
+        assert m.unused_path(os.path.join(d, "a.pkl")) == os.path.join(d, "a-3.pkl")
+
+
+def test_dump_file_names_carry_the_version_time_and_cause():
+    import re
+    app = _fake_debug_app()
+    with _DumpEnv() as env:
+        for cause in ("startup", "crash", "manual"):
+            path = m.dump_app_state(app, cause, False)
+            assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}-{cause}\.pkl",
+                                os.path.basename(path)), path
+            assert os.path.dirname(path) == os.path.join(env.dev_dir, "dumps")
+        try:
+            m.dump_app_state(app, "other", False)
+            raise AssertionError("expected ValueError")
+        except ValueError:
+            pass
+
+
+def test_dumps_are_skipped_without_a_dev_dir_or_the_dumper_and_never_raise():
+    app = _fake_debug_app()
+    with _ScreenshotEnv(with_dev_dir=False) as env:
+        assert m.dump_app_state(app, "manual", True) is None
+        assert not os.path.exists(env.dev_dir)
+    with _ScreenshotEnv() as env:                      # dev/ but no dumper in it
+        assert m.dump_app_state(app, "manual", True) is None
+    with _DumpEnv() as env:                            # a dumper that blows up
+        with open(os.path.join(env.dev_dir, "debug_dump.py"), "w") as f:
+            f.write("raise RuntimeError('broken dumper')\n")
+        assert m.dump_app_state(app, "manual", True) is None
+
+
+def test_startup_captures_take_a_screenshot_then_a_dump_without_large_arrays_once():
+    app = _fake_debug_app()
+    with _DumpEnv() as env:
+        app.take_startup_captures()
+        app.take_startup_captures()
+        assert len(env.grab.bboxes) == 1
+        (name,) = env.dumps()
+        assert name.endswith("-startup.pkl")
+        shots = os.listdir(os.path.join(env.dev_dir, "screenshots"))
+        assert len(shots) == 1 and shots[0].endswith("-startup.png")
+        data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
+        assert data["meta"]["cause"] == "startup" and data["meta"]["large_arrays_included"] is False
+        assert data["app"]["points"]["__standin__"] == "large array"
+        assert data["app"]["iter_var"]["value"] == "256"
+
+
+def test_a_failing_startup_screenshot_still_leaves_the_startup_dump():
+    class BoomGrab:
+        def grab(self, bbox=None):
+            raise OSError("screen unavailable")
+    app = _fake_debug_app()
+    with _DumpEnv(grab=BoomGrab()) as env:
+        app.take_startup_captures()
+        assert len(env.dumps()) == 1
+
+
+def test_manual_actions_save_with_the_manual_suffix_and_report_the_result():
+    shown = []
+    saved = m.messagebox.showinfo
+    m.messagebox.showinfo = lambda title, text: shown.append(text)
+    try:
+        app = _fake_debug_app()
+        with _DumpEnv() as env:
+            app.manual_screenshot()
+            app.manual_dump(False)
+            app.manual_dump(True)
+            dumps = env.dumps()
+            import re
+            assert len(dumps) == 2, dumps                   # never overwritten, even in one second
+            assert all(re.fullmatch(r"\d+-\d{8}-\d{6}-manual(-\d+)?\.pkl", d) for d in dumps)
+            assert os.listdir(os.path.join(env.dev_dir, "screenshots"))[0].endswith("-manual.png")
+            assert len(shown) == 3 and all("Saved" in s for s in shown)
+            included = {_load_test_dump(os.path.join(env.dev_dir, "dumps", d))
+                        ["meta"]["large_arrays_included"] for d in dumps}
+            assert included == {False, True}
+        shown.clear()
+        with _ScreenshotEnv(with_dev_dir=False):
+            app.manual_screenshot()
+            app.manual_dump(True)
+        assert len(shown) == 2 and all("No " in s for s in shown)
+    finally:
+        m.messagebox.showinfo = saved
+
+
+def test_a_crash_leaves_a_dump_without_large_arrays_and_no_screenshot():
+    app = _fake_debug_app()
+    try:
+        raise ValueError("kaboom")
+    except ValueError:
+        exc_info = sys.exc_info()
+    import io, contextlib
+    with _DumpEnv() as env, contextlib.redirect_stderr(io.StringIO()) as err:
+        app.on_callback_exception(*exc_info)
+        assert env.grab.bboxes == [], "a crash must not trigger a screenshot"
+        assert not os.path.exists(os.path.join(env.dev_dir, "screenshots"))
+        (name,) = env.dumps()
+        assert name.endswith("-crash.pkl")
+        data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
+        assert data["meta"]["large_arrays_included"] is False
+        assert data["app"]["points"]["__standin__"] == "large array"
+        assert "ValueError: kaboom" in data["meta"]["exception"]
+    assert "Exception in Tkinter callback" in err.getvalue() and "kaboom" in err.getvalue()
+
+
+def test_crash_dumps_are_capped_per_launch():
+    app = _fake_debug_app()
+    try:
+        raise ValueError("again")
+    except ValueError:
+        exc_info = sys.exc_info()
+    import io, contextlib, time as _time
+    calls = []
+    saved = m.dump_app_state
+    m.dump_app_state = lambda *a, **k: calls.append(a[1])
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            for _ in range(m.MAX_CRASH_DUMPS + 4):
+                app.on_callback_exception(*exc_info)
+    finally:
+        m.dump_app_state = saved
+    assert calls == ["crash"] * m.MAX_CRASH_DUMPS
+
+
+def test_the_menu_bar_has_a_debug_menu_with_the_three_actions():
+    class Menu:
+        made = []
+
+        def __init__(self, parent=None, **kw):
+            self.commands, self.cascades = [], []
+            Menu.made.append(self)
+
+        def add_command(self, label, command):
+            self.commands.append((label, command))
+
+        def add_cascade(self, label, menu):
+            self.cascades.append((label, menu))
+
+    class Root:
+        menu = None
+
+        def config(self, **kw):
+            Root.menu = kw.get("menu")
+
+    class FakeApp:
+        root = Root()
+        manual_screenshot = staticmethod(lambda: "shot")
+        manual_dump = staticmethod(lambda with_arrays: with_arrays)
+    saved = m.tk.Menu
+    m.tk.Menu = Menu
+    try:
+        m.App.build_menu_bar(FakeApp())
+    finally:
+        m.tk.Menu = saved
+    bar = Root.menu
+    assert [label for label, _ in bar.cascades] == ["Debug"]
+    debug = bar.cascades[0][1]
+    assert [label for label, _ in debug.commands] == [
+        "Take screenshot", "Dump (without large arrays)", "Dump (with large arrays)"]
+    assert debug.commands[0][1]() == "shot"
+    assert debug.commands[1][1]() is False and debug.commands[2][1]() is True
+
+
+# --------------------------------------------------------------------------- #
+# Keeping the window on the screen at startup
+# --------------------------------------------------------------------------- #
+def test_shift_into_area_moves_a_window_only_as_far_as_needed():
+    area = (0, 0, 1920, 1080)
+    assert m.shift_into_area((0, 104, 1920, 1099), area) == (0, -19)       # the real case
+    assert m.shift_into_area((100, 50, 900, 600), area) == (0, 0)          # already inside
+    assert m.shift_into_area((1500, 200, 2100, 700), area) == (-180, 0)
+    assert m.shift_into_area((-30, -40, 500, 400), area) == (30, 40)
+    assert m.shift_into_area((1800, 1000, 2000, 1200), area) == (-80, -120)
+    assert m.shift_into_area((0, 0, 1920, 1080), area) == (0, 0)           # exact fit
+
+
+def test_a_window_bigger_than_the_area_lines_up_by_its_top_left_corner():
+    area = (0, 0, 1000, 800)
+    dx, dy = m.shift_into_area((50, 60, 1250, 1060), area)                 # 1200 x 1000
+    assert (50 + dx, 60 + dy) == (0, 0)
+    dx, dy = m.shift_into_area((-20, 500, 1180, 1500), (100, 40, 1100, 840))
+    assert (-20 + dx, 500 + dy) == (100, 40)
+
+
+def test_a_work_area_that_does_not_start_at_the_origin_is_respected():
+    area = (1920, 0, 3840, 1040)                                           # a second monitor
+    assert m.shift_into_area((1900, 100, 3000, 1100), area) == (20, -60)
+
+
+def test_geometry_strings_give_the_window_position():
+    assert m.parse_geometry_position("1904x936+0+104") == (0, 104)
+    assert m.parse_geometry_position("1904x936+-8+-3") == (-8, -3)
+    assert m.parse_geometry_position("1904x936-8+10") == (-8, 10)
+    assert m.parse_geometry_position("1904x936") is None
+    assert m.parse_geometry_position("") is None
+
+
+class _FakePlacedRoot:
+    def __init__(self, geometry, rect, screen=(1920, 1080)):
+        self.geometry_text = geometry
+        x, y, r, b = rect
+        self.x, self.y, self.w, self.h = x, y, r - x, b - y
+        self.screen = screen
+        self.set_to = []
+
+    def update_idletasks(self):
+        pass
+
+    def winfo_rootx(self):
+        return self.x
+
+    def winfo_rooty(self):
+        return self.y
+
+    def winfo_width(self):
+        return self.w
+
+    def winfo_height(self):
+        return self.h
+
+    def winfo_screenwidth(self):
+        return self.screen[0]
+
+    def winfo_screenheight(self):
+        return self.screen[1]
+
+    def geometry(self, text=None):
+        if text is None:
+            return self.geometry_text
+        self.set_to.append(text)
+
+
+def _placed_app(root):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.root = root
+    app.keep_window_on_screen = m.App.keep_window_on_screen.__get__(app)
+    return app
+
+
+def test_the_window_is_moved_up_when_its_bottom_hangs_off_the_screen():
+    saved = sys.platform
+    sys.platform = "linux"                      # the portable path: client rect, whole screen
+    try:
+        root = _FakePlacedRoot("1904x936+0+104", (0, 104, 1904, 1099))
+        _placed_app(root).keep_window_on_screen()
+    finally:
+        sys.platform = saved
+    assert root.set_to == ["+0+85"]
+
+
+def test_a_window_already_on_screen_is_left_alone_and_never_resized():
+    saved = sys.platform
+    sys.platform = "linux"
+    try:
+        root = _FakePlacedRoot("1904x936+10+20", (10, 20, 1914, 956))
+        _placed_app(root).keep_window_on_screen()
+    finally:
+        sys.platform = saved
+    assert root.set_to == []
+
+
+def test_repositioning_failures_are_reported_and_never_raise():
+    import io, contextlib
+
+    class BrokenRoot:
+        def update_idletasks(self):
+            raise RuntimeError("no window")
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        _placed_app(BrokenRoot()).keep_window_on_screen()
+    assert "Could not reposition" in err.getvalue()
+
+
+def test_startup_captures_reposition_the_window_before_the_screenshot():
+    order = []
+
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.keep_window_on_screen = lambda: order.append("move")
+    app.take_startup_screenshot = lambda: order.append("shot")
+    app.take_startup_captures = m.App.take_startup_captures.__get__(app)
+    saved = m.dump_app_state
+    m.dump_app_state = lambda *a, **k: order.append("dump")
+    try:
+        app.take_startup_captures()
+    finally:
+        m.dump_app_state = saved
+    assert order == ["move", "shot", "dump"]
 
 
 # --------------------------------------------------------------------------- #

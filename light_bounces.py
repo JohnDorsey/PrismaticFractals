@@ -48,7 +48,7 @@ Ray effects
   Reflect both ways makes a container that rays never leave;
   Pass through both ways makes the shape invisible to rays; incoming Pass
   through with outgoing Reflect lets rays in but never out. A new obstacle
-  defaults to incoming Reflect, outgoing Pass through.
+  defaults to Reflect both ways, with "fire rays inside" on.
 
 Rays
   A ray starts at the centre of every pixel that is inside ANY shape whose
@@ -73,7 +73,9 @@ Rays
 
   Emission direction: each ray starts out pointing either straight up (90
   degrees) or from its own start pixel towards a target point, which can be
-  anywhere (a pixel exactly on it points up); the angle offset is then added,
+  anywhere (a pixel exactly on it points up) and is positioned the way an
+  obstacle is: a distance r at angle theta from the origin, plus an x and a y
+  offset; the angle offset is then added,
   positive meaning more counterclockwise, and fuzzing's emission jitter (if on)
   on top. The defaults - Up, offset -45 degrees - give the up-and-to-the-right
   direction of 45 degrees.
@@ -230,13 +232,19 @@ Python). The ffmpeg command-line tool must also be installed and on PATH for
 video rendering and for saving a still as JPEG XL; the cjxl command-line tool
 (part of libjxl) is additionally needed for animated JXL video. All three are
 otherwise unnecessary: PNG and QOI stills need only the packages above.
-Pillow is optional too, and used only for the development startup screenshot.
+Pillow is optional too, and used only for the development screenshots.
 
-Development startup screenshot
+Development aids (screenshots and dumps)
   If a dev folder exists next to this program, then once per launch (shortly
   after the numba warm-up finishes) the program grabs a picture of its own
-  window into dev/screenshots/<file version>-YYYYMMDD-hhmmss.png. There is no
-  button for it, and nothing happens if the dev folder or Pillow is missing.
+  window into dev/screenshots/<file version>-YYYYMMDD-hhmmss-startup.png and
+  then pickles everything it holds (except large arrays) into
+  dev/dumps/<file version>-YYYYMMDD-hhmmss-startup.pkl. The Debug menu does
+  the same on demand (suffix -manual; a dump with or without large arrays),
+  and an unhandled error leaves a dump without large arrays (suffix -crash) but
+  no screenshot. The dumping code is dev/debug_dump.py, which also reads a dump
+  back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
+  for screenshots).
 """
 
 # FILE_VERSION increments by exactly 1 each time work on this file is
@@ -244,7 +252,7 @@ Development startup screenshot
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 90
+FILE_VERSION = 97
 
 import math
 import os
@@ -255,6 +263,7 @@ import struct
 import subprocess
 import sys
 import threading
+import traceback
 import time
 import tkinter as tk
 import tkinter.font as tkfont
@@ -491,7 +500,8 @@ MOSS_ANGLE_MAX = 180.0
 DEFAULT_MOSS_ANGLE = 90.0  # the classic right-isosceles-triangle egg
 MOSS_SIZE_MIN = 0.0
 MOSS_SIZE_MAX = 2.0
-DEFAULT_MOSS_SIZE = 1.0
+DEFAULT_MOSS_SIZE = 0.9    # at 1.0 the default egg's top edge passed y = 1.03, outside
+                           # the view; 0.9 keeps every apex angle inside with a margin
 
 # Circular sector / segment: radius, angular span (degrees), rotation
 ARC_RADIUS_MIN = 0.0
@@ -527,8 +537,6 @@ CAPSULE_RADIUS_MAX = 1.0
 DEFAULT_CAPSULE_RADIUS = 0.5
 
 # Fuzzing controls
-FUZZ_ANGLE_MIN = -180.0    # general angle / offset range, degrees
-FUZZ_ANGLE_MAX = 180.0
 FUZZ_JITTER_MIN = 0.0      # jitter range (+/-), degrees
 FUZZ_JITTER_MAX = 180.0
 FUZZ_MULT_MIN = 0.0        # bounce angle multiplier range
@@ -552,11 +560,15 @@ EMIT_UP = 0
 EMIT_TOWARDS = 1
 EMIT_MODE_NAMES = ["Up", "Towards point"]
 DEFAULT_EMIT_MODE = EMIT_UP
-DEFAULT_EMIT_TARGET_X = 0.0
-DEFAULT_EMIT_TARGET_Y = 0.0
+# The target point is given like an obstacle's position: a distance r at angle theta
+# (degrees) from the origin, plus an x and a y offset (see obstacle_center_from).
+EMIT_TARGET_FIELDS = ("r", "theta", "cx", "cy")
+EMIT_TARGET_LABELS = ["Distance (r):", "Angle (\u03b8, \u00b0):", "Offset X:", "Offset Y:"]
+DEFAULT_EMIT_TARGET_R = 0.0
+DEFAULT_EMIT_TARGET_THETA = 0.0
+DEFAULT_EMIT_TARGET_CX = 0.0
+DEFAULT_EMIT_TARGET_CY = 0.0
 DEFAULT_EMIT_OFFSET = -45.0
-EMIT_OFFSET_MIN = -180.0
-EMIT_OFFSET_MAX = 180.0
 
 # Confinement: a ray stops (TERM_CONFINED) once its recent path shows it has
 # stopped getting anywhere. Two things are chosen: how many of the path's most
@@ -770,6 +782,8 @@ EXPORT_DIR = os.path.join(SCRIPT_DIR, "exports")
 # Development aid: if this folder exists, the app screenshots its own window once
 # per launch into DEV_DIR/screenshots (see take_ui_screenshot).
 DEV_DIR = os.path.join(SCRIPT_DIR, "dev")
+
+MAX_CRASH_DUMPS = 3        # per launch: an error repeating in a timer must not fill the disk
 TEMP_DIR = os.path.join(EXPORT_DIR, "TEMP")
 
 # Snapshot: every value of every simulation control (what is in the scene -
@@ -778,10 +792,12 @@ TEMP_DIR = os.path.join(EXPORT_DIR, "TEMP")
 Snapshot = namedtuple("Snapshot", ["max_iter", "max_dist", "seg_mult", "fuzz",
                                    "buddha_blur_radius", "buddha_blur_type",
                                    "confine_window", "confine_method", "confine_threshold",
-                                   "emit_mode", "emit_target_x", "emit_target_y", "emit_offset"],
+                                   "emit_mode", "emit_target_r", "emit_target_theta",
+                                   "emit_target_cx", "emit_target_cy", "emit_offset"],
                       defaults=[DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
                                 DEFAULT_CONFINE_THRESHOLD, DEFAULT_EMIT_MODE,
-                                DEFAULT_EMIT_TARGET_X, DEFAULT_EMIT_TARGET_Y,
+                                DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
+                                DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
                                 DEFAULT_EMIT_OFFSET])
 
 # Settings: what determines the generated image, together with the obstacles.
@@ -789,10 +805,12 @@ Snapshot = namedtuple("Snapshot", ["max_iter", "max_dist", "seg_mult", "fuzz",
 Settings = namedtuple("Settings", ["max_iter", "max_dist", "seg_mult", "fuzz",
                                    "buddha_blur_radius", "buddha_blur_type",
                                    "confine_window", "confine_method", "confine_threshold",
-                                   "emit_mode", "emit_target_x", "emit_target_y", "emit_offset"],
+                                   "emit_mode", "emit_target_r", "emit_target_theta",
+                                   "emit_target_cx", "emit_target_cy", "emit_offset"],
                       defaults=[DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
                                 DEFAULT_CONFINE_THRESHOLD, DEFAULT_EMIT_MODE,
-                                DEFAULT_EMIT_TARGET_X, DEFAULT_EMIT_TARGET_Y,
+                                DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
+                                DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
                                 DEFAULT_EMIT_OFFSET])
 
 DEFAULT_SNAPSHOT = Snapshot(
@@ -800,8 +818,9 @@ DEFAULT_SNAPSHOT = Snapshot(
     fuzz=DEFAULT_FUZZ, buddha_blur_radius=DEFAULT_BUDDHA_BLUR_RADIUS,
     buddha_blur_type=DEFAULT_BUDDHA_BLUR_TYPE, confine_window=DEFAULT_CONFINE_WINDOW,
     confine_method=DEFAULT_CONFINE_METHOD, confine_threshold=DEFAULT_CONFINE_THRESHOLD,
-    emit_mode=DEFAULT_EMIT_MODE, emit_target_x=DEFAULT_EMIT_TARGET_X,
-    emit_target_y=DEFAULT_EMIT_TARGET_Y, emit_offset=DEFAULT_EMIT_OFFSET)
+    emit_mode=DEFAULT_EMIT_MODE, emit_target_r=DEFAULT_EMIT_TARGET_R,
+    emit_target_theta=DEFAULT_EMIT_TARGET_THETA, emit_target_cx=DEFAULT_EMIT_TARGET_CX,
+    emit_target_cy=DEFAULT_EMIT_TARGET_CY, emit_offset=DEFAULT_EMIT_OFFSET)
 
 # A resolved frame's complete simulation settings (what render_full_image
 # needs, aside from the views and obstacles - each resolved separately, the
@@ -1046,8 +1065,8 @@ class Obstacle:
         self.cx = 0.0
         self.cy = 0.0
         self.in_effect = OBSTACLE_EFFECT_REFLECT
-        self.out_effect = OBSTACLE_EFFECT_PASS
-        self.fire_inside = False
+        self.out_effect = OBSTACLE_EFFECT_REFLECT
+        self.fire_inside = True
 
     def params(self):
         """The selected shape's own parameter tuple - see shape_params_tuple
@@ -1445,8 +1464,10 @@ SETTING_INFO = [
     ("dist", "Simulation", "Distance limit"),
     ("seg_mult", "Simulation", "Segment length multiplier"),
     ("emit_mode", "Simulation", "Emission direction"),
-    ("emit_target_x", "Simulation", "Emission target x"),
-    ("emit_target_y", "Simulation", "Emission target y"),
+    ("emit_target_r", "Simulation", "Emission target distance (r)"),
+    ("emit_target_theta", "Simulation", "Emission target angle (\u03b8)"),
+    ("emit_target_cx", "Simulation", "Emission target offset X"),
+    ("emit_target_cy", "Simulation", "Emission target offset Y"),
     ("emit_offset", "Simulation", "Emission angle offset"),
     ("confine_window", "Simulation", "Confinement window"),
     ("confine_method", "Simulation", "Confinement method"),
@@ -1472,7 +1493,8 @@ SETTING_TAB = {key: tab for key, tab, _label in SETTING_INFO}
 # everything else (which shape, colors, metrics, sides, flags, seed) always
 # holds the value of the nearest earlier keyframe that defines it.
 SETTING_FLOAT_KEYS = {
-    "dist", "seg_mult", "confine_threshold", "emit_target_x", "emit_target_y", "emit_offset",
+    "dist", "seg_mult", "confine_threshold", "emit_target_r", "emit_target_theta", "emit_target_cx",
+    "emit_target_cy", "emit_offset",
     "emit_jitter", "bnd_offset", "bnd_jitter",
     "bnd_mult", "self_offset", "self_jitter", "self_mult",
     "buddha_blur_radius",
@@ -1484,8 +1506,9 @@ SETTING_FLOAT_KEYS = {
 # outline is drawn. run_self_checks() keeps this in step with SETTING_INFO.
 SETTING_WIDGET_ATTRS = {
     "iter": "iter_entry", "dist": "dist_entry", "seg_mult": "seg_mult_scale",
-    "emit_mode": "emit_mode_combo", "emit_target_x": "emit_target_x_entry",
-    "emit_target_y": "emit_target_y_entry", "emit_offset": "emit_offset_scale",
+    "emit_mode": "emit_mode_combo", "emit_target_r": "emit_target_r_entry",
+    "emit_target_theta": "emit_target_theta_entry", "emit_target_cx": "emit_target_cx_entry",
+    "emit_target_cy": "emit_target_cy_entry", "emit_offset": "emit_offset_scale",
     "confine_window": "confine_window_entry", "confine_method": "confine_method_combo",
     "confine_threshold": "confine_threshold_entry", "fuzz_on": "fuzz_enable_check",
     "emit_jitter": "emit_jitter_scale", "bnd_offset": "bnd_offset_scale",
@@ -1526,7 +1549,9 @@ def effective_settings(snap):
                     buddha_blur_type=snap.buddha_blur_type,
                     confine_window=snap.confine_window, confine_method=snap.confine_method,
                     confine_threshold=snap.confine_threshold, emit_mode=snap.emit_mode,
-                    emit_target_x=snap.emit_target_x, emit_target_y=snap.emit_target_y,
+                    emit_target_r=snap.emit_target_r,
+                    emit_target_theta=snap.emit_target_theta,
+                    emit_target_cx=snap.emit_target_cx, emit_target_cy=snap.emit_target_cy,
                     emit_offset=snap.emit_offset)
 
 
@@ -1549,14 +1574,19 @@ def emission_array(mode, target_x, target_y, offset):
 
 
 # What was always hard-wired: emit up and to the right (Up, offset -45).
-EMISSION_DEFAULT = emission_array(DEFAULT_EMIT_MODE, DEFAULT_EMIT_TARGET_X,
-                                  DEFAULT_EMIT_TARGET_Y, DEFAULT_EMIT_OFFSET)
+EMISSION_DEFAULT = emission_array(
+    DEFAULT_EMIT_MODE,
+    *obstacle_center_from(DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
+                          DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY),
+    DEFAULT_EMIT_OFFSET)
 
 
 def settings_emission(settings):
-    """emission_array() for a Settings."""
-    return emission_array(settings.emit_mode, settings.emit_target_x,
-                          settings.emit_target_y, settings.emit_offset)
+    """emission_array() for a Settings (its target's four-part position turned
+    into the point the kernels aim at)."""
+    tx, ty = obstacle_center_from(settings.emit_target_r, settings.emit_target_theta,
+                                  settings.emit_target_cx, settings.emit_target_cy)
+    return emission_array(settings.emit_mode, tx, ty, settings.emit_offset)
 
 
 def settings_confine(settings):
@@ -1622,8 +1652,10 @@ def resolve_frame_settings(keyframes_sorted, frame_number):
         confine_window=int(round(v["confine_window"])),
         confine_method=int(round(v["confine_method"])),
         confine_threshold=float(v["confine_threshold"]),
-        emit_mode=int(round(v["emit_mode"])), emit_target_x=float(v["emit_target_x"]),
-        emit_target_y=float(v["emit_target_y"]), emit_offset=float(v["emit_offset"]))
+        emit_mode=int(round(v["emit_mode"])), emit_target_r=float(v["emit_target_r"]),
+        emit_target_theta=float(v["emit_target_theta"]),
+        emit_target_cx=float(v["emit_target_cx"]), emit_target_cy=float(v["emit_target_cy"]),
+        emit_offset=float(v["emit_offset"]))
     return KeyframeData(snapshot, bool(v["outline"]))
 
 
@@ -1676,13 +1708,87 @@ def ensure_export_dir():
     return EXPORT_DIR
 
 
-def take_ui_screenshot(root):
+def shift_into_area(rect, area):
+    """The smallest (dx, dy) that moves `rect` (left, top, right, bottom) inside
+    `area` (same form). A rect larger than the area is lined up by its left and
+    top edges instead, so the title bar stays reachable."""
+    left, top, right, bottom = rect
+    a_left, a_top, a_right, a_bottom = area
+    dx = dy = 0
+    if right > a_right:
+        dx = a_right - right
+    if bottom > a_bottom:
+        dy = a_bottom - bottom
+    if left + dx < a_left:
+        dx = a_left - left
+    if top + dy < a_top:
+        dy = a_top - top
+    return dx, dy
+
+
+def parse_geometry_position(geometry):
+    """(x, y) from a Tk geometry string like "1904x936+0+104" or "1904x936-8+-3";
+    None if it has no position."""
+    match = re.fullmatch(r"\d+x\d+([+-])(-?\d+)([+-])(-?\d+)", geometry)
+    if match is None:
+        return None
+    sign_x, x, sign_y, y = match.groups()
+    return (int(x) if sign_x == "+" else -int(x)), (int(y) if sign_y == "+" else -int(y))
+
+
+def window_rect_and_work_area(root):
+    """((left, top, right, bottom) of the whole window including its frame, and the
+    (left, top, right, bottom) of the usable area - the work area, taskbar excluded -
+    of the monitor it is mostly on), in screen pixels. On Windows both come from
+    the operating system; elsewhere the window's client rectangle and the whole
+    screen are the best available."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class MonitorInfo(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetParent(root.winfo_id())
+            rect = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            info = MonitorInfo()
+            info.cbSize = ctypes.sizeof(MonitorInfo)
+            monitor = user32.MonitorFromWindow(hwnd, 2)       # MONITOR_DEFAULTTONEAREST
+            user32.GetMonitorInfoW(monitor, ctypes.byref(info))
+            work = info.rcWork
+            return ((rect.left, rect.top, rect.right, rect.bottom),
+                    (work.left, work.top, work.right, work.bottom))
+        except Exception:                           # noqa: BLE001
+            pass
+    x, y = root.winfo_rootx(), root.winfo_rooty()
+    return ((x, y, x + root.winfo_width(), y + root.winfo_height()),
+            (0, 0, root.winfo_screenwidth(), root.winfo_screenheight()))
+
+
+def unused_path(path):
+    """`path`, or with "-2", "-3", ... before its extension if it already exists
+    (two captures in the same second must not overwrite each other)."""
+    base, ext = os.path.splitext(path)
+    candidate, n = path, 1
+    while os.path.exists(candidate):
+        n += 1
+        candidate = f"{base}-{n}{ext}"
+    return candidate
+
+
+def take_ui_screenshot(root, cause):
     """Development aid: grabs the app's own window from the screen and saves
-    it as DEV_DIR/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss.png, returning the
+    it as DEV_DIR/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.png
+    (`cause` is "startup" or "manual"), returning the
     path - but only if the DEV_DIR folder already exists (this never creates
     it) and Pillow is installed; otherwise does nothing and returns None. It
     grabs the actual screen pixels inside the window's rectangle, so anything
     covering the window at that moment appears in the shot instead."""
+    if cause not in ("startup", "manual"):
+        raise ValueError(f"screenshot cause must be startup or manual, not {cause!r}")
     if ImageGrab is None or not os.path.isdir(DEV_DIR):
         return None
     root.update()                                  # finish drawing, settle geometry
@@ -1690,9 +1796,42 @@ def take_ui_screenshot(root):
     img = ImageGrab.grab(bbox=(x, y, x + root.winfo_width(), y + root.winfo_height()))
     shots_dir = os.path.join(DEV_DIR, "screenshots")
     os.makedirs(shots_dir, exist_ok=True)
-    path = os.path.join(shots_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}.png")
+    path = unused_path(os.path.join(
+        shots_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}-{cause}.png"))
     img.save(path)
     return path
+
+
+def dump_app_state(app, cause, include_large_arrays, exc_info=None):
+    """Development aid: pickles everything the application holds into
+    DEV_DIR/dumps/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.pkl (`cause` is "startup",
+    "crash" or "manual") using dev/debug_dump.py, and returns the path; without
+    `include_large_arrays` every big array in it is replaced by a stand-in
+    (dev/debug_dump.py has the size rule). Does
+    nothing and returns None unless the DEV_DIR folder and that file exist.
+    Never raises: a failure is reported on stderr and otherwise ignored, so a
+    debugging aid can never add a crash (or hide the one being dumped)."""
+    if cause not in ("startup", "crash", "manual"):
+        raise ValueError(f"dump cause must be startup, crash or manual, not {cause!r}")
+    try:
+        dumper_path = os.path.join(DEV_DIR, "debug_dump.py")
+        if not os.path.isfile(dumper_path):
+            return None
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("debug_dump", dumper_path)
+        dumper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dumper)
+        dumps_dir = os.path.join(DEV_DIR, "dumps")
+        os.makedirs(dumps_dir, exist_ok=True)
+        path = unused_path(os.path.join(
+            dumps_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}-{cause}.pkl"))
+        return dumper.dump_everything(
+            app, sys.modules[__name__].__dict__, path, cause,
+            include_large_arrays=include_large_arrays, exc_info=exc_info,
+            file_version=FILE_VERSION)
+    except Exception as exc:                        # noqa: BLE001
+        print(f"Debug dump failed: {exc}", file=sys.stderr)
+        return None
 
 
 def default_filename(settings=None, ext="png"):
@@ -3013,7 +3152,9 @@ def short_value_text(key, val):
         return f"{val:+.1f}\u00b0"
     if key == "emit_mode":
         return EMIT_MODE_NAMES[val]
-    if key in ("emit_target_x", "emit_target_y"):
+    if key == "emit_target_theta":
+        return f"{val:.6g}\u00b0"
+    if key in ("emit_target_r", "emit_target_cx", "emit_target_cy"):
         return f"{val:.6g}"
     if key in ("emit_jitter", "bnd_offset", "bnd_jitter", "self_offset", "self_jitter"):
         return f"\u00b1{val:.1f}\u00b0" if "jitter" in key else f"{val:+.1f}\u00b0"
@@ -3181,8 +3322,9 @@ DEFAULT_SETTING_VALUES = {
     "iter": DEFAULT_ITER, "dist": DEFAULT_DIST, "seg_mult": DEFAULT_SEGMENT_MULT,
     "confine_window": DEFAULT_CONFINE_WINDOW, "confine_method": DEFAULT_CONFINE_METHOD,
     "confine_threshold": DEFAULT_CONFINE_THRESHOLD,
-    "emit_mode": DEFAULT_EMIT_MODE, "emit_target_x": DEFAULT_EMIT_TARGET_X,
-    "emit_target_y": DEFAULT_EMIT_TARGET_Y, "emit_offset": DEFAULT_EMIT_OFFSET,
+    "emit_mode": DEFAULT_EMIT_MODE, "emit_target_r": DEFAULT_EMIT_TARGET_R,
+    "emit_target_theta": DEFAULT_EMIT_TARGET_THETA, "emit_target_cx": DEFAULT_EMIT_TARGET_CX,
+    "emit_target_cy": DEFAULT_EMIT_TARGET_CY, "emit_offset": DEFAULT_EMIT_OFFSET,
     "fuzz_on": DEFAULT_FUZZ.enabled,
     "emit_jitter": DEFAULT_FUZZ.emit_jitter, "bnd_offset": DEFAULT_FUZZ.bnd_offset,
     "bnd_jitter": DEFAULT_FUZZ.bnd_jitter, "bnd_mult": DEFAULT_FUZZ.bnd_mult,
@@ -3425,8 +3567,10 @@ def figure_info_blocks(settings, obstacles):
               f"Segment:x{settings.seg_mult:.2f}"]
     toward = settings.emit_mode == EMIT_TOWARDS
     emission = [f"Emit:{EMIT_MODE_NAMES[settings.emit_mode]}",
-                f"  target x {settings.emit_target_x:.9g}" if toward else " ",
-                f"  target y {settings.emit_target_y:.9g}" if toward else " ",
+                f"  target r {settings.emit_target_r:.9g}" if toward else " ",
+                f"  target angle {settings.emit_target_theta:.9g}" if toward else " ",
+                f"  offset x {settings.emit_target_cx:.9g}" if toward else " ",
+                f"  offset y {settings.emit_target_cy:.9g}" if toward else " ",
                 f"  angle offset {settings.emit_offset:+.2f}\u00b0"]
     confinement = [f"Confine:{CONFINE_METHOD_NAMES[settings.confine_method]}",
                    f"  window {settings.confine_window}",
@@ -4874,6 +5018,11 @@ class App:
         self.root = root
         root.title(os.path.basename(sys.argv[0]) or "Light bounces")
         root.resizable(False, False)
+        self.build_menu_bar()
+        self._crash_dumps = 0
+        root.report_callback_exception = self.on_callback_exception
+        self.install_crash_hooks()
+        root.after(100, self.keep_window_on_screen)   # once the window has its real size
 
         # Slightly smaller font for the dense metrics list
         base_font = tkfont.nametofont("TkDefaultFont")
@@ -4903,8 +5052,10 @@ class App:
         self.gen_buddha_blur_type = DEFAULT_BUDDHA_BLUR_TYPE
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
-        self.last_emit_target_x = DEFAULT_EMIT_TARGET_X
-        self.last_emit_target_y = DEFAULT_EMIT_TARGET_Y
+        self.last_emit_target_r = DEFAULT_EMIT_TARGET_R
+        self.last_emit_target_theta = DEFAULT_EMIT_TARGET_THETA
+        self.last_emit_target_cx = DEFAULT_EMIT_TARGET_CX
+        self.last_emit_target_cy = DEFAULT_EMIT_TARGET_CY
         self.last_confine_window = DEFAULT_CONFINE_WINDOW
         self.last_confine_threshold = DEFAULT_CONFINE_THRESHOLD
         self.last_seed = DEFAULT_FUZZ_SEED
@@ -5012,8 +5163,9 @@ class App:
         self.confine_window_var.trace_add("write", self.on_limit_var_changed)
         self.confine_threshold_var.trace_add("write", self.on_limit_var_changed)
         self.confine_method_var.trace_add("write", self.on_confine_method_changed)
-        self.emit_target_x_var.trace_add("write", self.on_limit_var_changed)
-        self.emit_target_y_var.trace_add("write", self.on_limit_var_changed)
+        for field in EMIT_TARGET_FIELDS:
+            getattr(self, f"emit_target_{field}_var").trace_add(
+                "write", self.on_limit_var_changed)
         self.emit_mode_var.trace_add("write", self.on_emit_mode_changed)
         self.seed_var.trace_add("write", self.on_seed_var_changed)
 
@@ -5223,8 +5375,10 @@ class App:
         coord_vcmd = (self.root.register(self.validate_signed_float), "%P")
 
         self.emit_mode_var = tk.StringVar(value=EMIT_MODE_NAMES[DEFAULT_EMIT_MODE])
-        self.emit_target_x_var = tk.StringVar(value=str(DEFAULT_EMIT_TARGET_X))
-        self.emit_target_y_var = tk.StringVar(value=str(DEFAULT_EMIT_TARGET_Y))
+        for field, default in zip(EMIT_TARGET_FIELDS,
+                                  (DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
+                                   DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY)):
+            setattr(self, f"emit_target_{field}_var", tk.StringVar(value=str(default)))
 
         ttk.Label(em, text="Direction:").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=(6, 2))
         mode_combo = ttk.Combobox(em, textvariable=self.emit_mode_var, values=EMIT_MODE_NAMES,
@@ -5234,37 +5388,40 @@ class App:
         self.emit_mode_combo = mode_combo
 
         self.emit_target_entries = []
-        for r, (text, var) in enumerate((("Target x:", self.emit_target_x_var),
-                                         ("Target y:", self.emit_target_y_var)), start=1):
-            ttk.Label(em, text=text).grid(row=r, column=0, sticky="w", padx=(8, 6), pady=2)
-            entry = ttk.Entry(em, textvariable=var, width=14, justify="right",
-                              validate="key", validatecommand=coord_vcmd)
+        for r, (field, text) in enumerate(zip(EMIT_TARGET_FIELDS, EMIT_TARGET_LABELS),
+                                          start=1):
+            ttk.Label(em, text="Target " + text[0].lower() + text[1:]).grid(
+                row=r, column=0, sticky="w", padx=(8, 6), pady=2)
+            entry = ttk.Entry(em, textvariable=getattr(self, f"emit_target_{field}_var"),
+                              width=14, justify="right", validate="key",
+                              validatecommand=coord_vcmd)
             entry.grid(row=r, column=1, padx=(0, 8), pady=2)
             for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
                 entry.bind(event, self.on_limit_commit)
             self.emit_target_entries.append(entry)
-        self.emit_target_x_entry, self.emit_target_y_entry = self.emit_target_entries
+            setattr(self, f"emit_target_{field}_entry", entry)
 
         offset_frame = ttk.Frame(em)
-        offset_frame.grid(row=3, column=0, columnspan=2, sticky="w")
+        offset_frame.grid(row=5, column=0, columnspan=2, sticky="w")
         self.emit_offset_scale = self.add_angle_entry(
             offset_frame, 0, "Angle offset (\u00b0, + = counterclockwise)", DEFAULT_EMIT_OFFSET,
-            on_change=self.on_emission_changed, lo=EMIT_OFFSET_MIN, hi=EMIT_OFFSET_MAX,
-            fmt="{:.2f}")
+            on_change=self.on_emission_changed, fmt="{:.2f}")
 
         self.emit_msg_var = tk.StringVar()
         ttk.Label(em, textvariable=self.emit_msg_var, foreground=ERROR_RED,
-                  wraplength=RIGHT_W - 70).grid(row=4, column=0, columnspan=2,
+                  wraplength=RIGHT_W - 70).grid(row=6, column=0, columnspan=2,
                                                 sticky="w", padx=8)
         ttk.Label(em, foreground="#666", wraplength=RIGHT_W - 70,
                   text="Each ray starts out pointing straight up, or from its own "
-                       "start pixel towards the target point (which can be anywhere; "
-                       "a pixel exactly on it points up). The angle offset is then "
+                       "start pixel towards the target point (which can be anywhere, "
+                       "positioned like an obstacle: a distance r at angle \u03b8 from "
+                       "the origin, plus an offset X and Y; a pixel exactly on it points "
+                       "up). The angle offset is then "
                        "added, positive meaning more counterclockwise: with Up, the "
                        "default -45\u00b0 gives the up-and-to-the-right direction "
                        "the program has always used. Fuzzing's emission jitter is "
                        "added on top."
-                  ).grid(row=5, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+                  ).grid(row=7, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
         self.update_emission_state()
 
     def update_emission_state(self):
@@ -6105,14 +6262,14 @@ class App:
         out_row.grid(row=4, column=0, sticky="ew", padx=8, pady=(2, 2))
         ttk.Label(out_row, text="Outgoing ray effect:", width=20).pack(side="left")
         self.obs_out_effect_var = tk.StringVar(
-            value=OBSTACLE_EFFECT_NAMES[OBSTACLE_EFFECT_PASS])
+            value=OBSTACLE_EFFECT_NAMES[OBSTACLE_EFFECT_REFLECT])
         self.obs_out_effect_combo = ttk.Combobox(out_row, textvariable=self.obs_out_effect_var,
                                                  values=OBSTACLE_EFFECT_NAMES,
                                                  state="readonly", width=12)
         self.obs_out_effect_combo.pack(side="left", padx=(8, 0))
         self.obs_out_effect_combo.bind("<<ComboboxSelected>>", self.on_obstacle_effect_changed)
 
-        self.obs_fire_inside_var = tk.BooleanVar(value=False)
+        self.obs_fire_inside_var = tk.BooleanVar(value=True)
         self.obs_fire_inside_check = ttk.Checkbutton(
             editor, text="Fire rays inside", variable=self.obs_fire_inside_var,
             command=self.on_obstacle_fire_inside_changed)
@@ -6966,18 +7123,16 @@ class App:
             style="TEntry" if cw is not None else "Invalid.TEntry")
         self.confine_threshold_entry.configure(
             style="TEntry" if ct is not None else "Invalid.TEntry")
-        tx = parse_target_coordinate(self.emit_target_x_var.get())
-        ty = parse_target_coordinate(self.emit_target_y_var.get())
-        if tx is not None:
-            self.last_emit_target_x = tx
-        if ty is not None:
-            self.last_emit_target_y = ty
-        self.emit_target_x_entry.configure(style="TEntry" if tx is not None else "Invalid.TEntry")
-        self.emit_target_y_entry.configure(style="TEntry" if ty is not None else "Invalid.TEntry")
         emit_msgs = []
-        if tx is None or ty is None:
-            emit_msgs.append("Target coordinates must be numbers (any size, positive or "
-                             "negative, e.g. -0.5 or 3e8).")
+        for field in EMIT_TARGET_FIELDS:
+            value = parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
+            if value is not None:
+                setattr(self, f"last_emit_target_{field}", value)
+            getattr(self, f"emit_target_{field}_entry").configure(
+                style="TEntry" if value is not None else "Invalid.TEntry")
+            if value is None and not emit_msgs:
+                emit_msgs.append("Target position values must be numbers (any size, "
+                                 "positive or negative, e.g. -0.5 or 3e8).")
         self.emit_msg_var.set(" ".join(emit_msgs))
         confine_msgs = []
         if cw is None:
@@ -7009,8 +7164,9 @@ class App:
                 (self.confine_window_var, self.last_confine_window, parse_confine_window),
                 (self.confine_threshold_var, self.last_confine_threshold,
                  parse_confine_threshold),
-                (self.emit_target_x_var, self.last_emit_target_x, parse_target_coordinate),
-                (self.emit_target_y_var, self.last_emit_target_y, parse_target_coordinate)):
+                *[(getattr(self, f"emit_target_{field}_var"),
+                   getattr(self, f"last_emit_target_{field}"), parse_target_coordinate)
+                  for field in EMIT_TARGET_FIELDS]):
             value = parser(var.get())
             var.set(str(last if value is None else value))
 
@@ -7126,9 +7282,9 @@ class App:
         ds = parse_dist_limit(self.dist_var.get())
         cw = parse_confine_window(self.confine_window_var.get())
         ct = parse_confine_threshold(self.confine_threshold_var.get())
-        tx = parse_target_coordinate(self.emit_target_x_var.get())
-        ty = parse_target_coordinate(self.emit_target_y_var.get())
-        if it is None or ds is None or cw is None or ct is None or tx is None or ty is None:
+        target = [parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
+                  for field in EMIT_TARGET_FIELDS]
+        if it is None or ds is None or cw is None or ct is None or None in target:
             return None
         sm = self.seg_mult_scale.get()
         br = self.buddha_blur_radius_scale.get()
@@ -7139,7 +7295,8 @@ class App:
                             self.confine_method_var.get()),
                         confine_threshold=ct,
                         emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
-                        emit_target_x=tx, emit_target_y=ty,
+                        emit_target_r=target[0], emit_target_theta=target[1],
+                        emit_target_cx=target[2], emit_target_cy=target[3],
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
 
     def settings_changed(self):
@@ -7185,8 +7342,8 @@ class App:
         self.confine_method_var.set(CONFINE_METHOD_NAMES[s.confine_method])
         self.confine_threshold_var.set(str(s.confine_threshold))
         self.emit_mode_var.set(EMIT_MODE_NAMES[s.emit_mode])
-        self.emit_target_x_var.set(str(s.emit_target_x))
-        self.emit_target_y_var.set(str(s.emit_target_y))
+        for field in EMIT_TARGET_FIELDS:
+            getattr(self, f"emit_target_{field}_var").set(str(getattr(s, f"emit_target_{field}")))
         self.emit_offset_scale.set(s.emit_offset)
         f = s.fuzz
         self.fuzz_enabled_var.set(f.enabled)
@@ -7632,7 +7789,101 @@ class App:
         self.ready = True
         self.update_buttons()
         self.update_status()
-        self.root.after(500, self.take_startup_screenshot)   # let the UI settle first
+        self.root.after(500, self.take_startup_captures)   # let the UI settle first
+
+    def build_menu_bar(self):
+        """The menu bar: for now just the Debug menu (the dev aids; they do
+        nothing unless the dev/ folder exists)."""
+        bar = tk.Menu(self.root, tearoff=False)
+        debug = tk.Menu(bar, tearoff=False)
+        debug.add_command(label="Take screenshot", command=self.manual_screenshot)
+        debug.add_command(label="Dump (without large arrays)",
+                          command=lambda: self.manual_dump(False))
+        debug.add_command(label="Dump (with large arrays)",
+                          command=lambda: self.manual_dump(True))
+        bar.add_cascade(label="Debug", menu=debug)
+        self.root.config(menu=bar)
+
+    def report_debug_result(self, what, path):
+        if path is None:
+            messagebox.showinfo("Debug", f"No {what} was saved (it needs the dev folder "
+                                         "next to the program" +
+                                (", and Pillow" if what == "screenshot" else "") + ").")
+        else:
+            messagebox.showinfo("Debug", f"Saved {what}:\n{path}")
+
+    def manual_screenshot(self):
+        try:
+            path = take_ui_screenshot(self.root, "manual")
+        except Exception as exc:                   # noqa: BLE001
+            print(f"Screenshot failed: {exc}", file=sys.stderr)
+            path = None
+        self.report_debug_result("screenshot", path)
+
+    def manual_dump(self, include_large_arrays):
+        self.report_debug_result("dump", dump_app_state(self, "manual", include_large_arrays))
+
+    def on_callback_exception(self, exc_type, exc_value, exc_tb):
+        """Tk calls this for an exception escaping any callback (replacing its
+        default, which only prints it). Prints it the same way, then leaves a crash
+        dump (without large arrays; never a screenshot), at most MAX_CRASH_DUMPS
+        per launch."""
+        print("Exception in Tkinter callback", file=sys.stderr)
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+        self.dump_crash((exc_type, exc_value, exc_tb))
+
+    def dump_crash(self, exc_info):
+        if self._crash_dumps >= MAX_CRASH_DUMPS:
+            return
+        self._crash_dumps += 1
+        dump_app_state(self, "crash", False, exc_info)
+
+    def install_crash_hooks(self):
+        """Also dump on an exception that ends the program (sys.excepthook) or a
+        background thread (run later on the main thread, since Tk variables
+        must not be read from another one). The previous hooks still run."""
+        previous_hook, previous_thread_hook = sys.excepthook, threading.excepthook
+
+        def hook(exc_type, exc_value, exc_tb):
+            self.dump_crash((exc_type, exc_value, exc_tb))
+            previous_hook(exc_type, exc_value, exc_tb)
+
+        def thread_hook(args):
+            info = (args.exc_type, args.exc_value, args.exc_traceback)
+            try:
+                self.root.after(0, lambda: self.dump_crash(info))
+            except Exception:                      # noqa: BLE001
+                pass
+            previous_thread_hook(args)
+
+        sys.excepthook = hook
+        threading.excepthook = thread_hook
+
+    def keep_window_on_screen(self):
+        """Move the window (never resize it) so all of it is on the screen it is
+        on, e.g. when the operating system placed it with its bottom edge below the
+        screen. A window bigger than the screen ends up with its top-left corner at
+        the screen's. Startup only; never raises."""
+        try:
+            self.root.update_idletasks()
+            rect, area = window_rect_and_work_area(self.root)
+            dx, dy = shift_into_area(rect, area)
+            position = parse_geometry_position(self.root.geometry())
+            if (dx or dy) and position is not None:
+                self.root.geometry(f"+{position[0] + dx}+{position[1] + dy}")
+                self.root.update_idletasks()
+        except Exception as exc:                    # noqa: BLE001
+            print(f"Could not reposition the window: {exc}", file=sys.stderr)
+
+    def take_startup_captures(self):
+        """Once per launch, shortly after the window settles: a screenshot, then a
+        dump without large arrays."""
+        self.keep_window_on_screen()                # so the screenshot shows all of it
+        self.take_startup_screenshot()
+        if getattr(self, "_startup_dump_taken", False):
+            return
+        self._startup_dump_taken = True
+        dump_app_state(self, "startup", False)
 
     def take_startup_screenshot(self):
         """At most once per launch (see take_ui_screenshot for the conditions).
@@ -7641,7 +7892,7 @@ class App:
             return
         self._startup_screenshot_taken = True
         try:
-            take_ui_screenshot(self.root)
+            take_ui_screenshot(self.root, "startup")
         except Exception as exc:                   # noqa: BLE001
             print(f"Startup screenshot failed: {exc}", file=sys.stderr)
 
@@ -7824,8 +8075,10 @@ class App:
                             self.confine_method_var.get()),
                         confine_threshold=self.last_confine_threshold,
                         emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
-                        emit_target_x=self.last_emit_target_x,
-                        emit_target_y=self.last_emit_target_y,
+                        emit_target_r=self.last_emit_target_r,
+                        emit_target_theta=self.last_emit_target_theta,
+                        emit_target_cx=self.last_emit_target_cx,
+                        emit_target_cy=self.last_emit_target_cy,
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
 
     def invalidate_preview(self):
@@ -8205,8 +8458,10 @@ class App:
             "iter": snap.max_iter, "dist": snap.max_dist, "seg_mult": snap.seg_mult,
             "confine_window": snap.confine_window, "confine_method": snap.confine_method,
             "confine_threshold": snap.confine_threshold,
-            "emit_mode": snap.emit_mode, "emit_target_x": snap.emit_target_x,
-            "emit_target_y": snap.emit_target_y, "emit_offset": snap.emit_offset,
+            "emit_mode": snap.emit_mode, "emit_target_r": snap.emit_target_r,
+            "emit_target_theta": snap.emit_target_theta,
+            "emit_target_cx": snap.emit_target_cx, "emit_target_cy": snap.emit_target_cy,
+            "emit_offset": snap.emit_offset,
             "fuzz_on": f.enabled, "emit_jitter": f.emit_jitter,
             "bnd_offset": f.bnd_offset, "bnd_jitter": f.bnd_jitter, "bnd_mult": f.bnd_mult,
             "self_offset": f.self_offset, "self_jitter": f.self_jitter,
@@ -8307,10 +8562,8 @@ class App:
             self.seg_mult_scale.set(val)
         elif key == "emit_mode":
             self.emit_mode_var.set(EMIT_MODE_NAMES[int(round(val))])
-        elif key == "emit_target_x":
-            self.emit_target_x_var.set(str(float(val)))
-        elif key == "emit_target_y":
-            self.emit_target_y_var.set(str(float(val)))
+        elif key.startswith("emit_target_"):
+            getattr(self, key + "_var").set(str(float(val)))
         elif key == "emit_offset":
             self.emit_offset_scale.set(val)
         elif key == "confine_window":
