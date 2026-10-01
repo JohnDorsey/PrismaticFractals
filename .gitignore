@@ -5,3 +5,4 @@ __pycache__/
 exports/
 dev/screenshots/
 dev/dumps/
+.idea

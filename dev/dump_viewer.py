@@ -21,7 +21,9 @@ What you see
   Hover a row to read its full text in the panel at the bottom.
 
 Controls
-  scroll wheel            zoom in / out towards the mouse pointer
+  scroll wheel            scroll up / down
+  Shift + scroll wheel    scroll sideways
+  Ctrl + scroll wheel     zoom in / out towards the mouse pointer
   right-drag              pan
   left-drag an object     move it (all selected objects move together)
   left-drag on background select the objects the rectangle touches
@@ -53,6 +55,13 @@ again using two settings -
                                with a tall fan of children gets them further away
                                and its arrows come out less steep
 
+View > Group link rows first   in every box, rows that point at a visible box come first
+View > Sort objects            within their parent, order the rows (and so the stacked
+                               boxes after a rearrange) by name, size in bytes (an
+                               estimate of the memory the value and everything under it
+                               takes), or total number of descendant boxes - counting all
+                               of them, or only the visible ones - ascending or descending
+
 Filters (left sidebar, its two lists can be folded): for every type of object in the
 file, one of five levels
   4  show these objects and their children (each child still follows its own level)
@@ -62,6 +71,9 @@ file, one of five levels
   0  as 1, and also hide the parent of such an object if all of that parent's
      children are at 0 (the parent still appears as a row inside its own parent)
 A box that has children hidden by a filter says how many at its bottom.
+"Hide rows that aren't links" also hides, in every box, each row that is not a
+clickable link (plain values, rows whose box is hidden or unticked); they are counted
+in that message too.
 Only rows that point at a box have a checkbox: hiding a plain value's row would
 leave nothing to tick again. "Show all" also ticks every checkbox again.
 Hiding and showing leaves everything where it is; "Rearrange" lays out the
@@ -73,10 +85,12 @@ children are stacked in the order of the rows that point at them).
 
 Speed: only the boxes near the window are on the canvas. Panning moves those few
 items; zooming redraws them, skipping the text when it would be too small to
-read and the arrows when they would be too small to tell apart.
+read and each arrow that would be shorter than a few pixels (so zoomed far out
+only the long arrows are drawn).
 """
 import os
 import pickle
+import re
 import sys
 import time
 import types
@@ -98,6 +112,13 @@ CHECK_SIZE = 10              # the checkbox on a row that points at a box
 CHECK_W = 22                 # extra box width it takes
 LINK_CLICK_GUARD_S = 0.6     # a quick second click (a double-click) does not jump again
 HISTORY_LIMIT = 200          # places remembered for navigating back and forward
+WHEEL_SCROLL_PX = 120        # how far one wheel click scrolls (plain: up/down, Shift: sideways)
+SORT_NONE, SORT_NAME, SORT_SIZE, SORT_DESC_ALL, SORT_DESC_VISIBLE = (
+    "none", "name", "size", "descendants", "visible")
+SORT_CHOICES = [(SORT_NONE, "None (original order)"), (SORT_NAME, "Name (alphabetical)"),
+                (SORT_SIZE, "Size in bytes"),
+                (SORT_DESC_ALL, "Total descendants (including hidden ones)"),
+                (SORT_DESC_VISIBLE, "Visible descendants")]
 PAD = 8
 DEFAULT_MIN_GAP = 110        # minimum horizontal room between a box and its children
 MIN_GAP_RANGE = (0, 600)
@@ -109,7 +130,8 @@ MAX_KEY = 30
 MAX_VAL = 46
 HIDE_TEXT_BELOW_PX = 5
 STRAIGHT_BELOW_ZOOM = 0.05   # curves cost more to draw; below this everything is straight
-NO_ARROWS_BELOW_ZOOM = 0.02  # too small to tell arrows apart: only the boxes are drawn
+MIN_ARROW_PX = 12            # an arrow shorter than this on the screen is not drawn, so zoomed
+                             # far out only the longer ones remain (and cost nothing to draw)
 MIN_ZOOM, MAX_ZOOM = 0.004, 12.0
 START_ZOOM = 0.8
 DRAW_MARGIN = 0.3            # extra drawn around the window, as a fraction of its size
@@ -194,13 +216,17 @@ def load_pickle(path):
 
 # ===================================================================== the graph
 class Row:
-    __slots__ = ("key", "text", "full", "child", "type_key", "origin", "check")
+    __slots__ = ("key", "text", "full", "child", "type_key", "origin", "check", "size",
+                 "desc_all")
 
-    def __init__(self, key, text, full, child=None, type_key=None, origin=None, check=None):
+    def __init__(self, key, text, full, child=None, type_key=None, origin=None, check=None,
+                 size=0, desc_all=0):
         self.key, self.text, self.full, self.child = key, text, full, child
         self.type_key = type_key        # what the row's value is (None: not a value)
         self.origin = origin            # (id of the original box, index of the original row)
         self.check = check              # None: no checkbox; else whether it is ticked
+        self.size = size                # estimated bytes of the value (and all under it)
+        self.desc_all = desc_all        # boxes under the value (0 for a plain value)
 
 
 class Node:
@@ -218,6 +244,8 @@ class Node:
         self.tree_children = []
         self.parent_row = -1            # the row of the tree parent that points at this box
         self.span_h = 0.0               # vertical space all its tree children take up
+        self.size = 0                   # estimated bytes of the value (and all under it)
+        self.desc_all = 0               # boxes under this one, hidden ones included
 
 
 def _short(text, limit):
@@ -269,6 +297,48 @@ def inline_text(value):
     if isinstance(value, (set, frozenset)):
         return "set()" if not value else None
     return None
+
+
+def shallow_size(value):
+    """Estimated bytes one value takes itself (arrays: their data; a large-array stand-in:
+    the size it records)."""
+    if is_ndarray(value):
+        return int(value.nbytes)
+    if isinstance(value, dict) and value.get("__standin__") == "large array":
+        return int(value.get("nbytes", 0) or 0)
+    try:
+        return sys.getsizeof(value)
+    except Exception:                               # noqa: BLE001
+        return 0
+
+
+def deep_size(value, memo, active=None):
+    """Estimated bytes of a value and everything it holds. `memo` (id -> size) makes each
+    shared value be measured once; a value met again while it is being measured
+    (a cycle) counts as 0 there."""
+    key = id(value)
+    if key in memo:
+        return memo[key]
+    active = set() if active is None else active
+    if key in active:
+        return 0
+    if isinstance(value, (str, bytes, int, float, bool, complex, type(None))) or is_ndarray(value):
+        return shallow_size(value)
+    active.add(key)
+    total = shallow_size(value)
+    if isinstance(value, dict):
+        if value.get("__standin__") != "large array":
+            for k, v in value.items():
+                total += shallow_size(k) + deep_size(v, memo, active)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for v in value:
+            total += deep_size(v, memo, active)
+    elif not isinstance(value, type):
+        for _name, v in object_attributes(value):
+            total += deep_size(v, memo, active)
+    active.discard(key)
+    memo[key] = total
+    return total
 
 
 def object_attributes(value):
@@ -334,6 +404,7 @@ class Graph:
         self.by_id = {}                  # id(python object) -> Node
         self.edges = []                  # (parent node, row index, child node, is_tree_edge)
         self.keepalive = []
+        self.size_memo = {}
         self.root = None
 
     def new_node(self, kind, title, type_key=None):
@@ -373,6 +444,7 @@ class Graph:
             entries = [(str(k), v) for k, v in attrs]
         self.by_id[key] = node
         self.fill_rows(node, entries)
+        node.size = deep_size(value, self.size_memo)
         return node
 
     def fill_rows(self, node, entries):
@@ -382,11 +454,12 @@ class Graph:
             if text is not None:
                 full = f"{name} = {self.full_text(value)}"
                 node.rows.append(Row(_short(str(name), MAX_KEY), text, full, None,
-                                     type_key_of(value)))
+                                     type_key_of(value), size=deep_size(value, self.size_memo)))
                 continue
             child = self.node_for(value)
             node.rows.append(Row(_short(str(name), MAX_KEY), child.title,
-                                 f"{name} -> {child.title}", child, child.type_key))
+                                 f"{name} -> {child.title}", child, child.type_key,
+                                 size=child.size))
             self.edges.append((node, len(node.rows) - 1, child, None))
         if len(entries) > MAX_ROWS:
             node.rows.append(Row("\u2026", f"{len(entries) - MAX_ROWS} more entries not shown",
@@ -417,7 +490,79 @@ def build_graph(data):
             root.rows.append(Row("value", inline_text(data), Graph.full_text(data), None,
                                  type_key_of(data)))
     graph.root = root
+    if root.size == 0:
+        root.size = deep_size(data, graph.size_memo)
+    counts = descendant_counts(graph.nodes)
+    for node in graph.nodes:
+        node.desc_all = counts[node.id]
+    for node in graph.nodes:
+        for row in node.rows:
+            if row.child is not None:
+                row.desc_all = row.child.desc_all
     return graph
+
+
+def descendant_counts(nodes):
+    """{box id: how many different boxes can be reached from it through its rows}, for any
+    list of boxes (the whole graph, or just the visible ones). Boxes that point at each
+    other (a cycle) are handled: they all reach each other. Uses reachability sets kept
+    as integers, combined in the order Tarjan's algorithm finishes strongly connected
+    groups, so it stays fast for a few thousand boxes."""
+    index = {n.id: i for i, n in enumerate(nodes)}
+    succ = [[index[r.child.id] for r in n.rows if r.child is not None and r.child.id in index]
+            for n in nodes]
+    count = len(nodes)
+    order, low, on_stack, stack = [-1] * count, [0] * count, [False] * count, []
+    reach = [0] * count
+    counter = 0
+    for start in range(count):
+        if order[start] != -1:
+            continue
+        work = [(start, iter(succ[start]))]
+        order[start] = low[start] = counter
+        counter += 1
+        stack.append(start)
+        on_stack[start] = True
+        while work:
+            node, it = work[-1]
+            advanced = False
+            for nxt in it:
+                if order[nxt] == -1:
+                    order[nxt] = low[nxt] = counter
+                    counter += 1
+                    stack.append(nxt)
+                    on_stack[nxt] = True
+                    work.append((nxt, iter(succ[nxt])))
+                    advanced = True
+                    break
+                if on_stack[nxt]:
+                    low[node] = min(low[node], order[nxt])
+            if advanced:
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+            if low[node] == order[node]:
+                group = []
+                while True:
+                    member = stack.pop()
+                    on_stack[member] = False
+                    group.append(member)
+                    if member == node:
+                        break
+                mask = 0
+                cyclic = len(group) > 1 or node in succ[node]
+                members = set(group)
+                for m in group:
+                    if cyclic:
+                        mask |= 1 << m
+                    for c in succ[m]:
+                        if c not in members:
+                            mask |= (1 << c) | reach[c]
+                for m in group:
+                    reach[m] = mask
+    return {nodes[i].id: reach[i].bit_count() - ((reach[i] >> i) & 1) for i in range(count)}
 
 
 # ===================================================================== filters
@@ -460,7 +605,7 @@ def hides_itself(node, levels):
     return bool(node.rows) and all(row_level(r, levels) == LOWEST for r in node.rows)
 
 
-def apply_filters(graph, levels, unchecked=frozenset()):
+def apply_filters(graph, levels, unchecked=frozenset(), links_only=False):
     """Which boxes and rows are visible. `levels` maps a type name to 4, 3, 2, 1 or 0
     (missing: 4); see the module docstring. `unchecked` holds (box id, row index)
     origins whose checkbox is cleared: such a row stays (plain, with an empty
@@ -489,20 +634,58 @@ def apply_filters(graph, levels, unchecked=frozenset()):
             origin = (orig.id, i)
             if (row.child is not None and level >= NO_CHILDREN
                     and not hides_itself(row.child, levels)):
-                if origin in unchecked:
-                    node.rows.append(Row(row.key, row.text, row.full, None, row.type_key,
-                                         origin, False))
+                if origin not in unchecked:
+                    child = view.by_id.get(row.child.id)
+                    if child is None:
+                        child = make(row.child)
+                        queue.append((row.child, child))
+                    node.rows.append(Row(row.key, row.text, row.full, child, row.type_key,
+                                         origin, True, row.size, row.desc_all))
+                    view.edges.append((node, len(node.rows) - 1, child, None))
                     continue
-                child = view.by_id.get(row.child.id)
-                if child is None:
-                    child = make(row.child)
-                    queue.append((row.child, child))
-                node.rows.append(Row(row.key, row.text, row.full, child, row.type_key,
-                                     origin, True))
-                view.edges.append((node, len(node.rows) - 1, child, None))
-            else:                                    # a plain row naming the hidden box
-                node.rows.append(Row(row.key, row.text, row.full, None, row.type_key,
-                                     origin, None))
+                check = False                        # cleared: a plain row, no box
+            else:
+                check = None                         # a plain row (or naming a hidden box)
+            if links_only:
+                node.hidden += 1
+                continue
+            node.rows.append(Row(row.key, row.text, row.full, None, row.type_key, origin,
+                                 check, row.size, row.desc_all))
+    return view
+
+
+def natural_key(text):
+    """Case-insensitive sort key that orders digit runs as numbers ([2] before [10])."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", text)]
+
+
+def arrange_rows(view, group_links=False, sort_by=SORT_NONE, descending=False):
+    """Reorder the rows of every box of a ViewGraph: with `group_links`, rows that link to
+    a box come first; then, within each group, by `sort_by` (name, size in bytes, total
+    descendants, or visible descendants), ascending or `descending`; ties keep their
+    order. A row that is not a value (the 'more entries' note) always stays last. The
+    view's edges are rebuilt to follow the moved rows."""
+    if not group_links and sort_by == SORT_NONE:
+        return view
+    visible = descendant_counts(view.nodes) if sort_by == SORT_DESC_VISIBLE else None
+
+    def value_key(row):
+        if sort_by == SORT_NAME:
+            return natural_key(row.key)
+        if sort_by == SORT_SIZE:
+            return row.size
+        if sort_by == SORT_DESC_ALL:
+            return row.desc_all
+        if sort_by == SORT_DESC_VISIBLE:
+            return visible[row.child.id] if row.child is not None else 0
+        return 0
+    for node in view.nodes:
+        if sort_by != SORT_NONE:
+            node.rows.sort(key=value_key, reverse=descending)
+        node.rows.sort(key=lambda r: (r.type_key is None and r.child is None,
+                                      group_links and r.child is None))
+    view.edges = [(node, i, row.child, None) for node in view.nodes
+                  for i, row in enumerate(node.rows) if row.child is not None]
     return view
 
 
@@ -623,6 +806,12 @@ def edge_points(parent, row, child):
             child.x, child.y + TITLE_H / 2)
 
 
+def arrow_visible(x0, y0, x1, y1, zoom):
+    """Is an arrow (end points in world units) long enough on the screen at `zoom` to be
+    worth drawing? The longer it is, the further out it stays visible."""
+    return (abs(x1 - x0) + abs(y1 - y0)) * zoom >= MIN_ARROW_PX
+
+
 def edge_path(x0, y0, x1, y1, zoom, straight):
     """Canvas coordinates of a connection: two points, or a swoopy curve - a cubic
     Bezier that leaves and enters horizontally, drawn as many short segments so it
@@ -730,6 +919,10 @@ class Viewer:
         self.straight_var = tk.BooleanVar(value=False)
         self.min_gap_var = tk.DoubleVar(value=DEFAULT_MIN_GAP)
         self.aspect_var = tk.DoubleVar(value=0.0)
+        self.group_links_var = tk.BooleanVar(value=False)    # View > Group link rows first
+        self.links_only_var = tk.BooleanVar(value=False)     # sidebar: hide rows that aren't links
+        self.sort_by_var = tk.StringVar(value=SORT_NONE)     # View > Sort objects ...
+        self.sort_desc_var = tk.BooleanVar(value=False)
         self.section_open = {"boxes": True, "values": True}
         menu = tk.Menu(root, tearoff=False)
         file_menu = tk.Menu(menu, tearoff=False)
@@ -753,6 +946,19 @@ class Viewer:
                                   value=False, command=self.schedule_redraw)
         view_menu.add_radiobutton(label="Straight connections", variable=self.straight_var,
                                   value=True, command=self.schedule_redraw)
+        view_menu.add_separator()
+        view_menu.add_checkbutton(label="Group link rows first", variable=self.group_links_var,
+                                  command=self.refilter)
+        sort_menu = tk.Menu(view_menu, tearoff=False)
+        for value, label in SORT_CHOICES:
+            sort_menu.add_radiobutton(label=label, variable=self.sort_by_var, value=value,
+                                      command=self.refilter)
+        sort_menu.add_separator()
+        sort_menu.add_radiobutton(label="Ascending", variable=self.sort_desc_var, value=False,
+                                  command=self.refilter)
+        sort_menu.add_radiobutton(label="Descending", variable=self.sort_desc_var, value=True,
+                                  command=self.refilter)
+        view_menu.add_cascade(label="Sort objects within their parent", menu=sort_menu)
         menu.add_cascade(label="View", menu=view_menu)
         self.view_menu = view_menu
         root.config(menu=menu)
@@ -771,8 +977,8 @@ class Viewer:
         c.bind("<MouseWheel>", self.on_wheel)
         windowing = root.tk.call("tk", "windowingsystem")
         if windowing == "x11":                       # there 4 and 5 are the scroll wheel
-            c.bind("<Button-4>", lambda e: self.zoom_at(e.x, e.y, 1.2))
-            c.bind("<Button-5>", lambda e: self.zoom_at(e.x, e.y, 1 / 1.2))
+            c.bind("<Button-4>", lambda e: self.wheel(e.x, e.y, e.state, 1))
+            c.bind("<Button-5>", lambda e: self.wheel(e.x, e.y, e.state, -1))
         back_button, forward_button = nav_button_numbers(windowing)
         root.bind(f"<ButtonPress-{back_button}>", lambda e: self.nav_back())
         root.bind(f"<ButtonPress-{forward_button}>", lambda e: self.nav_forward())
@@ -833,6 +1039,9 @@ class Viewer:
                      "1  hide, and hide the row too\n"
                      "0  as 1, and hide the parent if it has\n"
                      "    nothing above 0 left")).pack(anchor="w", padx=8)
+        tk.Checkbutton(side, text="Hide rows that aren't links", variable=self.links_only_var,
+                       command=self.refilter, background=bg, anchor="w",
+                       font=("Segoe UI", 9)).pack(fill="x", padx=8, pady=(4, 0))
         holder = tk.Frame(side, background=bg)
         holder.pack(fill="both", expand=True, pady=(4, 0))
         self.side_canvas = tk.Canvas(holder, background=bg, highlightthickness=0)
@@ -899,9 +1108,10 @@ class Viewer:
         self.refilter()
 
     def reset_filters(self):
-        """Every type back to the top level, and every checkbox ticked."""
+        """Every type back to the top level, every checkbox ticked, all rows shown."""
         self.levels = {}
         self.unchecked = set()
+        self.links_only_var.set(False)
         for var in self.level_vars.values():
             var.set(SHOW)
         self.refilter()
@@ -936,8 +1146,8 @@ class Viewer:
         self.levels, self.unchecked, self.selected = {}, set(), set()
         self.back_stack, self.forward_stack = [], []
         self.update_nav_menu()
-        everything = layout_tree(apply_filters(self.graph, {}), self.char_w,
-                                 self.min_gap_var.get(), self.aspect_var.get())
+        everything = layout_tree(self.make_view(), self.char_w, self.min_gap_var.get(),
+                                 self.aspect_var.get())
         self.pos = {n.id: [n.x, n.y] for n in everything.nodes}
         self.root.title(f"Dump viewer - {os.path.basename(path)}")
         self.fill_sidebar()
@@ -959,10 +1169,17 @@ class Viewer:
         self.set_info(summary + "\nHover a row to read it in full here.")
 
     # ---- the visible graph --------------------------------------------------------------
+    def make_view(self):
+        """The visible boxes under the filters, the checkboxes and "hide rows that aren't
+        links", with their rows grouped and sorted as View asks."""
+        view = apply_filters(self.graph, self.levels, self.unchecked, self.links_only_var.get())
+        return arrange_rows(view, self.group_links_var.get(), self.sort_by_var.get(),
+                            self.sort_desc_var.get())
+
     def rebuild_view(self):
         """Work out what the filters leave visible (boxes keep the positions they
         had), and size the boxes to their visible rows."""
-        self.vg = apply_filters(self.graph, self.levels, self.unchecked)
+        self.vg = self.make_view()
         measure_nodes(self.vg, self.char_w)
         span_tree(self.vg)
         for node in self.vg.nodes:
@@ -1025,9 +1242,9 @@ class Viewer:
         nodes = nodes_in_region(self.vg, region)
         ids = {n.id for n in nodes}
         for k, (parent, row, child, is_tree) in enumerate(self.vg.edges):
-            if self.zoom < NO_ARROWS_BELOW_ZOOM:
-                break
             x0, y0, x1, y1 = edge_points(parent, row, child)
+            if not arrow_visible(x0, y0, x1, y1, self.zoom):
+                continue
             if (parent.id in ids or child.id in ids
                     or (min(x0, x1) <= region[2] and max(x0, x1) >= region[0]
                         and min(y0, y1) <= region[3] and max(y0, y1) >= region[1])):
@@ -1138,7 +1355,31 @@ class Viewer:
         self.schedule_redraw()
 
     def on_wheel(self, event):
-        self.zoom_at(event.x, event.y, 1.2 if event.delta > 0 else 1 / 1.2)
+        self.wheel(event.x, event.y, event.state, 1 if event.delta > 0 else -1)
+
+    def wheel(self, x, y, state, direction):
+        """One wheel click (`direction` 1 = away from you): with Ctrl held, zoom at the
+        pointer; else with Shift held, scroll sideways; otherwise scroll up and down."""
+        shift, ctrl = bool(state & 0x1), bool(state & 0x4)
+        if ctrl:
+            self.zoom_at(x, y, 1.2 if direction > 0 else 1 / 1.2)
+        elif shift:
+            self.scroll_by(direction * WHEEL_SCROLL_PX, 0)
+        else:
+            self.scroll_by(0, direction * WHEEL_SCROLL_PX)
+
+    def scroll_by(self, dx, dy):
+        """Move everything by (dx, dy) window pixels (the few items on the canvas, then a
+        redraw only if the window has left the region that was drawn)."""
+        if self.vg is None:
+            return
+        self.canvas.move("all", dx, dy)
+        self.ox -= dx / self.zoom
+        self.oy -= dy / self.zoom
+        seen = self.view_region()
+        d = self.drawn
+        if seen[0] < d[0] or seen[1] < d[1] or seen[2] > d[2] or seen[3] > d[3]:
+            self.redraw()
 
     def set_view(self, zoom, ox, oy):
         self.zoom = min(MAX_ZOOM, max(MIN_ZOOM, zoom))
@@ -1280,13 +1521,7 @@ class Viewer:
         region that was drawn."""
         dx, dy = event.x - self.pan_last[0], event.y - self.pan_last[1]
         self.pan_last = (event.x, event.y)
-        self.canvas.move("all", dx, dy)
-        self.ox -= dx / self.zoom
-        self.oy -= dy / self.zoom
-        seen = self.view_region()
-        d = self.drawn
-        if seen[0] < d[0] or seen[1] < d[1] or seen[2] > d[2] or seen[3] > d[3]:
-            self.redraw()
+        self.scroll_by(dx, dy)
 
     def on_press(self, event):
         if self.vg is None:

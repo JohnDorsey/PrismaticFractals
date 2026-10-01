@@ -15,6 +15,7 @@ making a change), the fix belongs here too, as a test that would have caught
 it. Several of the tests below exist for exactly that reason and say so in
 their docstring.
 """
+import dataclasses
 import os
 import shutil
 import sys
@@ -103,8 +104,8 @@ def test_dist_is_not_rounded_during_keyframe_resolution():
     keyframe would silently become an unlimited-distance one."""
     kf = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.4})
     data = m.resolve_frame_settings([kf], 0)
-    assert data.snapshot.max_dist == 0.4
-    assert m.effective_dist(data.snapshot.max_dist) == 0.4
+    assert data.settings.max_dist == 0.4
+    assert m.effective_dist(data.settings.max_dist) == 0.4
 
 
 def test_dist_animates_smoothly_between_keyframes():
@@ -114,7 +115,7 @@ def test_dist_animates_smoothly_between_keyframes():
     until the very last frame" of a video animating the distance limit."""
     kf0 = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.01})
     kf1 = m.Keyframe(2, 59, {**m.DEFAULT_SETTING_VALUES, "dist": 16})
-    dists = [m.resolve_frame_settings([kf0, kf1], fn).snapshot.max_dist for fn in range(60)]
+    dists = [m.resolve_frame_settings([kf0, kf1], fn).settings.max_dist for fn in range(60)]
     assert dists[0] == 0.01 and dists[59] == 16
     assert all(dists[i] < dists[i + 1] for i in range(59)), \
         "dist should increase strictly monotonically across every frame"
@@ -128,12 +129,12 @@ def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     start.width, start.height = width, height
     bound = m.make_bound(start.shape, start.params())
     arrays = m.build_obstacle_arrays([start])
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
     term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(0.0), seg_mult,
-                              fz, m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, *arrays[:5], raw)
+                              fz, m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, raw)
     return pts[:npts], kinds[:npts], term, raw, bound
 
 
@@ -344,7 +345,7 @@ def test_self_checks_catch_a_shape_param_table_duplicate():
 # --------------------------------------------------------------------------- #
 # Baseline behavior lock-in for the shape/obstacle de-duplication refactor:
 # the bounding shape's own controls (read_shape_controls, load_value/
-# apply_snapshot_to_controls) are already table-driven off SHAPE_PARAM_INFO;
+# Revert) are already table-driven off SHAPE_PARAM_INFO;
 # the obstacle side (refresh_obstacle_editor, on_obstacle_param_changed) is
 # still 25+ hand-written lines each, and describe_shape/describe_obstacle and
 # params()/snapshot_shape_params are still separate implementations. These
@@ -630,7 +631,7 @@ def test_describe_obstacle_includes_position_and_effect():
 def test_obstacle_keyframe_capture_and_load_round_trip():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
-    app.current_snapshot = lambda: m.DEFAULT_SNAPSHOT
+    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.deco = {"outline": _StubVar(True)}
     app.views = [m.ViewConfig(0)]
     o1 = _make_distinct_obstacle(shape=m.SHAPE_MOSS_EGG)
@@ -680,7 +681,7 @@ def test_obstacle_keyframe_load_only_touches_the_matching_id():
 # --------------------------------------------------------------------------- #
 def _make_fake_app_for_snapshot():
     """A minimal stand-in for App with just enough stub controls for
-    read_fuzz_controls() and current_snapshot() to run for real, unmodified,
+    read_fuzz_controls() and current_ray_settings() to run for real, unmodified,
     off the actual App class."""
     class _Get:
         def __init__(self, value):
@@ -694,7 +695,7 @@ def _make_fake_app_for_snapshot():
 
     app = FakeApp()
     app.read_fuzz_controls = m.App.read_fuzz_controls.__get__(app)
-    app.current_snapshot = m.App.current_snapshot.__get__(app)
+    app.current_ray_settings = m.App.current_ray_settings.__get__(app)
 
     app.seed_var = _Get("0")
     app.last_seed = 0
@@ -736,9 +737,12 @@ def _starting_obst_arrays():
 
 
 def _view_settings_from_config(v):
-    return m.ViewSettings(v.mode, v.kinds, v.point_metric, v.other_metric, v.point1_choice,
-                          v.point2_choice, v.chan_src, v.buddha_points, v.buddha_compression,
-                          v.buddha_brightness, v.constant_choice)
+    return m.ViewSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
+                          other_metric=v.other_metric, point1_choice=v.point1_choice,
+                          point2_choice=v.point2_choice, chan_src=v.chan_src,
+                          buddha_points=v.buddha_points, buddha_compression=v.buddha_compression,
+                          buddha_brightness=v.buddha_brightness,
+                          constant_choice=v.constant_choice)
 
 
 def test_render_full_image_with_a_single_view_matches_pre_views_behavior():
@@ -816,8 +820,10 @@ def test_resolve_views_honors_keyframe_overrides_per_channel():
     the others."""
     v = m.ViewConfig(9)
     snap = m.snapshot_view(v)
-    custom_chan = (m.CHAN_SRC_QUERY, m.KIND_OTHER, m.ST_BOUNCES, m.POINT_START, m.POINT_END,
-                  m.DEFAULT_BUDDHA_POINTS, m.BUDDHA_COMPRESS_MODULUS, 3, m.NONE_ZERO)
+    custom_chan = m.ChannelSettings(
+        chan_src=m.CHAN_SRC_QUERY, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ZERO)
     kf = m.Keyframe(1, 0, {"view:9:mode": "HSV", "view:9:chan0": custom_chan})
     resolved = m.resolve_views([snap], [kf], 0)[0]
     assert resolved.mode == "HSV"
@@ -828,7 +834,7 @@ def test_resolve_views_honors_keyframe_overrides_per_channel():
 def test_capture_all_settings_has_no_first_view_special_case():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
-    app.current_snapshot = lambda: m.DEFAULT_SNAPSHOT
+    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.deco = {"outline": type("X", (), {"get": lambda self: True})()}
     v0 = m.ViewConfig(0)
     v1 = m.ViewConfig(5)
@@ -1003,7 +1009,7 @@ def _fake_export_app():
     app.include_all_views_var = _StubVar(True)
     app.color_info_location_var = _StubVar("None")
     app.figure_info_location_var = _StubVar("None")
-    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.view_by_id = m.App.view_by_id.__get__(app)
     app.live_view = m.App.live_view.__get__(app)
     app.selected_view_obj = m.App.selected_view_obj.__get__(app)
@@ -1023,7 +1029,7 @@ def _fake_export_app():
     app.refresh_color_controls_for_selected_view = lambda: None
     app.obstacles = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
-    app.current_snapshot = lambda: m.DEFAULT_SNAPSHOT
+    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.colorize_view = m.App.colorize_view.__get__(app)
@@ -1169,21 +1175,15 @@ def _fake_current_image_app():
     app.points = (np.random.RandomState(1).rand(m.SIZE, m.SIZE, m.N_POINTS, 2)
                  .astype(np.float32) * 2 - 1)
     app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
-    app.max_iter = m.DEFAULT_ITER
-    app.max_dist = m.effective_dist(0.0)
-    app.gen_seg_mult = 1.0
-    app.gen_fuzz = m.fuzz_array(m.DEFAULT_FUZZ)
-    app.gen_seed_base = 0
-    app.gen_buddha_blur_radius = m.DEFAULT_BUDDHA_BLUR_RADIUS
-    app.gen_buddha_blur_type = m.DEFAULT_BUDDHA_BLUR_TYPE
+    app.gen_fuzz = m.fuzz_rule(m.DEFAULT_FUZZ)
+    app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     empty_i = np.empty(0, dtype=np.int64)
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
     empty_bool = np.empty(0, dtype=bool)
-    app.gen_obst_shapes, app.gen_obst_bounds = empty_i, empty_b
-    app.gen_obst_cx, app.gen_obst_cy = empty_f, empty_f
-    app.gen_obst_effects = np.empty((0, 2), dtype=np.int64)
-    app.gen_obst_fire_inside = empty_bool
+    app.gen_obstacles = m.ObstacleArrays(
+        shapes=empty_i, bounds=empty_b, cx=empty_f, cy=empty_f,
+        effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
     app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
     app.obstacle_ring_specs = lambda: []
     app.gen_obstacle_snapshots = [m.snapshot_obstacle(m.default_starting_obstacle(0))]
@@ -1310,13 +1310,9 @@ def test_select_view_invalidates_the_incoming_views_stale_cache():
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     app.points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
-    app.max_iter = m.DEFAULT_ITER
-    app.max_dist = m.effective_dist(0.0)
-    app.gen_seg_mult = 1.0
-    app.gen_fuzz = m.fuzz_array(m.DEFAULT_FUZZ)
-    app.gen_seed_base = 0
-    app.gen_buddha_blur_radius = 0.0
-    app.gen_buddha_blur_type = m.BUDDHA_BLUR_GAUSSIAN
+    app.gen_fuzz = m.fuzz_rule(m.DEFAULT_FUZZ)
+    app.generated_settings = None                     # the placeholder image: default settings
+    app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
 
     # view 1 starts non-live; cache its (default RGB) thumbnail first
@@ -1383,11 +1379,9 @@ def test_render_current_image_matches_self_frame_for_identical_single_view():
 # that defines the figure (limits, segment length, fuzzing, every obstacle)
 # --------------------------------------------------------------------------- #
 def _settings(**overrides):
-    values = dict(max_iter=64, max_dist=0.0, seg_mult=1.0, fuzz=m.DEFAULT_FUZZ,
-                  buddha_blur_radius=m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                  buddha_blur_type=m.DEFAULT_BUDDHA_BLUR_TYPE)
-    values.update(overrides)
-    return m.Settings(**values)
+    """A RaySettings: the defaults, with 64 iterations and a distance limit of 0,
+    then `overrides` (any fields, by name)."""
+    return m.DEFAULT_RAY_SETTINGS.replace(**{"max_iter": 64, "max_dist": 0.0, **overrides})
 
 
 def _start_scene():
@@ -1433,7 +1427,7 @@ def test_figure_info_lines_shows_none_for_unlimited_distance():
 def test_figure_info_lines_shows_fuzz_details_when_enabled_and_just_off_otherwise():
     off = m.figure_info_lines(_settings(), _start_scene())
     assert "Fuzz:Off" in off and not any("Seed" in l for l in off)
-    fuzz = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=5.0, seed=12345)
+    fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=5.0, seed=12345)
     on = m.figure_info_lines(_settings(fuzz=fuzz), _start_scene())
     assert "Fuzz:On" in on
     assert any("Emit" in l and "5.0" in l for l in on)
@@ -1488,7 +1482,7 @@ def test_figure_info_lines_shows_every_field_that_defines_each_kind_of_obstacle(
 
 def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
     scene = _every_kind_of_obstacle()
-    fuzz = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=179.9,
+    fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=179.9,
                                    bnd_offset=-179.9, bnd_jitter=179.9, bnd_mult=2.99,
                                    self_offset=-179.9, self_jitter=179.9, self_mult=2.99,
                                    seed=999999999)
@@ -1507,7 +1501,7 @@ def test_figure_info_layout_depends_only_on_how_many_obstacles_there_are():
     scene_b = _every_kind_of_obstacle()
     for o in scene_b:
         o.width, o.r, o.theta, o.fire_inside = 0.5, 0.0, 12.5, not o.fire_inside
-    fuzz_on = m.DEFAULT_FUZZ._replace(enabled=True)
+    fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
     shapes = []
     for settings, scene in [(_settings(), scene_a), (_settings(max_dist=3.0, seg_mult=0.5,
                             fuzz=fuzz_on), scene_b)]:
@@ -1554,7 +1548,7 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
     moved = _every_kind_of_obstacle()
     for o in moved:
         o.r, o.width = 0.25, 0.5
-    fuzz_on = m.DEFAULT_FUZZ._replace(enabled=True)
+    fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
     a = m.add_left_figure_margin(img, _settings(), scene)
     b = m.add_left_figure_margin(img, _settings(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
                                  moved)
@@ -1565,7 +1559,7 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
 def test_add_left_figure_margin_does_not_mutate_input():
     img = np.full((40, 60, 3), 33, dtype=np.uint8)
     original = img.copy()
-    m.add_left_figure_margin(img, m.effective_settings(m.DEFAULT_SNAPSHOT), _start_scene())
+    m.add_left_figure_margin(img, m.DEFAULT_RAY_SETTINGS, _start_scene())
     assert np.array_equal(img, original)
 
 
@@ -1575,7 +1569,7 @@ def test_add_left_figure_margin_does_not_crash_for_any_setting_combination():
         for seg_mult in (1.0, 0.5):
             for scene in ([], _start_scene(), _every_kind_of_obstacle()):
                 settings = _settings(seg_mult=seg_mult,
-                                     fuzz=m.DEFAULT_FUZZ._replace(enabled=fuzz_on))
+                                     fuzz=m.DEFAULT_FUZZ.replace(enabled=fuzz_on))
                 m.add_left_figure_margin(img, settings, scene)   # must not raise
 
 
@@ -1646,7 +1640,7 @@ def _fake_preview_app(pinned):
     app.pinned_px = pinned
     app.hover_px = None
     app.obstacles = []                              # nothing at all fires a ray
-    app.preview_settings = lambda: m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.hover_pts = np.empty((m.ITER_LIMIT_MAX + 2, 2))
     app.hover_kinds = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
@@ -1691,7 +1685,7 @@ def _fake_click_app(pinned, obstacles):
     app.pinned_px = pinned
     app.hover_px = "stale"
     app.obstacles = obstacles
-    app.preview_settings = lambda: m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.canvas = _StubWidget()
     app.previews = []
     app.update_preview = lambda i, j: app.previews.append((i, j))
@@ -1828,9 +1822,7 @@ def test_coloration_info_lines_works_for_resolved_view_settings_too():
     tuples), not live ViewConfig objects - the field names must line up."""
     vc = m.ViewConfig(0)
     vc.chan_src[1] = m.CHAN_SRC_BUDDHA
-    vs = m.ViewSettings(vc.mode, vc.kinds, vc.point_metric, vc.other_metric,
-                        vc.point1_choice, vc.point2_choice, vc.chan_src, vc.buddha_points,
-                        vc.buddha_compression, vc.buddha_brightness, vc.constant_choice)
+    vs = _view_settings_from_config(vc)
     assert m.coloration_info_lines(vc) == m.coloration_info_lines(vs)
 
 
@@ -1921,7 +1913,7 @@ def test_left_margin_text_scales_with_the_views_own_size_not_the_margin():
     """Measures vertical extent (line height/spacing), not horizontal -
     horizontal extent can be legitimately clipped once text no longer fits
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
-    settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    settings = m.DEFAULT_RAY_SETTINGS
     img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
     out_512 = m.add_left_figure_margin(img_512, settings, _start_scene())
     margin_w_512 = m.SIZE // 2
@@ -1995,7 +1987,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     views = m.resolve_views(view_snapshot, keyframes, 0)
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
-    rgb = m.apply_info_locations(rgb, views, 40, m.effective_settings(data.snapshot), [],
+    rgb = m.apply_info_locations(rgb, views, 40, data.settings, [],
                                  "Overlay", "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
@@ -2012,7 +2004,7 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
     original_width = rgb.shape[1]
-    rgb = m.apply_info_locations(rgb, views, 40, m.effective_settings(data.snapshot),
+    rgb = m.apply_info_locations(rgb, views, 40, data.settings,
                                  _start_scene(), "None", "Left margin", mutate_ok=True)
     assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
@@ -2025,7 +2017,7 @@ def test_color_info_and_figure_settings_locations_default_to_none():
 
 
 def test_apply_info_locations_none_leaves_the_image_unchanged():
-    settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    settings = m.DEFAULT_RAY_SETTINGS
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     out = m.apply_info_locations(img, [v], 40, settings, [], "None", "None", mutate_ok=True)
@@ -2038,7 +2030,7 @@ def test_apply_info_locations_margin_cases_never_mutate_when_not_ok():
     mutate in place - the image gets bigger), but this locks in that
     mutate_ok=False is honored for "Overlay" specifically, which otherwise
     would draw straight into the caller's array."""
-    settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    settings = m.DEFAULT_RAY_SETTINGS
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     original = img.copy()
@@ -2596,20 +2588,14 @@ def test_colorize_view_produces_uniform_color_for_two_constant_points():
     stats = np.zeros((4, 4, m.N_STATS), dtype=np.float32)
     points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
     status = np.ones((4, 4), dtype=np.uint8)
-    v = m.ViewSettings(m.DEFAULT_MODE, list(m.DEFAULT_KINDS), list(m.DEFAULT_POINT_METRICS),
-                       list(m.DEFAULT_OTHER_METRICS), list(m.DEFAULT_POINT1S),
-                       list(m.DEFAULT_POINT2S), list(m.DEFAULT_CHAN_SRCS),
-                       list(m.DEFAULT_BUDDHA_POINTS_PER_CHAN),
-                       list(m.DEFAULT_BUDDHA_COMPRESSIONS), list(m.DEFAULT_BUDDHA_BRIGHTNESSES),
-                       list(m.DEFAULT_CONSTANT_CHOICES))
+    v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.point1_choice[0] = m.POINT_ORIGIN
     v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
-    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                               m.DEFAULT_BUDDHA_BLUR_TYPE)
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
+    mini_settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, fz,
+    img = app.colorize_view(_view_settings_from_config(v), stats, points, status, 4, 4, mini_settings, fz,
                             obst_arrays)
     assert (img[..., 0] == img[0, 0, 0]).all()
     assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
@@ -2679,7 +2665,7 @@ def test_view_channel_value_and_decompose_chans_round_trip_constant_choice():
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ONE
     chans = [m.view_channel_value(v, c) for c in range(3)]
-    assert len(chans[1]) == 9
+    assert isinstance(chans[1], m.ChannelSettings) and chans[1].constant == m.NONE_ONE
     vs = m.decompose_chans(v.mode, chans)
     assert vs.constant_choice[1] == m.NONE_ONE
     assert vs.constant_choice[0] == m.DEFAULT_CONSTANT_CHOICES[0]   # untouched channel
@@ -2692,21 +2678,15 @@ def test_colorize_view_renders_constant_channels_correctly():
     stats = np.random.RandomState(0).rand(4, 4, m.N_STATS).astype(np.float32)
     points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
     status = np.ones((4, 4), dtype=np.uint8)
-    v = m.ViewSettings(m.DEFAULT_MODE, list(m.DEFAULT_KINDS), list(m.DEFAULT_POINT_METRICS),
-                       list(m.DEFAULT_OTHER_METRICS), list(m.DEFAULT_POINT1S),
-                       list(m.DEFAULT_POINT2S), list(m.DEFAULT_CHAN_SRCS),
-                       list(m.DEFAULT_BUDDHA_POINTS_PER_CHAN),
-                       list(m.DEFAULT_BUDDHA_COMPRESSIONS), list(m.DEFAULT_BUDDHA_BRIGHTNESSES),
-                       list(m.DEFAULT_CONSTANT_CHOICES))
+    v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.chan_src[0] = m.CHAN_SRC_CONSTANT
     v.constant_choice[0] = m.NONE_ONE
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ZERO
-    mini_settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, m.DEFAULT_BUDDHA_BLUR_RADIUS,
-                               m.DEFAULT_BUDDHA_BLUR_TYPE)
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
+    mini_settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    img = app.colorize_view(v, stats, points, status, 4, 4, mini_settings, fz,
+    img = app.colorize_view(_view_settings_from_config(v), stats, points, status, 4, 4, mini_settings, fz,
                             obst_arrays)
     assert (img[..., 0] == 255).all()
     assert (img[..., 1] == 0).all()
@@ -2990,11 +2970,11 @@ def test_blur_counts_image_no_blur_is_a_true_no_op():
 
 
 def test_snapshot_and_settings_carry_buddha_blur_fields():
-    assert m.DEFAULT_SNAPSHOT.buddha_blur_radius == m.DEFAULT_BUDDHA_BLUR_RADIUS
-    assert m.DEFAULT_SNAPSHOT.buddha_blur_type == m.DEFAULT_BUDDHA_BLUR_TYPE
-    settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
-    assert settings.buddha_blur_radius == m.DEFAULT_BUDDHA_BLUR_RADIUS
-    assert settings.buddha_blur_type == m.DEFAULT_BUDDHA_BLUR_TYPE
+    assert m.DEFAULT_RAY_SETTINGS.buddha_blur.radius == m.DEFAULT_BUDDHA_BLUR_RADIUS
+    assert m.DEFAULT_RAY_SETTINGS.buddha_blur.type == m.DEFAULT_BUDDHA_BLUR_TYPE
+    settings = m.DEFAULT_RAY_SETTINGS
+    assert settings.buddha_blur.radius == m.DEFAULT_BUDDHA_BLUR_RADIUS
+    assert settings.buddha_blur.type == m.DEFAULT_BUDDHA_BLUR_TYPE
 
 
 def test_capture_and_resolve_round_trip_buddha_blur_settings():
@@ -3011,8 +2991,8 @@ def test_capture_and_resolve_round_trip_buddha_blur_settings():
 
     kf = m.Keyframe(0, 0, data)
     resolved = m.resolve_frame_settings([kf], 0)
-    assert resolved.snapshot.buddha_blur_radius == 0.2
-    assert resolved.snapshot.buddha_blur_type == m.BUDDHA_BLUR_BOKEH
+    assert resolved.settings.buddha_blur.radius == 0.2
+    assert resolved.settings.buddha_blur.type == m.BUDDHA_BLUR_BOKEH
 
 
 def test_colorize_view_spreads_a_buddha_point_with_blur_enabled():
@@ -3035,25 +3015,22 @@ def test_colorize_view_spreads_a_buddha_point_with_blur_enabled():
     status[8:13, 8:13] = 1                          # a small fired neighborhood
     points[10, 10, m.POINT_ALL_MEAN] = [0.0, 0.0]   # only this one actually lands in-frame
 
-    v = m.ViewSettings(m.DEFAULT_MODE, list(m.DEFAULT_KINDS), list(m.DEFAULT_POINT_METRICS),
-                       list(m.DEFAULT_OTHER_METRICS), list(m.DEFAULT_POINT1S),
-                       list(m.DEFAULT_POINT2S), list(m.DEFAULT_CHAN_SRCS),
-                       list(m.DEFAULT_BUDDHA_POINTS_PER_CHAN),
-                       list(m.DEFAULT_BUDDHA_COMPRESSIONS), list(m.DEFAULT_BUDDHA_BRIGHTNESSES),
-                       list(m.DEFAULT_CONSTANT_CHOICES))
+    v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     # index 0 in BUDDHA_POINT_CATALOG is "All bounces mean" -> POINT_ALL_MEAN
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
 
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
 
-    settings_no_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_BOKEH)
-    img_no_blur = app.colorize_view(v, stats, points, status, size, size, settings_no_blur, fz, obst_arrays)
+    settings_no_blur = _settings(max_iter=30, max_dist=m.effective_dist(0.0),
+                                 buddha_blur=m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH))
+    img_no_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, settings_no_blur, fz, obst_arrays)
     lit_no_blur = (img_no_blur[8:13, 8:13, 0] > 0).sum()
 
-    settings_blur = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ, 0.1, m.BUDDHA_BLUR_BOKEH)
-    img_blur = app.colorize_view(v, stats, points, status, size, size, settings_blur, fz, obst_arrays)
+    settings_blur = _settings(max_iter=30, max_dist=m.effective_dist(0.0),
+                              buddha_blur=m.BuddhaBlurSettings(radius=0.1, type=m.BUDDHA_BLUR_BOKEH))
+    img_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, settings_blur, fz, obst_arrays)
     lit_blur = (img_blur[8:13, 8:13, 0] > 0).sum()
 
     assert lit_no_blur == 1, f"with no blur, exactly one pixel should be nonzero, got {lit_no_blur}"
@@ -3070,8 +3047,9 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app.views[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     app.buddha_counts = [np.zeros((m.SIZE, m.SIZE), dtype=np.float64), None, None]
     app.buddha_counts_blurred = [None, None, None]
-    app.gen_buddha_blur_radius = 0.05
-    app.gen_buddha_blur_type = m.BUDDHA_BLUR_BOKEH
+    app.generated_settings = _settings(
+        buddha_blur=m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH))
+    app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
 
     first = app.blurred_buddha_counts(0)
@@ -3115,20 +3093,15 @@ def test_large_blur_radius_completes_quickly():
     stats = np.zeros((size, size, m.N_STATS), dtype=np.float32)
     points = np.random.RandomState(0).rand(size, size, m.N_POINTS, 2).astype(np.float32) * 2 - 1
     status = np.ones((size, size), dtype=np.uint8)   # every pixel fires
-    v = m.ViewSettings(m.DEFAULT_MODE, list(m.DEFAULT_KINDS), list(m.DEFAULT_POINT_METRICS),
-                       list(m.DEFAULT_OTHER_METRICS), list(m.DEFAULT_POINT1S),
-                       list(m.DEFAULT_POINT2S), list(m.DEFAULT_CHAN_SRCS),
-                       list(m.DEFAULT_BUDDHA_POINTS_PER_CHAN),
-                       list(m.DEFAULT_BUDDHA_COMPRESSIONS), list(m.DEFAULT_BUDDHA_BRIGHTNESSES),
-                       list(m.DEFAULT_CONSTANT_CHOICES))
+    v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     obst_arrays = m.build_obstacle_arrays([])
-    settings = m.Settings(30, m.effective_dist(0.0), 1.0, m.DEFAULT_FUZZ,
-                          0.15, m.BUDDHA_BLUR_GAUSSIAN)   # a large, expensive-looking radius
+    settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0),   # a large, expensive-looking radius
+                         buddha_blur=m.BuddhaBlurSettings(radius=0.15, type=m.BUDDHA_BLUR_GAUSSIAN))
     t0 = time.time()
-    app.colorize_view(v, stats, points, status, size, size, settings, fz, obst_arrays)
+    app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, settings, fz, obst_arrays)
     elapsed = time.time() - t0
     assert elapsed < 3.0, f"large-radius blur took {elapsed:.2f}s - performance regression?"
 
@@ -3301,7 +3274,7 @@ def test_build_obstacle_arrays_effects_are_n_by_2_and_keep_pass_through_obstacle
 
 
 def test_build_obstacle_arrays_with_no_obstacles_gives_an_empty_n_by_2_effects_array():
-    effects = m.build_obstacle_arrays([])[4]
+    effects = m.build_obstacle_arrays([]).effects
     assert effects.shape == (0, 2)
 
 
@@ -3314,7 +3287,7 @@ def test_resolve_obstacle_arrays_animates_nothing_but_holds_each_effect_per_keyf
                              "obst:3:out_effect": m.OBSTACLE_EFFECT_TERMINATE})
     kfs = [kf0, kf1]
     for frame, expect in [(0, [1, 0]), (5, [1, 0]), (10, [2, 1])]:
-        effects = m.resolve_obstacle_arrays([snap], kfs, frame)[4]
+        effects = m.resolve_obstacle_arrays([snap], kfs, frame).effects
         assert effects.tolist() == [expect], (frame, effects.tolist())
 
 
@@ -3406,8 +3379,8 @@ def _emit_fixture(circle=True, obstacles=()):
         scene.append(_circle_obstacle(0.0, 0.0, 1.0, R, R, fire=circle))
     for i, (cx, cy, radius, fire) in enumerate(obstacles, start=1):
         scene.append(_circle_obstacle(cx, cy, radius, R, R, fire=fire, id_=i))
-    shapes, bounds, ocx, ocy, _eff, ofire = m.build_obstacle_arrays(scene)
-    return lambda x, y: bool(m.emits_ray(x, y, shapes, bounds, ocx, ocy, ofire))
+    arrays = m.build_obstacle_arrays(scene)
+    return lambda x, y: bool(m.emits_ray(x, y, arrays))
 
 
 def test_a_circle_fires_rays_inside_it_and_not_outside():
@@ -3480,7 +3453,7 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     switched on with all jitter zero purely to set the direction, and is
     otherwise the identity). `circle` is (incoming effect, outgoing effect[,
     fires rays inside]) of a unit-circle obstacle at the origin, listed first;
-    None for no circle. `confine` is a confine_array (default: the standard rule).
+    None for no circle. `confine` is a confine_rule (default: the standard rule).
     Returns (points, kinds, term, raw)."""
     confine = m.CONFINE_DEFAULT if confine is None else confine
     scene = list(obstacles)
@@ -3488,13 +3461,13 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
         fire = circle[2] if len(circle) > 2 else True
         scene.insert(0, _circle_obstacle(0.0, 0.0, 1.0, circle[0], circle[1], fire=fire))
     arrays = m.build_obstacle_arrays(scene)
-    fz = m.fuzz_array(m.DEFAULT_FUZZ)
-    emission = m.emission_array(m.EMIT_UP, 0.0, 0.0, angle_deg - 90.0)
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
+    emission = m.emission_rule(m.EMIT_UP, 0.0, 0.0, angle_deg - 90.0)
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
     term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(max_dist), seg_mult,
-                              fz, confine, emission, *arrays[:5], raw)
+                              fz, confine, emission, arrays, raw)
     return pts[:npts].copy(), kinds[:npts].copy(), term, raw
 
 
@@ -3673,7 +3646,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
     m.render_rows(stats, points, status, 0, m.SIZE, 8, m.effective_dist(0.0), 1.0,
-                  m.fuzz_array(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, *arrays, 0)
+                  m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, 0)
     ys, xs = np.nonzero(status)
     wx = (xs + 0.5) * m.PIXEL - 1.0
     wy = 1.0 - (ys + 0.5) * m.PIXEL
@@ -3689,8 +3662,8 @@ def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.SIZE, m.SIZE))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
     m.scatter_multi_buddha(250, 252, 8, m.effective_dist(0.0), 1.0,
-                           m.fuzz_array(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT,
-                           *m.build_obstacle_arrays([circle]), 0, False, True, False, False,
+                           m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT,
+                           m.build_obstacle_arrays([circle]), 0, False, True, False, False,
                            counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the image edge) with exactly one midpoint: the total is the firing pixels.
@@ -3830,6 +3803,10 @@ GOLDEN_GRID = 13
 
 # name, shape, classic main-shape params, the equivalent obstacle's fields, and
 # the simulation settings to run it under
+# The recorded scenes list their fuzzing positionally, in this order.
+FUZZ_FIELD_ORDER = ("enabled", "emit_jitter", "bnd_offset", "bnd_jitter", "bnd_mult",
+                    "self_offset", "self_jitter", "self_mult", "seed")
+
 CLASSIC_SCENES = [
     dict(name="circle", shape=m.SHAPE_ELLIPSE, main=(2.0, 2.0, 0.0),
          fields=dict(width=2.0, height=2.0, ell_rotation=0.0), iters=32),
@@ -3871,14 +3848,15 @@ def _scene_obstacle(scene):
 def _render_scene(scene, n):
     """(stats, points, status) of an n x n render of a classic scene, drawn as
     the equivalent obstacle."""
-    fuzz = m.FuzzParams(*scene["fuzz"]) if "fuzz" in scene else m.DEFAULT_FUZZ
+    fuzz = (m.FuzzParams(**dict(zip(FUZZ_FIELD_ORDER, scene["fuzz"])))
+            if "fuzz" in scene else m.DEFAULT_FUZZ)
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
     arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
     m.render_rows_wh(stats, points, status, 0, n, n, n, scene["iters"],
                      m.effective_dist(scene.get("dist", 0.0)), scene.get("seg_mult", 1.0),
-                     m.fuzz_array(fuzz), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, *arrays, fuzz.seed)
+                     m.fuzz_rule(fuzz), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, fuzz.seed)
     return stats, points, status
 
 
@@ -3942,17 +3920,16 @@ def test_the_kernels_no_longer_take_a_bounding_shape():
         params = inspect.signature(fn.py_func).parameters
         for gone in ("shape", "bound", "main_ctl"):
             assert gone not in params, (fn.py_func.__name__, gone)
-        assert "obst_shapes" in params
+        assert "obstacles" in params
 
 
 def test_snapshot_and_settings_hold_only_the_simulation_controls():
-    assert m.Snapshot._fields == ("max_iter", "max_dist", "seg_mult", "fuzz",
-                                  "buddha_blur_radius", "buddha_blur_type",
-                                  "confine_window", "confine_method", "confine_threshold",
-                                  "emit_mode", "emit_target_r", "emit_target_theta",
-                                  "emit_target_cx", "emit_target_cy", "emit_offset")
-    assert m.Settings._fields == m.Snapshot._fields
-    assert m.effective_settings(m.DEFAULT_SNAPSHOT) == m.Settings(*m.DEFAULT_SNAPSHOT)
+    assert [f.name for f in dataclasses.fields(m.RaySettings)] == [
+        "max_iter", "max_dist", "seg_mult", "fuzz", "buddha_blur",
+        "confine_window", "confine_method", "confine_threshold",
+        "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy",
+        "emit_offset"]
+    assert [f.name for f in dataclasses.fields(m.BuddhaBlurSettings)] == ["radius", "type"]
 
 
 def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
@@ -3970,15 +3947,15 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
 
 def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():
     data = m.resolve_frame_settings([], 0)
-    assert data.snapshot == m.DEFAULT_SNAPSHOT
+    assert data.settings == m.DEFAULT_RAY_SETTINGS
     assert data.outline is True
 
 
 def test_settings_suffix_is_only_the_limits_and_fuzzing():
-    assert m.settings_suffix(m.effective_settings(m.DEFAULT_SNAPSHOT)) == "iter256-distNONE"
+    assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS) == "iter256-distNONE"
     limited = _settings(max_iter=10, max_dist=2.5)
     assert m.settings_suffix(limited) == "iter10-dist2.5"
-    fuzzed = _settings(fuzz=m.DEFAULT_FUZZ._replace(enabled=True, seed=9))
+    fuzzed = _settings(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, seed=9))
     suffix = m.settings_suffix(fuzzed)
     assert suffix.startswith("iter64-distNONE-fuzz-") and suffix.endswith("-seed9")
     for word in ("ellipse", "polygon", "moss", "sector", "segment", "lens", "reuleaux",
@@ -4137,7 +4114,7 @@ def test_the_menu_order_self_check_catches_a_missing_point():
 # --------------------------------------------------------------------------- #
 def test_the_default_iteration_limit_is_256():
     assert m.DEFAULT_ITER == 256
-    assert m.DEFAULT_SNAPSHOT.max_iter == 256
+    assert m.DEFAULT_RAY_SETTINGS.max_iter == 256
     assert m.DEFAULT_SETTING_VALUES["iter"] == 256
     assert m.ITER_LIMIT_MIN <= m.DEFAULT_ITER <= m.ITER_LIMIT_MAX
 
@@ -4159,7 +4136,7 @@ BOX, PATH = m.CONFINE_BOX, m.CONFINE_PATH
 
 
 def _confine(window, method, threshold):
-    return m.confine_array(window, method, threshold)
+    return m.confine_rule(window, method, threshold)
 
 
 def test_the_default_confinement_rule_is_the_one_that_was_built_in():
@@ -4167,16 +4144,10 @@ def test_the_default_confinement_rule_is_the_one_that_was_built_in():
     assert m.DEFAULT_CONFINE_METHOD == m.CONFINE_BOX
     assert m.DEFAULT_CONFINE_THRESHOLD == m.PIXEL == 2.0 / 512
     assert m.CONFINE_METHOD_NAMES == ["Box", "Path length"]
-    assert m.CONFINE_DEFAULT.tolist() == [4.0, 0.0, 2.0 / 512]
-    s = m.DEFAULT_SNAPSHOT
+    assert m.CONFINE_DEFAULT == m.ConfineRule(window=4, method=0, threshold=2.0 / 512)
+    s = m.DEFAULT_RAY_SETTINGS
     assert (s.confine_window, s.confine_method, s.confine_threshold) == (4, BOX, 2.0 / 512)
-    assert m.settings_confine(m.effective_settings(s)).tolist() == m.CONFINE_DEFAULT.tolist()
-
-
-def test_settings_built_without_the_confinement_fields_get_the_defaults():
-    settings = m.Settings(30, 0.0, 1.0, m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_GAUSSIAN)
-    assert (settings.confine_window, settings.confine_method,
-            settings.confine_threshold) == (4, BOX, m.PIXEL)
+    assert m.settings_confine(s) == m.CONFINE_DEFAULT
 
 
 def _unconfined_path(x, y, angle, iters=60):
@@ -4249,14 +4220,14 @@ def test_a_tiny_threshold_never_confines_an_ordinary_ray():
 
 def test_the_kernel_receives_the_threshold_exactly_with_no_rounding_or_clamping():
     for value in (5e-324, 1e-300, 1.234567890123e-7, 0.5, 1e300):
-        assert m.confine_array(4, BOX, value)[2] == value
+        assert m.confine_rule(4, BOX, value).threshold == value
 
 
 def test_the_default_rule_reproduces_the_old_hard_wired_behavior_on_the_golden_scenes():
     # test_an_obstacle_reproduces_the_recorded_classic_golden_data runs every
     # scene under CONFINE_DEFAULT against data recorded before this was a
     # setting; this pins that the default IS one pixel, box, 4 points.
-    assert m.CONFINE_DEFAULT.tolist() == [4.0, float(BOX), m.PIXEL]
+    assert m.CONFINE_DEFAULT == m.ConfineRule(window=4, method=BOX, threshold=m.PIXEL)
 
 
 def test_the_box_method_needs_both_directions_to_be_small():
@@ -4318,7 +4289,7 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert data["confine_window"] == 9 and data["confine_method"] == PATH
     assert data["confine_threshold"] == 1e-12
-    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).snapshot
+    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).settings
     assert (resolved.confine_window, resolved.confine_method, resolved.confine_threshold) \
         == (9, PATH, 1e-12)
 
@@ -4328,10 +4299,10 @@ def test_confinement_threshold_interpolates_but_window_and_method_hold():
                             "confine_threshold": 0.0})
     kf1 = m.Keyframe(1, 10, {"confine_window": 20, "confine_method": PATH,
                              "confine_threshold": 1.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
+    mid = m.resolve_frame_settings([kf0, kf1], 5).settings
     assert mid.confine_window == 4 and mid.confine_method == BOX
     assert np.isclose(mid.confine_threshold, 0.5)
-    end = m.resolve_frame_settings([kf0, kf1], 10).snapshot
+    end = m.resolve_frame_settings([kf0, kf1], 10).settings
     assert end.confine_window == 20 and end.confine_method == PATH
 
 
@@ -4343,10 +4314,10 @@ def test_short_value_text_for_the_confinement_settings():
 
 
 def test_a_changed_confinement_rule_makes_the_settings_differ():
-    a = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    a = m.DEFAULT_RAY_SETTINGS
     for change in (dict(confine_window=5), dict(confine_method=PATH),
                    dict(confine_threshold=0.5)):
-        assert m.effective_settings(m.DEFAULT_SNAPSHOT._replace(**change)) != a
+        assert m.DEFAULT_RAY_SETTINGS.replace(**change) != a
 
 
 # ---- the entry handlers ---------------------------------------------------------------------
@@ -4421,19 +4392,19 @@ def test_committing_tidies_a_valid_threshold_without_changing_its_value():
     assert float(app.confine_threshold_var.get()) == 0.004
 
 
-def test_current_snapshot_is_none_while_a_confinement_entry_is_invalid():
+def test_current_ray_settings_is_none_while_a_confinement_entry_is_invalid():
     for field, bad in (("confine_window_var", "1"), ("confine_threshold_var", "0")):
         app = _make_fake_app_for_snapshot()
         setattr(app, field, _StubVar(bad))
-        assert app.current_snapshot() is None, field
+        assert app.current_ray_settings() is None, field
 
 
-def test_current_snapshot_reads_the_confinement_controls():
+def test_current_ray_settings_reads_the_confinement_controls():
     app = _make_fake_app_for_snapshot()
     app.confine_window_var = _StubVar("7")
     app.confine_method_var = _StubVar("Path length")
     app.confine_threshold_var = _StubVar("2.5e-9")
-    snap = app.current_snapshot()
+    snap = app.current_ray_settings()
     assert (snap.confine_window, snap.confine_method, snap.confine_threshold) == (7, PATH, 2.5e-9)
 
 
@@ -4496,7 +4467,7 @@ UP, TOWARDS = m.EMIT_UP, m.EMIT_TOWARDS
 
 
 def _emission(mode=UP, x=0.0, y=0.0, offset=-45.0):
-    return m.emission_array(mode, x, y, offset)
+    return m.emission_rule(mode, x, y, offset)
 
 
 def _first_direction(x0, y0, emission, fuzz=None, seed=0):
@@ -4507,10 +4478,10 @@ def _first_direction(x0, y0, emission, fuzz=None, seed=0):
     pts = np.empty((6, 2))
     kinds = np.empty(6)
     raw = np.empty(m.N_RAW)
-    fz = m.fuzz_array(m.DEFAULT_FUZZ if fuzz is None else fuzz)
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz)
     _seed_kernel_rng(seed)
     term, npts = m.trace_path(x0, y0, pts, kinds, 4, m.effective_dist(0.0), 1.0, fz,
-                              m.CONFINE_DEFAULT, emission, *arrays[:5], raw)
+                              m.CONFINE_DEFAULT, emission, arrays, raw)
     assert term == m.TERM_ESCAPED and npts == 2
     delta = pts[1] - pts[0]
     return delta / np.hypot(*delta)
@@ -4525,11 +4496,11 @@ def test_the_default_emission_is_up_with_a_minus_45_degree_offset():
     assert (m.DEFAULT_EMIT_MODE, m.DEFAULT_EMIT_TARGET_R, m.DEFAULT_EMIT_TARGET_THETA,
             m.DEFAULT_EMIT_TARGET_CX, m.DEFAULT_EMIT_TARGET_CY,
             m.DEFAULT_EMIT_OFFSET) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
-    assert m.EMISSION_DEFAULT.tolist() == [0.0, 0.0, 0.0, -45.0]
-    s = m.DEFAULT_SNAPSHOT
+    assert m.EMISSION_DEFAULT == m.EmissionRule(mode=0, target_x=0.0, target_y=0.0, offset=-45.0)
+    s = m.DEFAULT_RAY_SETTINGS
     assert (s.emit_mode, s.emit_target_r, s.emit_target_theta, s.emit_target_cx,
             s.emit_target_cy, s.emit_offset) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
-    assert m.settings_emission(m.effective_settings(s)).tolist() == m.EMISSION_DEFAULT.tolist()
+    assert m.settings_emission(s) == m.EMISSION_DEFAULT
 
 
 def test_the_default_emission_is_exactly_the_up_and_right_direction_used_before():
@@ -4588,9 +4559,9 @@ def test_the_target_point_can_be_anywhere_at_all():
 
 def test_fuzz_jitter_is_added_on_top_of_the_emission_direction_and_only_when_enabled():
     plain = _angle_deg(_first_direction(0.2, 0.1, _emission(TOWARDS, 0.0, 0.0, 20.0)))
-    off = m.DEFAULT_FUZZ._replace(emit_jitter=30.0)              # jitter set, fuzzing off
+    off = m.DEFAULT_FUZZ.replace(emit_jitter=30.0)              # jitter set, fuzzing off
     assert _angle_deg(_first_direction(0.2, 0.1, _emission(TOWARDS, 0.0, 0.0, 20.0), off)) == plain
-    on = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=30.0)
+    on = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=30.0)
     got = [_angle_deg(_first_direction(0.2, 0.1, _emission(TOWARDS, 0.0, 0.0, 20.0), on, seed=k))
            for k in range(40)]
     spread = [((g - plain + 180.0) % 360.0) - 180.0 for g in got]
@@ -4603,12 +4574,14 @@ def test_enabling_fuzz_no_longer_overrides_the_emission_direction():
     'emission angle' replaced the direction whenever fuzzing was on, which
     would have silently defeated 'Towards point'."""
     towards = _emission(TOWARDS, 0.0, 0.0, 0.0)
-    fuzz_on_no_jitter = m.DEFAULT_FUZZ._replace(enabled=True, emit_jitter=0.0)
+    fuzz_on_no_jitter = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=0.0)
     a = _first_direction(0.6, 0.2, towards)
     b = _first_direction(0.6, 0.2, towards, fuzz_on_no_jitter)
     assert np.allclose(a, b, atol=1e-15)
-    assert "emit_angle" not in m.FuzzParams._fields
-    assert m.fuzz_array(m.DEFAULT_FUZZ).shape == (8,)
+    assert "emit_angle" not in [f.name for f in dataclasses.fields(m.FuzzParams)]
+    assert m.fuzz_rule(m.DEFAULT_FUZZ) == m.FuzzRule(
+        enabled=False, emit_jitter=0.0, bnd_offset=0.0, bnd_jitter=0.0, bnd_mult=1.0,
+        self_offset=0.0, self_jitter=0.0, self_mult=1.0)
 
 
 def test_unit_direction_is_exact_at_multiples_of_45_degrees_and_trig_elsewhere():
@@ -4635,7 +4608,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     status = np.zeros((n, n), dtype=np.uint8)
     up = _emission(UP, offset=0.0)
     m.render_rows_wh(stats, points, status, 0, n, n, n, 1, m.effective_dist(0.0), 1.0,
-                     m.fuzz_array(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, up, *arrays, 0)
+                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, up, arrays, 0)
     fired = status == 1
     xs = ((np.arange(n) + 0.5) * (2.0 / n) - 1.0)[None, :].repeat(n, axis=0)
     ys = (1.0 - (np.arange(n) + 0.5) * (2.0 / n))[:, None].repeat(n, axis=1)
@@ -4645,7 +4618,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert (ends[..., 1][fired] > ys[fired]).all(), "and goes up"
     toward = _emission(TOWARDS, 0.0, 0.0, 0.0)
     m.render_rows_wh(stats, points, status, 0, n, n, n, 1, m.effective_dist(0.0), 1.0,
-                     m.fuzz_array(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, toward, *arrays, 0)
+                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, toward, arrays, 0)
     ends = points[..., m.POINT_END, :]
     fired = status == 1
     start_r = np.hypot(xs, ys)[fired]
@@ -4661,14 +4634,16 @@ def test_the_target_point_is_positioned_like_an_obstacle():
     formula as Obstacle.center."""
     s = _settings(emit_mode=TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
                   emit_target_cx=0.5, emit_target_cy=-0.25)
-    _mode, tx, ty, _off = m.settings_emission(s).tolist()
+    rule = m.settings_emission(s)
+    tx, ty = rule.target_x, rule.target_y
     assert abs(tx - 0.5) < 1e-12 and abs(ty - 1.75) < 1e-12
     o = m.Obstacle(0)
     o.r, o.theta, o.cx, o.cy = 2.0, 90.0, 0.5, -0.25
     assert (tx, ty) == o.center()
     # a negative r flips through the origin; theta is not limited to one turn
     s = _settings(emit_mode=TOWARDS, emit_target_r=-1.0, emit_target_theta=720.0 + 180.0)
-    _mode, tx, ty, _off = m.settings_emission(s).tolist()
+    rule = m.settings_emission(s)
+    tx, ty = rule.target_x, rule.target_y
     assert abs(tx - 1.0) < 1e-9 and abs(ty) < 1e-9
 
 
@@ -4733,7 +4708,7 @@ def test_emission_settings_round_trip_through_capture_and_resolve():
     assert (data["emit_mode"], data["emit_target_r"], data["emit_target_theta"],
             data["emit_target_cx"], data["emit_target_cy"],
             data["emit_offset"]) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
-    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).snapshot
+    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).settings
     assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
             snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
 
@@ -4745,11 +4720,11 @@ def test_emission_target_and_offset_interpolate_but_the_mode_holds():
     kf1 = m.Keyframe(1, 10, {"emit_mode": TOWARDS, "emit_target_r": 2.0,
                              "emit_target_theta": 90.0, "emit_target_cx": 1.0,
                              "emit_target_cy": 4.0, "emit_offset": 45.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).snapshot
+    mid = m.resolve_frame_settings([kf0, kf1], 5).settings
     assert mid.emit_mode == UP
     assert (mid.emit_target_r, mid.emit_target_theta, mid.emit_target_cx, mid.emit_target_cy,
             mid.emit_offset) == (1.0, 45.0, 0.0, 2.0, 0.0)
-    assert m.resolve_frame_settings([kf0, kf1], 10).snapshot.emit_mode == TOWARDS
+    assert m.resolve_frame_settings([kf0, kf1], 10).settings.emit_mode == TOWARDS
 
 
 def test_short_value_text_for_the_emission_settings():
@@ -4762,18 +4737,11 @@ def test_short_value_text_for_the_emission_settings():
 
 
 def test_a_changed_emission_makes_the_settings_differ():
-    a = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    a = m.DEFAULT_RAY_SETTINGS
     for change in (dict(emit_mode=TOWARDS), dict(emit_target_r=1.0),
                    dict(emit_target_theta=10.0), dict(emit_target_cx=1.0),
                    dict(emit_target_cy=-1.0), dict(emit_offset=0.0)):
-        assert m.effective_settings(m.DEFAULT_SNAPSHOT._replace(**change)) != a
-
-
-def test_settings_built_without_the_emission_fields_get_the_defaults():
-    settings = m.Settings(30, 0.0, 1.0, m.DEFAULT_FUZZ, 0.0, m.BUDDHA_BLUR_GAUSSIAN)
-    assert (settings.emit_mode, settings.emit_target_r, settings.emit_target_theta,
-            settings.emit_target_cx, settings.emit_target_cy,
-            settings.emit_offset) == (UP, 0.0, 0.0, 0.0, 0.0, -45.0)
+        assert m.DEFAULT_RAY_SETTINGS.replace(**change) != a
 
 
 # ---- the entry handlers and UI ----------------------------------------------------------------
@@ -4801,7 +4769,7 @@ def test_an_invalid_target_is_flagged_and_the_last_good_value_restored_on_commit
         assert getattr(app, f"emit_target_{field}_var").get() == "0.0"
 
 
-def test_current_snapshot_reads_the_emission_controls_and_is_none_when_a_target_is_bad():
+def test_current_ray_settings_reads_the_emission_controls_and_is_none_when_a_target_is_bad():
     app = _make_fake_app_for_snapshot()
     app.emit_mode_var = _StubVar("Towards point")
     app.emit_target_r_var = _StubVar("-0.25")
@@ -4809,11 +4777,11 @@ def test_current_snapshot_reads_the_emission_controls_and_is_none_when_a_target_
     app.emit_target_cx_var = _StubVar("1e3")
     app.emit_target_cy_var = _StubVar("-2")
     app.emit_offset_scale = _StubVar(33.333)
-    snap = app.current_snapshot()
+    snap = app.current_ray_settings()
     assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
             snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -0.25, 45.0, 1000.0, -2.0, 33.33)
     app.emit_target_theta_var = _StubVar("x")
-    assert app.current_snapshot() is None
+    assert app.current_ray_settings() is None
 
 
 def test_the_simulation_tab_has_a_ray_emission_section_with_all_its_controls():
@@ -5042,7 +5010,7 @@ def test_export_writes_the_current_image_into_the_export_dir():
     app = FakeApp()
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
-    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
     written = []
     app._write = lambda path: written.append(path)
     app.save = m.App.save.__get__(app)
@@ -5067,7 +5035,7 @@ def test_export_as_dialog_opens_in_the_export_dir():
     app.root = None
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
-    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app._write = lambda path: None
     app.save_as = m.App.save_as.__get__(app)
     seen = {}
@@ -5122,11 +5090,11 @@ def _fake_button_gating_app():
         pass
     app = FakeApp()
     app.ready = True
-    app.current_snapshot = lambda: m.DEFAULT_SNAPSHOT
+    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.generated_settings = None
     app.gen_obstacles_sig = None
     app.obstacles = []
-    app.baseline = m.DEFAULT_SNAPSHOT
+    app.baseline = m.DEFAULT_RAY_SETTINGS
     app.running = False
     app.rows_done = 0
     app.start_btn = _StubWidget()
@@ -5151,7 +5119,7 @@ def test_export_disabled_before_any_generation():
 
 def test_export_enabled_after_generation_finishes():
     app = _fake_button_gating_app()
-    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.rows_done = m.SIZE
     app.running = False
     app.update_buttons()
@@ -5160,7 +5128,7 @@ def test_export_enabled_after_generation_finishes():
 
 def test_export_disabled_while_still_generating():
     app = _fake_button_gating_app()
-    app.generated_settings = m.effective_settings(m.DEFAULT_SNAPSHOT)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.rows_done = m.SIZE // 2
     app.running = True
     app.update_buttons()
@@ -5309,8 +5277,10 @@ def test_load_value_skips_buddha_rebuild_for_unrelated_channel_field():
     app = _fake_color_editor_app()
     app.views[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     app.load_value = m.App.load_value.__get__(app)
-    chan1_value = (m.CHAN_SRC_QUERY, m.KIND_POINT, m.ST_HDIST, m.POINT_START, m.POINT_END,
-                  m.DEFAULT_BUDDHA_POINTS, m.BUDDHA_COMPRESS_ARCTAN, 0, m.NONE_ZERO)
+    chan1_value = m.ChannelSettings(
+        chan_src=m.CHAN_SRC_QUERY, kind=m.KIND_POINT, stat=m.ST_HDIST, point1=m.POINT_START,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("view:0:chan1", chan1_value)
     assert app.rebuild_buddha_counts_calls == []
 
@@ -5318,8 +5288,10 @@ def test_load_value_skips_buddha_rebuild_for_unrelated_channel_field():
 def test_load_value_rebuilds_when_the_loaded_channel_is_buddha():
     app = _fake_color_editor_app()
     app.load_value = m.App.load_value.__get__(app)
-    chan0_value = (m.CHAN_SRC_BUDDHA, m.KIND_OTHER, m.ST_BOUNCES, m.POINT_START, m.POINT_END,
-                  m.DEFAULT_BUDDHA_POINTS, m.BUDDHA_COMPRESS_ARCTAN, 0, m.NONE_ZERO)
+    chan0_value = m.ChannelSettings(
+        chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("view:0:chan0", chan0_value)
     assert len(app.rebuild_buddha_counts_calls) == 1
 
@@ -5502,9 +5474,12 @@ def _fake_diff_app():
     import types
     keyframe_cls = m.Keyframe
     tabs = ["Limits", "Fuzzing"]
-    entries = [("max_iter", "Limits", "Iteration limit", False, 256),
-               ("max_dist", "Limits", "Distance limit", True, 1.0),
-               ("fuzz_seed", "Fuzzing", "Seed", False, 0)]
+    entries = [m.SettingEntry(key="max_iter", tab="Limits", label="Iteration limit",
+                              is_float=False, fallback=256),
+               m.SettingEntry(key="max_dist", tab="Limits", label="Distance limit",
+                              is_float=True, fallback=1.0),
+               m.SettingEntry(key="fuzz_seed", tab="Fuzzing", label="Seed",
+                              is_float=False, fallback=0)]
 
     class FakeApp:
         pass
@@ -5519,7 +5494,7 @@ def _fake_diff_app():
     app.kf = keyframe_cls(1, 0, {"max_iter": 10})
     app.keyframes = [app.kf]
     app.selected_keyframe = app.kf
-    app.capture_all_settings = lambda show_error=True: {e[0]: e[4] for e in entries}
+    app.capture_all_settings = lambda show_error=True: {e.key: e.fallback for e in entries}
     app.all_setting_entries = lambda: entries
     app.all_setting_tabs = lambda: tabs
     app.setting_status = lambda kf, key, sk, i: "present" if key in kf.data else "none"
@@ -5716,8 +5691,9 @@ def _fake_kf_app():
     app.current = {"a": 99.0, "b": 99, "c": 99.0, "d": 7}
     app.loaded = []
     app.capture_all_settings = lambda show_error=True: dict(app.current)
-    app.all_setting_entries = lambda: [(k, "T", k, isinstance(v, float), v)
-                                       for k, v in app.current.items()]
+    app.all_setting_entries = lambda: [
+        m.SettingEntry(key=k, tab="T", label=k, is_float=isinstance(v, float), fallback=v)
+        for k, v in app.current.items()]
     app.setting_fallback = lambda key: app.current[key]
     app.setting_is_float = lambda key: isinstance(app.current[key], float)
 
@@ -6115,13 +6091,13 @@ def test_dump_keeps_picklable_values_exactly_as_they_are():
         pass
     app = App()
     app.arr = np.arange(12.0).reshape(3, 4)
-    app.nested = {"a": [1, (2, 3)], "b": m.Obstacle(4), "c": m.DEFAULT_SNAPSHOT}
+    app.nested = {"a": [1, (2, 3)], "b": m.Obstacle(4), "c": m.DEFAULT_RAY_SETTINGS}
     app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
     app.obstacles[1].r = 0.75
     data = _dump_roundtrip(app)["app"]
     assert np.array_equal(data["arr"], app.arr)
     assert data["nested"]["a"] == [1, (2, 3)]
-    assert data["nested"]["b"].id == 4 and data["nested"]["c"] == m.DEFAULT_SNAPSHOT
+    assert data["nested"]["b"].id == 4 and data["nested"]["c"] == m.DEFAULT_RAY_SETTINGS
     assert [o.r for o in data["obstacles"]] == [0.0, 0.75]
     assert isinstance(data["obstacles"][0], m.Obstacle)       # still the real class
 
@@ -6647,16 +6623,17 @@ def test_the_viewer_reads_application_classes_back_as_placeholders_without_impor
     o = m.Obstacle(3)
     o.r = 0.75
     with _ModuleRegistered():
-        path = _write_pickle({"obstacles": [o], "snap": m.DEFAULT_SNAPSHOT})
+        path = _write_pickle({"obstacles": [o], "snap": m.DEFAULT_RAY_SETTINGS})
     data = viewer.load_pickle(path)
     held = data["obstacles"][0]
     assert isinstance(held, viewer.Placeholder) and held._qual.endswith(".Obstacle")
     attrs = dict(viewer.object_attributes(held))
     assert attrs["id"] == 3 and attrs["r"] == 0.75 and attrs["fire_inside"] is True
-    snap = data["snap"]                          # a namedtuple class: placeholder with its values
+    snap = data["snap"]                          # a slotted dataclass: placeholder with named attributes
     assert isinstance(snap, viewer.Placeholder)
-    assert [v for _k, v in viewer.object_attributes(snap)][:2] == [m.DEFAULT_SNAPSHOT.max_iter,
-                                                                    m.DEFAULT_SNAPSHOT.max_dist]
+    attrs = dict(viewer.object_attributes(snap))
+    assert attrs["max_iter"] == m.DEFAULT_RAY_SETTINGS.max_iter
+    assert attrs["max_dist"] == m.DEFAULT_RAY_SETTINGS.max_dist
 
 
 def test_the_viewer_tolerates_classes_that_cannot_be_found():
@@ -6851,7 +6828,7 @@ def test_with_every_level_at_3_the_view_is_the_whole_graph():
     view = viewer.apply_filters(g, {})
     assert len(view.nodes) == len(g.nodes) and len(view.edges) == len(g.edges)
     assert all(n.hidden == 0 for n in view.nodes)
-    assert [n.id for n in view.nodes] == sorted(n.id for n in view.nodes) or True
+    assert {n.id for n in view.nodes} == {n.id for n in g.nodes}     # the same boxes
     for orig in g.nodes:
         assert [r.key for r in orig.rows] == [r.key for r in view.by_id[orig.id].rows]
 
@@ -6942,6 +6919,24 @@ def test_a_box_with_hidden_children_is_tall_enough_for_its_message():
     assert meta.width >= len(viewer.hidden_message(1)) * 7.0
 
 
+def _with_view_options(viewer, v, group=False, links_only=False, sort_by="none", desc=False):
+    import types
+
+    class Var:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+        def set(self, value):
+            self.value = value
+    v.group_links_var, v.links_only_var = Var(group), Var(links_only)
+    v.sort_by_var, v.sort_desc_var = Var(sort_by), Var(desc)
+    v.make_view = viewer.Viewer.make_view.__get__(v)
+    return v
+
+
 def _viewer_with_graph(viewer, data):
     import types
     v = viewer.Viewer.__new__(viewer.Viewer)
@@ -6951,6 +6946,7 @@ def _viewer_with_graph(viewer, data):
     v.pos = {n.id: [n.x, n.y] for n in everything.nodes}
     v.levels = {}
     v.unchecked = set()
+    _with_view_options(viewer, v)
     v.min_gap_var = types.SimpleNamespace(get=lambda: v.min_gap)
     v.aspect_var = types.SimpleNamespace(get=lambda: v.aspect)
     v.min_gap, v.aspect = viewer.DEFAULT_MIN_GAP, 0.0
@@ -7405,6 +7401,7 @@ def _click_setup(viewer):
     v.graph = g
     v.zoom, v.ox, v.oy, v.char_w = 1.0, 0.0, 0.0, 7.0
     v.levels, v.unchecked, v.selected = {}, set(), set()
+    _with_view_options(viewer, v)
     v.min_gap_var = types.SimpleNamespace(get=lambda: 110)
     v.aspect_var = types.SimpleNamespace(get=lambda: 0.0)
     v.pos = {}
@@ -7653,6 +7650,803 @@ def test_the_view_menu_and_keyboard_are_wired_to_back_and_forward():
     assert '"<Alt-Left>"' in source and '"<Alt-Right>"' in source
     assert "nav_button_numbers(windowing)" in source
     assert 'if windowing == "x11":' in source             # the wheel bindings only there
+
+
+def test_an_arrow_is_drawn_only_while_it_is_long_enough_on_the_screen():
+    viewer = _load_viewer()
+    short, long_ = (0, 0, 100, 0), (0, 0, 100000, 40000)
+    assert viewer.arrow_visible(*short, 1.0) and viewer.arrow_visible(*long_, 1.0)
+    assert not viewer.arrow_visible(*short, 0.05)            # 5 px: gone
+    assert viewer.arrow_visible(*long_, 0.006)               # 840 px: still there, zoomed right out
+    edge = (0, 0, 300, 200)                                  # the length is measured as |dx| + |dy|
+    assert viewer.arrow_visible(*edge, viewer.MIN_ARROW_PX / 500)
+    assert not viewer.arrow_visible(*edge, viewer.MIN_ARROW_PX / 501)
+    assert viewer.arrow_visible(300, 200, 0, 0, viewer.MIN_ARROW_PX / 500)   # direction does not matter
+
+
+def test_longer_arrows_stay_visible_to_a_smaller_zoom_than_shorter_ones():
+    viewer = _load_viewer()
+    g = viewer.layout_tree(viewer.build_graph(_random_nested(3)))
+    edges = sorted((viewer.edge_points(p, r, c) for p, r, c, _ in g.edges),
+                   key=lambda e: abs(e[2] - e[0]) + abs(e[3] - e[1]))
+    assert len(edges) > 20
+
+    def gone_below(edge):
+        lo, hi = 1e-9, 1e3
+        for _ in range(80):
+            mid = (lo * hi) ** 0.5
+            lo, hi = (mid, hi) if not viewer.arrow_visible(*edge, mid) else (lo, mid)
+        return hi
+    zooms = [gone_below(e) for e in edges]
+    assert zooms == sorted(zooms, reverse=True)              # longer -> vanishes at a smaller zoom
+    assert zooms[0] > zooms[-1]
+    # at a zoom where the shortest has gone, the longest is still drawn: not all at once
+    z = zooms[0] * 0.99
+    assert not viewer.arrow_visible(*edges[0], z) and viewer.arrow_visible(*edges[-1], z)
+
+
+def test_zoomed_out_until_the_short_arrows_vanish_the_long_ones_remain():
+    viewer = _load_viewer()
+    rows = {f"k{i}": {"leaf": i} for i in range(60)}
+    g = viewer.layout_tree(viewer.build_graph({"meta": {}, "app": rows, "module": {}, "threads": []}))
+    edges = [viewer.edge_points(p, r, c) for p, r, c, _ in g.edges]
+    lengths = sorted(abs(e[2] - e[0]) + abs(e[3] - e[1]) for e in edges)
+    zoom = viewer.MIN_ARROW_PX / lengths[len(lengths) // 2]          # the median arrow is 12 px
+    drawn = [e for e in edges if viewer.arrow_visible(*e, zoom)]
+    assert 0 < len(drawn) < len(edges)                               # some, but not all, remain
+    assert min(abs(e[2] - e[0]) + abs(e[3] - e[1]) for e in drawn) * zoom >= viewer.MIN_ARROW_PX
+    assert all(abs(e[2] - e[0]) + abs(e[3] - e[1]) >= lengths[len(lengths) // 2] - 1e-9
+               for e in drawn)
+
+
+def _arrange_data():
+    return {"meta": {}, "module": {}, "threads": [],
+            "app": {"item10": 1, "item2": "hello world", "Alpha": {"x": 1}, "zeta": [1, 2, 3],
+                    "beta": {"a": {"b": {"c": 1}}}}}
+
+
+def _app_rows(viewer, data, group=False, sort_by="none", desc=False, levels=None, unchecked=(),
+              links_only=False):
+    g = viewer.build_graph(data)
+    view = viewer.apply_filters(g, levels or {}, set(unchecked), links_only)
+    viewer.arrange_rows(view, group, sort_by, desc)
+    app = next(n for n in view.nodes if n.title == "dict (5)")
+    return g, view, [r.key for r in app.rows]
+
+
+def test_descendant_counts_handle_chains_sharing_cycles_and_self_references():
+    """A box's descendants are the different boxes reachable from it, itself not counted."""
+    viewer = _load_viewer()
+    shared = {"x": {"y": 1}}
+    cyc1, cyc2 = {}, {}
+    cyc1["to2"] = cyc2
+    cyc2["to1"] = cyc1
+    selfish = {}
+    selfish["me"] = selfish
+    g = viewer.build_graph({"meta": {}, "module": {"c": cyc1, "self": selfish}, "threads": [],
+                            "app": {"s1": shared, "s2": shared, "own": {"z": 1}}})
+    below = {}
+    for n in g.nodes:
+        for r in n.rows:
+            if r.child is not None:
+                below[r.key] = r.child.desc_all
+    assert below["x"] == 0                                   # {"y": 1} has no box below it
+    assert below["s1"] == below["s2"] == 1                   # the shared box reaches x only
+    assert below["own"] == 0
+    assert below["c"] == 1 and below["to2"] == 1 and below["to1"] == 1   # each reaches the other
+    assert below["self"] == 0 and below["me"] == 0           # a box pointing at itself: nothing else
+    # a chain of four boxes under "a": a, b, c, d reach 3, 2, 1, 0 others
+    chain = viewer.build_graph({"meta": {}, "app": {"a": {"b": {"c": {"d": {"e": 1}}}}},
+                                "module": {}, "threads": []})
+    counts = {r.key: r.child.desc_all for n in chain.nodes for r in n.rows if r.child is not None}
+    assert [counts[k] for k in ("a", "b", "c", "d")] == [3, 2, 1, 0]
+    assert chain.root.desc_all == 5                          # app, a, b, c, d
+    # the function also works on just a part of the graph (the visible boxes)
+    view = viewer.apply_filters(chain, {"dict": 3})
+    assert viewer.descendant_counts(view.nodes)[view.root.id] == len(view.nodes) - 1
+
+
+def test_sizes_count_everything_a_value_holds_and_arrays_their_data():
+    viewer = _load_viewer()
+    big = np.zeros((100, 100))
+    small = {"n": 1}
+    g = viewer.build_graph({"meta": {}, "app": {"arr": big, "small": small,
+                                                "standin": {"__standin__": "large array",
+                                                            "shape": (9,), "dtype": "f8",
+                                                            "nbytes": 123456},
+                                                "nest": {"one": small, "s": "x" * 500}},
+                            "module": {}, "threads": []})
+    app = next(n for n in g.nodes if n.title == "dict (4)")
+    rows = {r.key: r for r in app.rows}
+    assert rows["arr"].size >= big.nbytes
+    assert rows["standin"].size >= 123456
+    assert rows["nest"].size > rows["small"].size + 500      # holds the small box and a long string
+    assert rows["nest"].child.size == rows["nest"].size
+    assert app.size >= rows["arr"].size + rows["standin"].size + rows["nest"].size
+    assert g.root.size >= app.size
+
+
+def test_arrange_rows_does_nothing_unless_asked():
+    viewer = _load_viewer()
+    _g, view, keys = _app_rows(viewer, _arrange_data())
+    assert keys == ["item10", "item2", "Alpha", "zeta", "beta"]
+
+
+def test_links_can_be_grouped_first_keeping_the_order_inside_each_group():
+    viewer = _load_viewer()
+    _g, _view, keys = _app_rows(viewer, _arrange_data(), group=True)
+    assert keys == ["Alpha", "zeta", "beta", "item10", "item2"]
+
+
+def test_a_row_only_counts_as_a_link_while_its_box_is_visible():
+    viewer = _load_viewer()
+    g = viewer.build_graph(_arrange_data())
+    app_orig = next(n for n in g.nodes if n.title == "dict (5)")
+    zeta_origin = (app_orig.id, next(i for i, r in enumerate(app_orig.rows) if r.key == "zeta"))
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), group=True, unchecked=[zeta_origin])
+    # zeta's box is hidden by its checkbox, so its row is no longer a link
+    assert keys[:2] == ["Alpha", "beta"] and keys.index("zeta") > keys.index("beta")
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), group=True, levels={"list": 2})
+    assert keys == ["Alpha", "beta", "item10", "item2", "zeta"]
+
+
+def test_rows_sort_by_name_with_numbers_in_natural_order_ascending_and_descending():
+    viewer = _load_viewer()
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="name")
+    assert keys == ["Alpha", "beta", "item2", "item10", "zeta"]
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="name", desc=True)
+    assert keys == ["zeta", "item10", "item2", "beta", "Alpha"]
+    assert viewer.natural_key("item10") > viewer.natural_key("item2")
+    assert viewer.natural_key("B") > viewer.natural_key("a")          # case-insensitive
+
+
+def test_grouping_comes_first_then_the_sort_within_each_group():
+    viewer = _load_viewer()
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), group=True, sort_by="name")
+    assert keys == ["Alpha", "beta", "zeta", "item2", "item10"]
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), group=True, sort_by="name", desc=True)
+    assert keys == ["zeta", "beta", "Alpha", "item10", "item2"]
+
+
+def test_rows_sort_by_size_in_bytes():
+    viewer = _load_viewer()
+    g, _v, asc = _app_rows(viewer, _arrange_data(), sort_by="size")
+    sizes = {r.key: r.size for n in g.nodes if n.title == "dict (5)" for r in n.rows}
+    assert [sizes[k] for k in asc] == sorted(sizes.values())
+    assert asc.index("item10") < asc.index("item2")                  # an int is smaller than a str
+    assert asc.index("Alpha") < asc.index("beta")                    # beta holds much more
+    _g, _v, desc = _app_rows(viewer, _arrange_data(), sort_by="size", desc=True)
+    assert [sizes[k] for k in desc] == sorted(sizes.values(), reverse=True)
+
+
+def test_rows_sort_by_total_descendants_including_hidden_ones():
+    viewer = _load_viewer()
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="descendants")
+    assert keys == ["item10", "item2", "Alpha", "zeta", "beta"]     # beta has 2 below; ties stay put
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="descendants", desc=True)
+    assert keys == ["beta", "item10", "item2", "Alpha", "zeta"]
+    # hiding beta's child box does not change the total
+    g = viewer.build_graph(_arrange_data())
+    beta = next(r.child for n in g.nodes for r in n.rows if r.key == "beta")
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="descendants",
+                             unchecked=[(beta.id, 0)])
+    assert keys[-1] == "beta"
+
+
+def test_rows_sort_by_visible_descendants_which_follow_the_filters():
+    viewer = _load_viewer()
+    g = viewer.build_graph(_arrange_data())
+    beta = next(r.child for n in g.nodes for r in n.rows if r.key == "beta")
+    _g, _v, everything = _app_rows(viewer, _arrange_data(), sort_by="visible", desc=True)
+    assert everything[0] == "beta"                                  # 2 visible descendants
+    # with beta's "a" box hidden (its checkbox), beta has none left: back to the original order
+    _g, _v, keys = _app_rows(viewer, _arrange_data(), sort_by="visible", desc=True,
+                             unchecked=[(beta.id, 0)])
+    assert keys == ["item10", "item2", "Alpha", "zeta", "beta"]
+    g2, view, _ = _app_rows(viewer, _arrange_data(), sort_by="visible", unchecked=[(beta.id, 0)])
+    assert viewer.descendant_counts(view.nodes)[next(
+        n.id for n in view.nodes if n.id == beta.id)] == 0
+    assert g2.root.desc_all >= 5                                    # the full count is unchanged
+
+
+def test_the_note_about_more_entries_always_stays_last_and_edges_follow_the_moved_rows():
+    viewer = _load_viewer()
+    many = {f"k{i}": {"v": i} for i in range(viewer.MAX_ROWS + 5)}
+    g = viewer.build_graph({"meta": {}, "app": many, "module": {}, "threads": []})
+    view = viewer.apply_filters(g, {})
+    viewer.arrange_rows(view, True, "name", True)
+    app = next(n for n in view.nodes if len(n.rows) == viewer.MAX_ROWS + 1)
+    assert app.rows[-1].key == "\u2026" and app.rows[0].key == f"k{viewer.MAX_ROWS - 1}"
+    for node, i, child, _tree in view.edges:
+        assert node.rows[i].child is child
+    assert len(view.edges) == sum(1 for n in view.nodes for r in n.rows if r.child is not None)
+    viewer.layout_tree(view)
+    assert viewer.overlapping_pairs(view) == [] and viewer.count_crossings(view) == 0
+    ys = [c.y for c in app.tree_children]
+    assert ys == sorted(ys)                                         # stacked in the new row order
+    assert [c.parent_row for c in app.tree_children] == sorted(c.parent_row
+                                                               for c in app.tree_children)
+
+
+def test_hide_rows_that_are_not_links_counts_them_in_the_hidden_message():
+    viewer = _load_viewer()
+    g = viewer.build_graph(_filter_sample())
+    view = viewer.apply_filters(g, {}, set(), True)
+    app = next(n for n in view.nodes if n.title == "dict (5)")
+    assert [r.key for r in app.rows] == ["items", "obst"]           # only the link rows
+    assert app.hidden == 3                                          # count, name, empty
+    assert viewer.hidden_message(app.hidden) == "3 children hidden by filters"
+    assert all(r.child is not None for n in view.nodes for r in n.rows)   # every row left is a link
+    # boxes with no link rows at all show just the message
+    leaf = next(n for n in view.nodes if n.rows == [] and n.hidden)
+    assert leaf.hidden >= 1
+    # rows hidden by a checkbox or by a filter level are not links either
+    items = next(r for r in next(n for n in viewer.apply_filters(g, {}).nodes
+                                 if n.title == "dict (5)").rows if r.key == "items")
+    cleared = viewer.apply_filters(g, {}, {items.origin}, True)
+    app2 = next(n for n in cleared.nodes if n.title == "dict (5)")
+    assert [r.key for r in app2.rows] == ["obst"] and app2.hidden == 4
+    row_only = viewer.apply_filters(g, {"list": 2}, set(), True)
+    app3 = next(n for n in row_only.nodes if n.title == "dict (5)")
+    assert [r.key for r in app3.rows] == ["obst"] and app3.hidden == 4
+    off = viewer.apply_filters(g, {}, set(), False)
+    assert next(n for n in off.nodes if n.title == "dict (5)").hidden == 0
+
+
+def test_the_view_options_reach_the_view_and_show_all_clears_the_links_only_filter():
+    viewer = _load_viewer()
+    v = _viewer_with_graph(viewer, _arrange_data())
+    v.links_only_var.set(True)
+    v.group_links_var.set(True)
+    v.sort_by_var.set("name")
+    v.rebuild_view()
+    app = next(n for n in v.vg.nodes if n.title == "dict (5)")
+    assert [r.key for r in app.rows] == ["Alpha", "beta", "zeta"] and app.hidden == 2
+    v.level_vars = {}
+    v.reset_filters()
+    assert v.links_only_var.get() is False
+    app = next(n for n in v.vg.nodes if n.title == "dict (5)")
+    assert app.hidden == 0 and len(app.rows) == 5
+
+
+def _wheel_stub(viewer):
+    import types
+    v = viewer.Viewer.__new__(viewer.Viewer)
+    v.vg = object()
+    v.zoom, v.ox, v.oy = 1.0, 500.0, 300.0
+    v.drawn = (0, 0, 10 ** 6, 10 ** 6)
+    v.log = []
+    v.canvas = types.SimpleNamespace(move=lambda tag, dx, dy: v.log.append(("move", dx, dy)))
+    v.canvas_size = lambda: (1000, 600)
+    v.redraw = lambda: v.log.append("redraw")
+    v.schedule_redraw = lambda: v.log.append("schedule")
+    return v
+
+
+def test_the_plain_wheel_scrolls_up_and_down_and_shift_scrolls_sideways():
+    import types
+    viewer = _load_viewer()
+    v = _wheel_stub(viewer)
+    step = viewer.WHEEL_SCROLL_PX
+    v.on_wheel(types.SimpleNamespace(x=10, y=10, delta=120, state=0))          # wheel up
+    assert v.log[-1] == ("move", 0, step) and v.oy == 300.0 - step and v.ox == 500.0
+    v.on_wheel(types.SimpleNamespace(x=10, y=10, delta=-120, state=0))         # wheel down
+    assert v.log[-1] == ("move", 0, -step) and v.oy == 300.0
+    v.on_wheel(types.SimpleNamespace(x=10, y=10, delta=120, state=0x1))        # Shift, wheel up
+    assert v.log[-1] == ("move", step, 0) and v.ox == 500.0 - step and v.oy == 300.0
+    v.on_wheel(types.SimpleNamespace(x=10, y=10, delta=-120, state=0x1))       # Shift, wheel down
+    assert v.log[-1] == ("move", -step, 0) and v.ox == 500.0
+    assert v.zoom == 1.0                                                        # neither zooms
+
+
+def test_the_scroll_distance_is_in_window_pixels_whatever_the_zoom():
+    import types
+    viewer = _load_viewer()
+    v = _wheel_stub(viewer)
+    v.zoom = 4.0
+    v.on_wheel(types.SimpleNamespace(x=0, y=0, delta=120, state=0x1))
+    assert v.ox == 500.0 - viewer.WHEEL_SCROLL_PX / 4.0
+    v.on_wheel(types.SimpleNamespace(x=0, y=0, delta=120, state=0))
+    assert v.oy == 300.0 - viewer.WHEEL_SCROLL_PX / 4.0
+
+
+def test_ctrl_wheel_zooms_at_the_pointer_and_scrolling_redraws_at_the_edge_of_what_is_drawn():
+    import types
+    viewer = _load_viewer()
+    v = _wheel_stub(viewer)
+    v.on_wheel(types.SimpleNamespace(x=200, y=100, delta=120, state=0x4))
+    assert v.zoom == 1.2 and v.log[-1] == "schedule" and (v.ox, v.oy) != (500.0, 300.0)
+    v.on_wheel(types.SimpleNamespace(x=200, y=100, delta=-120, state=0x4))
+    assert abs(v.zoom - 1.0) < 1e-12
+    v.on_wheel(types.SimpleNamespace(x=200, y=100, delta=120, state=0x1 | 0x4))   # Ctrl wins: zoom
+    assert v.zoom == 1.2
+    v.zoom = 1.0
+    v.drawn = (v.ox, v.oy, v.ox + 1000, v.oy + 600)          # the drawn region is just the window
+    v.log.clear()
+    v.on_wheel(types.SimpleNamespace(x=0, y=0, delta=120, state=0))
+    assert v.log[-1] == "redraw"                             # scrolled out of the drawn region
+    v.vg = None
+    v.log.clear()
+    v.scroll_by(5, 5)
+    assert v.log == []                                       # nothing loaded: nothing to move
+
+
+def test_the_x11_wheel_buttons_use_the_same_rules():
+    import types
+    viewer = _load_viewer()
+    v = _wheel_stub(viewer)
+    v.wheel(10, 10, 0, 1)
+    assert v.log[-1] == ("move", 0, viewer.WHEEL_SCROLL_PX)
+    v.wheel(10, 10, 0x1, -1)
+    assert v.log[-1] == ("move", -viewer.WHEEL_SCROLL_PX, 0)
+    v.wheel(10, 10, 0x4, 1)
+    assert v.zoom == 1.2
+
+
+def test_the_view_menu_and_sidebar_offer_the_new_options():
+    import inspect
+    viewer = _load_viewer()
+    init = inspect.getsource(viewer.Viewer.__init__)
+    assert 'label="Group link rows first"' in init
+    assert 'label="Sort objects within their parent"' in init
+    assert "for value, label in SORT_CHOICES:" in init
+    assert 'label="Ascending"' in init and 'label="Descending"' in init
+    labels = [label for _value, label in viewer.SORT_CHOICES]
+    assert labels == ["None (original order)", "Name (alphabetical)", "Size in bytes",
+                      "Total descendants (including hidden ones)", "Visible descendants"]
+    assert "Hide rows that aren't links" in inspect.getsource(viewer.Viewer.build_sidebar)
+
+
+# --------------------------------------------------------------------------- #
+# Strict records (FuzzParams, RaySettings, BuddhaBlurSettings, KeyframeData,
+# ViewSettings, ObstacleSnapshot, ViewSnapshot): keyword-only, frozen, no
+# indexing, checked types
+# --------------------------------------------------------------------------- #
+def _raises(exc, fn):
+    try:
+        fn()
+    except exc:
+        return True
+    except Exception as other:                                   # noqa: BLE001
+        raise AssertionError(f"expected {exc}, got {type(other).__name__}: {other}")
+    raise AssertionError(f"expected {exc}, nothing was raised")
+
+
+def test_strict_records_take_keyword_arguments_only_and_all_of_them():
+    f = m.DEFAULT_FUZZ
+    assert _raises(TypeError, lambda: m.FuzzParams(False, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0))
+    assert _raises(TypeError, lambda: m.FuzzParams(enabled=False))          # the rest is missing
+    assert _raises(TypeError, lambda: m.BuddhaBlurSettings(radius=0.1))
+    assert _raises(TypeError, lambda: m.RaySettings(max_iter=1))
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f.as_dict(), "emit_jiter": 0.0}))
+    assert _raises(TypeError, lambda: m.RaySettings(*dataclasses.astuple(m.DEFAULT_RAY_SETTINGS)))
+
+
+def test_strict_records_cannot_be_indexed_iterated_unpacked_or_changed():
+    s = m.DEFAULT_RAY_SETTINGS
+    assert _raises(TypeError, lambda: s[0])
+    assert _raises(TypeError, lambda: list(s))
+    assert _raises(TypeError, lambda: tuple(m.DEFAULT_FUZZ))
+    assert _raises(TypeError, lambda: len(s))
+    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(s, "max_iter", 5))
+    assert _raises(AttributeError, lambda: s.max_itre)
+    # (Python 3.11 raises TypeError here, later versions AttributeError; both forbid it)
+    assert _raises((AttributeError, TypeError, dataclasses.FrozenInstanceError),
+                   lambda: setattr(s, "not_a_field", 1))
+
+
+def test_strict_records_check_every_value_against_its_annotation():
+    f = m.DEFAULT_FUZZ.as_dict()
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f, "seed": True}))        # a bool is not an int
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f, "seed": 1.0}))         # nor is a float
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f, "enabled": 1}))        # an int is not a bool
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f, "bnd_mult": "1.0"}))
+    assert _raises(TypeError, lambda: m.FuzzParams(**{**f, "bnd_mult": True}))    # a bool is not a float
+    m.FuzzParams(**{**f, "bnd_mult": 2})                                          # an int is a fine float
+    s = m.DEFAULT_RAY_SETTINGS.as_dict()
+    assert _raises(TypeError, lambda: m.RaySettings(**{**s, "fuzz": (False, 0.0)}))
+    assert _raises(TypeError, lambda: m.RaySettings(**{**s, "buddha_blur": 0.0}))
+    try:
+        m.RaySettings(**{**s, "max_iter": "9"})
+        raise AssertionError("expected TypeError")
+    except TypeError as e:
+        assert "RaySettings.max_iter must be int, got str" in str(e)
+
+
+def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
+    vs = m.ViewSettings(mode="RGB", kinds=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
+                        point1_choice=(0, 0, 0), point2_choice=(0, 0, 0), chan_src=[0, 0, 0],
+                        buddha_points=[(True,)] * 3, buddha_compression=(0, 0, 0),
+                        buddha_brightness=(0, 0, 0), constant_choice=(0, 0, 0))
+    assert vs.kinds == (0, 1, 2) and isinstance(vs.chan_src, tuple)
+    assert _raises(TypeError, lambda: vs.replace(mode=5))
+
+
+def test_replace_makes_a_modified_copy_and_equality_hash_and_pickle_work():
+    import pickle
+    a = m.DEFAULT_RAY_SETTINGS
+    b = a.replace(max_iter=7, fuzz=a.fuzz.replace(seed=3))
+    assert (b.max_iter, b.fuzz.seed, a.max_iter, a.fuzz.seed) == (7, 3, 256, 0)
+    assert b != a and a == a.replace() and hash(a) == hash(a.replace())
+    assert _raises(TypeError, lambda: a.replace(max_iter="x"))
+    with _ModuleRegistered():
+        again = pickle.loads(pickle.dumps(b))
+    assert again == b and isinstance(again.fuzz, m.FuzzParams)
+
+
+def test_records_pickle_by_field_name_not_position():
+    """A dump or saved file must not depend on the order the fields are declared in
+    (dataclass's own pickle state for a frozen, slotted class is a bare list)."""
+    import pickle
+    with _ModuleRegistered():
+        state = m.DEFAULT_FUZZ.__reduce_ex__(2)[2]
+        assert isinstance(state, dict) and state["seed"] == 0 and state["bnd_mult"] == 1.0
+        scrambled = dict(reversed(list(state.items())))
+        clone = m.FuzzParams.__new__(m.FuzzParams)
+        clone.__setstate__(scrambled)
+        assert clone == m.DEFAULT_FUZZ
+        assert pickle.loads(pickle.dumps(m.DEFAULT_FUZZ)) == m.DEFAULT_FUZZ
+
+
+def test_ray_settings_holds_the_buddha_blur_as_its_own_record():
+    s = m.DEFAULT_RAY_SETTINGS
+    assert isinstance(s.buddha_blur, m.BuddhaBlurSettings)
+    assert (s.buddha_blur.radius, s.buddha_blur.type) == (m.DEFAULT_BUDDHA_BLUR_RADIUS,
+                                                          m.DEFAULT_BUDDHA_BLUR_TYPE)
+    assert s.replace(buddha_blur=s.buddha_blur.replace(radius=0.2)).buddha_blur.radius == 0.2
+
+
+def test_the_snapshot_records_mirror_the_slots_of_the_live_classes():
+    assert [f.name for f in dataclasses.fields(m.ObstacleSnapshot)] == list(m.Obstacle.__slots__)
+    assert [f.name for f in dataclasses.fields(m.ViewSnapshot)] == list(m.ViewConfig.__slots__)
+    types = {f.name: f.type for f in dataclasses.fields(m.ObstacleSnapshot)}
+    assert types["id"] is int and types["shape"] is int and types["sides"] is int
+    assert types["in_effect"] is int and types["fire_inside"] is bool
+    assert types["width"] is float and types["r"] is float and types["theta"] is float
+
+
+def test_snapshot_obstacle_copies_every_field_and_a_live_edit_does_not_reach_the_copy():
+    o = m.Obstacle(5)
+    o.r, o.sides, o.fire_inside = 0.5, 7, True
+    snap = m.snapshot_obstacle(o)
+    assert isinstance(snap, m.ObstacleSnapshot)
+    assert all(getattr(snap, f) == getattr(o, f) for f in m.Obstacle.__slots__)
+    o.r = 0.9
+    assert snap.r == 0.5
+    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(snap, "r", 1.0))
+
+
+def test_snapshot_view_stores_the_channel_lists_as_tuples_unshared_with_the_live_view():
+    v = m.ViewConfig(2)
+    snap = m.snapshot_view(v)
+    assert isinstance(snap, m.ViewSnapshot) and snap.id == 2 and snap.mode == v.mode
+    assert all(isinstance(getattr(snap, f), tuple) for f in m.ViewConfig.__slots__
+               if f not in ("id", "mode"))
+    v.chan_src[0] = m.CHAN_SRC_BUDDHA
+    assert snap.chan_src[0] != m.CHAN_SRC_BUDDHA                # a later live edit never reaches it
+    assert m.view_channel_value(snap, 0) == m.view_channel_value(m.ViewConfig(2), 0)
+
+
+def test_resolved_obstacles_and_views_are_strict_records():
+    kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.25})]
+    o = m.Obstacle(1)
+    resolved = m.resolve_obstacles([m.snapshot_obstacle(o)], kfs, 0)
+    assert isinstance(resolved[0], m.ObstacleSnapshot) and resolved[0].r == 0.25
+    views = m.resolve_views([m.snapshot_view(m.ViewConfig(0))], [], 0)
+    assert isinstance(views[0], m.ViewSettings)
+    assert isinstance(m.resolve_frame_settings([], 0), m.KeyframeData)
+    assert isinstance(m.resolve_frame_settings([], 0).settings, m.RaySettings)
+
+
+def test_views_colored_from_the_stored_data_use_the_settings_the_image_was_generated_with():
+    """Regression test: the two places that color a view from the stored data (the
+    composed 'Current image' export and the non-live view thumbnails) built their
+    settings from the limits alone, so the confinement rule and emission direction
+    silently fell back to their defaults - and Buddha coloration re-traces rays
+    with both. Every RaySettings argument is required now, and they pass the
+    settings of the generated image."""
+    generated = _settings(confine_window=9, confine_method=m.CONFINE_PATH,
+                          confine_threshold=0.123, emit_mode=m.EMIT_TOWARDS,
+                          emit_target_r=0.5, emit_target_theta=30.0, emit_offset=12.0)
+    app = _fake_current_image_app()
+    app.generated_settings = generated
+    app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
+    seen = []
+
+    def fake_colorize(view, stats, points, status, w, h, settings, fz, obst_arrays):
+        seen.append(settings)
+        return np.zeros((h, w, 3), dtype=np.uint8)
+    app.colorize_view = fake_colorize
+    app.render_current_image([m.ViewConfig(0), m.ViewConfig(1)])
+    assert seen == [generated, generated]
+    assert m.settings_confine(seen[0]) == m.ConfineRule(window=9, method=m.CONFINE_PATH, threshold=0.123)
+    assert m.settings_emission(seen[0]).offset == 12.0
+    seen.clear()
+    app.view_thumb_cache = {}
+    app.rows_done = 0
+    app.live_view = lambda: app.views[0]
+    app.render_view_thumbnail(m.ViewConfig(1), m.THUMB_SIZE)
+    assert seen == [generated]
+    app.generated_settings = None                                # before the first Start
+    assert app.settings_of_current_image() is m.DEFAULT_RAY_SETTINGS
+
+
+# --------------------------------------------------------------------------- #
+# RAY_SETTING_SPECS: one row per simulation setting (path into a RaySettings,
+# its control, how the control is written)
+# --------------------------------------------------------------------------- #
+def _varied_ray_settings():
+    return m.RaySettings(
+        max_iter=77, max_dist=3.5, seg_mult=0.8,
+        fuzz=m.FuzzParams(enabled=True, emit_jitter=4.0, bnd_offset=1.5, bnd_jitter=2.5,
+                          bnd_mult=1.25, self_offset=-3.0, self_jitter=6.0, self_mult=0.5,
+                          seed=424242),
+        buddha_blur=m.BuddhaBlurSettings(radius=0.07, type=m.BUDDHA_BLUR_BOKEH),
+        confine_window=9, confine_method=m.CONFINE_PATH, confine_threshold=0.03,
+        emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
+        emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
+
+
+def test_the_setting_specs_and_the_ray_settings_fields_are_the_same_set():
+    paths = sorted(spec.path for spec in m.RAY_SETTING_SPECS.values())
+    assert paths == sorted(m.ray_setting_leaf_paths())
+    assert len(set(paths)) == len(paths)
+    assert set(m.RAY_SETTING_SPECS) == {k for k, _t, _l in m.SETTING_INFO} - {"outline"}
+
+
+def test_self_checks_catch_a_ray_settings_field_without_a_spec_row():
+    fresh = load_module()
+    del fresh.RAY_SETTING_SPECS["emit_offset"]
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "RAY_SETTING_SPECS" in str(e)
+
+
+def test_self_checks_catch_a_spec_row_with_a_bad_kind_or_path():
+    fresh = load_module()
+    fresh.RAY_SETTING_SPECS["seed"] = fresh.RAY_SETTING_SPECS["seed"].replace(kind="dial")
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "bad kind" in str(e)
+    fresh = load_module()
+    fresh.RAY_SETTING_SPECS["seed"] = fresh.RAY_SETTING_SPECS["seed"].replace(path=("fuzz", "sead"))
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "RaySettings fields disagree" in str(e)
+
+
+def test_ray_settings_round_trip_through_the_key_dictionary():
+    for settings in (m.DEFAULT_RAY_SETTINGS, _varied_ray_settings()):
+        values = m.ray_settings_to_dict(settings)
+        assert set(values) == set(m.RAY_SETTING_SPECS)
+        assert m.ray_settings_from_dict(values) == settings
+    values = m.ray_settings_to_dict(_varied_ray_settings())
+    assert values["seed"] == 424242 and values["emit_jitter"] == 4.0 and values["iter"] == 77
+    assert values["buddha_blur_type"] == m.BUDDHA_BLUR_BOKEH and values["fuzz_on"] is True
+
+
+def test_values_resolved_from_keyframes_are_converted_to_their_fields_types():
+    """A keyframe can hand an int setting over as a float (or a bool as 1): int fields
+    are rounded and bool fields made bool; float fields are kept as given."""
+    values = dict(m.ray_settings_to_dict(_varied_ray_settings()))
+    values.update({"iter": 77.4, "seed": 9.0, "confine_window": 8.6, "emit_mode": 1.0,
+                   "fuzz_on": 1, "buddha_blur_type": 2.0, "dist": 2})
+    got = m.ray_settings_from_dict(values)
+    assert (got.max_iter, got.fuzz.seed, got.confine_window, got.emit_mode) == (77, 9, 9, 1)
+    assert got.fuzz.enabled is True and got.buddha_blur.type == 2 and got.max_dist == 2
+    assert all(type(v) is int for v in (got.max_iter, got.fuzz.seed, got.confine_window))
+
+
+def test_the_derived_setting_tables_follow_the_ray_settings_field_types():
+    floats = m.SETTING_FLOAT_KEYS
+    assert {"dist", "seg_mult", "confine_threshold", "emit_offset", "emit_target_r",
+            "emit_jitter", "bnd_mult", "self_offset", "buddha_blur_radius"} <= floats
+    assert not ({"iter", "seed", "confine_window", "confine_method", "emit_mode", "fuzz_on",
+                 "buddha_blur_type", "outline"} & floats)
+    assert m.DEFAULT_SETTING_VALUES == {**m.ray_settings_to_dict(m.DEFAULT_RAY_SETTINGS),
+                                        "outline": True}
+    assert m.SETTING_WIDGET_ATTRS["seed"] == "seed_entry"
+    assert m.SETTING_WIDGET_ATTRS["outline"] == "deco_outline_check"
+
+
+def _fake_controls_app():
+    """An App stand-in holding a control of the right kind for every spec row."""
+    class FakeApp:
+        pass
+    app = FakeApp()
+    for spec in m.RAY_SETTING_SPECS.values():
+        setattr(app, spec.control, _StubVar(None))
+    app.on_limit_var_changed = app.on_shape_param_changed = app.on_fuzz_changed = lambda: None
+    app.set_setting_control = m.App.set_setting_control.__get__(app)
+    app.revert_settings = m.App.revert_settings.__get__(app)
+    return app
+
+
+def _expected_control_value(spec, value):
+    if spec.kind == "text":
+        return str(value)
+    if spec.kind == "int_text":
+        return str(int(round(value)))
+    if spec.kind == "float_text":
+        return str(float(value))
+    if spec.kind == "choice":
+        return spec.names[int(round(value))]
+    return value
+
+
+def test_each_kind_of_control_is_written_the_way_its_kind_needs():
+    app = _fake_controls_app()
+    values = m.ray_settings_to_dict(_varied_ray_settings())
+    for key, value in values.items():
+        app.set_setting_control(key, value)
+        spec = m.RAY_SETTING_SPECS[key]
+        assert getattr(app, spec.control).get() == _expected_control_value(spec, value), key
+    assert app.iter_var.get() == "77" and app.confine_window_var.get() == "9"
+    assert app.emit_target_r_var.get() == "0.4" and app.seed_var.get() == "424242"
+    assert app.emit_mode_var.get() == m.EMIT_MODE_NAMES[m.EMIT_TOWARDS]
+    assert app.buddha_blur_type_var.get() == m.BUDDHA_BLUR_LABELS[m.BUDDHA_BLUR_BOKEH]
+    assert app.fuzz_enabled_var.get() is True and app.bnd_mult_scale.get() == 1.25
+
+
+def test_a_value_an_interpolating_keyframe_made_fractional_still_reaches_an_int_control():
+    app = _fake_controls_app()
+    app.set_setting_control("confine_window", 8.6)
+    app.set_setting_control("emit_mode", 0.9)
+    assert app.confine_window_var.get() == "9"
+    assert app.emit_mode_var.get() == m.EMIT_MODE_NAMES[1]
+
+
+def test_revert_writes_every_control_from_the_baseline_through_the_same_table():
+    app = _fake_controls_app()
+    app.baseline = _varied_ray_settings()
+    app.revert_settings()
+    for key, value in m.ray_settings_to_dict(app.baseline).items():
+        spec = m.RAY_SETTING_SPECS[key]
+        assert getattr(app, spec.control).get() == _expected_control_value(spec, value), key
+
+
+# --------------------------------------------------------------------------- #
+# ChannelSettings, SettingEntry, ObstacleRing; label and tab live in the spec rows
+# --------------------------------------------------------------------------- #
+def test_a_view_channel_is_stored_as_a_strict_record_and_decomposes_back():
+    v = m.ViewConfig(0)
+    v.chan_src[2] = m.CHAN_SRC_BUDDHA
+    v.buddha_points[2] = tuple(i == 1 for i in range(m.N_BUDDHA_POINTS))
+    v.kinds[1] = m.KIND_OTHER
+    v.other_metric[1] = m.ST_BOUNCES
+    chans = [m.view_channel_value(v, c) for c in range(3)]
+    assert all(isinstance(ch, m.ChannelSettings) for ch in chans)
+    assert chans[1].kind == m.KIND_OTHER and chans[1].stat == m.ST_BOUNCES
+    assert chans[2].chan_src == m.CHAN_SRC_BUDDHA and chans[2].buddha_points[1] is True
+    vs = m.decompose_chans(v.mode, chans)
+    assert vs.other_metric[1] == m.ST_BOUNCES and vs.point_metric[1] == m.DEFAULT_POINT_METRICS[1]
+    assert vs.chan_src[2] == m.CHAN_SRC_BUDDHA
+    assert vs.buddha_points[2] == v.buddha_points[2]
+    assert chans[0] == m.view_channel_value(m.snapshot_view(v), 0)      # live view and snapshot agree
+    assert _raises(TypeError, lambda: chans[0][0])                      # no positional access
+    assert _raises(TypeError, lambda: m.ChannelSettings(*dataclasses.astuple(chans[0])))
+    assert _raises(TypeError, lambda: chans[0].replace(kind="point"))
+
+
+def test_all_setting_entries_are_strict_records_in_display_order():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    o1, o2 = m.Obstacle(4), m.Obstacle(9)
+    o2.width = 0.7
+    app.obstacles = [o1, o2]
+    app.views = [m.ViewConfig(3)]
+    entries = m.App.all_setting_entries(app)
+    assert all(isinstance(e, m.SettingEntry) for e in entries)
+    static = entries[:len(m.SETTING_INFO)]
+    assert [(e.key, e.tab, e.label) for e in static] == m.SETTING_INFO
+    assert [e.is_float for e in static] == [e.key in m.SETTING_FLOAT_KEYS for e in static]
+    width = next(e for e in entries if e.key == "obst:9:width")
+    assert (width.tab, width.fallback, width.is_float) == ("Obstacle #2", 0.7, True)
+    chan = next(e for e in entries if e.key == "view:3:chan1")
+    assert chan.tab == "View 0" and chan.fallback == m.view_channel_value(app.views[0], 1)
+    assert [e.tab for e in entries].count("Obstacle #1") == len(m.OBST_FIELD_INFO)
+
+
+def test_setting_info_is_derived_from_the_spec_rows_so_every_setting_has_a_label_and_tab():
+    assert [row for row in m.SETTING_INFO if row[0] != "outline"] == [
+        (key, spec.tab, spec.label) for key, spec in m.RAY_SETTING_SPECS.items()]
+    assert m.SETTING_INFO[-1] == ("outline", "Decorations", "Outline")
+    assert all(spec.label and spec.tab in m.SETTING_TABS_ORDER
+               for spec in m.RAY_SETTING_SPECS.values())
+    assert m.SETTING_LABEL["emit_offset"] == "Emission angle offset"
+    assert m.SETTING_TAB["seed"] == "Fuzzing"
+
+
+def _ring_app(generated):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    o = m.default_starting_obstacle(0)
+    o2 = m.Obstacle(1)
+    o2.r, o2.theta, o2.cx, o2.in_effect, o2.out_effect = 0.5, 90.0, 0.25, m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS
+    app.obstacles = [o, o2]
+    arrays = m.build_obstacle_arrays(app.obstacles)
+    app.gen_obstacles = arrays
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
+    return app
+
+
+def test_obstacle_rings_are_strict_records_for_both_the_live_and_the_generated_set():
+    for generated in (False, True):
+        rings = m.App.obstacle_ring_specs(_ring_app(generated))
+        assert len(rings) == 2 and all(isinstance(r, m.ObstacleRing) for r in rings)
+        first, second = rings
+        assert type(first.shape) is int and type(first.in_effect) is int      # numpy scalars converted
+        assert type(second.cx) is float and isinstance(second.bound, np.ndarray)
+        assert (second.in_effect, second.out_effect) == (m.OBSTACLE_EFFECT_TERMINATE,
+                                                         m.OBSTACLE_EFFECT_PASS)
+        assert abs(second.cx - 0.25) < 1e-9 and abs(second.cy - 0.5) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# Kernel arguments: FuzzRule / ConfineRule / EmissionRule / ObstacleArrays
+# --------------------------------------------------------------------------- #
+def test_the_rule_builders_give_named_typed_fields():
+    f = m.fuzz_rule(m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=5.0, bnd_mult=2.0, seed=9))
+    assert isinstance(f, m.FuzzRule) and f.enabled is True
+    assert (f.emit_jitter, f.bnd_mult, f.self_mult) == (5.0, 2.0, 1.0)
+    c = m.confine_rule(9.0, 1.0, 0.25)                       # floats become the ints the kernels need
+    assert (c, type(c.window), type(c.method)) == (m.ConfineRule(window=9, method=1, threshold=0.25),
+                                                  int, int)
+    e = m.emission_rule(1, 2, 3, 4)
+    assert e == m.EmissionRule(mode=1, target_x=2.0, target_y=3.0, offset=4.0)
+    assert all(type(v) is float for v in (e.target_x, e.target_y, e.offset))
+    settings = _settings(emit_mode=m.EMIT_TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
+                         emit_offset=7.0, confine_window=6, confine_threshold=0.5)
+    assert m.settings_confine(settings) == m.ConfineRule(window=6, method=settings.confine_method,
+                                                         threshold=0.5)
+    rule = m.settings_emission(settings)
+    assert (rule.mode, rule.offset) == (m.EMIT_TOWARDS, 7.0) and abs(rule.target_y - 2.0) < 1e-9
+
+
+def test_obstacle_arrays_bundle_parallel_arrays_in_one_argument():
+    a, b = m.default_starting_obstacle(0), m.Obstacle(1)
+    arrays = m.build_obstacle_arrays([a, b])
+    assert isinstance(arrays, m.ObstacleArrays)
+    assert arrays._fields == ("shapes", "bounds", "cx", "cy", "effects", "fire_inside")
+    n = len(arrays.shapes)
+    assert n == 2 and arrays.bounds.shape == (2, m.OBST_BOUND_LEN) and arrays.effects.shape == (2, 2)
+    assert all(len(x) == n for x in (arrays.cx, arrays.cy, arrays.fire_inside))
+    assert arrays.fire_inside.tolist() == [True, True]
+    empty = m.build_obstacle_arrays([])
+    assert len(empty.shapes) == 0 and empty.effects.shape == (0, 2)
+    resolved = m.resolve_obstacle_arrays([m.snapshot_obstacle(a)], [], 0)
+    assert isinstance(resolved, m.ObstacleArrays) and len(resolved.shapes) == 1
+
+
+def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_number():
+    """numba cannot forbid indexing a namedtuple, so the convention is enforced here:
+    in the kernel sources, `fuzz`, `confine`, `emission` and `obstacles` are only
+    ever read as `name.field`."""
+    import ast
+    import inspect
+    import textwrap
+    checked = 0
+    for fn in (m.emits_ray, m.trace_path, m.render_rows, m.render_rows_wh,
+               m.scatter_multi_buddha):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn.py_func)))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                    and node.value.id in ("fuzz", "confine", "emission", "obstacles")):
+                raise AssertionError(
+                    f"{fn.py_func.__name__} indexes {node.value.id}[...] (line {node.lineno}); "
+                    "read it by field name")
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+                    and node.value.id in ("fuzz", "confine", "emission", "obstacles"):
+                checked += 1
+    assert checked >= 20, "the scan should have found the field reads it is protecting"
 
 
 # --------------------------------------------------------------------------- #

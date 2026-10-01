@@ -252,8 +252,9 @@ Development aids (screenshots and dumps)
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 97
+FILE_VERSION = 103
 
+import dataclasses
 import math
 import os
 import random
@@ -542,13 +543,88 @@ FUZZ_JITTER_MAX = 180.0
 FUZZ_MULT_MIN = 0.0        # bounce angle multiplier range
 FUZZ_MULT_MAX = 3.0
 DEFAULT_FUZZ_SEED = 0
-FuzzParams = namedtuple("FuzzParams", [
-    "enabled",
-    "emit_jitter",                                   # ray emission (added to its direction)
-    "bnd_offset", "bnd_jitter", "bnd_mult",          # bounces off the boundary
-    "self_offset", "self_jitter", "self_mult",       # bounces off the ray itself
-    "seed"])
-DEFAULT_FUZZ = FuzzParams(False, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, DEFAULT_FUZZ_SEED)
+def strict_record(cls):
+    """Class decorator for the program's records of settings. The result is a frozen
+    dataclass whose every field is required and must be given by keyword (no
+    positional arguments, no defaults), with __slots__, no indexing, iteration or
+    unpacking (so a field can only ever be reached by name), and every value checked
+    against its annotation: int, float (an int is fine, a bool is not), bool, str,
+    tuple (a list is accepted and stored as a tuple) or a class. A violation raises
+    TypeError naming the record and field. `replace(**changes)` makes a modified
+    copy and `as_dict()` gives the fields as a dict. (The check is attached before @dataclass runs, or dataclass would never
+    call it.)"""
+    hints = dict(cls.__annotations__)
+    owner = cls.__name__
+
+    def __post_init__(self):
+        for name, want in hints.items():
+            value = getattr(self, name)
+            if want is float:
+                ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+            elif want is int:
+                ok = isinstance(value, int) and not isinstance(value, bool)
+            elif want is tuple:
+                if isinstance(value, list):
+                    value = tuple(value)
+                    object.__setattr__(self, name, value)
+                ok = isinstance(value, tuple)
+            else:
+                ok = isinstance(value, want)
+            if not ok:
+                raise TypeError(f"{owner}.{name} must be {want.__name__}, "
+                                f"got {type(value).__name__}: {value!r}")
+
+    def replace(self, **changes):
+        return dataclasses.replace(self, **changes)
+
+    def as_dict(self):
+        """{field name: value}, one level deep (nested records stay records)."""
+        return {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+
+    def __getstate__(self):
+        return self.as_dict()
+
+    def __setstate__(self, state):
+        for name, value in state.items():
+            object.__setattr__(self, name, value)
+
+    cls.__post_init__ = __post_init__
+    cls.replace = replace
+    cls.as_dict = as_dict
+    record = dataclasses.dataclass(frozen=True, kw_only=True, slots=True)(cls)
+    # Pickle by field name (dataclass's own state for a slotted frozen class is a bare
+    # list of values, which would make a dump or saved file depend on field order).
+    # Assigned after the decorator, which would otherwise install its own versions.
+    record.__getstate__ = __getstate__
+    record.__setstate__ = __setstate__
+    return record
+
+
+def strict_record_type(name, field_types, doc=None):
+    """strict_record() for a record whose fields are only known at import time
+    (ObstacleSnapshot and ViewSnapshot mirror the slots of Obstacle and ViewConfig):
+    `field_types` maps each field name to its annotation."""
+    return strict_record(type(name, (), {"__annotations__": dict(field_types),
+                                         "__module__": __name__, "__doc__": doc}))
+
+
+@strict_record
+class FuzzParams:
+    """Fuzzing: random perturbation of the ray's angles."""
+    enabled: bool
+    emit_jitter: float                               # ray emission (added to its direction)
+    bnd_offset: float                                # bounces off the boundary
+    bnd_jitter: float
+    bnd_mult: float
+    self_offset: float                               # bounces off the ray itself
+    self_jitter: float
+    self_mult: float
+    seed: int
+
+
+DEFAULT_FUZZ = FuzzParams(enabled=False, emit_jitter=0.0, bnd_offset=0.0, bnd_jitter=0.0,
+                          bnd_mult=1.0, self_offset=0.0, self_jitter=0.0, self_mult=1.0,
+                          seed=DEFAULT_FUZZ_SEED)
 
 # Ray emission direction (a figure-defining setting, not part of fuzzing): each
 # ray's base direction is either straight up (90 degrees) or from its start
@@ -786,48 +862,57 @@ DEV_DIR = os.path.join(SCRIPT_DIR, "dev")
 MAX_CRASH_DUMPS = 3        # per launch: an error repeating in a timer must not fill the disk
 TEMP_DIR = os.path.join(EXPORT_DIR, "TEMP")
 
-# Snapshot: every value of every simulation control (what is in the scene -
-# the obstacles and the views - is tracked separately). This is what "Revert"
-# restores, and what a keyframe's `snapshot` field holds.
-Snapshot = namedtuple("Snapshot", ["max_iter", "max_dist", "seg_mult", "fuzz",
-                                   "buddha_blur_radius", "buddha_blur_type",
-                                   "confine_window", "confine_method", "confine_threshold",
-                                   "emit_mode", "emit_target_r", "emit_target_theta",
-                                   "emit_target_cx", "emit_target_cy", "emit_offset"],
-                      defaults=[DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
-                                DEFAULT_CONFINE_THRESHOLD, DEFAULT_EMIT_MODE,
-                                DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
-                                DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
-                                DEFAULT_EMIT_OFFSET])
+@strict_record
+class BuddhaBlurSettings:
+    """The blur applied to Buddha coloration's scattered points."""
+    radius: float                                    # a multiple of the view's smaller dimension
+    type: int                                        # index into BUDDHA_BLUR_LABELS
 
-# Settings: what determines the generated image, together with the obstacles.
-# Start compares these.
-Settings = namedtuple("Settings", ["max_iter", "max_dist", "seg_mult", "fuzz",
-                                   "buddha_blur_radius", "buddha_blur_type",
-                                   "confine_window", "confine_method", "confine_threshold",
-                                   "emit_mode", "emit_target_r", "emit_target_theta",
-                                   "emit_target_cx", "emit_target_cy", "emit_offset"],
-                      defaults=[DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
-                                DEFAULT_CONFINE_THRESHOLD, DEFAULT_EMIT_MODE,
-                                DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
-                                DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
-                                DEFAULT_EMIT_OFFSET])
 
-DEFAULT_SNAPSHOT = Snapshot(
+DEFAULT_BUDDHA_BLUR = BuddhaBlurSettings(radius=DEFAULT_BUDDHA_BLUR_RADIUS,
+                                         type=DEFAULT_BUDDHA_BLUR_TYPE)
+
+
+@strict_record
+class RaySettings:
+    """Every value of every simulation control - what determines the generated image,
+    together with the obstacles (the scene, the obstacles and the views, is tracked
+    separately). Start compares these, "Revert" restores them, and a keyframe resolves
+    to one for each video frame."""
+    max_iter: int
+    max_dist: float                                  # 0 = no limit; see effective_dist
+    seg_mult: float
+    fuzz: FuzzParams
+    buddha_blur: BuddhaBlurSettings
+    confine_window: int
+    confine_method: int
+    confine_threshold: float
+    emit_mode: int
+    emit_target_r: float
+    emit_target_theta: float
+    emit_target_cx: float
+    emit_target_cy: float
+    emit_offset: float
+
+
+DEFAULT_RAY_SETTINGS = RaySettings(
     max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, seg_mult=DEFAULT_SEGMENT_MULT,
-    fuzz=DEFAULT_FUZZ, buddha_blur_radius=DEFAULT_BUDDHA_BLUR_RADIUS,
-    buddha_blur_type=DEFAULT_BUDDHA_BLUR_TYPE, confine_window=DEFAULT_CONFINE_WINDOW,
+    fuzz=DEFAULT_FUZZ, buddha_blur=DEFAULT_BUDDHA_BLUR, confine_window=DEFAULT_CONFINE_WINDOW,
     confine_method=DEFAULT_CONFINE_METHOD, confine_threshold=DEFAULT_CONFINE_THRESHOLD,
     emit_mode=DEFAULT_EMIT_MODE, emit_target_r=DEFAULT_EMIT_TARGET_R,
     emit_target_theta=DEFAULT_EMIT_TARGET_THETA, emit_target_cx=DEFAULT_EMIT_TARGET_CX,
     emit_target_cy=DEFAULT_EMIT_TARGET_CY, emit_offset=DEFAULT_EMIT_OFFSET)
+
 
 # A resolved frame's complete simulation settings (what render_full_image
 # needs, aside from the views and obstacles - each resolved separately, the
 # same way: a fixed set established when the render starts, each one's own
 # fields independently held/animated from the keyframes). Built by
 # resolve_frame_settings() from whichever keyframes define each setting.
-KeyframeData = namedtuple("KeyframeData", ["snapshot", "outline"])
+@strict_record
+class KeyframeData:
+    settings: RaySettings
+    outline: bool
 
 
 def make_scrollable_tab(tab):
@@ -1204,9 +1289,15 @@ def default_starting_obstacle(id_):
     return o
 
 
+# Every obstacle's data as the parallel arrays the simulation kernels take, bundled in one
+# argument (numba reads the fields by name). Build it only with build_obstacle_arrays /
+# obstacle_arrays_from_values.
+ObstacleArrays = namedtuple("ObstacleArrays", [
+    "shapes", "bounds", "cx", "cy", "effects", "fire_inside"])
+
+
 def build_obstacle_arrays(obstacles):
-    """[Obstacle, ...] -> (shapes, bounds, cx, cy, effects, fire_inside)
-    parallel numpy arrays, one entry per obstacle (an obstacle that passes
+    """[Obstacle, ...] -> an ObstacleArrays: parallel numpy arrays, one entry per obstacle (an obstacle that passes
     rays through in both directions is kept, since it can still fire rays and
     still has an outline). `effects` is an (n, 2) array: column 0 the
     incoming effect, column 1 the outgoing effect. The returned cx/cy are
@@ -1228,7 +1319,8 @@ def build_obstacle_arrays(obstacles):
         effects[idx, 0] = o.in_effect
         effects[idx, 1] = o.out_effect
         fire_inside[idx] = o.fire_inside
-    return shapes, bounds, cx, cy, effects, fire_inside
+    return ObstacleArrays(shapes=shapes, bounds=bounds, cx=cx, cy=cy, effects=effects,
+                          fire_inside=fire_inside)
 
 
 def obstacles_signature(obstacles):
@@ -1369,14 +1461,25 @@ OBSTACLE_FIELD_WIDGET_ATTRS = {
     "fire_inside": "obs_fire_inside_check",
 }
 
-ObstacleSnapshot = namedtuple("ObstacleSnapshot", list(Obstacle.__slots__))
+def _obstacle_field_types():
+    """Obstacle.__slots__ -> the type of each field: float for the animatable ones
+    (OBST_FIELD_INFO), else whatever a fresh Obstacle holds (int, or bool)."""
+    is_float = {field: flag for field, _label, flag in OBST_FIELD_INFO}
+    fresh = Obstacle(0)
+    return {field: float if is_float.get(field) else type(getattr(fresh, field))
+            for field in Obstacle.__slots__}
+
+
+ObstacleSnapshot = strict_record_type(
+    "ObstacleSnapshot", _obstacle_field_types(),
+    "A frozen copy of one Obstacle's fields (see snapshot_obstacle).")
 
 
 def snapshot_obstacle(o):
     """A plain, immutable copy of one Obstacle's fields - safe to read from a
     background render thread while the GUI thread might still be editing the
     live Obstacle object."""
-    return ObstacleSnapshot(*(getattr(o, f) for f in Obstacle.__slots__))
+    return ObstacleSnapshot(**{f: getattr(o, f) for f in Obstacle.__slots__})
 
 
 def obstacle_params_from_vals(shape, vals):
@@ -1419,7 +1522,7 @@ def resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number):
 
 
 def resolve_obstacle_arrays(obstacle_snapshots, keyframes_sorted, frame_number):
-    """(shapes, bounds, cx, cy, effects, fire_inside) parallel arrays for one
+    """An ObstacleArrays (parallel arrays) for one
     video frame - see resolve_obstacles."""
     return obstacle_arrays_from_values(
         resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number))
@@ -1430,7 +1533,7 @@ def obstacle_arrays_from_values(values):
     (ObstacleSnapshots)."""
     active = []
     for v in values:
-        vals = v._asdict()
+        vals = v.as_dict()
         shape = vals["shape"]
         params = obstacle_params_from_vals(shape, vals)
         bound = make_bound(shape, params)
@@ -1453,71 +1556,190 @@ def obstacle_arrays_from_values(values):
         effects[i, 0] = in_effect
         effects[i, 1] = out_effect
         fire_inside[i] = fire
-    return shapes, bounds, cxs, cys, effects, fire_inside
+    return ObstacleArrays(shapes=shapes, bounds=bounds, cx=cxs, cy=cys, effects=effects,
+                          fire_inside=fire_inside)
 
 
 
-# Every setting a keyframe can define: (key, tab it lives on, short label for
-# the settings list). Order here is the order shown within each tab group.
-SETTING_INFO = [
-    ("iter", "Simulation", "Iteration limit"),
-    ("dist", "Simulation", "Distance limit"),
-    ("seg_mult", "Simulation", "Segment length multiplier"),
-    ("emit_mode", "Simulation", "Emission direction"),
-    ("emit_target_r", "Simulation", "Emission target distance (r)"),
-    ("emit_target_theta", "Simulation", "Emission target angle (\u03b8)"),
-    ("emit_target_cx", "Simulation", "Emission target offset X"),
-    ("emit_target_cy", "Simulation", "Emission target offset Y"),
-    ("emit_offset", "Simulation", "Emission angle offset"),
-    ("confine_window", "Simulation", "Confinement window"),
-    ("confine_method", "Simulation", "Confinement method"),
-    ("confine_threshold", "Simulation", "Confinement threshold"),
-    ("fuzz_on", "Fuzzing", "Enabled"),
-    ("emit_jitter", "Fuzzing", "Emission jitter"),
-    ("bnd_offset", "Fuzzing", "Boundary offset"),
-    ("bnd_jitter", "Fuzzing", "Boundary jitter"),
-    ("bnd_mult", "Fuzzing", "Boundary multiplier"),
-    ("self_offset", "Fuzzing", "Self offset"),
-    ("self_jitter", "Fuzzing", "Self jitter"),
-    ("self_mult", "Fuzzing", "Self multiplier"),
-    ("seed", "Fuzzing", "Seed"),
-    ("buddha_blur_radius", "Buddha blur", "Radius"),
-    ("buddha_blur_type", "Buddha blur", "Blur type"),
-    ("outline", "Decorations", "Outline"),
-]
+@strict_record
+class ObstacleRing:
+    """What draw_obstacle_outline needs to outline one obstacle: its packed shape, where it
+    is, and the effects the outline's two layers show."""
+    shape: int
+    bound: np.ndarray
+    cx: float
+    cy: float
+    in_effect: int
+    out_effect: int
+
+
+@strict_record
+class SettingEntry:
+    """One row of the keyframe settings list: a setting (a static one, or one field of
+    an obstacle or a view), where it is listed and what it falls back to."""
+    key: str
+    tab: str
+    label: str
+    is_float: bool
+    fallback: object             # its value when no keyframe defines it
+
+
+@strict_record
+class RaySettingSpec:
+    """What the program knows about one simulation setting - one row per setting, so
+    that adding a RaySettings field means adding one row here rather than touching a
+    chain of places."""
+    path: tuple            # where the value lives in a RaySettings, e.g. ("fuzz", "seed")
+    control: str           # the App attribute holding the control that shows the value
+    widget: str            # the App attribute of the widget its modified-outline surrounds
+    kind: str              # how set_setting_control writes the control: "text", "int_text",
+                           # "float_text", "number", "bool" or "choice"
+    names: tuple           # for "choice": the names the value indexes into
+    tab: str               # the keyframe settings list section it is listed under
+    label: str             # its name there
+
+
+def _spec(path, control, widget, kind, names=()):
+    return RaySettingSpec(path=path, control=control, widget=widget, kind=kind, names=names)
+
+
+def _spec(path, control, widget, kind, tab, label, names=()):
+    return RaySettingSpec(path=path, control=control, widget=widget, kind=kind, names=names,
+                          tab=tab, label=label)
+
+
+# Every simulation setting, in the order the keyframe settings list shows them within
+# each tab. run_self_checks() makes sure these rows and the RaySettings fields are the
+# same set.
+RAY_SETTING_SPECS = {
+    "iter": _spec(("max_iter",), "iter_var", "iter_entry", "text",
+                  "Simulation", "Iteration limit"),
+    "dist": _spec(("max_dist",), "dist_var", "dist_entry", "text",
+                  "Simulation", "Distance limit"),
+    "seg_mult": _spec(("seg_mult",), "seg_mult_scale", "seg_mult_scale", "number",
+                      "Simulation", "Segment length multiplier"),
+    "emit_mode": _spec(("emit_mode",), "emit_mode_var", "emit_mode_combo", "choice",
+                       "Simulation", "Emission direction", EMIT_MODE_NAMES),
+    "emit_target_r": _spec(("emit_target_r",), "emit_target_r_var", "emit_target_r_entry",
+                           "float_text", "Simulation", "Emission target distance (r)"),
+    "emit_target_theta": _spec(("emit_target_theta",), "emit_target_theta_var",
+                               "emit_target_theta_entry", "float_text", "Simulation",
+                               "Emission target angle (\u03b8)"),
+    "emit_target_cx": _spec(("emit_target_cx",), "emit_target_cx_var", "emit_target_cx_entry",
+                            "float_text", "Simulation", "Emission target offset X"),
+    "emit_target_cy": _spec(("emit_target_cy",), "emit_target_cy_var", "emit_target_cy_entry",
+                            "float_text", "Simulation", "Emission target offset Y"),
+    "emit_offset": _spec(("emit_offset",), "emit_offset_scale", "emit_offset_scale", "number",
+                         "Simulation", "Emission angle offset"),
+    "confine_window": _spec(("confine_window",), "confine_window_var", "confine_window_entry",
+                            "int_text", "Simulation", "Confinement window"),
+    "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
+                            "choice", "Simulation", "Confinement method", CONFINE_METHOD_NAMES),
+    "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
+                               "confine_threshold_entry", "float_text", "Simulation",
+                               "Confinement threshold"),
+    "fuzz_on": _spec(("fuzz", "enabled"), "fuzz_enabled_var", "fuzz_enable_check", "bool",
+                     "Fuzzing", "Enabled"),
+    "emit_jitter": _spec(("fuzz", "emit_jitter"), "emit_jitter_scale", "emit_jitter_scale",
+                         "number", "Fuzzing", "Emission jitter"),
+    "bnd_offset": _spec(("fuzz", "bnd_offset"), "bnd_offset_scale", "bnd_offset_scale",
+                        "number", "Fuzzing", "Boundary offset"),
+    "bnd_jitter": _spec(("fuzz", "bnd_jitter"), "bnd_jitter_scale", "bnd_jitter_scale",
+                        "number", "Fuzzing", "Boundary jitter"),
+    "bnd_mult": _spec(("fuzz", "bnd_mult"), "bnd_mult_scale", "bnd_mult_scale", "number",
+                      "Fuzzing", "Boundary multiplier"),
+    "self_offset": _spec(("fuzz", "self_offset"), "self_offset_scale", "self_offset_scale",
+                         "number", "Fuzzing", "Self offset"),
+    "self_jitter": _spec(("fuzz", "self_jitter"), "self_jitter_scale", "self_jitter_scale",
+                         "number", "Fuzzing", "Self jitter"),
+    "self_mult": _spec(("fuzz", "self_mult"), "self_mult_scale", "self_mult_scale", "number",
+                       "Fuzzing", "Self multiplier"),
+    "seed": _spec(("fuzz", "seed"), "seed_var", "seed_entry", "text", "Fuzzing", "Seed"),
+    "buddha_blur_radius": _spec(("buddha_blur", "radius"), "buddha_blur_radius_scale",
+                                "buddha_blur_radius_scale", "number", "Buddha blur", "Radius"),
+    "buddha_blur_type": _spec(("buddha_blur", "type"), "buddha_blur_type_var",
+                              "buddha_blur_type_combo", "choice", "Buddha blur", "Blur type",
+                              BUDDHA_BLUR_LABELS),
+}
+
+# Every setting a keyframe can define: (key, tab it lives on, short label for the
+# settings list), in the order shown within each tab group - the RAY_SETTING_SPECS
+# rows, then the one decoration that is not part of a RaySettings.
+SETTING_INFO = ([(key, spec.tab, spec.label) for key, spec in RAY_SETTING_SPECS.items()]
+                + [("outline", "Decorations", "Outline")])
 SETTING_TABS_ORDER = ["Simulation", "Fuzzing", "Buddha blur", "Decorations"]
 SETTING_LABEL = {key: label for key, _tab, label in SETTING_INFO}
 SETTING_TAB = {key: tab for key, tab, _label in SETTING_INFO}
 
-# Only these are float sliders, so only these are ever smoothly interpolated;
-# everything else (which shape, colors, metrics, sides, flags, seed) always
-# holds the value of the nearest earlier keyframe that defines it.
-SETTING_FLOAT_KEYS = {
-    "dist", "seg_mult", "confine_threshold", "emit_target_r", "emit_target_theta", "emit_target_cx",
-    "emit_target_cy", "emit_offset",
-    "emit_jitter", "bnd_offset", "bnd_jitter",
-    "bnd_mult", "self_offset", "self_jitter", "self_mult",
-    "buddha_blur_radius",
-}
 
+def _field_types(record_class):
+    return {f.name: f.type for f in dataclasses.fields(record_class)}
+
+
+def ray_setting_leaf_paths(record_class=None, prefix=()):
+    """Every value a RaySettings holds, as a path: ("max_iter",), ("fuzz", "seed"), ..."""
+    paths = []
+    for f in dataclasses.fields(record_class or RaySettings):
+        if dataclasses.is_dataclass(f.type):
+            paths += ray_setting_leaf_paths(f.type, prefix + (f.name,))
+        else:
+            paths.append(prefix + (f.name,))
+    return paths
+
+
+def ray_settings_to_dict(settings):
+    """{setting key: value} for every RAY_SETTING_SPECS row, read from a RaySettings."""
+    values = {}
+    for key, spec in RAY_SETTING_SPECS.items():
+        value = settings
+        for name in spec.path:
+            value = getattr(value, name)
+        values[key] = value
+    return values
+
+
+def ray_settings_from_dict(values):
+    """A RaySettings from {setting key: value} (for example the values resolved from
+    keyframes, where an int setting may arrive as a float): each value is converted
+    to its field's type - int fields rounded, bool fields made bool, anything else
+    kept as it is (the record then checks it)."""
+    top, nested = {}, {}
+    for key, spec in RAY_SETTING_SPECS.items():
+        *outer, leaf = spec.path
+        assert len(outer) <= 1, spec.path
+        record_class = RaySettings
+        for name in outer:
+            record_class = _field_types(record_class)[name]
+        want = _field_types(record_class)[leaf]
+        value = values[key]
+        if want is int:
+            value = int(round(value))
+        elif want is bool:
+            value = bool(value)
+        (nested.setdefault(outer[0], {}) if outer else top)[leaf] = value
+    for name, fields in nested.items():
+        top[name] = _field_types(RaySettings)[name](**fields)
+    return RaySettings(**top)
+
+
+# Only the float settings are ever smoothly interpolated; everything else (which
+# shape, colors, metrics, sides, flags, seed) always holds the value of the nearest
+# earlier keyframe that defines it. Derived: a float field of RaySettings is a float
+# setting.
+def _is_float_setting(spec):
+    record_class = RaySettings
+    for name in spec.path[:-1]:
+        record_class = _field_types(record_class)[name]
+    return _field_types(record_class)[spec.path[-1]] is float
+
+
+SETTING_FLOAT_KEYS = {key for key, spec in RAY_SETTING_SPECS.items() if _is_float_setting(spec)}
 
 # Which attribute of App holds the main control of each SETTING_INFO setting (a
 # widget, or a handle whose `.widget` is the entry) - where its blue "modified"
 # outline is drawn. run_self_checks() keeps this in step with SETTING_INFO.
-SETTING_WIDGET_ATTRS = {
-    "iter": "iter_entry", "dist": "dist_entry", "seg_mult": "seg_mult_scale",
-    "emit_mode": "emit_mode_combo", "emit_target_r": "emit_target_r_entry",
-    "emit_target_theta": "emit_target_theta_entry", "emit_target_cx": "emit_target_cx_entry",
-    "emit_target_cy": "emit_target_cy_entry", "emit_offset": "emit_offset_scale",
-    "confine_window": "confine_window_entry", "confine_method": "confine_method_combo",
-    "confine_threshold": "confine_threshold_entry", "fuzz_on": "fuzz_enable_check",
-    "emit_jitter": "emit_jitter_scale", "bnd_offset": "bnd_offset_scale",
-    "bnd_jitter": "bnd_jitter_scale", "bnd_mult": "bnd_mult_scale",
-    "self_offset": "self_offset_scale", "self_jitter": "self_jitter_scale",
-    "self_mult": "self_mult_scale", "seed": "seed_entry",
-    "buddha_blur_radius": "buddha_blur_radius_scale",
-    "buddha_blur_type": "buddha_blur_type_combo", "outline": "deco_outline_check",
-}
+SETTING_WIDGET_ATTRS = {**{key: spec.widget for key, spec in RAY_SETTING_SPECS.items()},
+                        "outline": "deco_outline_check"}
 
 
 def shape_params_tuple(shape, obj):
@@ -1542,39 +1764,43 @@ def shape_params_tuple(shape, obj):
     return (obj.capsule_length, obj.capsule_radius, obj.capsule_rotation)  # CAPSULE
 
 
-def effective_settings(snap):
-    """The Settings implied by a Snapshot."""
-    return Settings(max_iter=snap.max_iter, max_dist=snap.max_dist, seg_mult=snap.seg_mult,
-                    fuzz=snap.fuzz, buddha_blur_radius=snap.buddha_blur_radius,
-                    buddha_blur_type=snap.buddha_blur_type,
-                    confine_window=snap.confine_window, confine_method=snap.confine_method,
-                    confine_threshold=snap.confine_threshold, emit_mode=snap.emit_mode,
-                    emit_target_r=snap.emit_target_r,
-                    emit_target_theta=snap.emit_target_theta,
-                    emit_target_cx=snap.emit_target_cx, emit_target_cy=snap.emit_target_cy,
-                    emit_offset=snap.emit_offset)
+# The rules the simulation kernels take, as namedtuples (numba reads their fields by
+# name - a misspelled one is a compile error - and keeps each field's own type). Build
+# them only with fuzz_rule / confine_rule / emission_rule below, and read them in the
+# kernels only by field name.
+FuzzRule = namedtuple("FuzzRule", [
+    "enabled",                                       # bool
+    "emit_jitter",                                   # ray emission (added to its direction)
+    "bnd_offset", "bnd_jitter", "bnd_mult",          # bounces off a shape's edge
+    "self_offset", "self_jitter", "self_mult"])      # bounces off the ray itself
+ConfineRule = namedtuple("ConfineRule", [
+    "window",                                        # how many recent path points are judged (int)
+    "method",                                        # CONFINE_BOX / CONFINE_PATH (int)
+    "threshold"])                                    # world units
+EmissionRule = namedtuple("EmissionRule", [
+    "mode",                                          # EMIT_UP / EMIT_TOWARDS (int)
+    "target_x", "target_y",                          # the point rays are fired towards
+    "offset"])                                       # degrees, positive = counterclockwise
 
 
-def confine_array(window, method, threshold):
-    """The confinement rule as the float array the simulation kernels expect:
-    [window (points), method (CONFINE_BOX / CONFINE_PATH), threshold]."""
-    return np.array([window, method, threshold], dtype=np.float64)
+def confine_rule(window, method, threshold):
+    """The confinement rule in the form the simulation kernels expect."""
+    return ConfineRule(window=int(window), method=int(method), threshold=float(threshold))
 
 
 # What was always hard-wired (a 4-point window, the Box method, one pixel).
-CONFINE_DEFAULT = confine_array(DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
-                                DEFAULT_CONFINE_THRESHOLD)
+CONFINE_DEFAULT = confine_rule(DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
+                               DEFAULT_CONFINE_THRESHOLD)
 
 
-def emission_array(mode, target_x, target_y, offset):
-    """The emission direction rule as the float array the simulation kernels
-    expect: [mode (EMIT_UP / EMIT_TOWARDS), target x, target y, angle offset
-    in degrees]."""
-    return np.array([mode, target_x, target_y, offset], dtype=np.float64)
+def emission_rule(mode, target_x, target_y, offset):
+    """The emission direction rule in the form the simulation kernels expect."""
+    return EmissionRule(mode=int(mode), target_x=float(target_x), target_y=float(target_y),
+                        offset=float(offset))
 
 
 # What was always hard-wired: emit up and to the right (Up, offset -45).
-EMISSION_DEFAULT = emission_array(
+EMISSION_DEFAULT = emission_rule(
     DEFAULT_EMIT_MODE,
     *obstacle_center_from(DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA,
                           DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY),
@@ -1582,17 +1808,17 @@ EMISSION_DEFAULT = emission_array(
 
 
 def settings_emission(settings):
-    """emission_array() for a Settings (its target's four-part position turned
+    """emission_rule() for a RaySettings (its target's four-part position turned
     into the point the kernels aim at)."""
     tx, ty = obstacle_center_from(settings.emit_target_r, settings.emit_target_theta,
                                   settings.emit_target_cx, settings.emit_target_cy)
-    return emission_array(settings.emit_mode, tx, ty, settings.emit_offset)
+    return emission_rule(settings.emit_mode, tx, ty, settings.emit_offset)
 
 
 def settings_confine(settings):
-    """confine_array() for a Settings."""
-    return confine_array(settings.confine_window, settings.confine_method,
-                         settings.confine_threshold)
+    """confine_rule() for a RaySettings."""
+    return confine_rule(settings.confine_window, settings.confine_method,
+                        settings.confine_threshold)
 
 
 def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):
@@ -1641,35 +1867,8 @@ def resolve_frame_settings(keyframes_sorted, frame_number):
     not a fixed set of settings."""
     v = {key: resolve_setting(key, keyframes_sorted, frame_number)
         for key, _tab, _label in SETTING_INFO}
-    fuzz = FuzzParams(bool(v["fuzz_on"]), v["emit_jitter"],
-                      v["bnd_offset"], v["bnd_jitter"], v["bnd_mult"],
-                      v["self_offset"], v["self_jitter"], v["self_mult"],
-                      int(round(v["seed"])))
-    snapshot = Snapshot(
-        max_iter=int(round(v["iter"])), max_dist=v["dist"], seg_mult=v["seg_mult"],
-        fuzz=fuzz, buddha_blur_radius=v["buddha_blur_radius"],
-        buddha_blur_type=int(round(v["buddha_blur_type"])),
-        confine_window=int(round(v["confine_window"])),
-        confine_method=int(round(v["confine_method"])),
-        confine_threshold=float(v["confine_threshold"]),
-        emit_mode=int(round(v["emit_mode"])), emit_target_r=float(v["emit_target_r"]),
-        emit_target_theta=float(v["emit_target_theta"]),
-        emit_target_cx=float(v["emit_target_cx"]), emit_target_cy=float(v["emit_target_cy"]),
-        emit_offset=float(v["emit_offset"]))
-    return KeyframeData(snapshot, bool(v["outline"]))
-
-
-def describe_fuzz(f):
-    if not f.enabled:
-        return "off"
-
-    def part(name, off, jit, mult):
-        return f"{name} {off:+.1f}\u00b0 \u00b1{jit:.1f}\u00b0 \u00d7{mult:.2f}"
-
-    return "; ".join([f"emission jitter \u00b1{f.emit_jitter:.1f}\u00b0",
-                      part("boundary bounces", f.bnd_offset, f.bnd_jitter, f.bnd_mult),
-                      part("self bounces", f.self_offset, f.self_jitter, f.self_mult),
-                      f"seed {f.seed}"])
+    settings = ray_settings_from_dict(v)
+    return KeyframeData(settings=settings, outline=bool(v["outline"]))
 
 
 def effective_dist(max_dist):
@@ -1677,13 +1876,13 @@ def effective_dist(max_dist):
     return float("inf") if max_dist == 0 else float(max_dist)
 
 
-def fuzz_array(f):
-    """FuzzParams -> the float array the simulation kernels expect (the seed
-    is handled separately, by seeding the RNG before each ray is traced)."""
-    return np.array([1.0 if f.enabled else 0.0,
-                     f.emit_jitter,
-                     f.bnd_offset, f.bnd_jitter, f.bnd_mult,
-                     f.self_offset, f.self_jitter, f.self_mult], dtype=np.float64)
+def fuzz_rule(f):
+    """FuzzParams -> the FuzzRule the simulation kernels expect (the seed is handled
+    separately, by seeding the RNG before each ray is traced)."""
+    return FuzzRule(enabled=bool(f.enabled), emit_jitter=float(f.emit_jitter),
+                    bnd_offset=float(f.bnd_offset), bnd_jitter=float(f.bnd_jitter),
+                    bnd_mult=float(f.bnd_mult), self_offset=float(f.self_offset),
+                    self_jitter=float(f.self_jitter), self_mult=float(f.self_mult))
 
 
 def settings_suffix(settings):
@@ -3127,21 +3326,21 @@ def short_value_text(key, val):
         if field == "mode":
             return val
         # field is "chan0"/"chan1"/"chan2"
-        chan_src, kind, stat, point1, point2, buddha_pts, buddha_comp, buddha_bright, const = val
-        if chan_src == CHAN_SRC_BUDDHA:
-            chosen = [BUDDHA_POINT_LABELS[i].split()[0] for i, on in enumerate(buddha_pts) if on]
-            comp = BUDDHA_COMPRESSION_LABELS[buddha_comp]
-            bright = BUDDHA_BRIGHTNESS_OPTIONS[buddha_bright]
+        if val.chan_src == CHAN_SRC_BUDDHA:
+            chosen = [BUDDHA_POINT_LABELS[i].split()[0]
+                      for i, on in enumerate(val.buddha_points) if on]
+            comp = BUDDHA_COMPRESSION_LABELS[val.buddha_compression]
+            bright = BUDDHA_BRIGHTNESS_OPTIONS[val.buddha_brightness]
             return f"Buddha:{'+'.join(chosen) if chosen else 'none'}/{comp}/{bright}"
-        if chan_src == CHAN_SRC_CONSTANT:
-            return f"Const:{'0' if const == NONE_ZERO else '1'}"
-        if kind == KIND_POINT:
-            return f"{STAT_SHORT[stat]}@{POINT_SHORT[point1]}/{POINT_SHORT[point2]}"
-        if stat in (NONE_ZERO, NONE_ONE):
+        if val.chan_src == CHAN_SRC_CONSTANT:
+            return f"Const:{'0' if val.constant == NONE_ZERO else '1'}"
+        if val.kind == KIND_POINT:
+            return f"{STAT_SHORT[val.stat]}@{POINT_SHORT[val.point1]}/{POINT_SHORT[val.point2]}"
+        if val.stat in (NONE_ZERO, NONE_ONE):
             raise ValueError(
-                f"channel value has stat={stat} (a Constant-only sentinel) but "
-                f"chan_src is {chan_src}, not CHAN_SRC_CONSTANT")
-        return STAT_SHORT[stat]
+                f"channel value has stat={val.stat} (a Constant-only sentinel) but "
+                f"chan_src is {val.chan_src}, not CHAN_SRC_CONSTANT")
+        return STAT_SHORT[val.stat]
     if key in ("iter", "dist", "seed", "confine_window"):
         return str(val)
     if key == "confine_method":
@@ -3224,7 +3423,10 @@ class ViewConfig:
         self.constant_choice = list(DEFAULT_CONSTANT_CHOICES)
 
 
-ViewSnapshot = namedtuple("ViewSnapshot", list(ViewConfig.__slots__))
+ViewSnapshot = strict_record_type(
+    "ViewSnapshot", {field: (int if field == "id" else str if field == "mode" else tuple)
+                     for field in ViewConfig.__slots__},
+    "A frozen copy of one ViewConfig's fields (see snapshot_view).")
 
 
 def snapshot_view(v):
@@ -3234,25 +3436,38 @@ def snapshot_view(v):
     per-channel fields are mutable lists (the UI mutates them in place, e.g.
     self.chan_src[c] = ...), so each one is copied here rather than shared -
     a shared reference would let a background thread see a live edit
-    mid-render, exactly what a "snapshot" is meant to prevent."""
-    vals = []
-    for f in ViewConfig.__slots__:
-        val = getattr(v, f)
-        vals.append(list(val) if isinstance(val, list) else val)
-    return ViewSnapshot(*vals)
+    mid-render, exactly what a "snapshot" is meant to prevent (the record stores
+    the per-channel lists as tuples)."""
+    return ViewSnapshot(**{f: getattr(v, f) for f in ViewConfig.__slots__})
+
+
+@strict_record
+class ChannelSettings:
+    """One color channel of a view, as a keyframe stores it (the value of a
+    "view:<id>:chan<c>" key). `constant` is a field of its own even though it only
+    means something when chan_src is CHAN_SRC_CONSTANT - it is never packed into
+    `stat`, whose meaning already depends on `kind`, so reading it never requires
+    guessing which of several interpretations currently applies."""
+    chan_src: int
+    kind: int
+    stat: int                  # the point metric if kind is KIND_POINT, else the other metric
+    point1: int
+    point2: int
+    buddha_points: tuple
+    buddha_compression: int
+    buddha_brightness: int
+    constant: int
 
 
 def view_channel_value(v, c):
     """Channel c's current setting for a ViewConfig or ViewSnapshot `v`, as
-    stored in a keyframe. constant_choice is included as its own element
-    even though it's only meaningful when chan_src is CHAN_SRC_CONSTANT -
-    keeping it a dedicated slot (never packed into point_metric/other_metric,
-    whose meaning already depends on kind) means reading it never requires
-    guessing which of several interpretations currently applies."""
+    stored in a keyframe (a ChannelSettings)."""
     stat = v.point_metric[c] if v.kinds[c] == KIND_POINT else v.other_metric[c]
-    return (v.chan_src[c], v.kinds[c], stat, v.point1_choice[c], v.point2_choice[c],
-            v.buddha_points[c], v.buddha_compression[c], v.buddha_brightness[c],
-            v.constant_choice[c])
+    return ChannelSettings(
+        chan_src=v.chan_src[c], kind=v.kinds[c], stat=stat, point1=v.point1_choice[c],
+        point2=v.point2_choice[c], buddha_points=v.buddha_points[c],
+        buddha_compression=v.buddha_compression[c], buddha_brightness=v.buddha_brightness[c],
+        constant=v.constant_choice[c])
 
 
 # Every field a view can define in a keyframe: (field, label, is_float) -
@@ -3270,32 +3485,42 @@ def view_field_value(v, field):
     return view_channel_value(v, int(field[-1]))
 
 
-ViewSettings = namedtuple("ViewSettings", ["mode", "kinds", "point_metric", "other_metric",
-                                           "point1_choice", "point2_choice", "chan_src",
-                                           "buddha_points", "buddha_compression",
-                                           "buddha_brightness", "constant_choice"])
+@strict_record
+class ViewSettings:
+    """One view's resolved coloration, as colorize_view reads it (per-channel values
+    are 3-tuples)."""
+    mode: str
+    kinds: tuple
+    point_metric: tuple
+    other_metric: tuple
+    point1_choice: tuple
+    point2_choice: tuple
+    chan_src: tuple
+    buddha_points: tuple
+    buddha_compression: tuple
+    buddha_brightness: tuple
+    constant_choice: tuple
 
 
 def decompose_chans(mode, chans):
-    """A color model plus 3 channels' worth of raw 9-tuples (as stored in a
-    keyframe, or built by view_channel_value) -> a ViewSettings, decomposed
-    into the separate per-channel fields render_full_image's coloring step
-    actually reads. Used by resolve_views() for every view alike."""
-    chan_src = tuple(c[0] for c in chans)
-    kinds = tuple(c[1] for c in chans)
-    point_metric = tuple(c[2] if c[1] == KIND_POINT else DEFAULT_POINT_METRICS[i]
-                         for i, c in enumerate(chans))
-    other_metric = tuple(c[2] if c[1] == KIND_OTHER else DEFAULT_OTHER_METRICS[i]
-                         for i, c in enumerate(chans))
-    point1_choice = tuple(c[3] for c in chans)
-    point2_choice = tuple(c[4] for c in chans)
-    buddha_points = tuple(c[5] for c in chans)
-    buddha_compression = tuple(c[6] for c in chans)
-    buddha_brightness = tuple(c[7] for c in chans)
-    constant_choice = tuple(c[8] for c in chans)
-    return ViewSettings(mode, kinds, point_metric, other_metric, point1_choice, point2_choice,
-                        chan_src, buddha_points, buddha_compression, buddha_brightness,
-                        constant_choice)
+    """A color model plus 3 channels' ChannelSettings (as stored in a keyframe, or
+    built by view_channel_value) -> a ViewSettings, decomposed into the separate
+    per-channel fields render_full_image's coloring step actually reads. Used by
+    resolve_views() for every view alike."""
+    return ViewSettings(
+        mode=mode,
+        kinds=tuple(c.kind for c in chans),
+        point_metric=tuple(c.stat if c.kind == KIND_POINT else DEFAULT_POINT_METRICS[i]
+                           for i, c in enumerate(chans)),
+        other_metric=tuple(c.stat if c.kind == KIND_OTHER else DEFAULT_OTHER_METRICS[i]
+                           for i, c in enumerate(chans)),
+        point1_choice=tuple(c.point1 for c in chans),
+        point2_choice=tuple(c.point2 for c in chans),
+        chan_src=tuple(c.chan_src for c in chans),
+        buddha_points=tuple(c.buddha_points for c in chans),
+        buddha_compression=tuple(c.buddha_compression for c in chans),
+        buddha_brightness=tuple(c.buddha_brightness for c in chans),
+        constant_choice=tuple(c.constant for c in chans))
 
 
 def resolve_views(view_snapshots, keyframes_sorted, frame_number):
@@ -3318,22 +3543,7 @@ def resolve_views(view_snapshots, keyframes_sorted, frame_number):
     return tuple(result)
 
 
-DEFAULT_SETTING_VALUES = {
-    "iter": DEFAULT_ITER, "dist": DEFAULT_DIST, "seg_mult": DEFAULT_SEGMENT_MULT,
-    "confine_window": DEFAULT_CONFINE_WINDOW, "confine_method": DEFAULT_CONFINE_METHOD,
-    "confine_threshold": DEFAULT_CONFINE_THRESHOLD,
-    "emit_mode": DEFAULT_EMIT_MODE, "emit_target_r": DEFAULT_EMIT_TARGET_R,
-    "emit_target_theta": DEFAULT_EMIT_TARGET_THETA, "emit_target_cx": DEFAULT_EMIT_TARGET_CX,
-    "emit_target_cy": DEFAULT_EMIT_TARGET_CY, "emit_offset": DEFAULT_EMIT_OFFSET,
-    "fuzz_on": DEFAULT_FUZZ.enabled,
-    "emit_jitter": DEFAULT_FUZZ.emit_jitter, "bnd_offset": DEFAULT_FUZZ.bnd_offset,
-    "bnd_jitter": DEFAULT_FUZZ.bnd_jitter, "bnd_mult": DEFAULT_FUZZ.bnd_mult,
-    "self_offset": DEFAULT_FUZZ.self_offset, "self_jitter": DEFAULT_FUZZ.self_jitter,
-    "self_mult": DEFAULT_FUZZ.self_mult, "seed": DEFAULT_FUZZ.seed,
-    "buddha_blur_radius": DEFAULT_BUDDHA_BLUR_RADIUS,
-    "buddha_blur_type": DEFAULT_BUDDHA_BLUR_TYPE,
-    "outline": True,
-}
+DEFAULT_SETTING_VALUES = {**ray_settings_to_dict(DEFAULT_RAY_SETTINGS), "outline": True}
 
 
 def run_self_checks():
@@ -3424,6 +3634,22 @@ def run_self_checks():
             "SETTING_WIDGET_ATTRS and SETTING_INFO disagree - "
             f"only in SETTING_WIDGET_ATTRS: {set(SETTING_WIDGET_ATTRS) - info_keys or None}; "
             f"only in SETTING_INFO: {info_keys - set(SETTING_WIDGET_ATTRS) or None}")
+    if set(RAY_SETTING_SPECS) != info_keys - {"outline"}:
+        raise AssertionError(
+            "RAY_SETTING_SPECS and SETTING_INFO disagree - "
+            f"only in RAY_SETTING_SPECS: {set(RAY_SETTING_SPECS) - info_keys or None}; "
+            f"only in SETTING_INFO: {info_keys - {'outline'} - set(RAY_SETTING_SPECS) or None}")
+    spec_paths = sorted(spec.path for spec in RAY_SETTING_SPECS.values())
+    if spec_paths != sorted(ray_setting_leaf_paths()):
+        raise AssertionError(
+            "RAY_SETTING_SPECS and the RaySettings fields disagree - "
+            f"fields without a row: {set(ray_setting_leaf_paths()) - set(spec_paths) or None}; "
+            f"rows without a field: {set(spec_paths) - set(ray_setting_leaf_paths()) or None}")
+    bad_kinds = [k for k, spec in RAY_SETTING_SPECS.items()
+                 if spec.kind not in ("text", "int_text", "float_text", "number", "bool", "choice")
+                 or bool(spec.names) != (spec.kind == "choice")]
+    if bad_kinds:
+        raise AssertionError(f"RAY_SETTING_SPECS rows with a bad kind or names: {bad_kinds}")
     obst_widget_fields = set(OBSTACLE_FIELD_WIDGET_ATTRS) | {p.field for p in SHAPE_PARAM_INFO}
     obst_info_fields = {f for f, _label, _is_float in OBST_FIELD_INFO}
     if obst_widget_fields != obst_info_fields:
@@ -4049,13 +4275,14 @@ def inside_boundary_grid(gx, gy, shape, bound):
 
 
 @njit(cache=True)
-def emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_fire_inside):
+def emits_ray(x, y, obstacles):
     """Does a ray actually start at (x, y)? True if (x, y) is inside any shape
     whose "fire rays inside" is on. Being inside shapes that have it off makes
     no difference."""
-    for oi in range(len(obst_shapes)):
-        if obst_fire_inside[oi] and inside_boundary(x - obst_cx[oi], y - obst_cy[oi],
-                                                     obst_shapes[oi], obst_bounds[oi]):
+    for oi in range(len(obstacles.shapes)):
+        if obstacles.fire_inside[oi] and inside_boundary(
+                x - obstacles.cx[oi], y - obstacles.cy[oi],
+                obstacles.shapes[oi], obstacles.bounds[oi]):
             return True
     return False
 
@@ -4225,7 +4452,7 @@ def unit_direction(deg):
 
 @njit(nogil=True, cache=True)
 def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-               obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw):
+               obstacles, raw):
     """
     Trace one ray, storing the start point and every
     bounce point in pts (needs at least max_iter + 2 rows, 2 columns), the
@@ -4247,9 +4474,9 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     still reaches its true, unshortened endpoint, since there's no next
     segment to continue into.
 
-    `obst_shapes`/`obst_bounds`/`obst_cx`/`obst_cy`/`obst_effects` describe
-    every obstacle (parallel arrays; each obstacle's own bound is centred on
-    (obst_cx[i], obst_cy[i]); `obst_effects` is an (n, 2) array of
+    `obstacles` is an ObstacleArrays describing every obstacle (parallel
+    arrays; each obstacle's own bound is centred on (cx[i], cy[i]); `effects`
+    is an (n, 2) array of
     OBSTACLE_EFFECT_* codes: column 0 for rays coming in from outside, column
     1 for rays going out from inside). What happens to a ray as it reaches a
     shape's edge depends only on the effect chosen for that direction. Reflect acts like a
@@ -4262,34 +4489,35 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     escapes (TERM_ESCAPED): its last point is where it leaves the [-1, 1]
     image square.
 
-    `confine` is [window, method, threshold] (see confine_array): the ray is
-    confined (TERM_CONFINED) when the last `window` points of its path are
-    inside a box smaller than the threshold both ways (CONFINE_BOX), or their
-    segments add up to less than it (CONFINE_PATH).
+    `confine` is a ConfineRule (see confine_rule): the ray is confined
+    (TERM_CONFINED) when the last `window` points of its path are inside a box
+    smaller than the threshold both ways (CONFINE_BOX), or their segments add up
+    to less than it (CONFINE_PATH).
 
-    `emission` is [mode, target x, target y, angle offset] (see emission_array):
-    the ray's direction is its base direction - straight up (EMIT_UP), or from
-    its start point towards the target (EMIT_TOWARDS) - plus the offset in
-    degrees, positive meaning more counterclockwise.
+    `emission` is an EmissionRule (see emission_rule): the ray's direction is its
+    base direction - straight up (EMIT_UP), or from its start point towards the
+    target (EMIT_TOWARDS) - plus the offset in degrees, positive meaning more
+    counterclockwise.
 
-    `fuzz` is [enabled,
-               emit_jitter,
-               boundary_offset, boundary_jitter, boundary_mult,
-               self_offset, self_jitter, self_mult]
-    (angles in degrees; emit_jitter is added to the emission direction). When
-    enabled, the RNG is used for the jitter terms, so the caller must have
-    seeded it beforehand for reproducibility.
+    `fuzz` is a FuzzRule (see fuzz_rule; angles in degrees, emit_jitter is added
+    to the emission direction). When enabled, the RNG is used for the jitter
+    terms, so the caller must have seeded it beforehand for reproducibility.
 
     Returns (term, npts):
       term  why the ray stopped: TERM_CONFINED, TERM_ITER, TERM_DIST,
             TERM_OBSTACLE, TERM_PERPENDICULAR or TERM_ESCAPED
       npts  number of valid points in pts (the last is the final location)
     """
-    fuzzing = fuzz[0] > 0.5
+    obst_shapes = obstacles.shapes
+    obst_bounds = obstacles.bounds
+    obst_cx = obstacles.cx
+    obst_cy = obstacles.cy
+    obst_effects = obstacles.effects
+    fuzzing = fuzz.enabled
     n_obst = len(obst_shapes)
-    confine_window = int(confine[0])
-    confine_method = int(confine[1])
-    confine_threshold = confine[2]
+    confine_window = confine.window
+    confine_method = confine.method
+    confine_threshold = confine.threshold
 
     pts[0, 0] = x0
     pts[0, 1] = y0
@@ -4319,13 +4547,13 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     # Emission direction: the base (straight up, or towards the target point -
     # straight up if this ray starts exactly on it), plus the angle offset, plus
     # (with fuzzing) a random jitter.
-    if int(emission[0]) == EMIT_TOWARDS and (emission[1] != x0 or emission[2] != y0):
-        base_deg = atan2(emission[2] - y0, emission[1] - x0) * 180.0 / pi
+    if emission.mode == EMIT_TOWARDS and (emission.target_x != x0 or emission.target_y != y0):
+        base_deg = atan2(emission.target_y - y0, emission.target_x - x0) * 180.0 / pi
     else:
         base_deg = 90.0
-    ray_deg = base_deg + emission[3]
+    ray_deg = base_deg + emission.offset
     if fuzzing:
-        ej = fuzz[1]
+        ej = fuzz.emit_jitter
         ray_deg += np.random.uniform(-ej, ej) if ej > 0.0 else 0.0
     dx, dy = unit_direction(ray_deg)
     last_obj = -2                            # >= 0: a segment; <= OBST_OBJ_BASE: a shape's edge
@@ -4511,13 +4739,13 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
         # off the ray's own path have separate settings.
         if fuzzing:
             if best_obj <= OBST_OBJ_BASE:
-                f_off = fuzz[2]
-                f_jit = fuzz[3]
-                f_mult = fuzz[4]
+                f_off = fuzz.bnd_offset
+                f_jit = fuzz.bnd_jitter
+                f_mult = fuzz.bnd_mult
             else:
-                f_off = fuzz[5]
-                f_jit = fuzz[6]
-                f_mult = fuzz[7]
+                f_off = fuzz.self_offset
+                f_jit = fuzz.self_jitter
+                f_mult = fuzz.self_mult
             cross = odx * rdy - ody * rdx
             dotr = odx * rdx + ody * rdy
             base_ang = atan2(cross, dotr)
@@ -4819,22 +5047,21 @@ def compute_points(pts, npts, raw, kinds, sp):
 
 
 @njit(nogil=True, parallel=True, cache=True)
-def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult, fuzz, confine, emission, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
-                obst_fire_inside, seed_base):
+def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult, fuzz, confine,
+                emission, obstacles, seed_base):
     """
     Simulate rows [row0, row1). For each pixel that actually fires a ray, fill
     in stats[j, i, :] and points[j, i, :, :] and set status[j, i] = 1. When
     fuzzing is enabled, each pixel's ray gets its own reproducible seed.
     """
-    fuzzing = fuzz[0] > 0.5
+    fuzzing = fuzz.enabled
     n = (row1 - row0) * SIZE
     for idx in prange(n):
         j = row0 + idx // SIZE
         i = idx % SIZE
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
-        if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
-                         obst_fire_inside):
+        if not emits_ray(x, y, obstacles):
             continue
         if fuzzing:
             np.random.seed(seed_base + i * 1000003 + j * 97)
@@ -4843,8 +5070,8 @@ def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult,
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-                                obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw)
+        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine,
+                                emission, obstacles, raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):
@@ -4869,8 +5096,8 @@ def scatter_one_buddha_point(counts, x, y, w, h):
 
 
 @njit(cache=True)
-def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine, emission, obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects,
-                         obst_fire_inside, seed_base, want_all_self, want_all_mid,
+def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine, emission,
+                         obstacles, seed_base, want_all_self, want_all_mid,
                          want_prog_bounce, want_prog_mid, counts):
     """
     For rows [row0, row1), re-trace every ray that actually fires (using the
@@ -4883,7 +5110,7 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
     any pixel, not just ones in this row range, so a parallel version would
     risk concurrent writes to the same pixel.
     """
-    fuzzing = fuzz[0] > 0.5
+    fuzzing = fuzz.enabled
     h, w = counts.shape
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
@@ -4892,14 +5119,12 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
         for i in range(w):
             x = (i + 0.5) * PIXEL - 1.0
             y = 1.0 - (j + 0.5) * PIXEL
-            if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
-                             obst_fire_inside):
+            if not emits_ray(x, y, obstacles):
                 continue
             if fuzzing:
                 np.random.seed(seed_base + i * 1000003 + j * 97)
-            _term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-                                     obst_shapes, obst_bounds, obst_cx, obst_cy,
-                                     obst_effects, raw)
+            _term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
+                                     confine, emission, obstacles, raw)
             nb = int(raw[RAW_BOUNCES])
 
             if want_all_self:
@@ -4936,8 +5161,7 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
 
 @njit(nogil=True, parallel=True, cache=True)
 def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, max_dist,
-                   seg_mult, fuzz, confine, emission, obst_shapes, obst_bounds, obst_cx,
-                   obst_cy, obst_effects, obst_fire_inside, seed_base):
+                   seg_mult, fuzz, confine, emission, obstacles, seed_base):
     """
     Like render_rows, but for an arbitrary out_w x out_h output grid (used for
     video frames) instead of the fixed SIZE x SIZE main image. The grid still
@@ -4946,7 +5170,7 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
     stays tied to the main image's fixed PIXEL size, not to out_w/out_h, so a
     ray behaves identically regardless of the resolution it's sampled at.
     """
-    fuzzing = fuzz[0] > 0.5
+    fuzzing = fuzz.enabled
     step_x = 2.0 / out_w
     step_y = 2.0 / out_h
     n = (row1 - row0) * out_w
@@ -4955,8 +5179,7 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
         i = idx % out_w
         x = (i + 0.5) * step_x - 1.0
         y = 1.0 - (j + 0.5) * step_y
-        if not emits_ray(x, y, obst_shapes, obst_bounds, obst_cx, obst_cy,
-                         obst_fire_inside):
+        if not emits_ray(x, y, obstacles):
             continue
         if fuzzing:
             np.random.seed(seed_base + i * 1000003 + j * 97)
@@ -4965,8 +5188,8 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-                                obst_shapes, obst_bounds, obst_cx, obst_cy, obst_effects, raw)
+        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine,
+                                emission, obstacles, raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):
@@ -5040,16 +5263,12 @@ class App:
         self.running = False              # generation in progress?
         self.done = False                 # image fully generated?
         self.generated_settings = None    # settings the current image was started with
-        self.baseline = DEFAULT_SNAPSHOT  # what "Revert" restores
-        self.max_iter = DEFAULT_ITER      # values used by the current image
-        self.max_dist = effective_dist(DEFAULT_DIST)
-        self.gen_seg_mult = DEFAULT_SEGMENT_MULT
-        self.gen_fuzz = fuzz_array(DEFAULT_FUZZ)
+        self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
+        # What the current image was generated with is generated_settings (see
+        # settings_of_current_image); these are only the kernel-ready arrays made from it.
+        self.gen_fuzz = fuzz_rule(DEFAULT_FUZZ)
         self.gen_confine = CONFINE_DEFAULT
         self.gen_emission = EMISSION_DEFAULT
-        self.gen_seed_base = DEFAULT_FUZZ.seed
-        self.gen_buddha_blur_radius = DEFAULT_BUDDHA_BLUR_RADIUS
-        self.gen_buddha_blur_type = DEFAULT_BUDDHA_BLUR_TYPE
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
         self.last_emit_target_r = DEFAULT_EMIT_TARGET_R
@@ -5119,12 +5338,9 @@ class App:
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
         empty_f64 = np.empty(0, dtype=np.float64)
         empty_bool = np.empty(0, dtype=np.bool_)
-        self.gen_obst_shapes = empty_i64
-        self.gen_obst_bounds = empty_bounds
-        self.gen_obst_cx = empty_f64
-        self.gen_obst_cy = empty_f64
-        self.gen_obst_effects = np.empty((0, 2), dtype=np.int64)
-        self.gen_obst_fire_inside = empty_bool
+        self.gen_obstacles = ObstacleArrays(      # the obstacles as generated (see start)
+            shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
+            effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
         self.gen_obstacles_sig = ()
         self.gen_obstacle_snapshots = []   # frozen copies of the obstacles as generated,
                                            # for the export's figure settings text
@@ -7207,15 +7423,15 @@ class App:
         """FuzzParams from the current widget values."""
         seed = parse_seed(self.seed_var.get())
         return FuzzParams(
-            bool(self.fuzz_enabled_var.get()),
-            round(float(self.emit_jitter_scale.get()), 2),
-            round(float(self.bnd_offset_scale.get()), 2),
-            round(float(self.bnd_jitter_scale.get()), 2),
-            round(float(self.bnd_mult_scale.get()), 3),
-            round(float(self.self_offset_scale.get()), 2),
-            round(float(self.self_jitter_scale.get()), 2),
-            round(float(self.self_mult_scale.get()), 3),
-            self.last_seed if seed is None else seed)
+            enabled=bool(self.fuzz_enabled_var.get()),
+            emit_jitter=round(float(self.emit_jitter_scale.get()), 2),
+            bnd_offset=round(float(self.bnd_offset_scale.get()), 2),
+            bnd_jitter=round(float(self.bnd_jitter_scale.get()), 2),
+            bnd_mult=round(float(self.bnd_mult_scale.get()), 3),
+            self_offset=round(float(self.self_offset_scale.get()), 2),
+            self_jitter=round(float(self.self_jitter_scale.get()), 2),
+            self_mult=round(float(self.self_mult_scale.get()), 3),
+            seed=self.last_seed if seed is None else seed)
 
     def update_fuzz_enabled_state(self):
         """Grey out every Fuzzing-tab control except the Enable checkbox itself
@@ -7276,7 +7492,7 @@ class App:
                                         fill=PENDING_OUTLINE, dash=(5, 4), tags="pending")
 
     # ---- settings, Start and Revert ---------------------------------------- #
-    def current_snapshot(self):
+    def current_ray_settings(self):
         """Every simulation control's value, or None if a limit entry is invalid."""
         it = parse_iter_limit(self.iter_var.get())
         ds = parse_dist_limit(self.dist_var.get())
@@ -7287,10 +7503,10 @@ class App:
         if it is None or ds is None or cw is None or ct is None or None in target:
             return None
         sm = self.seg_mult_scale.get()
-        br = self.buddha_blur_radius_scale.get()
-        bt = BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get())
-        return Snapshot(max_iter=it, max_dist=ds, seg_mult=sm, fuzz=self.read_fuzz_controls(),
-                        buddha_blur_radius=br, buddha_blur_type=bt, confine_window=cw,
+        blur = BuddhaBlurSettings(radius=self.buddha_blur_radius_scale.get(),
+                                  type=BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get()))
+        return RaySettings(max_iter=it, max_dist=ds, seg_mult=sm, fuzz=self.read_fuzz_controls(),
+                        buddha_blur=blur, confine_window=cw,
                         confine_method=CONFINE_METHOD_NAMES.index(
                             self.confine_method_var.get()),
                         confine_threshold=ct,
@@ -7298,12 +7514,6 @@ class App:
                         emit_target_r=target[0], emit_target_theta=target[1],
                         emit_target_cx=target[2], emit_target_cy=target[3],
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
-
-    def settings_changed(self):
-        """Do the controls now describe a different image than the one generated?"""
-        cur = self.current_snapshot()
-        return (self.generated_settings is not None and cur is not None
-                and effective_settings(cur) != self.generated_settings)
 
     def update_buttons(self):
         """Start: enabled if the entries are valid and either nothing has been
@@ -7314,10 +7524,10 @@ class App:
         finished generating (started, not currently running, all rows done) -
         exporting before that would just export the blank background, which
         is never useful, so the button explains what to do instead."""
-        cur = self.current_snapshot()
+        cur = self.current_ray_settings()
         start_ok = (self.ready and cur is not None
                     and (self.generated_settings is None
-                         or effective_settings(cur) != self.generated_settings
+                         or cur != self.generated_settings
                          or obstacles_signature(self.obstacles) != self.gen_obstacles_sig))
         revert_ok = cur is None or cur != self.baseline
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
@@ -7332,36 +7542,11 @@ class App:
             self.save_btn_tooltip.update(tip)
             self.save_as_btn_tooltip.update(tip)
 
-    def apply_snapshot_to_controls(self, s):
-        """Set every Simulation/Fuzzing control from a Snapshot `s`. Used by
-        both Revert and Load."""
-        self.iter_var.set(str(s.max_iter))
-        self.dist_var.set(str(s.max_dist))
-        self.seg_mult_scale.set(s.seg_mult)
-        self.confine_window_var.set(str(s.confine_window))
-        self.confine_method_var.set(CONFINE_METHOD_NAMES[s.confine_method])
-        self.confine_threshold_var.set(str(s.confine_threshold))
-        self.emit_mode_var.set(EMIT_MODE_NAMES[s.emit_mode])
-        for field in EMIT_TARGET_FIELDS:
-            getattr(self, f"emit_target_{field}_var").set(str(getattr(s, f"emit_target_{field}")))
-        self.emit_offset_scale.set(s.emit_offset)
-        f = s.fuzz
-        self.fuzz_enabled_var.set(f.enabled)
-        self.emit_jitter_scale.set(f.emit_jitter)
-        self.bnd_offset_scale.set(f.bnd_offset)
-        self.bnd_jitter_scale.set(f.bnd_jitter)
-        self.bnd_mult_scale.set(f.bnd_mult)
-        self.self_offset_scale.set(f.self_offset)
-        self.self_jitter_scale.set(f.self_jitter)
-        self.self_mult_scale.set(f.self_mult)
-        self.seed_var.set(str(f.seed))
-        self.buddha_blur_radius_scale.set(s.buddha_blur_radius)
-        self.buddha_blur_type_var.set(BUDDHA_BLUR_LABELS[s.buddha_blur_type])
-
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
         program started, or when the last generation was started."""
-        self.apply_snapshot_to_controls(self.baseline)
+        for key, value in ray_settings_to_dict(self.baseline).items():
+            self.set_setting_control(key, value)
         self.on_limit_var_changed()
         self.on_shape_param_changed()
         self.on_fuzz_changed()
@@ -7644,12 +7829,10 @@ class App:
                 scatter_points_raw(self.buddha_counts[c], row, col, valid)
                 touched = True
             if any(want_multi.values()):
+                g = self.settings_of_current_image()
                 scatter_multi_buddha(
-                    r0, r1, self.max_iter, self.max_dist, self.gen_seg_mult, self.gen_fuzz,
-                    self.gen_confine, self.gen_emission,
-                    self.gen_obst_shapes,
-                    self.gen_obst_bounds, self.gen_obst_cx, self.gen_obst_cy,
-                    self.gen_obst_effects, self.gen_obst_fire_inside, self.gen_seed_base,
+                    r0, r1, g.max_iter, effective_dist(g.max_dist), g.seg_mult, self.gen_fuzz,
+                    self.gen_confine, self.gen_emission, self.gen_obstacles, g.fuzz.seed,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                     want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
                     self.buddha_counts[c])
@@ -7666,8 +7849,9 @@ class App:
         if self.buddha_counts[c] is None:
             return None
         if self.buddha_counts_blurred[c] is None:
-            radius_px = world_radius_to_pixels(self.gen_buddha_blur_radius, SIZE, SIZE)
-            kernel = build_buddha_blur_kernel(radius_px, self.gen_buddha_blur_type)
+            blur = self.settings_of_current_image().buddha_blur
+            radius_px = world_radius_to_pixels(blur.radius, SIZE, SIZE)
+            kernel = build_buddha_blur_kernel(radius_px, blur.type)
             self.buddha_counts_blurred[c] = blur_counts_image(self.buddha_counts[c], kernel)
         return self.buddha_counts_blurred[c]
 
@@ -7766,23 +7950,24 @@ class App:
         """Trigger numba compilation (slow only the first time; then cached)."""
         big = float(DIST_LIMIT_MAX)
         bound = ellipse_bound(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_ELL_ROTATION)
-        fz = fuzz_array(DEFAULT_FUZZ)
+        fz = fuzz_rule(DEFAULT_FUZZ)
         empty_i64 = np.empty(0, dtype=np.int64)
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
         empty_f64 = np.empty(0, dtype=np.float64)
         empty_bool = np.empty(0, dtype=np.bool_)
         inside_boundary(0.0, 0.0, SHAPE_ELLIPSE, bound)
-        empty_effects = np.empty((0, 2), dtype=np.int64)
-        emits_ray(0.0, 0.0, empty_i64, empty_bounds, empty_f64, empty_f64, empty_bool)
+        no_obstacles = ObstacleArrays(
+            shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
+            effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
+        emits_ray(0.0, 0.0, no_obstacles)
         trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, WARM_ITER, big,
-                   DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, empty_i64, empty_bounds, empty_f64, empty_f64,
-                   empty_effects, self.hover_raw)
+                   DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, no_obstacles,
+                   self.hover_raw)
         compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER,
                       DEFAULT_SEGMENT_MULT, self.hover_vec)
         compute_points(self.hover_pts, 4, self.hover_raw, self.hover_kinds, self.hover_sp)
         render_rows(self.stats, self.points, self.status, 0, 1, WARM_ITER, big,
-                    DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, empty_i64, empty_bounds, empty_f64, empty_f64,
-                    empty_effects, empty_bool, 0)
+                    DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, no_obstacles, 0)
         self.stats[:] = 0
         self.points[:] = 0
         self.status[:] = 0
@@ -7898,27 +8083,20 @@ class App:
 
     def start(self):
         """(Re)start generation using the current settings."""
-        snap = self.current_snapshot()
+        snap = self.current_ray_settings()
         if snap is None:
             return
         if self.tick_id is not None:
             self.root.after_cancel(self.tick_id)
             self.tick_id = None
 
-        settings = effective_settings(snap)
+        settings = snap
         self.generated_settings = settings
-        self.baseline = snap                       # Revert now returns to these values
-        self.max_iter = settings.max_iter
-        self.max_dist = effective_dist(settings.max_dist)
-        self.gen_seg_mult = settings.seg_mult
-        self.gen_fuzz = fuzz_array(settings.fuzz)
+        self.baseline = settings                   # Revert now returns to these values
+        self.gen_fuzz = fuzz_rule(settings.fuzz)
         self.gen_confine = settings_confine(settings)
         self.gen_emission = settings_emission(settings)
-        self.gen_seed_base = settings.fuzz.seed
-        self.gen_buddha_blur_radius = settings.buddha_blur_radius
-        self.gen_buddha_blur_type = settings.buddha_blur_type
-        (self.gen_obst_shapes, self.gen_obst_bounds, self.gen_obst_cx, self.gen_obst_cy,
-         self.gen_obst_effects, self.gen_obst_fire_inside) = build_obstacle_arrays(self.obstacles)
+        self.gen_obstacles = build_obstacle_arrays(self.obstacles)
         self.gen_obstacles_sig = obstacles_signature(self.obstacles)
         self.gen_obstacles_by_id = {o.id: self.obstacle_state(o) for o in self.obstacles}
         self.gen_obstacle_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
@@ -7950,17 +8128,16 @@ class App:
         budget = self.PERIOD * COMPUTE_FRACTION
         target = budget / 3.0                      # aim for ~3 batches per tick
         rows_before = self.rows_done
+        g = self.settings_of_current_image()
+        max_dist = effective_dist(g.max_dist)
 
         while self.rows_done < SIZE:
             t0 = time.perf_counter()
             row1 = min(self.rows_done + self.batch_rows, SIZE)
             render_rows(self.stats, self.points, self.status, self.rows_done, row1,
-                        self.max_iter, self.max_dist, self.gen_seg_mult, self.gen_fuzz,
-                        self.gen_confine, self.gen_emission,
-                    self.gen_obst_shapes,
-                        self.gen_obst_bounds, self.gen_obst_cx, self.gen_obst_cy,
-                        self.gen_obst_effects, self.gen_obst_fire_inside,
-                        self.gen_seed_base)
+                        g.max_iter, max_dist, g.seg_mult, self.gen_fuzz,
+                        self.gen_confine, self.gen_emission, self.gen_obstacles,
+                        g.fuzz.seed)
             self.rows_done = row1
             now = time.perf_counter()
 
@@ -7995,17 +8172,22 @@ class App:
         self.tick_id = self.root.after(delay_ms, self.tick)
 
     def obstacle_ring_specs(self):
-        """[(shape, bound, cx, cy, in_effect, out_effect), ...] for obstacles
-        to draw a solid two-layer outline for: the frozen set if an image has
-        been generated (matching what was actually simulated/saved), else the
-        live (current) set."""
+        """[ObstacleRing, ...] for obstacles to draw a solid two-layer outline for:
+        the frozen set if an image has been generated (matching what was actually
+        simulated/saved), else the live (current) set."""
         if self.generated_settings is not None:
-            return [(self.gen_obst_shapes[i], self.gen_obst_bounds[i],
-                     self.gen_obst_cx[i], self.gen_obst_cy[i],
-                     self.gen_obst_effects[i, 0], self.gen_obst_effects[i, 1])
-                    for i in range(len(self.gen_obst_shapes))]
-        return [(o.shape, make_bound(o.shape, o.params()), *o.center(), o.in_effect,
-                 o.out_effect) for o in self.obstacles]
+            g = self.gen_obstacles
+            return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
+                                 cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
+                                 out_effect=int(g.effects[i, 1]))
+                    for i in range(len(g.shapes))]
+        rings = []
+        for o in self.obstacles:
+            cx, cy = o.center()
+            rings.append(ObstacleRing(shape=o.shape, bound=make_bound(o.shape, o.params()),
+                                      cx=cx, cy=cy, in_effect=o.in_effect,
+                                      out_effect=o.out_effect))
+        return rings
 
     def draw(self):
         """Push the current image to the screen, with the obstacle outlines
@@ -8019,9 +8201,9 @@ class App:
         np.copyto(self.frame, self.img)
         outline = self.deco.get("outline")
         if outline is None or outline.get():
-            for shape, bound, cx, cy, in_e, out_e in self.obstacle_ring_specs():
-                draw_obstacle_outline(self.frame, shape, bound, self.gx - cx, self.gy - cy,
-                                      in_e, out_e)
+            for ring in self.obstacle_ring_specs():
+                draw_obstacle_outline(self.frame, ring.shape, ring.bound, self.gx - ring.cx,
+                                      self.gy - ring.cy, ring.in_effect, ring.out_effect)
         np.copyto(self.display_frame, self.frame)
         self.draw_view_name_overlay()
         header = f"P6 {SIZE} {SIZE} 255\n".encode()
@@ -8065,11 +8247,11 @@ class App:
         current entries/controls (last valid values) if nothing has been started."""
         if self.generated_settings is not None:
             return self.generated_settings
-        return Settings(max_iter=self.last_iter, max_dist=self.last_dist,
+        return RaySettings(max_iter=self.last_iter, max_dist=self.last_dist,
                         seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
-                        buddha_blur_radius=self.buddha_blur_radius_scale.get(),
-                        buddha_blur_type=BUDDHA_BLUR_LABELS.index(
-                            self.buddha_blur_type_var.get()),
+                        buddha_blur=BuddhaBlurSettings(
+                            radius=self.buddha_blur_radius_scale.get(),
+                            type=BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get())),
                         confine_window=self.last_confine_window,
                         confine_method=CONFINE_METHOD_NAMES.index(
                             self.confine_method_var.get()),
@@ -8104,9 +8286,8 @@ class App:
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
         ps = self.preview_settings()
-        o_shapes, o_bounds, o_cx, o_cy, _o_eff, o_fire = build_obstacle_arrays(self.obstacles)
-        if (self.pinned_px != (i, j)
-                and not emits_ray(x, y, o_shapes, o_bounds, o_cx, o_cy, o_fire)):
+        obstacles = build_obstacle_arrays(self.obstacles)
+        if (self.pinned_px != (i, j) and not emits_ray(x, y, obstacles)):
             return                                 # clicking where no ray fires does nothing -
                                                    # except on the pinned pixel, to unpin it
         if self.pinned_px == (i, j):
@@ -8127,12 +8308,11 @@ class App:
         x = (i + 0.5) * PIXEL - 1.0
         y = 1.0 - (j + 0.5) * PIXEL
         ps = self.preview_settings()
-        o_shapes, o_bounds, o_cx, o_cy, o_effects, o_fire = build_obstacle_arrays(self.obstacles)
+        obstacles = build_obstacle_arrays(self.obstacles)
         # A hovered pixel that fires no ray has no preview - but a pinned one
         # stays visible even if the scene changed under it so that it no longer
         # fires: it then shows the ray such a pixel would trace anyway.
-        if (self.pinned_px != (i, j)
-                and not emits_ray(x, y, o_shapes, o_bounds, o_cx, o_cy, o_fire)):
+        if (self.pinned_px != (i, j) and not emits_ray(x, y, obstacles)):
             self.clear_overlay()                   # not a ray-emitting pixel
             return
         if (i, j) == self.hover_px:
@@ -8140,13 +8320,13 @@ class App:
 
         self.hover_px = (i, j)
         iters, dist = ps.max_iter, effective_dist(ps.max_dist)
-        fz = fuzz_array(ps.fuzz)
+        fz = fuzz_rule(ps.fuzz)
         if ps.fuzz.enabled:
             np.random.seed(ps.fuzz.seed + i * 1000003 + j * 97)
         pts, kinds = self.hover_pts, self.hover_kinds
         raw, vec, sp = self.hover_raw, self.hover_vec, self.hover_sp
-        term, n = trace_path(x, y, pts, kinds, iters, dist, ps.seg_mult, fz, settings_confine(ps), settings_emission(ps), o_shapes,
-                             o_bounds, o_cx, o_cy, o_effects, raw)
+        term, n = trace_path(x, y, pts, kinds, iters, dist, ps.seg_mult, fz, settings_confine(ps),
+                             settings_emission(ps), obstacles, raw)
         compute_stats(pts, n, raw, iters, ps.seg_mult, vec)
         compute_points(pts, n, raw, kinds, sp)
         vals = self.component_values(vec, sp, x, y)
@@ -8297,6 +8477,15 @@ class App:
             if path:
                 self._write(path)
 
+    def settings_of_current_image(self):
+        """The RaySettings the current image was generated with (the defaults, for
+        the placeholder image before the first Start). Coloring a view from the
+        stored data needs all of them, not just the limits: Buddha coloration
+        re-traces rays with the generated confinement and emission rules."""
+        if self.generated_settings is not None:
+            return self.generated_settings
+        return DEFAULT_RAY_SETTINGS
+
     def views_to_export(self):
         """Which views to include in an export, per the Export designer's
         "Include all views" checkbox: all of them, in list/composition
@@ -8313,26 +8502,26 @@ class App:
         the outline decoration drawn in if enabled, exactly like
         self.frame/draw(). Only called for more than one view - the
         single-view case is just self.frame, already rendered."""
-        mini_settings = Settings(self.max_iter, self.max_dist, self.gen_seg_mult,
-                                 FuzzParams(False, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
-                                           self.gen_seed_base),
-                                 self.gen_buddha_blur_radius, self.gen_buddha_blur_type)
-        obst_arrays = (self.gen_obst_shapes, self.gen_obst_bounds, self.gen_obst_cx,
-                      self.gen_obst_cy, self.gen_obst_effects, self.gen_obst_fire_inside)
+        mini_settings = self.settings_of_current_image()
+        obst_arrays = self.gen_obstacles
         images = []
         for v in views:
-            vs = ViewSettings(v.mode, v.kinds, v.point_metric, v.other_metric,
-                              v.point1_choice, v.point2_choice, v.chan_src, v.buddha_points,
-                              v.buddha_compression, v.buddha_brightness, v.constant_choice)
+            vs = ViewSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
+                              other_metric=v.other_metric, point1_choice=v.point1_choice,
+                              point2_choice=v.point2_choice, chan_src=v.chan_src,
+                              buddha_points=v.buddha_points,
+                              buddha_compression=v.buddha_compression,
+                              buddha_brightness=v.buddha_brightness,
+                              constant_choice=v.constant_choice)
             images.append(self.colorize_view(vs, self.stats, self.points, self.status,
                                              SIZE, SIZE, mini_settings, self.gen_fuzz,
                                              obst_arrays))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
-                for shape, bound, cx, cy, in_e, out_e in self.obstacle_ring_specs():
-                    draw_obstacle_outline(img, shape, bound, self.gx - cx, self.gy - cy,
-                                          in_e, out_e)
+                for ring in self.obstacle_ring_specs():
+                    draw_obstacle_outline(img, ring.shape, ring.bound, self.gx - ring.cx,
+                                          self.gy - ring.cy, ring.in_effect, ring.out_effect)
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
     def _write(self, path):
@@ -8399,7 +8588,7 @@ class App:
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
         if path_or_none is None:
-            settings_for_name = effective_settings(data.snapshot)
+            settings_for_name = data.settings
             path = os.path.join(ensure_export_dir(),
                                 default_filename(settings_for_name, fmt))
         else:
@@ -8420,7 +8609,7 @@ class App:
         only via self.root.after(0, ...)."""
         try:
             rgb = self.render_full_image(data, w, h, obst_arrays, views)
-            rgb = apply_info_locations(rgb, views, w, effective_settings(data.snapshot),
+            rgb = apply_info_locations(rgb, views, w, data.settings,
                                        obst_values, color_location, figure_location,
                                        mutate_ok=True)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -8447,29 +8636,14 @@ class App:
         callers like refresh_timeline_diffs, which already show their own
         gentle inline message and run on every keystroke, where a popup
         would be disruptive) if the limit fields are currently invalid."""
-        snap = self.current_snapshot()
+        snap = self.current_ray_settings()
         if snap is None:
             if show_error:
                 messagebox.showerror("Invalid settings",
                                      "Fix the iteration/distance limit fields first.")
             return None
-        f = snap.fuzz
-        d = {
-            "iter": snap.max_iter, "dist": snap.max_dist, "seg_mult": snap.seg_mult,
-            "confine_window": snap.confine_window, "confine_method": snap.confine_method,
-            "confine_threshold": snap.confine_threshold,
-            "emit_mode": snap.emit_mode, "emit_target_r": snap.emit_target_r,
-            "emit_target_theta": snap.emit_target_theta,
-            "emit_target_cx": snap.emit_target_cx, "emit_target_cy": snap.emit_target_cy,
-            "emit_offset": snap.emit_offset,
-            "fuzz_on": f.enabled, "emit_jitter": f.emit_jitter,
-            "bnd_offset": f.bnd_offset, "bnd_jitter": f.bnd_jitter, "bnd_mult": f.bnd_mult,
-            "self_offset": f.self_offset, "self_jitter": f.self_jitter,
-            "self_mult": f.self_mult, "seed": f.seed,
-            "buddha_blur_radius": snap.buddha_blur_radius,
-            "buddha_blur_type": snap.buddha_blur_type,
-            "outline": self.deco["outline"].get(),
-        }
+        d = ray_settings_to_dict(snap)
+        d["outline"] = self.deco["outline"].get()
         for o in self.obstacles:
             for field, _label, _is_float in OBST_FIELD_INFO:
                 d[f"obst:{o.id}:{field}"] = getattr(o, field)
@@ -8524,19 +8698,18 @@ class App:
                 v.mode = val
             else:
                 c = int(field[-1])
-                chan_src, kind, stat, point1, point2, buddha_pts, comp, bright, const = val
-                v.chan_src[c] = chan_src
-                v.kinds[c] = kind
-                if kind == KIND_POINT:
-                    v.point_metric[c] = stat
+                v.chan_src[c] = val.chan_src
+                v.kinds[c] = val.kind
+                if val.kind == KIND_POINT:
+                    v.point_metric[c] = val.stat
                 else:
-                    v.other_metric[c] = stat
-                v.point1_choice[c] = point1
-                v.point2_choice[c] = point2
-                v.buddha_points[c] = buddha_pts
-                v.buddha_compression[c] = comp
-                v.buddha_brightness[c] = bright
-                v.constant_choice[c] = const
+                    v.other_metric[c] = val.stat
+                v.point1_choice[c] = val.point1
+                v.point2_choice[c] = val.point2
+                v.buddha_points[c] = val.buddha_points
+                v.buddha_compression[c] = val.buddha_compression
+                v.buddha_brightness[c] = val.buddha_brightness
+                v.constant_choice[c] = val.constant
             if v is self.selected_view_obj():
                 self.refresh_color_controls_for_selected_view()
             if v is self.live_view():
@@ -8554,49 +8727,27 @@ class App:
                     self.update_preview(*self.pinned_px)
             self.rebuild_view_list()
             return
-        if key == "iter":
-            self.iter_var.set(str(val))
-        elif key == "dist":
-            self.dist_var.set(str(val))
-        elif key == "seg_mult":
-            self.seg_mult_scale.set(val)
-        elif key == "emit_mode":
-            self.emit_mode_var.set(EMIT_MODE_NAMES[int(round(val))])
-        elif key.startswith("emit_target_"):
-            getattr(self, key + "_var").set(str(float(val)))
-        elif key == "emit_offset":
-            self.emit_offset_scale.set(val)
-        elif key == "confine_window":
-            self.confine_window_var.set(str(int(round(val))))
-        elif key == "confine_method":
-            self.confine_method_var.set(CONFINE_METHOD_NAMES[int(round(val))])
-        elif key == "confine_threshold":
-            self.confine_threshold_var.set(str(float(val)))
-        elif key == "fuzz_on":
-            self.fuzz_enabled_var.set(val)
-        elif key == "emit_jitter":
-            self.emit_jitter_scale.set(val)
-        elif key == "bnd_offset":
-            self.bnd_offset_scale.set(val)
-        elif key == "bnd_jitter":
-            self.bnd_jitter_scale.set(val)
-        elif key == "bnd_mult":
-            self.bnd_mult_scale.set(val)
-        elif key == "self_offset":
-            self.self_offset_scale.set(val)
-        elif key == "self_jitter":
-            self.self_jitter_scale.set(val)
-        elif key == "self_mult":
-            self.self_mult_scale.set(val)
-        elif key == "seed":
-            self.seed_var.set(str(val))
-        elif key == "buddha_blur_radius":
-            self.buddha_blur_radius_scale.set(val)
-        elif key == "buddha_blur_type":
-            self.buddha_blur_type_var.set(BUDDHA_BLUR_LABELS[val])
-        elif key == "outline":
+        if key == "outline":
             self.deco["outline"].set(val)
             self.on_decoration_changed("outline")
+        else:
+            self.set_setting_control(key, val)
+
+    def set_setting_control(self, key, val):
+        """Write a simulation setting (a RAY_SETTING_SPECS key) into its control, as the
+        control's kind needs it. Does NOT refresh what depends on it."""
+        spec = RAY_SETTING_SPECS[key]
+        control = getattr(self, spec.control)
+        if spec.kind == "text":
+            control.set(str(val))
+        elif spec.kind == "int_text":
+            control.set(str(int(round(val))))
+        elif spec.kind == "float_text":
+            control.set(str(float(val)))
+        elif spec.kind == "choice":
+            control.set(spec.names[int(round(val))])
+        else:                                       # "number" (a slider or number entry), "bool"
+            control.set(val)
 
     def setting_fallback(self, key):
         """The value to fall back to when no keyframe defines `key` at all:
@@ -8713,7 +8864,8 @@ class App:
         idx_kf = sorted_kfs.index(kf)
         self.kf_applying = True
         try:
-            for key, _tab, _label, _is_float, _fallback in self.all_setting_entries():
+            for entry in self.all_setting_entries():
+                key = entry.key
                 status = self.setting_status(kf, key, sorted_kfs, idx_kf)
                 if status == "present":
                     self.load_value(key, kf.data[key])
@@ -8817,21 +8969,22 @@ class App:
         self.update_kf_detail_panel()
 
     def all_setting_entries(self):
-        """[(key, tab, label, is_float, fallback), ...] for every static
-        setting plus every current obstacle's and view's fields, in display
-        order."""
-        entries = [(key, tab, label, key in SETTING_FLOAT_KEYS, DEFAULT_SETTING_VALUES[key])
-                  for key, tab, label in SETTING_INFO]
+        """[SettingEntry, ...] for every static setting plus every current
+        obstacle's and view's fields, in display order."""
+        entries = [SettingEntry(key=key, tab=tab, label=label, is_float=key in SETTING_FLOAT_KEYS,
+                                fallback=DEFAULT_SETTING_VALUES[key])
+                   for key, tab, label in SETTING_INFO]
         for idx, o in enumerate(self.obstacles):
             tab = f"Obstacle #{idx + 1}"
             for field, label, is_float in OBST_FIELD_INFO:
-                entries.append((f"obst:{o.id}:{field}", tab, label, is_float,
-                               getattr(o, field)))
+                entries.append(SettingEntry(key=f"obst:{o.id}:{field}", tab=tab, label=label,
+                                            is_float=is_float, fallback=getattr(o, field)))
         for idx, v in enumerate(self.views):
             tab = f"View {idx}"
             for field, label, is_float in VIEW_FIELD_INFO:
-                entries.append((f"view:{v.id}:{field}", tab, label, is_float,
-                               view_field_value(v, field)))
+                entries.append(SettingEntry(key=f"view:{v.id}:{field}", tab=tab, label=label,
+                                            is_float=is_float,
+                                            fallback=view_field_value(v, field)))
         return entries
 
     def all_setting_tabs(self):
@@ -8902,13 +9055,13 @@ class App:
             return setting_passes_presence_filter(key in kf.data, presence)
 
         for tab in self.all_setting_tabs():
-            all_tab_entries = [e for e in entries if e[1] == tab]
-            tab_entries = [e for e in all_tab_entries if passes(e[0])]
+            all_tab_entries = [e for e in entries if e.tab == tab]
+            tab_entries = [e for e in all_tab_entries if passes(e.key)]
             if not tab_entries:
                 continue                       # nothing here matches the filters
             expanded = tab in self.diff_expanded
-            n_set = sum(1 for e in all_tab_entries if e[0] in kf.data)
-            n_modified = sum(1 for e in all_tab_entries if e[0] in modified)
+            n_set = sum(1 for e in all_tab_entries if e.key in kf.data)
+            n_modified = sum(1 for e in all_tab_entries if e.key in modified)
             header = ttk.Label(self.diff_list_frame, cursor="hand2",
                                text=diff_section_header_text(tab, expanded, n_set,
                                                              len(all_tab_entries),
@@ -8920,9 +9073,9 @@ class App:
             row += 1
             if not expanded:
                 continue
-            for key, _tab, label, is_float, fallback in tab_entries:
-                self.add_setting_row(row, kf, key, label, is_float, fallback, current,
-                                     sorted_kfs, idx_kf)
+            for entry in tab_entries:
+                self.add_setting_row(row, kf, entry.key, entry.label, entry.is_float,
+                                     entry.fallback, current, sorted_kfs, idx_kf)
                 row += 1
         if row == 0:
             ttk.Label(self.diff_list_frame, text="(no settings match the filters)",
@@ -9088,8 +9241,8 @@ class App:
         world extent as the main image regardless of out_w/out_h - safe to
         call from a background thread (touches only numpy arrays, never a Tk
         widget). `data` is the resolved simulation (KeyframeData - shape,
-        limits, fuzzing); `obst_arrays` is a (shapes, bounds, cx, cy,
-        effects, fire_inside) tuple built on the main thread beforehand.
+        limits, fuzzing); `obst_arrays` is an ObstacleArrays built on the main
+        thread beforehand.
 
         `views` is every view to render (see resolve_views()), in order -
         each one rendered as its own full (out_h, out_w, 3) image from the
@@ -9098,16 +9251,15 @@ class App:
         is (out_h, out_w * len(views), 3). With a single view (the ordinary
         case before this feature existed), this is exactly the one image
         it's always been."""
-        o_shapes, o_bounds, o_cx, o_cy, o_effects, o_fire = obst_arrays
-        settings = effective_settings(data.snapshot)
-        fz = fuzz_array(settings.fuzz)
+        settings = data.settings
+        fz = fuzz_rule(settings.fuzz)
         stats = np.zeros((out_h, out_w, N_STATS), dtype=np.float32)
         points = np.zeros((out_h, out_w, N_POINTS, 2), dtype=np.float32)
         status = np.zeros((out_h, out_w), dtype=np.uint8)
         render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, settings.max_iter,
-                       effective_dist(settings.max_dist), settings.seg_mult, fz, settings_confine(settings), settings_emission(settings),
-                       o_shapes,
-                       o_bounds, o_cx, o_cy, o_effects, o_fire, settings.fuzz.seed)
+                       effective_dist(settings.max_dist), settings.seg_mult, fz,
+                       settings_confine(settings), settings_emission(settings), obst_arrays,
+                       settings.fuzz.seed)
 
         images = [self.colorize_view(v, stats, points, status, out_w, out_h, settings, fz,
                                      obst_arrays)
@@ -9115,9 +9267,11 @@ class App:
 
         if data.outline:
             gx, gy = make_grid(out_w, out_h)
-            obst_layers = [ring_layer_masks(o_shapes[oi], o_bounds[oi],
-                                            gx - o_cx[oi], gy - o_cy[oi])
-                           + (o_effects[oi, 0], o_effects[oi, 1]) for oi in range(len(o_shapes))]
+            ob = obst_arrays
+            obst_layers = [ring_layer_masks(ob.shapes[oi], ob.bounds[oi],
+                                            gx - ob.cx[oi], gy - ob.cy[oi])
+                           + (ob.effects[oi, 0], ob.effects[oi, 1])
+                           for oi in range(len(ob.shapes))]
             for img in images:
                 for outer, inner, in_e, out_e in obst_layers:
                     img[outer] = OBST_EFFECT_RGB[int(in_e)]
@@ -9132,7 +9286,6 @@ class App:
         from already-traced stats/points/status. `v` is a ViewSettings: this
         is the same coloring computation every view goes through, whichever
         one it is."""
-        o_shapes, o_bounds, o_cx, o_cy, o_effects, o_fire = obst_arrays
         mapping = make_mapping(v.kinds, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
@@ -9140,8 +9293,8 @@ class App:
         computed = status == 1
         n = int(computed.sum())
         if n:
-            radius_px = world_radius_to_pixels(settings.buddha_blur_radius, out_w, out_h)
-            buddha_kernel = build_buddha_blur_kernel(radius_px, settings.buddha_blur_type)
+            radius_px = world_radius_to_pixels(settings.buddha_blur.radius, out_w, out_h)
+            buddha_kernel = build_buddha_blur_kernel(radius_px, settings.buddha_blur.type)
             vals = []
             for c in range(3):
                 s = mapping[c]
@@ -9172,9 +9325,8 @@ class App:
                     if any(want_multi.values()):
                         scatter_multi_buddha(
                             0, out_h, settings.max_iter, effective_dist(settings.max_dist),
-                            settings.seg_mult, fz, settings_confine(settings), settings_emission(settings),
-                       o_shapes, o_bounds,
-                            o_cx, o_cy, o_effects, o_fire, settings.fuzz.seed,
+                            settings.seg_mult, fz, settings_confine(settings),
+                            settings_emission(settings), obst_arrays, settings.fuzz.seed,
                             want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                             want_multi[BUDDHA_MULTI_PROG_BOUNCE],
                             want_multi[BUDDHA_MULTI_PROG_MID], counts)
@@ -9222,14 +9374,15 @@ class App:
         cached = self.view_thumb_cache.get(view_obj.id)
         if cached is not None and cached[0] == (self.rows_done, size):
             return cached[1]
-        v = ViewSettings(view_obj.mode, view_obj.kinds, view_obj.point_metric,
-                         view_obj.other_metric, view_obj.point1_choice, view_obj.point2_choice,
-                         view_obj.chan_src, view_obj.buddha_points, view_obj.buddha_compression,
-                         view_obj.buddha_brightness, view_obj.constant_choice)
-        mini_settings = Settings(self.max_iter, self.max_dist, self.gen_seg_mult,
-                                 FuzzParams(False, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
-                                           self.gen_seed_base),
-                                 self.gen_buddha_blur_radius, self.gen_buddha_blur_type)
+        v = ViewSettings(mode=view_obj.mode, kinds=view_obj.kinds,
+                         point_metric=view_obj.point_metric, other_metric=view_obj.other_metric,
+                         point1_choice=view_obj.point1_choice,
+                         point2_choice=view_obj.point2_choice, chan_src=view_obj.chan_src,
+                         buddha_points=view_obj.buddha_points,
+                         buddha_compression=view_obj.buddha_compression,
+                         buddha_brightness=view_obj.buddha_brightness,
+                         constant_choice=view_obj.constant_choice)
+        mini_settings = self.settings_of_current_image()
         obst_arrays = build_obstacle_arrays(self.obstacles)
         full = self.colorize_view(v, self.stats, self.points, self.status, SIZE, SIZE,
                                   mini_settings, self.gen_fuzz, obst_arrays)
@@ -9530,7 +9683,7 @@ class App:
                 # the fixed video_w/video_h and the number of obstacles, so every
                 # frame still comes out the same size.
                 rgb = apply_info_locations(rgb, views, rs["video_w"],
-                                           effective_settings(data.snapshot), obst_values,
+                                           data.settings, obst_values,
                                            color_location, figure_location, mutate_ok=True)
                 path = os.path.join(TEMP_DIR, f"frame_{fn - frame_lo:05d}.png")
                 write_png(path, rgb)
