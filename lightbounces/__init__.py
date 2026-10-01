@@ -263,7 +263,7 @@ Development aids (screenshots and dumps)
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
 """
-from . import core, external, image_io, kernels, paths, version, widgets
+from . import constants, core, external, image_io, kernels, paths, settings, version, widgets
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
@@ -272,7 +272,7 @@ from . import core, external, image_io, kernels, paths, version, widgets
 PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths",
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a

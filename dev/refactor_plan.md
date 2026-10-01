@@ -195,9 +195,24 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 - Learned: R8 (line endings) in this plan was wrong - corrected above, with an open question for the user.
 - Done: suite 586 passed / 0 failed / 0 skipped (13.9 s warm), `project_roundtrip_check.py` all 15 checks passed.
 
-### Step 4 - constants, settings, records. Recommended effort: HIGH
-- [ ] `constants.py`, `settings.py` (strict_record, records, RAY_SETTING_SPECS, resolve_*, Keyframe).
-- Done when: suite green, roundtrip check passes.
+### Step 4 - constants, settings, records. Recommended effort: HIGH - DONE (FILE_VERSION 117)
+- [x] `lightbounces/constants.py` (142 definitions, 258 lines): every plain constant that was between the old "Parameters"
+      banner and the record classes (limits, defaults, the Buddha-blur and shape-parameter ranges, UI colours/sizes, TERM_* lookup
+      tables, polling periods) - none of them read by a kernel; it imports only kernel names (KIND_*, TERM_*, SIZE, ...). The
+      blur *functions* (`world_radius_to_pixels`, `build_buddha_blur_kernel`, `scatter_points_raw`, `blur_counts_image`) stay in
+      core.py for now (they are coloration code: step 6).
+- [x] `lightbounces/settings.py` (41 definitions, 459 lines): `strict_record`, `FuzzParams`, `BuddhaBlurSettings`, `RaySettings` +
+      their defaults, `KeyframeData`, `Keyframe`, `remove_keyframe_keys`, `snapshot_keyframes`, `SettingEntry`, `RaySettingSpec`,
+      `RAY_SETTING_SPECS` and everything derived from it, `fuzz_rule`/`confine_rule`/`emission_rule` (+ defaults, `settings_*`,
+      `obstacle_center_from`), `resolve_value`/`resolve_obstacles`/`resolve_setting`/`resolve_frame_settings`, `effective_dist`. It imports
+      only constants and kernels; no cycle (the tool refuses one). `ObstacleRing` and `resolve_obstacle_arrays` stay with the shapes.
+- [x] Done: suite 586 passed / 0 failed / 0 skipped; `project_roundtrip_check.py` all 15 checks passed; touching constants.py,
+      settings.py and core.py leaves the first kernel calls at 4.0 s (warm).
+- Learned: `extract_tool.py` mistakes local/comprehension variables for names (it added `key`, `label`, `spec`, `tab` to core's import
+  and `from . import paths` to settings because of a local list called `paths`): read the generated import blocks, drop such
+  names, run the unused-import check (scratch script) after every extraction. A test that rebinds a name on `fresh.core` (e.g.
+  `SETTING_FLOAT_KEYS`) works only because the reader (`run_self_checks`) is still in core.py; when step 6 moves the self-checks,
+  re-point those 5 rebinds (lines ~59, 4488, 9416-9423 of the test file) to `fresh.selfchecks`.
 
 ### Step 5 - geometry and shapes. Recommended effort: HIGH
 - [ ] `geometry.py` then `shapes.py` (with make_bound/offset_bound/ring_layer_masks/thumbnails/build_obstacle_arrays).
@@ -238,7 +253,7 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 | 1 | done | 114 | 578 passed | 6 pure moves; deps_map anchored on names; roundtrip check 15/15 |
 | 2 | done | 115 | 583 passed | package + 5 leaf modules; launcher; harness reloads the package; R2 guard test; extract_tool.py |
 | 3 | done | 116 | 586 passed | kernels.py (25 @njit + 74 constants + families + 4 namedtuples); guard test + checker; touching any other file leaves the warm 4.0 s (was 6.4 s), touching kernels.py 6.3 s; roundtrip 15/15; R8 corrected |
-| 4 | not started | | | |
+| 4 | done | 117 | 586 passed | constants.py (142 defs) + settings.py (41 defs); no cycles; kernel cache stays warm; roundtrip 15/15 |
 | 5 | not started | | | |
 | 6 | not started | | | |
 | 7 | not started | | | |
