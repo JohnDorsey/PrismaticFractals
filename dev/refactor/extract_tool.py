@@ -1,6 +1,6 @@
 """Moves top-level definitions out of lightbounces/core.py into a new module of the package.
 
-Used by the steps of dev/refactor_plan.md (import it from a throw-away script):
+Used by the steps of dev/finished_plans/refactor_plan.md (import it from a throw-away script):
 
     import extract_tool as x
     x.extract("image_io", ["write_png", "read_png", ...], doc="PNG/QOI/JXL writers ...")

@@ -1,7 +1,8 @@
-"""The simulation settings and their keyframes: the strict record types (`strict_record`), `RaySettings` and what it holds,
-the one table with a row per setting (`RAY_SETTING_SPECS`) and everything derived from it, the kernel rule
-tuples built from the settings (`fuzz_rule`, `confine_rule`, `emission_rule`), and the interpolation between
-keyframes (`resolve_value`, `resolve_frame_settings`)."""
+"""The settings and their keyframes: the strict record types (`strict_record`); the records of settings - `RaySettings`
+(the ray simulation's) and `BuddhaBlurSettings` (coloration's), side by side, neither inside the other; one table with
+a row per setting for each record (`RAY_SETTING_SPECS`, `BLUR_SETTING_SPECS`, listed in `SETTING_TABLES`) and
+everything derived from them; the kernel rule tuples built from the ray settings (`fuzz_rule`, `confine_rule`,
+`emission_rule`); and the interpolation between keyframes (`resolve_value`, `resolve_frame_settings`)."""
 import dataclasses
 from math import cos, radians, sin
 from .constants import (
@@ -93,7 +94,9 @@ DEFAULT_FUZZ = FuzzParams(enabled=False, emit_jitter=0.0, bnd_offset=0.0, bnd_ji
 
 @strict_record
 class BuddhaBlurSettings:
-    """The blur applied to Buddha coloration's scattered points."""
+    """The blur applied to Buddha coloration's scattered points. Part of coloration, not of
+    the simulation: it is its own record, held beside a RaySettings (never inside one) by
+    everything that holds both - the controls, a keyframe's data, a project."""
     radius: float                                    # a multiple of the view's smaller dimension
     type: int                                        # index into BUDDHA_BLUR_LABELS
 
@@ -104,15 +107,15 @@ DEFAULT_BUDDHA_BLUR = BuddhaBlurSettings(radius=DEFAULT_BUDDHA_BLUR_RADIUS,
 
 @strict_record
 class RaySettings:
-    """Every value of every simulation control - what determines the generated image,
+    """Every value of every ray-simulation control - what determines the generated image,
     together with the obstacles (the scene, the obstacles and the views, is tracked
     separately). Start compares these, "Revert" restores them, and a keyframe resolves
-    to one for each video frame."""
+    to one for each video frame. The Buddha blur is NOT in here: it is a BuddhaBlurSettings
+    of its own, used side by side with this."""
     max_iter: int
     max_dist: float                                  # 0 = no limit; see effective_dist
     seg_mult: float
     fuzz: FuzzParams
-    buddha_blur: BuddhaBlurSettings
     confine_window: int
     confine_method: int
     confine_threshold: float
@@ -126,21 +129,23 @@ class RaySettings:
 
 DEFAULT_RAY_SETTINGS = RaySettings(
     max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, seg_mult=DEFAULT_SEGMENT_MULT,
-    fuzz=DEFAULT_FUZZ, buddha_blur=DEFAULT_BUDDHA_BLUR, confine_window=DEFAULT_CONFINE_WINDOW,
+    fuzz=DEFAULT_FUZZ, confine_window=DEFAULT_CONFINE_WINDOW,
     confine_method=DEFAULT_CONFINE_METHOD, confine_threshold=DEFAULT_CONFINE_THRESHOLD,
     emit_mode=DEFAULT_EMIT_MODE, emit_target_r=DEFAULT_EMIT_TARGET_R,
     emit_target_theta=DEFAULT_EMIT_TARGET_THETA, emit_target_cx=DEFAULT_EMIT_TARGET_CX,
     emit_target_cy=DEFAULT_EMIT_TARGET_CY, emit_offset=DEFAULT_EMIT_OFFSET)
 
 
-# A resolved frame's complete simulation settings (what render_full_image
-# needs, aside from the views and obstacles - each resolved separately, the
-# same way: a fixed set established when the render starts, each one's own
-# fields independently held/animated from the keyframes). Built by
-# resolve_frame_settings() from whichever keyframes define each setting.
+# A resolved frame's complete settings (what render_full_image needs, aside from the
+# views and obstacles - each resolved separately, the same way: a fixed set
+# established when the render starts, each one's own fields independently
+# held/animated from the keyframes). Built by resolve_frame_settings() from whichever
+# keyframes define each setting. The ray simulation's settings and the Buddha blur sit
+# side by side, each its own record.
 @strict_record
 class KeyframeData:
-    settings: RaySettings
+    ray: RaySettings
+    buddha_blur: BuddhaBlurSettings
     outline: bool
 
 
@@ -192,11 +197,11 @@ class SettingEntry:
 
 
 @strict_record
-class RaySettingSpec:
-    """What the program knows about one simulation setting - one row per setting, so
-    that adding a RaySettings field means adding one row here rather than touching a
-    chain of places."""
-    path: tuple            # where the value lives in a RaySettings, e.g. ("fuzz", "seed")
+class SettingSpec:
+    """What the program knows about one setting - one row per setting, so that adding a
+    field to a settings record (RaySettings, BuddhaBlurSettings...) means adding one row
+    to that record's table rather than touching a chain of places."""
+    path: tuple            # where the value lives in its record, e.g. ("fuzz", "seed")
     control: str           # the App attribute holding the control that shows the value
     widget: str            # the App attribute of the widget its modified-outline surrounds
     kind: str              # how set_setting_control writes the control: "text", "int_text",
@@ -206,16 +211,12 @@ class RaySettingSpec:
     label: str             # its name there
 
 
-def _spec(path, control, widget, kind, names=()):
-    return RaySettingSpec(path=path, control=control, widget=widget, kind=kind, names=names)
-
-
 def _spec(path, control, widget, kind, tab, label, names=()):
-    return RaySettingSpec(path=path, control=control, widget=widget, kind=kind, names=names,
-                          tab=tab, label=label)
+    return SettingSpec(path=path, control=control, widget=widget, kind=kind, names=names,
+                       tab=tab, label=label)
 
 
-# Every simulation setting, in the order the keyframe settings list shows them within
+# Every ray-simulation setting, in the order the keyframe settings list shows them within
 # each tab. run_self_checks() makes sure these rows and the RaySettings fields are the
 # same set.
 RAY_SETTING_SPECS = {
@@ -262,17 +263,32 @@ RAY_SETTING_SPECS = {
     "self_mult": _spec(("fuzz", "self_mult"), "self_mult_scale", "self_mult_scale", "number",
                        "Fuzzing", "Self multiplier"),
     "seed": _spec(("fuzz", "seed"), "seed_var", "seed_entry", "text", "Fuzzing", "Seed"),
-    "buddha_blur_radius": _spec(("buddha_blur", "radius"), "buddha_blur_radius_scale",
+}
+
+# The same for the Buddha blur (a BuddhaBlurSettings), which is a record of its own.
+BLUR_SETTING_SPECS = {
+    "buddha_blur_radius": _spec(("radius",), "buddha_blur_radius_scale",
                                 "buddha_blur_radius_scale", "number", "Buddha blur", "Radius"),
-    "buddha_blur_type": _spec(("buddha_blur", "type"), "buddha_blur_type_var",
+    "buddha_blur_type": _spec(("type",), "buddha_blur_type_var",
                               "buddha_blur_type_combo", "choice", "Buddha blur", "Blur type",
                               BUDDHA_BLUR_LABELS),
 }
 
+# Every record of settings and the table of its rows. This is the one place that says
+# which records there are: a new kind of settings (say, those of another way to generate
+# bounces) is a record class, a table like the two above, and an entry here. Setting keys
+# are unique across all the tables (they are what keyframes and project files call a
+# setting), and run_self_checks() checks each table against its record's fields.
+SETTING_TABLES = {RaySettings: RAY_SETTING_SPECS, BuddhaBlurSettings: BLUR_SETTING_SPECS}
+DEFAULT_SETTINGS = {RaySettings: DEFAULT_RAY_SETTINGS, BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR}
+
+# Every static setting a keyframe can define, from all the tables, in table order.
+SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
+
 # Every setting a keyframe can define: (key, tab it lives on, short label for the
-# settings list), in the order shown within each tab group - the RAY_SETTING_SPECS
-# rows, then the one decoration that is not part of a RaySettings.
-SETTING_INFO = ([(key, spec.tab, spec.label) for key, spec in RAY_SETTING_SPECS.items()]
+# settings list), in the order shown within each tab group - the SETTING_SPECS rows,
+# then the one decoration that is not part of any record of settings.
+SETTING_INFO = ([(key, spec.tab, spec.label) for key, spec in SETTING_SPECS.items()]
                 + [("outline", "Decorations", "Outline")])
 SETTING_TABS_ORDER = ["Simulation", "Fuzzing", "Buddha blur", "Decorations"]
 SETTING_LABEL = {key: label for key, _tab, label in SETTING_INFO}
@@ -283,41 +299,45 @@ def _field_types(record_class):
     return {f.name: f.type for f in dataclasses.fields(record_class)}
 
 
-def ray_setting_leaf_paths(record_class=None, prefix=()):
-    """Every value a RaySettings holds, as a path: ("max_iter",), ("fuzz", "seed"), ..."""
+def record_leaf_paths(record_class, prefix=()):
+    """Every value a settings record holds, as a path: for RaySettings ("max_iter",),
+    ("fuzz", "seed"), ...; for BuddhaBlurSettings ("radius",), ("type",)."""
     paths = []
-    for f in dataclasses.fields(record_class or RaySettings):
+    for f in dataclasses.fields(record_class):
         if dataclasses.is_dataclass(f.type):
-            paths += ray_setting_leaf_paths(f.type, prefix + (f.name,))
+            paths += record_leaf_paths(f.type, prefix + (f.name,))
         else:
             paths.append(prefix + (f.name,))
     return paths
 
 
-def ray_settings_to_dict(settings):
-    """{setting key: value} for every RAY_SETTING_SPECS row, read from a RaySettings."""
+def settings_to_dict(*records):
+    """{setting key: value} for every row of the table of each record given (a RaySettings,
+    a BuddhaBlurSettings, ...), read from the records themselves."""
     values = {}
-    for key, spec in RAY_SETTING_SPECS.items():
-        value = settings
-        for name in spec.path:
-            value = getattr(value, name)
-        values[key] = value
+    for record in records:
+        for key, spec in SETTING_TABLES[type(record)].items():
+            value = record
+            for name in spec.path:
+                value = getattr(value, name)
+            values[key] = value
     return values
 
 
-def ray_settings_from_dict(values):
-    """A RaySettings from {setting key: value} (for example the values resolved from
-    keyframes, where an int setting may arrive as a float): each value is converted
-    to its field's type - int fields rounded, bool fields made bool, anything else
-    kept as it is (the record then checks it)."""
+def settings_from_dict(record_class, values):
+    """A record of `record_class` (RaySettings, BuddhaBlurSettings...) from {setting key:
+    value} (for example the values resolved from keyframes, where an int setting may arrive
+    as a float; keys of other records are ignored): each value is converted to its field's
+    type - int fields rounded, bool fields made bool, anything else kept as it is (the
+    record then checks it)."""
     top, nested = {}, {}
-    for key, spec in RAY_SETTING_SPECS.items():
+    for key, spec in SETTING_TABLES[record_class].items():
         *outer, leaf = spec.path
         assert len(outer) <= 1, spec.path
-        record_class = RaySettings
+        owner = record_class
         for name in outer:
-            record_class = _field_types(record_class)[name]
-        want = _field_types(record_class)[leaf]
+            owner = _field_types(owner)[name]
+        want = _field_types(owner)[leaf]
         value = values[key]
         if want is int:
             value = int(round(value))
@@ -325,30 +345,31 @@ def ray_settings_from_dict(values):
             value = bool(value)
         (nested.setdefault(outer[0], {}) if outer else top)[leaf] = value
     for name, fields in nested.items():
-        top[name] = _field_types(RaySettings)[name](**fields)
-    return RaySettings(**top)
+        top[name] = _field_types(record_class)[name](**fields)
+    return record_class(**top)
 
 
 # Only the float settings are ever smoothly interpolated; everything else (which
 # shape, colors, metrics, sides, flags, seed) always holds the value of the nearest
-# earlier keyframe that defines it. Derived: a float field of RaySettings is a float
-# setting.
-def _is_float_setting(spec):
-    record_class = RaySettings
+# earlier keyframe that defines it. Derived: a float field of a settings record is a
+# float setting.
+def _is_float_setting(record_class, spec):
+    owner = record_class
     for name in spec.path[:-1]:
-        record_class = _field_types(record_class)[name]
-    return _field_types(record_class)[spec.path[-1]] is float
+        owner = _field_types(owner)[name]
+    return _field_types(owner)[spec.path[-1]] is float
 
 
-SETTING_FLOAT_KEYS = {key for key, spec in RAY_SETTING_SPECS.items() if _is_float_setting(spec)}
+SETTING_FLOAT_KEYS = {key for record_class, table in SETTING_TABLES.items()
+                      for key, spec in table.items() if _is_float_setting(record_class, spec)}
 
 # Which attribute of App holds the main control of each SETTING_INFO setting (a
 # widget, or a handle whose `.widget` is the entry) - where its blue "modified"
 # outline is drawn. run_self_checks() keeps this in step with SETTING_INFO.
-SETTING_WIDGET_ATTRS = {**{key: spec.widget for key, spec in RAY_SETTING_SPECS.items()},
+SETTING_WIDGET_ATTRS = {**{key: spec.widget for key, spec in SETTING_SPECS.items()},
                         "outline": "deco_outline_check"}
 
-DEFAULT_SETTING_VALUES = {**ray_settings_to_dict(DEFAULT_RAY_SETTINGS), "outline": True}
+DEFAULT_SETTING_VALUES = {**settings_to_dict(*DEFAULT_SETTINGS.values()), "outline": True}
 
 
 def confine_rule(window, method, threshold):
@@ -451,15 +472,16 @@ def resolve_setting(key, keyframes_sorted, frame_number):
 
 
 def resolve_frame_settings(keyframes_sorted, frame_number):
-    """A full KeyframeData for one video frame's simulation, with every
-    setting resolved independently via resolve_setting(). Coloration isn't
-    part of this - see resolve_views(), called separately (mirroring
-    resolve_obstacle_arrays), since views are a dynamic list like obstacles,
-    not a fixed set of settings."""
+    """A full KeyframeData for one video frame - the ray simulation's settings and the
+    Buddha blur, side by side - with every setting resolved independently via
+    resolve_setting(). The views' coloration isn't part of this - see resolve_views(),
+    called separately (mirroring resolve_obstacle_arrays), since views are a dynamic list
+    like obstacles, not a fixed set of settings."""
     v = {key: resolve_setting(key, keyframes_sorted, frame_number)
         for key, _tab, _label in SETTING_INFO}
-    settings = ray_settings_from_dict(v)
-    return KeyframeData(settings=settings, outline=bool(v["outline"]))
+    return KeyframeData(ray=settings_from_dict(RaySettings, v),
+                        buddha_blur=settings_from_dict(BuddhaBlurSettings, v),
+                        outline=bool(v["outline"]))
 
 
 def effective_dist(max_dist):

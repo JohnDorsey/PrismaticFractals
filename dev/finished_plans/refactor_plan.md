@@ -1,6 +1,7 @@
 # Refactor plan: splitting light_bounces.py into a package
 
-Status: **in progress**. Created at FILE_VERSION 113 (light_bounces.py 10,990 lines, 578 tests, suite ~13 s).
+Status: **FINISHED 2026-10-01** (FILE_VERSION 122). Final figures: light_bounces.py 10,990 lines -> a 23-line launcher + 38 modules in `lightbounces/` (largest: kernels.py 1,390, shapes.py 786, app_timeline.py ~700; core.py 216), tests split into 17 area files (594 tests, 15 s), kernel timing unchanged (warm 4.1 s, cold 6.5 s) and no longer slowed by edits outside kernels.py. Original status line follows:
+Status (history):  Created at FILE_VERSION 113 (light_bounces.py 10,990 lines, 578 tests, suite ~13 s).
 
 READ THIS FILE FIRST in every prompt that continues the refactor, and update the progress log (bottom) before
 finishing the prompt. When the whole plan is done, **move this file to `dev/finished_plans/`** (create the folder)
@@ -214,28 +215,72 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
   `SETTING_FLOAT_KEYS`) works only because the reader (`run_self_checks`) is still in core.py; when step 6 moves the self-checks,
   re-point those 5 rebinds (lines ~59, 4488, 9416-9423 of the test file) to `fresh.selfchecks`.
 
-### Step 5 - geometry and shapes. Recommended effort: HIGH
-- [ ] `geometry.py` then `shapes.py` (with make_bound/offset_bound/ring_layer_masks/thumbnails/build_obstacle_arrays).
-- [ ] Re-run the characterization idea used for the Shape refactor if wanted: per-shape params/bound/outline/thumbnail
-      identical before and after (write a scratch script; the golden test covers the kernels).
-- Done when: suite green, roundtrip check passes.
+### Step 5 - geometry and shapes. Recommended effort: HIGH - DONE (FILE_VERSION 119)
+- [x] `lightbounces/geometry.py` (474 lines, 25 definitions): the bound builders `ellipse_bound` ... `arbelos_bound`, `pack_arcs_edges`/`pack_circles`,
+      `ARC_FIELDS` & co, `region_arcs`, `arc_loop_bound`, `estimate_area_numeric`, `find_interior_point`, `sample_boundary_xy`, `chain_arcs_xy`. Its docstring
+      carries the packed-layout description that was a banner in core.py. Imports only constants and kernels.
+- [x] `lightbounces/shapes.py` (786 lines, 39 definitions): `ShapeParam` and the shared parameter rows, `Shape` and its 12 subclasses, `SHAPE_CLASSES`/`SHAPE_NAMES`,
+      `offset_bound`, `make_bound`, `obstacle_tab_title`, thumbnails, `arc_loop_distance`, `ring_layer_masks`, `draw_obstacle_outline`,
+      `default_starting_obstacle`, `build_obstacle_arrays`, `obstacles_signature`, `resolve_obstacle_arrays`, `ObstacleRing`. Imports constants, kernels, settings
+      (`resolve_obstacles`, `strict_record`) and geometry; no cycle.
+- [x] Characterization (scratch script, not kept; run before and after): for each of the 12 kinds, a default and a moved/rotated variant - params, bound, boundary
+      samples, outline, extent, describe/shape_text/info lines, centre, thumbnail, ring masks, drawn outline, offset_bound out/in, make_bound, inside grid - plus
+      `build_obstacle_arrays`, `obstacles_signature`, tab titles, and the geometry helpers called directly: 34 digests, ALL IDENTICAL before and after.
+- [x] Suite 594 passed / 0 failed / 0 skipped; `project_roundtrip_check.py` all checks passed; touching geometry.py and shapes.py leaves the kernel cache warm (4.1 s);
+      a real startup dump with `lightbounces.shapes` classes reads back.
+- Learned: `extract_tool.py` again added local variable names (`label`, `field`, `is_float`, `p`) to import lists; `prune_imports.py` (scratch) removed them. That
+  pruner is now `dev/refactor/prune_imports.py` (python dev/refactor/prune_imports.py lightbounces/core.py [names]): run it after every extraction.
 
-### Step 6 - metrics, views, export text, projects, self-checks. Recommended effort: MEDIUM-HIGH
-- [ ] `metrics.py`, `views.py`, `export_text.py`, `projects.py`, `selfchecks.py`.
-- Done when: suite green, roundtrip check passes; `dev/testing/project_v1.lightbounce` still loads.
+### Step 6 - metrics, views, export text, projects, self-checks. Recommended effort: MEDIUM-HIGH - DONE (FILE_VERSION 120)
+- [x] `metrics.py` (393 lines: metric/point/Buddha catalogs and options, `buddha_compress`, the four Buddha blur functions, `make_mapping`), `views.py` (262:
+      the DEFAULT_* channel tables, MODES, `ViewConfig`, `ViewSnapshot`, `ChannelSettings`, `ViewSettings`, `resolve_views`, `hsv_to_rgb_np`/`channels_to_rgb`),
+      `export_text.py` (310: option lists, `settings_suffix`, `default_filename`/`image_filename`, coloration/figure info text, layout and drawing, `apply_info_locations`),
+      `projects.py` (603: PROJECT_* constants, `Catalog` + every `CAT_*`, `EXPORT_OPTIONS`, `Project`, JSON, migrations 1->2 and 2->3, `project_from_dict`),
+      `selfchecks.py` (186: `run_self_checks`). `__init__` calls `selfchecks.run_self_checks()` after all modules are loaded (it used to run when core was imported).
+- [x] The 8 test rebinds on `fresh.core.*` now rebind on `fresh.selfchecks.*` (where the checks read the tables); every self-check test still fires.
+- [x] Suite 594 passed / 0 failed / 0 skipped; `project_roundtrip_check.py` all checks passed; `project_v1`/`project_v2` files still load (in the suite); touching
+      projects.py/views.py leaves the kernel cache warm (4.2 s). No characterization script this time: the moved code is covered by the project, view and export tests.
+- Left in core.py (5,200 lines): the keyframe-list text helpers (`DIFF_PRESENCE_CHOICES`, `short_value_text`...), parsers (`parse_*`), window/dump helpers
+  (`shift_into_area`, `take_ui_screenshot`, `dump_app_state` ...), `SAMPLE_COLORS`, `default_map_help`, DECO_* tables and `App`. Step 7 decides their homes
+  (parsers and keyframe text next to the mixins that use them; the window/dump helpers into `debug.py`).
 
-### Step 7 - split `App` into mixins (one or two prompts). Recommended effort: MEDIUM
-- [ ] 7a: project/export/video/timeline methods. 7b: obstacle editor, Coloration tab, preview, generation, debug (+ `debug.py`,
-      moving dump_app_state/ImageGrab/DEV_DIR and re-pointing their patches).
-- Mixins are plain classes with methods using `self.x`; `App.__init__` stays in core.py. No attribute renames.
-- Done when: suite green, roundtrip check passes, the window opens and every tab builds.
+### Step 7 - split `App` into mixins. Recommended effort: MEDIUM - DONE in one prompt (FILE_VERSION 121)
+- [x] First the leftover helpers got homes: `parsing.py` (parse_*), `window.py`, `debug.py` (unused_path, take_ui_screenshot, `dump_app_state` - now a patchable
+      global owned by `debug`, read as `debug.dump_app_state`; the 4 tests patch `m.debug.dump_app_state`; it dumps the globals of the module that defines
+      `App.__init__`), `ui_text.py`, and SAMPLE_COLORS/DECO_* into constants.py.
+- [x] 13 mixins, flat modules (a deviation: the plan said an `app/` folder; flat names `app_*.py` were simpler and the guard tests walk folders anyway):
+      app_projects (20 methods), app_export (11), app_render (4), app_video (22), app_timeline (35), app_debug (10), app_generation (5), app_preview (11),
+      app_recolor (18), app_obstacles (16), app_coloration (16), app_controls (40), app_layout (9). `core.py` is now 216 lines: `class App(...mixins)`,
+      `__init__`, `main()`. Methods were moved unchanged by `dev/refactor/extract_methods.py`.
+- [x] Suite 594 passed / 0 failed / 0 skipped after EVERY mixin; `undefined_names.py` reports none; `project_roundtrip_check.py` all checks passed (the real
+      window builds every tab); kernel cache warm (4.3 s).
+- Not verified by running: video render / ffmpeg paths and the Debug menu items through the real window (covered by the unit tests with fakes and by the
+  undefined-names check, not by a click-through).
 
-### Step 8 - tests, documentation, closing. Recommended effort: HIGH
-- [ ] Split `test_light_bounces.py` by area into `tests/` (shared helpers in one file, a runner that discovers across
-      files and can run one area); full suite must still be one command and must report the same count.
-- [ ] Clean-cache run (set a temporary numba cache dir; do not delete the real one), timing comparison with the "Facts" above.
-- [ ] Rewrite the Architecture part of CLAUDE.md as the final module map; remove the "refactor in progress" pointer.
-- [ ] Finish: see below.
+### Step 8 - tests, documentation, closing. Recommended effort: HIGH - DONE (FILE_VERSION 122)
+- [x] `test_light_bounces.py` (10,053 lines) split by `dev/refactor/split_tests.py` into `tests/` : `support.py` (the one loaded package `m`, `ROOT`, `SkipTest`, 31 shared
+      helpers/fakes) and 17 area files (coloration 58, debug 31, dump_viewer 83, export 43, images 16, inputs 11, kernels 102, package 9, preview 33, projects 28,
+      selfchecks 4, settings 28, shapes 61, timeline 39, video 28, views 18, widgets 2 = 594). Each statement went, with the banner above it, to its section's area; a
+      helper used by two areas (and what it uses) went to support. `tests/runner.py` finds tests by name; `test_light_bounces.py` is now a launcher with area, `-k`
+      and `--list` options. Verified: the sorted list of 594 test names with their outcomes is IDENTICAL before and after the split.
+- [x] `dev/dump_viewer.py` treats classes from `tests.*` as application classes (they used to come from `test_light_bounces`).
+- [x] Clean-cache run (`NUMBA_CACHE_DIR` pointed at a temporary scratch folder; the real cache was not touched): first kernel calls 6.5 s cold, 4.1 s warm - the
+      same as before the refactor (4.0 / 6.4). Whole suite 15 s either way.
+- [x] CLAUDE.md: the refactor paragraph removed, Commands/Testing rewritten for `tests/`, the Architecture layout replaced by the final module map and the dev tools.
+
+## Interlude between steps 4 and 5 (a change the user asked for, FILE_VERSION 118)
+`BuddhaBlurSettings` was taken out of `RaySettings`; the two are used side by side (`KeyframeData(ray, buddha_blur, outline)`,
+`Project.ray`/`.buddha_blur`, `App.generated_settings`/`generated_blur`, `baseline`/`baseline_blur`, `current_ray_settings()`/
+`current_blur_settings()`, `colorize_view(..., blur, settings, fz, obst_arrays)`). Settings code is generic over records:
+`SETTING_TABLES` (record class -> its spec table), `settings_to_dict(*records)`, `settings_from_dict(record_class, values)`,
+`record_leaf_paths`, `SettingSpec` (was `RaySettingSpec`), `SETTING_CHOICE_CATALOGS` (was `RAY_CHOICE_CATALOGS`). Project format 3 has a
+`buddha_blur` section. Effects on the remaining steps: `settings.py` already holds both records (nothing to redo); the
+self-check wording changed ("SETTING_TABLES", "the RaySettings fields and the rows of its settings table disagree"), re-point the
+`fresh.core.*` rebinds to `fresh.selfchecks` in step 6 as noted there (now also `SETTING_CHOICE_CATALOGS`); the App mixins of step 7
+should keep `current_blur_settings`/`blur_of_current_image` with the coloration code, and `current_ray_settings` with generation.
+
+The blur was then made live (same prompt as the start of step 5, FILE_VERSION 119): `generated_blur`/`baseline_blur` are gone, Start and Revert
+ignore it, `on_buddha_blur_changed` -> coalesced `refresh_blur` recolors from the stored counts.
 
 ## Finishing
 1. Create `dev/finished_plans/` and move this file there (keep the name, add the completion date and the final figures at
@@ -254,7 +299,8 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 | 2 | done | 115 | 583 passed | package + 5 leaf modules; launcher; harness reloads the package; R2 guard test; extract_tool.py |
 | 3 | done | 116 | 586 passed | kernels.py (25 @njit + 74 constants + families + 4 namedtuples); guard test + checker; touching any other file leaves the warm 4.0 s (was 6.4 s), touching kernels.py 6.3 s; roundtrip 15/15; R8 corrected |
 | 4 | done | 117 | 586 passed | constants.py (142 defs) + settings.py (41 defs); no cycles; kernel cache stays warm; roundtrip 15/15 |
-| 5 | not started | | | |
-| 6 | not started | | | |
-| 7 | not started | | | |
-| 8 | not started | | | |
+| (interlude, user request) | done | 118 | 590 passed | (the blur was made live at 119, see below) the Buddha blur is no longer inside RaySettings: its own record beside it in KeyframeData, Project, App state, colorize_view; SETTING_TABLES / settings_to_dict / settings_from_dict; project format 3 (+ migration 2->3, project_v2.lightbounce); roundtrip check 21/21 |
+| 5 | done | 119 | 594 passed | geometry.py (25 defs) + shapes.py (39 defs); 34 shape digests identical; roundtrip ok; kernel cache warm |
+| 6 | done | 120 | 594 passed | metrics, views, export_text, projects, selfchecks; self-checks run from __init__; test rebinds on fresh.selfchecks; roundtrip ok |
+| 7 | done | 121 | 594 passed | helpers (parsing, window, debug, ui_text) + 13 app_* mixins; core.py 216 lines; dump_app_state patchable in debug |
+| 8 | done | 122 | 594 passed | tests/ (17 areas + support + runner); identical outcomes; clean-cache timing equal to the baseline; plan finished |

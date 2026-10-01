@@ -131,7 +131,8 @@ Coloration
               0..1 (arctangent or modulus) with an optional brightness boost,
               and the Buddha blur tab spreads each scattered point over a
               neighborhood (Gaussian, triangular, bokeh or catadioptric
-              bokeh; radius 0 means no blur),
+              bokeh; radius 0 means no blur; a change recolors the image
+              at once, no new Start needed),
     Constant  always 0 or always 1, taking no part in the simulation.
   Per-pixel results are stored, so changing a view's coloration recolors the
   image without regenerating it (Buddha channels rebuild their histograms
@@ -263,16 +264,17 @@ Development aids (screenshots and dumps)
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
 """
-from . import constants, core, external, image_io, kernels, paths, settings, version, widgets
+from . import app_coloration, app_controls, app_debug, app_export, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, export_text, external, geometry, image_io, kernels, metrics, parsing, paths, projects, selfchecks, settings, shapes, ui_text, version, views, widgets, window
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
 # later patch do nothing. They are deliberately NOT re-exported below: `lightbounces.EXPORT_DIR` would be a stale
 # copy after a patch, so it does not exist - use `lightbounces.paths.EXPORT_DIR`.
 PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths",
-                     "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external"}
+                     "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
+                     "dump_app_state": "debug"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, metrics, views, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a
@@ -283,3 +285,6 @@ for _module in _MODULES:
         if not _name.startswith("__") and _name not in PATCHABLE_GLOBALS:
             globals()[_name] = _value
 del _module, _name, _value
+
+# The consistency checks between the tables of the modules (see selfchecks.py): once everything is loaded.
+selfchecks.run_self_checks()

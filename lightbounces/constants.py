@@ -267,3 +267,21 @@ MAX_CRASH_DUMPS = 3        # per launch: an error repeating in a timer must not 
 
 MODIFIED_POLL_MS = 100
 PROJECT_POLL_MS = 1000     # how often the window title's unsaved-changes mark is refreshed
+
+
+# Brighter colors for the on-image sample-point markers (dark image behind them)
+SAMPLE_COLORS = {"RGB": ["#ff5252", "#4cff6a", "#5aa0ff"],
+                  "HSV": ["#c77dff", "#3de0e8", "#d8d8d8"]}
+
+# Decorations: (key, label, default). Shown in two groups on the Decorations tab.
+DECO_IMAGE = [      # drawn into the image: they appear in saved files (and keyframes)
+    ("outline", "Obstacle outlines", True),
+]
+DECO_PREVIEW = [    # drawn over the image on screen only: never saved, never in a keyframe
+    ("pending", "Pending shape outline (dashed)", True),
+    ("ray_path", "Ray path", True),
+    ("ray_start", "Ray start marker", True),
+    ("ray_end", "Ray endpoint marker", True),
+    ("guides", "Endpoint guide lines", True),
+    ("samples", "Color sample points (one ring per point-based channel)", False),
+]

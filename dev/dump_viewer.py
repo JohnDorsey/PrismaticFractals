@@ -195,7 +195,7 @@ def placeholder_class(module, name):
 
 
 # Application modules are never imported here (that would pull in numba).
-APPLICATION_MODULES = ("__main__", "light_bounces", "lightbounces", "debug_dump", "test_light_bounces",
+APPLICATION_MODULES = ("__main__", "light_bounces", "lightbounces", "debug_dump", "test_light_bounces", "tests",
                        "test_harness")
 
 

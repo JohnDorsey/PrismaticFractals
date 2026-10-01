@@ -5,10 +5,10 @@ function reads, which of them are other @njit functions it calls, and groups the
 components. numba freezes the value of every global a kernel reads into the compiled code and only checks the
 modification time of the kernel's own file when it reuses a cached compile (see dev/refactor/numba_cache_check.py), so
 every such global, and every function a kernel calls, has to be defined in that same file. Default file:
-lightbounces/kernels.py (pass lightbounces/core.py to see what the kernels read before step 3 of dev/refactor_plan.md
+lightbounces/kernels.py (pass lightbounces/core.py to see what the kernels read before step 3 of dev/finished_plans/refactor_plan.md
 moved them).
 
-kernel_rule_violations() turns that into a verdict and is what the guard test in test_light_bounces.py runs on every
+kernel_rule_violations() turns that into a verdict and is what the guard test in tests/test_package.py runs on every
 file of the package (python dev/refactor/kernel_reads.py also prints its verdict).
 """
 import ast
