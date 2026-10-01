@@ -966,6 +966,18 @@ def test_delete_view_removes_an_extra_view_and_keeps_the_first():
 # chains, not just render_full_image in isolation - these exercise the real
 # path from "how many views exist right now" through to the output file)
 # --------------------------------------------------------------------------- #
+class _StubJxlControls:
+    """Stands in for JxlQualityControls (the video panel's JPEG XL choices)."""
+    def __init__(self, lossless=True, quality=90):
+        self._lossless, self._quality = lossless, quality
+
+    def lossless(self):
+        return self._lossless
+
+    def quality(self):
+        return self._quality
+
+
 class _StubVar:
     def __init__(self, v=None):
         self._v = v
@@ -2192,7 +2204,11 @@ def _no_cjxl():
 
 def test_output_extension_and_suffix_for_jxl():
     app = _fake_ffmpeg_format_app()
-    assert app.output_extension_and_suffix({"fmt": "JXL"}) == ("jxl", "")
+    rs = {"fmt": "JXL", "jxl_lossless": True, "jxl_quality": 70}
+    assert app.output_extension_and_suffix(rs) == ("jxl", ".q100")          # lossless
+    assert app.output_extension_and_suffix({**rs, "jxl_lossless": False}) == ("jxl", ".q70")
+    assert app.output_extension_and_suffix({**rs, "jxl_lossless": False, "jxl_quality": 100}) \
+        == ("jxl", ".q95")                                                    # q100 is only lossless
 
 
 def test_ffmpeg_output_kwargs_for_jxl_matches_apng():
@@ -2221,6 +2237,126 @@ def test_convert_apng_to_jxl_success_produces_the_output_file():
     assert os.path.exists(jxl_path)
     with open(jxl_path, "rb") as f:
         assert f.read() == b"fake apng bytes"
+
+
+def test_the_quality_tag_in_a_jxl_file_name_says_lossless_or_the_lossy_quality():
+    assert m.jxl_quality_tag(True, 90) == "q100" and m.jxl_quality_tag(True, 5) == "q100"
+    assert m.jxl_quality_tag(False, 90) == "q90" and m.jxl_quality_tag(False, 5) == "q5"
+    assert m.jxl_quality_tag(False, 100) == "q95"        # lossy never reads q100
+    assert m.JXL_LOSSY_MAX_QUALITY == 95
+
+
+def test_default_filename_puts_the_quality_tag_just_before_the_extension():
+    name = m.default_filename(m.DEFAULT_RAY_SETTINGS, "jxl", "q90")
+    assert name.endswith(".q90.jxl") and name.count(".q90") == 1
+    assert m.default_filename(None, "jxl", "q100").endswith(".q100.jxl")
+    assert m.default_filename(None, "png").endswith(".png")
+    assert ".q" not in m.default_filename(None, "png")
+    assert m.image_filename(m.DEFAULT_RAY_SETTINGS, "jxl", False, 85).endswith(".q85.jxl")
+    assert m.image_filename(m.DEFAULT_RAY_SETTINGS, "jxl", True, 85).endswith(".q100.jxl")
+    import re
+    for fmt in ("png", "qoi"):                            # only JPEG XL files carry a quality
+        assert not re.search(r"\.q\d+\.", m.image_filename(m.DEFAULT_RAY_SETTINGS, fmt, False, 85))
+
+
+def test_still_images_default_to_jxl():
+    assert m.SAVE_NEW_FORMATS[0] == "jxl" and set(m.SAVE_NEW_FORMATS) == {"jxl", "png", "qoi"}
+
+
+def _fake_save_app(fmt, lossless, quality):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
+    app.save_format_var = _StubVar(fmt)
+    app.save_jxl_mode_var = _StubVar("Lossless" if lossless else "Lossy")
+    app.save_jxl_quality_scale = _StubVar(quality)
+    app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.written = []
+    app._write = lambda path: app.written.append(os.path.basename(path))
+    app.save = m.App.save.__get__(app)
+    return app
+
+
+def test_saving_a_jxl_image_names_its_quality_and_other_formats_do_not():
+    orig = m.EXPORT_DIR
+    m.EXPORT_DIR = os.path.join(tempfile.mkdtemp(), "exports")
+    try:
+        for fmt, lossless, quality, tail in (("jxl", True, 90, ".q100.jxl"),
+                                             ("jxl", False, 80, ".q80.jxl"),
+                                             ("png", False, 80, ".png")):
+            app = _fake_save_app(fmt, lossless, quality)
+            app.save()
+            assert app.written[0].endswith(tail), app.written
+            import re
+            assert bool(re.search(r"\.q\d+\.jxl$", app.written[0])) == (fmt == "jxl")
+    finally:
+        m.EXPORT_DIR = orig
+
+
+def _recorded_cjxl_arguments(**options):
+    """The command line convert_apng_to_jxl runs (the fake cjxl copies its input)."""
+    work_dir = tempfile.mkdtemp()
+    apng_path = os.path.join(work_dir, "source.apng")
+    with open(apng_path, "wb") as f:
+        f.write(b"fake apng")
+    seen = []
+    real_run = m.subprocess.run
+    m.subprocess.run = lambda cmd, **kw: seen.append(list(cmd)) or real_run(cmd, **kw)
+    try:
+        with _fake_cjxl():
+            m.convert_apng_to_jxl(apng_path, os.path.join(work_dir, "out.jxl"), **options)
+    finally:
+        m.subprocess.run = real_run
+    return seen[0]
+
+
+def test_convert_apng_to_jxl_is_lossless_by_default_and_lossy_at_the_distance_of_the_quality():
+    def distance(args):
+        return args[args.index("-d") + 1]
+    assert distance(_recorded_cjxl_arguments()) == "0"
+    assert distance(_recorded_cjxl_arguments(lossless=True, quality=50)) == "0"
+    assert distance(_recorded_cjxl_arguments(lossless=False, quality=90)) == "1"
+    assert distance(_recorded_cjxl_arguments(lossless=False, quality=50)) == "5"
+    assert distance(_recorded_cjxl_arguments(lossless=False, quality=100)) == "0.5"   # capped at q95
+
+
+def test_a_lossy_animated_jxl_from_the_real_cjxl_is_a_smaller_lossy_animation():
+    """cjxl really does lossy animation: jxlinfo (when installed beside it) calls the file
+    a lossy animation, and it is smaller than the lossless one. Skipped without cjxl/ffmpeg."""
+    import subprocess
+    ffmpeg_exe = shutil.which("ffmpeg")
+    if REAL_CJXL_PATH is None:
+        raise SkipTest("real cjxl not on PATH")
+    if ffmpeg_exe is None:
+        raise SkipTest("real ffmpeg not on PATH")
+    work_dir = tempfile.mkdtemp()
+    rng = np.random.RandomState(0)
+    yy, xx = np.mgrid[0:64, 0:64]
+    for i in range(4):
+        frame = np.zeros((64, 64, 3), np.uint8)
+        frame[..., 0] = (xx * 4 + i * 20) % 256
+        frame[..., 1] = (yy * 4) % 256
+        frame[..., 2] = rng.randint(0, 40, (64, 64))
+        m.write_png(os.path.join(work_dir, f"frame_{i:05d}.png"), frame)
+    apng_path = os.path.join(work_dir, "source.apng")
+    subprocess.run([ffmpeg_exe, "-y", "-loglevel", "error", "-framerate", "10",
+                    "-i", os.path.join(work_dir, "frame_%05d.png"), "-plays", "0", apng_path],
+                   check=True)
+    lossless = os.path.join(work_dir, "lossless.jxl")
+    lossy = os.path.join(work_dir, "lossy.jxl")
+    m.convert_apng_to_jxl(apng_path, lossless)
+    m.convert_apng_to_jxl(apng_path, lossy, lossless=False, quality=80)
+    assert os.path.getsize(lossy) < os.path.getsize(lossless) / 2
+    for path in (lossless, lossy):
+        with open(path, "rb") as f:
+            head = f.read(12)
+        assert head[:2] == bytes.fromhex("ff0a") or head == bytes.fromhex("0000000c4a584c200d0a870a")
+    jxlinfo = os.path.join(os.path.dirname(REAL_CJXL_PATH),
+                           "jxlinfo.exe" if os.name == "nt" else "jxlinfo")
+    if os.path.exists(jxlinfo):
+        info = subprocess.run([jxlinfo, lossy], capture_output=True, text=True).stdout
+        assert "animation" in info and "lossy" in info, info
 
 
 def test_convert_apng_to_jxl_failure_raises_with_stderr_and_makes_no_file():
@@ -2295,6 +2431,7 @@ def test_read_render_settings_blocks_jxl_without_cjxl():
     app.quality_scale = _StubVar(75)
     app.downsample_factor_var = _StubVar(list(m.DOWNSAMPLE_FACTOR_VALUES)[0])
     app.downsample_method_var = _StubVar("Mean")
+    app.video_jxl_controls = _StubJxlControls()
     app.read_render_settings = m.App.read_render_settings.__get__(app)
     with _no_cjxl():
         rs = app.read_render_settings()
@@ -2313,6 +2450,7 @@ def test_read_render_settings_allows_jxl_with_cjxl_available():
     app.quality_scale = _StubVar(75)
     app.downsample_factor_var = _StubVar(list(m.DOWNSAMPLE_FACTOR_VALUES)[0])
     app.downsample_method_var = _StubVar("Mean")
+    app.video_jxl_controls = _StubJxlControls()
     app.read_render_settings = m.App.read_render_settings.__get__(app)
     orig_ffmpeg = m.ffmpeg
     m.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python
@@ -2368,7 +2506,7 @@ def _fake_encode_app():
 
 def _base_rs(fmt):
     return {"fps": 30, "fmt": fmt, "mode": "Constant quality", "quality": 75,
-           "bitrate": 0, "vbr_target": 0, "vbr_max": 0,
+           "bitrate": 0, "vbr_target": 0, "vbr_max": 0, "jxl_lossless": True, "jxl_quality": 90,
            "downsample_factor": 1, "downsample_method": "Mean"}
 
 
@@ -2853,6 +2991,7 @@ def test_read_render_settings_rounds_a_non_multiple_of_4_resolution():
     app.quality_scale = _StubVar(75)
     app.downsample_factor_var = _StubVar(list(m.DOWNSAMPLE_FACTOR_VALUES)[0])
     app.downsample_method_var = _StubVar("Mean")
+    app.video_jxl_controls = _StubJxlControls()
     app.read_render_settings = m.App.read_render_settings.__get__(app)
     orig_ffmpeg = m.ffmpeg
     m.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python; the
@@ -5255,6 +5394,8 @@ def test_export_writes_the_current_image_into_the_export_dir():
     app = FakeApp()
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
+    app.save_jxl_mode_var = _StubVar("Lossless")
+    app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     written = []
     app._write = lambda path: written.append(path)
@@ -5280,6 +5421,8 @@ def test_export_as_dialog_opens_in_the_export_dir():
     app.root = None
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
+    app.save_jxl_mode_var = _StubVar("Lossless")
+    app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app._write = lambda path: None
     app.save_as = m.App.save_as.__get__(app)
@@ -6668,7 +6811,7 @@ def test_crash_dumps_are_capped_per_launch():
     assert calls == ["crash"] * m.MAX_CRASH_DUMPS
 
 
-def test_the_menu_bar_has_a_debug_menu_with_the_three_actions():
+def test_the_menu_bar_has_a_file_menu_and_a_debug_menu_with_the_three_actions():
     class Menu:
         made = []
 
@@ -6676,8 +6819,11 @@ def test_the_menu_bar_has_a_debug_menu_with_the_three_actions():
             self.commands, self.cascades = [], []
             Menu.made.append(self)
 
-        def add_command(self, label, command):
+        def add_command(self, label, command, accelerator=None):
             self.commands.append((label, command))
+
+        def add_separator(self):
+            pass
 
         def add_cascade(self, label, menu):
             self.cascades.append((label, menu))
@@ -6690,6 +6836,10 @@ def test_the_menu_bar_has_a_debug_menu_with_the_three_actions():
 
     class FakeApp:
         root = Root()
+        new_project = staticmethod(lambda: "new")
+        open_project = staticmethod(lambda: "open")
+        save_project = staticmethod(lambda: "save")
+        save_project_as = staticmethod(lambda: "save as")
         manual_screenshot = staticmethod(lambda: "shot")
         manual_dump = staticmethod(lambda with_arrays: with_arrays)
     saved = m.tk.Menu
@@ -6699,8 +6849,12 @@ def test_the_menu_bar_has_a_debug_menu_with_the_three_actions():
     finally:
         m.tk.Menu = saved
     bar = Root.menu
-    assert [label for label, _ in bar.cascades] == ["Debug"]
-    debug = bar.cascades[0][1]
+    assert [label for label, _ in bar.cascades] == ["File", "Debug"]
+    file_menu = bar.cascades[0][1]
+    assert [(label, command()) for label, command in file_menu.commands] == [
+        ("New project", "new"), ("Open project...", "open"), ("Save project", "save"),
+        ("Save project as...", "save as")]
+    debug = bar.cascades[1][1]
     assert [label for label, _ in debug.commands] == [
         "Take screenshot", "Dump (without large arrays)", "Dump (with large arrays)"]
     assert debug.commands[0][1]() == "shot"
@@ -8655,6 +8809,667 @@ def test_obstacle_arrays_bundle_parallel_arrays_in_one_argument():
     assert len(empty.shapes) == 0 and empty.effects.shape == (0, 2)
     resolved = m.resolve_obstacle_arrays([a.snapshot()], [], 0)
     assert isinstance(resolved, m.ObstacleArrays) and len(resolved.shapes) == 1
+
+
+def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
+    """Regression test: scatter_multi_buddha started its rays on the main image's fixed
+    512-pixel grid whatever the size of the grid it scattered into, so a larger export fired
+    the same rays as 512 (4x fewer per pixel at 1024: a dimmer image) and a smaller one
+    only fired from the top-left corner of the world. Now every output pixel in the shape
+    fires one ray, so the points per pixel stay the same at any resolution."""
+    start = m.default_starting_obstacle(0)
+    arrays = m.build_obstacle_arrays([start])
+    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
+    totals, densities = {}, {}
+    for w in (64, 128, 256):
+        counts = np.zeros((w, w))
+        m.scatter_multi_buddha(0, w, 40, m.effective_dist(0.0), 1.0, fz, m.CONFINE_DEFAULT,
+                               m.EMISSION_DEFAULT, arrays, 0, False, True, False, False, counts)
+        gx, gy = m.make_grid(w, w)
+        inside = int((np.hypot(gx, gy) < 1.0).sum())
+        totals[w], densities[w] = counts.sum(), counts.sum() / inside
+        half = w // 2
+        for quadrant in (counts[:half, :half], counts[:half, half:], counts[half:, :half],
+                         counts[half:, half:]):
+            assert quadrant.sum() > 0.15 * counts.sum(), "rays fired from the whole world"
+    assert 3.7 < totals[128] / totals[64] < 4.3 and 3.7 < totals[256] / totals[128] < 4.3
+    assert max(densities.values()) / min(densities.values()) < 1.1, densities
+
+
+# --------------------------------------------------------------------------- #
+# ViewConfig channels and settings
+# --------------------------------------------------------------------------- #
+def test_a_view_config_takes_a_channel_record_and_makes_its_view_settings():
+    v = m.ViewConfig(4)
+    channel = m.ChannelSettings(chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_ANGLES,
+                                point1=3, point2=5,
+                                buddha_points=(False, True) + (False,) * (m.N_BUDDHA_POINTS - 2),
+                                buddha_compression=m.BUDDHA_COMPRESS_MODULUS,
+                                buddha_brightness=2, constant=m.NONE_ONE)
+    v.set_channel(1, channel)
+    assert m.view_channel_value(v, 1) == channel
+    assert m.view_channel_value(v, 0) == m.view_channel_value(m.ViewConfig(0), 0)   # others untouched
+    point = channel.replace(kind=m.KIND_POINT, stat=m.ST_EUCLIDEAN)
+    v.set_channel(2, point)
+    assert m.view_channel_value(v, 2) == point and v.point_metric[2] == m.ST_EUCLIDEAN
+    settings = v.settings()
+    assert isinstance(settings, m.ViewSettings) and settings.mode == v.mode
+    assert settings.chan_src[1] == m.CHAN_SRC_BUDDHA
+
+
+def test_a_view_config_made_from_a_snapshot_has_the_snapshots_contents():
+    v = m.ViewConfig(7)
+    v.mode = "HSV"
+    v.set_channel(0, m.ChannelSettings(
+        chan_src=m.CHAN_SRC_CONSTANT, kind=m.KIND_POINT, stat=m.ST_HDIST, point1=1, point2=2,
+        buddha_points=(True,) + (False,) * (m.N_BUDDHA_POINTS - 1), buddha_compression=0,
+        buddha_brightness=4, constant=m.NONE_ZERO))
+    snap = m.snapshot_view(v)
+    back = m.view_config_from_snapshot(snap)
+    assert back is not v and back.id == 7 and m.snapshot_view(back) == snap
+
+
+# --------------------------------------------------------------------------- #
+# Projects: the file format
+# --------------------------------------------------------------------------- #
+def _sample_project(**changes):
+    """A project using every kind of obstacle, two views (one with Buddha channels),
+    keyframes (including channel records) and non-default simulation and export choices."""
+    obstacles = []
+    for i, cls in enumerate(m.SHAPE_CLASSES):
+        o = cls(i * 2 + 1)                                  # ids 1, 3, 5...: not 0..n
+        for name in o.FIELD_NAMES:
+            if name == "rotation":
+                o.rotation = 10.0 + i
+            elif name == "r":
+                o.r = 0.25
+            elif name == "fire_inside":
+                o.fire_inside = bool(i % 2)
+            elif name == "in_effect":
+                o.in_effect = i % 3
+            elif name == "out_effect":
+                o.out_effect = (i + 1) % 3
+        obstacles.append(o.snapshot())
+    v0, v1 = m.ViewConfig(0), m.ViewConfig(5)
+    v1.mode = "HSV"
+    v1.set_channel(1, m.ChannelSettings(
+        chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=0, point2=1,
+        buddha_points=(False, True, True) + (False,) * (m.N_BUDDHA_POINTS - 3),
+        buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ONE))
+    channel = m.view_channel_value(v1, 1)
+    keyframes = (m.Keyframe(2, 0, {"iter": 40, "dist": 2.5, "outline": False,
+                                   "obst:1:rotation": 15.0, "view:5:mode": "HSV",
+                                   "view:5:chan1": channel, "view:0:chan0": m.view_channel_value(v0, 0)}),
+                 m.Keyframe(7, 30, {"obst:3:r": 0.5, "emit_mode": m.EMIT_TOWARDS}))
+    ray = _settings(max_iter=77, max_dist=3.5, seg_mult=0.8, emit_mode=m.EMIT_TOWARDS,
+                    emit_target_r=0.3, emit_offset=12.5, confine_window=6,
+                    fuzz=m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=2.0, seed=99),
+                    buddha_blur=m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_BOKEH))
+    export = {"include_all_views": False, "color_info_location": m.COLOR_INFO_LOCATIONS[1],
+              "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
+              "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
+              "video_jxl_mode": "Lossy"}
+    fields = dict(ray=ray, decorations={"outline": False, "pending": True}, obstacles=tuple(obstacles),
+                  views=(m.snapshot_view(v0), m.snapshot_view(v1)), keyframes=keyframes,
+                  export=export, obstacle_counter=40, view_counter=9, keyframe_counter=12,
+                  selected_obstacle_id=5, selected_view_id=5)
+    fields.update(changes)
+    return m.Project(**fields)
+
+
+def _round_trip(project):
+    import json
+    return m.project_from_dict(json.loads(m.project_text(project)))
+
+
+def test_a_project_survives_being_saved_and_loaded():
+    project = _sample_project()
+    loaded = _round_trip(project)
+    assert m.project_signature(loaded) == m.project_signature(project)
+    assert loaded.ray == project.ray and loaded.views == project.views
+    assert [type(o) for o in loaded.obstacles] == list(m.SHAPE_CLASSES)
+    assert loaded.export == project.export
+    assert [o.id for o in loaded.obstacles] == [i * 2 + 1 for i in range(len(m.SHAPE_CLASSES))]
+    assert all(o.state() == q.state() for o, q in zip(loaded.obstacles, project.obstacles))
+    assert all(o._frozen for o in loaded.obstacles)
+    assert (loaded.obstacle_counter, loaded.view_counter, loaded.keyframe_counter) == (40, 9, 12)
+    assert (loaded.selected_obstacle_id, loaded.selected_view_id) == (5, 5)
+    kf = loaded.keyframes[0]
+    assert (kf.id, kf.frame_index) == (2, 0) and kf.data == project.keyframes[0].data
+    assert isinstance(kf.data["view:5:chan1"], m.ChannelSettings)
+    assert isinstance(kf.data["iter"], int) and kf.data["outline"] is False
+
+
+def test_a_project_file_is_pretty_printed_versioned_json():
+    import json
+    text = m.project_text(_sample_project())
+    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 2,')
+    assert text.endswith("}\n") and "\r" not in text
+    assert all(len(line) < 120 for line in text.split("\n"))            # one value per line
+    data = json.loads(text)
+    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 2
+    assert data["program_version"] == m.FILE_VERSION
+    assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
+    assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "view": 5}
+    assert m.PROJECT_EXTENSION == ".lightbounce"
+
+
+def test_saving_and_loading_a_project_file_on_disk(tmp=None):
+    path = os.path.join(tempfile.mkdtemp(), "mine" + m.PROJECT_EXTENSION)
+    project = _sample_project()
+    m.save_project(path, project)
+    assert m.project_signature(m.load_project(path)) == m.project_signature(project)
+    m.save_project(path, _sample_project(obstacle_counter=99))              # replaced in place
+    assert m.load_project(path).obstacle_counter == 99
+    assert os.listdir(os.path.dirname(path)) == ["mine" + m.PROJECT_EXTENSION]
+    with open(path, "rb") as f:
+        assert f.read().count(b"\n") > 100
+
+
+def _dict_of(project=None):
+    import json
+    return json.loads(m.project_text(project or _sample_project()))
+
+
+def _refused(data, expected_text):
+    try:
+        m.project_from_dict(data)
+    except m.ProjectError as exc:
+        assert expected_text in str(exc), str(exc)
+    else:
+        raise AssertionError(f"expected a ProjectError mentioning {expected_text!r}")
+
+
+def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
+    d = _dict_of()
+    _refused([], "not a Light bounces project")
+    _refused({**d, "format": "something-else"}, "not a Light bounces project")
+    _refused({**d, "format_version": 99}, "newer version")
+    _refused({**d, "format_version": "1"}, "format version")
+    _refused({**d, "format_version": 0}, "format version")
+    _refused({**d, "views": []}, "no views")
+    d2 = _dict_of()
+    d2["obstacles"][0]["kind"] = "HexagonShape"
+    _refused(d2, "HexagonShape")
+    d3 = _dict_of()
+    d3["obstacles"][0]["fields"]["sides"] = 4
+    _refused(d3, "does not have")
+    d4 = _dict_of()
+    d4["obstacles"][1]["fields"]["sides"] = 2.5
+    _refused(d4, "sides")
+    d5 = _dict_of()
+    d5["obstacles"][1]["fields"]["sides"] = 500
+    _refused(d5, "outside")
+    d6 = _dict_of()
+    d6["obstacles"][1]["id"] = d6["obstacles"][0]["id"]
+    _refused(d6, "two obstacles have the id")
+    d7 = _dict_of()
+    d7["views"][1]["id"] = 0
+    _refused(d7, "two views have the id")
+    d8 = _dict_of()
+    d8["views"][0]["mode"] = "CMYK"
+    _refused(d8, "colour model")
+    d9 = _dict_of()
+    d9["views"][0]["channels"].pop()
+    _refused(d9, "3 channels")
+    d10 = _dict_of()
+    d10["views"][0]["channels"][0]["metric"] = "no_such_metric"
+    _refused(d10, "no_such_metric")
+    d10b = _dict_of()
+    d10b["views"][0]["channels"][0].update(kind="point_metric", metric="bounces")
+    _refused(d10b, "does not suit")
+    d10c = _dict_of()
+    d10c["views"][1]["channels"][1]["buddha_points"] = ["all_bounces_mean", "a_future_point"]
+    _refused(d10c, "a_future_point")
+    d10d = _dict_of()
+    d10d["obstacles"][0]["fields"]["in_effect"] = 1                      # a number, not a key
+    _refused(d10d, "ray effect")
+    d10e = _dict_of()
+    d10e["simulation"]["emit_mode"] = "sideways"
+    _refused(d10e, "sideways")
+    d10f = _dict_of()
+    d10f["keyframes"][0]["settings"]["obst:1:out_effect"] = "explode"
+    _refused(d10f, "explode")
+    d11 = _dict_of()
+    d11["keyframes"][1]["id"] = d11["keyframes"][0]["id"]
+    _refused(d11, "two keyframes have the id")
+    d12 = _dict_of()
+    d12["keyframes"][0]["settings"]["iter"] = [1, 2]
+    _refused(d12, "iter")
+    d13 = _dict_of()
+    d13["simulation"]["iter"] = "many"
+    _refused(d13, "damaged")
+    d14 = _dict_of()
+    d14["views"][0]["channels"][0].pop("metric")
+    _refused(d14, "no 'metric'")
+
+
+def test_loading_a_file_that_is_not_json_or_not_text_or_missing_is_refused():
+    folder = tempfile.mkdtemp()
+    bad = os.path.join(folder, "bad.lightbounce")
+    with open(bad, "w") as f:
+        f.write('{"format": "light-bounces-project", ')
+    for path, text in ((bad, "line 1"), (os.path.join(folder, "missing.lightbounce"), "could not be read")):
+        try:
+            m.load_project(path)
+        except m.ProjectError as exc:
+            assert text in str(exc), str(exc)
+        else:
+            raise AssertionError(path)
+    binary = os.path.join(folder, "binary.lightbounce")
+    with open(binary, "wb") as f:
+        f.write(bytes([0xff, 0xfe, 0x00, 0x80]))
+    try:
+        m.load_project(binary)
+    except m.ProjectError as exc:
+        assert "UTF-8" in str(exc)
+    else:
+        raise AssertionError("binary file accepted")
+
+
+def test_a_project_that_cannot_be_written_as_json_says_so_and_writes_nothing():
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "x.lightbounce")
+    ok = _sample_project()
+    not_a_number = ok.replace(ray=ok.ray.replace(seg_mult=float("nan")))
+    try:
+        m.save_project(path, not_a_number)
+    except m.ProjectError:
+        pass
+    else:
+        raise AssertionError("NaN was saved")
+    assert os.listdir(folder) == []
+    try:
+        m.save_project(os.path.join(folder, "no", "such", "dir", "x.lightbounce"), ok)
+    except m.ProjectError as exc:
+        assert "could not be written" in str(exc)
+    else:
+        raise AssertionError("an impossible path was accepted")
+
+
+def test_a_file_from_another_version_is_read_leniently():
+    d = _dict_of()
+    del d["simulation"]["iter"]                      # a setting this file lacks: its default
+    d["simulation"]["a_setting_from_the_future"] = 5
+    d["future_section"] = {"anything": 1}
+    d["export"]["a_future_choice"] = "x"
+    d["counters"]["obstacle"] = 0                    # lower than the ids in use: raised above them
+    d["export"]["video_format"] = "a_future_format"                   # unknown choice: control keeps its value
+    d["views"][1]["channels"][1]["buddha_points"] = ["all_bounces_mean"]
+    loaded = m.project_from_dict(d)
+    assert "video_format" not in loaded.export
+    assert loaded.ray.max_iter == m.DEFAULT_RAY_SETTINGS.max_iter
+    assert loaded.obstacle_counter == max(o.id for o in loaded.obstacles) + 1
+    chosen = m.view_channel_value(loaded.views[1], 1).buddha_points
+    assert chosen == (True,) + (False,) * (m.N_BUDDHA_POINTS - 1)
+    d2 = _dict_of()
+    d2["selected"] = {"obstacle": 12345, "view": 777}              # gone: first view, none selected
+    loaded = m.project_from_dict(d2)
+    assert loaded.selected_obstacle_id == -1 and loaded.selected_view_id == loaded.views[0].id
+
+
+def test_the_project_signature_sees_content_but_not_selection_or_counters():
+    base = _sample_project()
+    sig = m.project_signature(base)
+    assert m.project_signature(_sample_project()) == sig
+    assert m.project_signature(_sample_project(selected_obstacle_id=1, selected_view_id=0,
+                                               obstacle_counter=1, view_counter=1,
+                                               keyframe_counter=1)) == sig
+    moved = base.obstacles[0].with_values(r=0.75)
+    assert m.project_signature(_sample_project(obstacles=(moved,) + base.obstacles[1:])) != sig
+    assert m.project_signature(_sample_project(obstacles=base.obstacles[:-1])) != sig
+    assert m.project_signature(base.replace(ray=base.ray.replace(max_iter=78))) != sig
+    assert m.project_signature(base.replace(export={**base.export, "video_fps": "25"})) != sig
+    assert m.project_signature(base.replace(decorations={"outline": True, "pending": True})) != sig
+    edited = (m.Keyframe(2, 0, {**base.keyframes[0].data, "iter": 41}), base.keyframes[1])
+    assert m.project_signature(base.replace(keyframes=edited)) != sig
+    other_view = m.ViewConfig(5)
+    assert m.project_signature(base.replace(views=(base.views[0], m.snapshot_view(other_view)))) != sig
+
+
+def test_the_export_option_table_names_each_choice_once_with_sensible_allowed_values():
+    keys = [key for key, _path, _kind, _allowed in m.EXPORT_OPTIONS]
+    assert len(keys) == len(set(keys))
+    paths = [path for _key, path, _kind, _allowed in m.EXPORT_OPTIONS]
+    assert len(paths) == len(set(paths))
+    for _key, _path, kind, allowed in m.EXPORT_OPTIONS:
+        assert kind in ("choice", "text", "bool", "number")
+        assert (kind == "choice") == bool(allowed)
+    assert "JXL" in m.VIDEO_FORMATS and "Constant quality" in m.VIDEO_BITRATE_MODES
+
+
+# A project file calls every choice by a permanent string KEY, which a Catalog translates to the
+# program's own code. Both sides are pinned: a key may be added but never removed, renamed or
+# pointed at another meaning; the codes themselves may be renumbered freely (the file does not
+# hold them). (If you only reworded a label that a key is pinned to, update it here.)
+PINNED_KEYS = {
+    "CAT_CHAN_SOURCE": {"query": "CHAN_SRC_QUERY", "buddha": "CHAN_SRC_BUDDHA",
+                        "constant": "CHAN_SRC_CONSTANT"},
+    "CAT_CHAN_KIND": {"point_metric": "KIND_POINT", "other_metric": "KIND_OTHER"},
+    "CAT_METRIC": {
+        "horizontal_distance": "ST_HDIST", "vertical_distance": "ST_VDIST",
+        "manhattan_distance": "ST_MANHATTAN", "euclidean_distance": "ST_EUCLIDEAN",
+        "bounces": "ST_BOUNCES", "ray_bounce_fraction": "ST_RAY_FRAC",
+        "boundary_bounce_fraction": "ST_BOUNDARY_FRAC", "loop_area": "ST_LOOP_AREA",
+        "mean_bounce_angle": "ST_ANGLES", "ray_length": "ST_LENGTH",
+        "last_segment_direction": "ST_LAST_DIR", "termination_reason": "ST_TERMINATION",
+        "last_segment_ratio": "ST_LAST_RATIO"},
+    "CAT_POINT": {
+        "start_point": "POINT_START", "end_point": "POINT_END",
+        "all_bounces_mean": "POINT_ALL_MEAN", "boundary_bounces_mean": "POINT_BOUNDARY_MEAN",
+        "self_bounces_mean": "POINT_SELF_MEAN", "uppermost_bounce": "POINT_TOP",
+        "lowermost_bounce": "POINT_BOTTOM", "rightmost_bounce": "POINT_RIGHT",
+        "leftmost_bounce": "POINT_LEFT", "uppermost_self_bounce": "POINT_SELF_TOP",
+        "lowermost_self_bounce": "POINT_SELF_BOTTOM", "rightmost_self_bounce": "POINT_SELF_RIGHT",
+        "leftmost_self_bounce": "POINT_SELF_LEFT", "origin": "POINT_ORIGIN",
+        "top_left_corner": "POINT_TOP_LEFT_CORNER"},
+    "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
+                               "modulus": "BUDDHA_COMPRESS_MODULUS"},
+    "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
+    "CAT_EMIT_MODE": {"up": "EMIT_UP", "towards_point": "EMIT_TOWARDS"},
+    "CAT_CONFINE_METHOD": {"box": "CONFINE_BOX", "path_length": "CONFINE_PATH"},
+    "CAT_BLUR_TYPE": {"gaussian": "BUDDHA_BLUR_GAUSSIAN", "triangular": "BUDDHA_BLUR_TRIANGULAR",
+                      "bokeh": "BUDDHA_BLUR_BOKEH", "catadioptric_bokeh": "BUDDHA_BLUR_CATADIOPTRIC"},
+    "CAT_EFFECT": {"reflect": "OBSTACLE_EFFECT_REFLECT", "terminate": "OBSTACLE_EFFECT_TERMINATE",
+                   "pass_through": "OBSTACLE_EFFECT_PASS"},
+}
+PINNED_BUDDHA_POINT_KEYS = {          # key -> the label of the entry in BUDDHA_POINT_CATALOG
+    "all_bounces_mean": "All bounces mean", "self_bounces_mean": "Self bounces mean",
+    "boundary_bounces_mean": "Boundary bounces mean", "termination_point": "Termination point",
+    "termination_point_distance_limit": "Termination point (distance limit)",
+    "termination_point_perpendicular_collision": "Termination point (perpendicular collision)",
+    "termination_point_confined": "Termination point (confined)",
+    "all_self_bounces": "All self bounces", "all_segment_midpoints": "All segment midpoints",
+    "progressive_means_of_bounce_points": "Progressive means of bounce points",
+    "progressive_means_of_segment_midpoints": "Progressive means of segment midpoints"}
+PINNED_SHAPE_KINDS = {"ellipse": "EllipseShape", "regular_polygon": "RegularPolygonShape",
+                      "moss_egg": "MossEggShape", "circular_sector": "CircularSectorShape",
+                      "circular_segment": "CircularSegmentShape", "two_circle_lens": "LensShape",
+                      "reuleaux_polygon": "ReuleauxPolygonShape", "capsule": "CapsuleShape",
+                      "trefoil": "TrefoilShape", "quatrefoil": "QuatrefoilShape",
+                      "lune": "LuneShape", "arbelos": "ArbelosShape"}
+PINNED_EXPORT_CHOICES = {             # catalog -> key -> the text the control holds
+    "CAT_COLOR_INFO": {"none": "None", "overlay": "Overlay", "bottom_margin": "Bottom margin"},
+    "CAT_FIGURE_INFO": {"none": "None", "left_margin": "Left margin"},
+    "CAT_IMAGE_SOURCE": {"current_image": "Current image", "new_image": "New image"},
+    "CAT_IMAGE_FORMAT": {"jxl": "jxl", "png": "png", "qoi": "qoi"},
+    "CAT_JXL_MODE": {"lossless": "Lossless", "lossy": "Lossy"},
+    "CAT_VIDEO_FORMAT": {"mp4_h264": "mp4 (h264)", "gif": "GIF", "apng": "APNG",
+                         "mkv_ffv1": "mkv (ffv1)", "jxl": "JXL"},
+    "CAT_BITRATE_MODE": {"constant_quality": "Constant quality", "target_bitrate": "Target bitrate",
+                         "variable_bitrate": "Variable bitrate"},
+    "CAT_DOWNSAMPLE_FACTOR": {"none": "No change", "2x2": "2x2", "4x4": "4x4", "8x8": "8x8"},
+    "CAT_DOWNSAMPLE_METHOD": {"mean": "Mean", "median": "Median", "sum": "Sum", "max": "Max",
+                              "ffmpeg": "ffmpeg"},
+}
+PINNED_SIMULATION_KEYS = [
+    "iter", "dist", "seg_mult", "emit_mode", "emit_target_r", "emit_target_theta",
+    "emit_target_cx", "emit_target_cy", "emit_offset", "confine_window", "confine_method",
+    "confine_threshold", "fuzz_on", "emit_jitter", "bnd_offset", "bnd_jitter", "bnd_mult",
+    "self_offset", "self_jitter", "self_mult", "seed", "buddha_blur_radius", "buddha_blur_type"]
+PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_end", "guides",
+                          "samples"]
+PINNED_EXPORT_KEYS = [
+    "include_all_views", "color_info_location", "figure_info_location", "image_source",
+    "image_format", "image_jxl_mode", "image_jxl_quality", "image_width", "image_height",
+    "video_fps", "video_width", "video_height", "video_skip_first_frame", "video_format",
+    "video_bitrate_mode", "video_quality", "video_bitrate", "video_vbr_target", "video_vbr_max",
+    "video_downsample_factor", "video_downsample_method", "video_jxl_mode", "video_jxl_quality"]
+PINNED_OBSTACLE_FIELDS = {            # kind key -> the fields its project entry has
+    "ellipse": {"width", "height"}, "regular_polygon": {"sides", "radius"},
+    "moss_egg": {"moss_angle", "moss_size"}, "circular_sector": {"radius", "sector_span"},
+    "circular_segment": {"radius", "segment_span"},
+    "two_circle_lens": {"lens_radius1", "lens_radius2", "lens_sep"},
+    "reuleaux_polygon": {"reuleaux_sides", "radius"},
+    "capsule": {"capsule_length", "capsule_radius"}, "trefoil": {"radius", "lobe_size"},
+    "quatrefoil": {"radius", "lobe_size"}, "lune": {"radius", "cut_radius", "cut_offset"},
+    "arbelos": {"radius", "split"}}
+SHARED_OBSTACLE_FIELDS = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
+                          "fire_inside"}
+
+
+def test_the_keys_in_project_files_never_change():
+    """Every key below may be in a saved project, so it must still exist and still mean the
+    same. Adding keys is fine; the program's own codes may be renumbered."""
+    for catalog_name, keys in PINNED_KEYS.items():
+        catalog = getattr(m, catalog_name)
+        for key, constant in keys.items():
+            assert catalog.by_key.get(key) == getattr(m, constant), \
+                f"{catalog_name}: the key {key!r} must still mean {constant}"
+    for key, label in PINNED_BUDDHA_POINT_KEYS.items():
+        assert m.BUDDHA_POINT_CATALOG[m.CAT_BUDDHA_POINT.by_key[key]][0] == label, key
+    for key, class_name in PINNED_SHAPE_KINDS.items():
+        assert m.CAT_SHAPE_KIND.by_key[key].__name__ == class_name, key
+    for catalog_name, keys in PINNED_EXPORT_CHOICES.items():
+        for key, text in keys.items():
+            assert getattr(m, catalog_name).by_key.get(key) == text, f"{catalog_name}: {key}"
+    for index, key in enumerate(("1x", "2x", "4x", "8x", "16x")):
+        assert m.CAT_BUDDHA_BRIGHTNESS.by_key[key] == index == m.BUDDHA_BRIGHTNESS_OPTIONS.index(key)
+    assert set(PINNED_SIMULATION_KEYS) <= set(m.RAY_SETTING_SPECS)
+    assert set(PINNED_EXPORT_KEYS) <= {row[0] for row in m.EXPORT_OPTIONS}
+    assert set(PINNED_DECORATION_KEYS) <= {key for key, _label, _default in
+                                           m.DECO_IMAGE + m.DECO_PREVIEW}
+    for key, fields in PINNED_OBSTACLE_FIELDS.items():
+        assert fields | SHARED_OBSTACLE_FIELDS <= set(m.CAT_SHAPE_KIND.by_key[key].FIELD_NAMES), key
+    assert m.PROJECT_FORMAT_NAME == "light-bounces-project" and m.PROJECT_EXTENSION == ".lightbounce"
+
+
+def test_a_catalog_translates_between_keys_and_codes_and_refuses_what_it_does_not_know():
+    catalog = m.Catalog("colour", [("red", 7), ("green", 3)])
+    assert catalog.key(7) == "red" and catalog.code("green", "here") == 3
+    assert catalog.codes == [7, 3]
+    for call in (lambda: catalog.code("blue", "the file"), lambda: catalog.code(3, "the file"),
+                 lambda: catalog.key(99)):
+        try:
+            call()
+        except m.ProjectError as exc:
+            assert "colour" in str(exc)
+        else:
+            raise AssertionError("an unknown key or code was accepted")
+    try:
+        m.Catalog("bad", [("Has Capitals", 1)])
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("a key that is not lower-case snake case was accepted")
+
+
+def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
+    data = _dict_of()
+    assert data["simulation"]["emit_mode"] == "towards_point"
+    assert data["simulation"]["confine_method"] in ("box", "path_length")
+    assert data["simulation"]["buddha_blur_type"] == "bokeh"
+    assert {o["fields"]["in_effect"] for o in data["obstacles"]} <= set(m.CAT_EFFECT.by_key)
+    assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
+    channel = data["views"][1]["channels"][1]
+    assert channel == {"source": "buddha", "kind": "other_metric", "metric": "bounces",
+                       "point1": "start_point", "point2": "end_point",
+                       "buddha_points": ["self_bounces_mean", "boundary_bounces_mean"],
+                       "buddha_compression": "modulus", "buddha_brightness": "8x",
+                       "constant": "one"}
+    settings = data["keyframes"][0]["settings"]
+    assert settings["view:5:chan1"] == channel and settings["iter"] == 40
+    assert data["keyframes"][1]["settings"]["emit_mode"] == "towards_point"
+    assert data["export"]["video_format"] == "jxl" and data["export"]["color_info_location"] == "overlay"
+    assert data["export"]["video_jxl_mode"] == "lossy" and data["export"]["image_format"] == "png"
+
+
+def test_self_checks_catch_a_catalog_that_misses_one_of_the_programs_codes():
+    fresh = load_module()
+    fresh.CAT_METRIC = fresh.Catalog("metric", fresh.CAT_METRIC.entries[:-1])
+    _breaks_a_self_check(fresh, "the metric catalog")
+    fresh = load_module()
+    fresh.CAT_EFFECT = fresh.Catalog("ray effect", list(fresh.CAT_EFFECT.entries) + [("extra", 9)])
+    _breaks_a_self_check(fresh, "the ray effect catalog")
+    fresh = load_module()
+    fresh.RAY_CHOICE_CATALOGS = dict(fresh.RAY_CHOICE_CATALOGS)
+    del fresh.RAY_CHOICE_CATALOGS["emit_mode"]
+    _breaks_a_self_check(fresh, "RAY_CHOICE_CATALOGS")
+
+
+def test_self_checks_catch_a_shape_kind_without_its_own_key():
+    fresh = load_module()
+    fresh.LuneShape.KEY = fresh.ArbelosShape.KEY
+    _breaks_a_self_check(fresh, "KEY")
+    fresh = load_module()
+    fresh.LuneShape.KEY = "Not A Key"
+    _breaks_a_self_check(fresh, "KEY")
+
+
+V1_PROJECT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev", "testing",
+                               "project_v1.lightbounce")
+
+
+def test_a_format_1_project_file_is_converted_when_loaded():
+    """dev/testing/project_v1.lightbounce is a real file written by the first version of the
+    project format (numbers for choices, class names for obstacle kinds) from _sample_project();
+    it must keep loading. _sample_project() must therefore not change: this file is the
+    reference it is compared with."""
+    import json
+    with open(V1_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    assert old["format_version"] == 1 and old["obstacles"][0]["kind"] == "EllipseShape"
+    assert isinstance(old["simulation"]["emit_mode"], int)
+    loaded = m.load_project(V1_PROJECT_FILE)
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert m.project_text(loaded).count('"format_version": 2') == 1
+
+
+def test_a_damaged_format_1_file_is_refused_not_half_converted():
+    import json
+    with open(V1_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    old["obstacles"][1]["fields"]["in_effect"] = 77
+    try:
+        m.project_from_dict(old)
+    except m.ProjectError as exc:
+        assert "ray effect" in str(exc)
+    else:
+        raise AssertionError("a number that is not an effect was accepted")
+    old = json.load(open(V1_PROJECT_FILE, encoding="utf-8"))
+    del old["views"][0]["channels"][0]["stat"]
+    try:
+        m.project_from_dict(old)
+    except m.ProjectError as exc:
+        assert "damaged" in str(exc)
+    else:
+        raise AssertionError("a channel without a metric was accepted")
+
+
+# --------------------------------------------------------------------------- #
+# Projects in the program: unsaved changes and the file dialogs
+# --------------------------------------------------------------------------- #
+def _fake_project_app(dirty, save_result=True):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.project_path = None
+    app.busy_with_render_or_reencode = lambda: False
+    app.is_dirty = lambda: dirty
+    app.saves = []
+    app.save_project = lambda: app.saves.append(1) or save_result
+    app.project_display_name = lambda: "Untitled"
+    app.can_replace_project = m.App.can_replace_project.__get__(app)
+    return app
+
+
+def _with_answer(answer, fn):
+    orig = (m.messagebox.askyesnocancel, m.messagebox.showinfo)
+    asked = []
+    m.messagebox.askyesnocancel = lambda *a, **k: asked.append(a) or answer
+    m.messagebox.showinfo = lambda *a, **k: asked.append(("info",) + a)
+    try:
+        return fn(), asked
+    finally:
+        m.messagebox.askyesnocancel, m.messagebox.showinfo = orig
+
+
+def test_replacing_a_project_with_no_unsaved_changes_asks_nothing():
+    app = _fake_project_app(dirty=False)
+    result, asked = _with_answer(None, lambda: app.can_replace_project("open another project"))
+    assert result is True and asked == [] and app.saves == []
+
+
+def test_unsaved_changes_are_saved_discarded_or_the_action_cancelled_as_the_user_chooses():
+    app = _fake_project_app(dirty=True)
+    result, asked = _with_answer(True, lambda: app.can_replace_project("start a new project"))
+    assert result is True and app.saves == [1] and len(asked) == 1
+    assert "Untitled" in asked[0][1] and "start a new project" in asked[0][1]
+    app = _fake_project_app(dirty=True)
+    assert _with_answer(False, lambda: app.can_replace_project("x"))[0] is True and app.saves == []
+    app = _fake_project_app(dirty=True)
+    assert _with_answer(None, lambda: app.can_replace_project("x"))[0] is False and app.saves == []
+    app = _fake_project_app(dirty=True, save_result=False)      # chose Save, then cancelled the dialog
+    assert _with_answer(True, lambda: app.can_replace_project("x"))[0] is False
+
+
+def test_a_project_is_not_replaced_while_a_video_renders_but_the_program_may_still_close():
+    app = _fake_project_app(dirty=False)
+    app.busy_with_render_or_reencode = lambda: True
+    result, asked = _with_answer(None, lambda: app.can_replace_project("open another project"))
+    assert result is False and asked and asked[0][0] == "info"
+    result, asked = _with_answer(None, lambda: app.can_replace_project("close the program",
+                                                                      check_busy=False))
+    assert result is True and asked == []
+
+
+def _fake_save_project_app(path=None):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.project_path = path
+    app.root = None
+    app.project_display_name = m.App.project_display_name.__get__(app)
+    app.project_dialog_dir = lambda: tempfile.mkdtemp()
+    app.captured = _sample_project()
+    app.capture_project = lambda show_error=True: app.captured
+    app.update_title = lambda: None
+    app.save_project_to = m.App.save_project_to.__get__(app)
+    app.save_project_as = m.App.save_project_as.__get__(app)
+    app.save_project = m.App.save_project.__get__(app)
+    return app
+
+
+def test_save_goes_to_the_projects_file_and_asks_for_one_only_when_it_has_none():
+    folder = tempfile.mkdtemp()
+    target = os.path.join(folder, "p" + m.PROJECT_EXTENSION)
+    app = _fake_save_project_app(path=target)
+    assert app.save_project() is True and os.path.exists(target)
+    assert app.saved_signature == m.project_signature(app.captured)
+
+    app = _fake_save_project_app(path=None)
+    seen = {}
+    orig = m.filedialog.asksaveasfilename
+    chosen = os.path.join(folder, "new" + m.PROJECT_EXTENSION)
+    m.filedialog.asksaveasfilename = lambda *a, **k: seen.update(k) or chosen
+    try:
+        assert app.save_project() is True
+    finally:
+        m.filedialog.asksaveasfilename = orig
+    assert seen["defaultextension"] == ".lightbounce" and seen["filetypes"] == m.PROJECT_FILE_TYPES
+    assert seen["initialfile"] == "untitled.lightbounce"
+    assert app.project_path == chosen and os.path.exists(chosen)
+
+    app = _fake_save_project_app(path=None)                     # the dialog was cancelled
+    m.filedialog.asksaveasfilename = lambda *a, **k: ""
+    try:
+        assert app.save_project() is False
+    finally:
+        m.filedialog.asksaveasfilename = orig
+    assert app.project_path is None
+
+
+def test_a_failed_save_reports_the_problem_and_leaves_the_project_unsaved():
+    app = _fake_save_project_app(path=os.path.join(tempfile.mkdtemp(), "no", "dir", "p.lightbounce"))
+    shown = []
+    orig = m.messagebox.showerror
+    m.messagebox.showerror = lambda *a, **k: shown.append(a)
+    try:
+        assert app.save_project() is False
+    finally:
+        m.messagebox.showerror = orig
+    assert shown and "could not be written" in shown[0][1]
+    assert not hasattr(app, "saved_signature")
 
 
 def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_number():

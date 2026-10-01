@@ -1,0 +1,469 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 1,
+  "program_version": 111,
+  "simulation": {
+    "iter": 77,
+    "dist": 3.5,
+    "seg_mult": 0.8,
+    "emit_mode": 1,
+    "emit_target_r": 0.3,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": 12.5,
+    "confine_window": 6,
+    "confine_method": 0,
+    "confine_threshold": 0.00390625,
+    "fuzz_on": true,
+    "emit_jitter": 2.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 99,
+    "buddha_blur_radius": 0.03,
+    "buddha_blur_type": 2
+  },
+  "decorations": {
+    "outline": false,
+    "pending": true
+  },
+  "obstacles": [
+    {
+      "kind": "EllipseShape",
+      "id": 1,
+      "fields": {
+        "rotation": 10.0,
+        "width": 1.0,
+        "height": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 0,
+        "out_effect": 1,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "RegularPolygonShape",
+      "id": 3,
+      "fields": {
+        "rotation": 11.0,
+        "sides": 5,
+        "radius": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 1,
+        "out_effect": 2,
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "MossEggShape",
+      "id": 5,
+      "fields": {
+        "rotation": 12.0,
+        "moss_angle": 90.0,
+        "moss_size": 0.9,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 2,
+        "out_effect": 0,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "CircularSectorShape",
+      "id": 7,
+      "fields": {
+        "rotation": 13.0,
+        "radius": 1.0,
+        "sector_span": 90.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 0,
+        "out_effect": 1,
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "CircularSegmentShape",
+      "id": 9,
+      "fields": {
+        "rotation": 14.0,
+        "radius": 1.0,
+        "segment_span": 120.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 1,
+        "out_effect": 2,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "LensShape",
+      "id": 11,
+      "fields": {
+        "rotation": 15.0,
+        "lens_radius1": 1.0,
+        "lens_radius2": 1.0,
+        "lens_sep": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 2,
+        "out_effect": 0,
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "ReuleauxPolygonShape",
+      "id": 13,
+      "fields": {
+        "rotation": 16.0,
+        "reuleaux_sides": 3,
+        "radius": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 0,
+        "out_effect": 1,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "CapsuleShape",
+      "id": 15,
+      "fields": {
+        "rotation": 17.0,
+        "capsule_length": 1.0,
+        "capsule_radius": 0.5,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 1,
+        "out_effect": 2,
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "TrefoilShape",
+      "id": 17,
+      "fields": {
+        "rotation": 18.0,
+        "radius": 1.0,
+        "lobe_size": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 2,
+        "out_effect": 0,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "QuatrefoilShape",
+      "id": 19,
+      "fields": {
+        "rotation": 19.0,
+        "radius": 1.0,
+        "lobe_size": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 0,
+        "out_effect": 1,
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "LuneShape",
+      "id": 21,
+      "fields": {
+        "rotation": 20.0,
+        "radius": 1.0,
+        "cut_radius": 0.8,
+        "cut_offset": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 1,
+        "out_effect": 2,
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "ArbelosShape",
+      "id": 23,
+      "fields": {
+        "rotation": 21.0,
+        "radius": 1.0,
+        "split": 0.35,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": 2,
+        "out_effect": 0,
+        "fire_inside": true
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": 0,
+      "mode": "RGB",
+      "channels": [
+        {
+          "chan_src": 0,
+          "kind": 0,
+          "stat": 0,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        },
+        {
+          "chan_src": 0,
+          "kind": 0,
+          "stat": 1,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        },
+        {
+          "chan_src": 0,
+          "kind": 1,
+          "stat": 4,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "mode": "HSV",
+      "channels": [
+        {
+          "chan_src": 0,
+          "kind": 0,
+          "stat": 0,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        },
+        {
+          "chan_src": 1,
+          "kind": 1,
+          "stat": 4,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 1,
+          "buddha_brightness": 3,
+          "constant": -2
+        },
+        {
+          "chan_src": 0,
+          "kind": 1,
+          "stat": 4,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        }
+      ]
+    }
+  ],
+  "keyframes": [
+    {
+      "id": 2,
+      "frame_index": 0,
+      "settings": {
+        "iter": 40,
+        "dist": 2.5,
+        "outline": false,
+        "obst:1:rotation": 15.0,
+        "view:5:mode": "HSV",
+        "view:5:chan1": {
+          "chan_src": 1,
+          "kind": 1,
+          "stat": 4,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 1,
+          "buddha_brightness": 3,
+          "constant": -2
+        },
+        "view:0:chan0": {
+          "chan_src": 0,
+          "kind": 0,
+          "stat": 0,
+          "point1": 0,
+          "point2": 1,
+          "buddha_points": [
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "buddha_compression": 0,
+          "buddha_brightness": 0,
+          "constant": -1
+        }
+      }
+    },
+    {
+      "id": 7,
+      "frame_index": 30,
+      "settings": {
+        "obst:3:r": 0.5,
+        "emit_mode": 1
+      }
+    }
+  ],
+  "export": {
+    "include_all_views": false,
+    "color_info_location": "Overlay",
+    "image_format": "png",
+    "image_jxl_quality": 85,
+    "image_width": "640",
+    "video_fps": "24",
+    "video_format": "JXL",
+    "video_quality": 60.5,
+    "video_jxl_mode": "Lossy"
+  },
+  "counters": {
+    "obstacle": 40,
+    "view": 9,
+    "keyframe": 12
+  },
+  "selected": {
+    "obstacle": 5,
+    "view": 5
+  }
+}

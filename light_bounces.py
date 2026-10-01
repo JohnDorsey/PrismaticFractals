@@ -188,7 +188,7 @@ Timeline and video
   height (the same world area as the preview), and writes each as a PNG into
   exports/TEMP, next to this program. It then combines them with ffmpeg into
   an .mp4 (h264), .gif, .apng or .mkv (ffv1), or, through the external cjxl
-  tool, an animated .jxl, saved in the exports folder; the bitrate mode
+  tool, an animated .jxl (lossless or lossy), saved in the exports folder; the bitrate mode
   (constant quality, target or variable bitrate) and a downsampling factor
   apply to that combined video only, never to the PNG frames. "Re-encode"
   combines whatever frames are already in TEMP using the current encoding
@@ -206,8 +206,8 @@ Exporting a still image
   extra columns if they need the room); these apply to videos as well, with
   the values of that frame. Export: either the
   Current image (the preview as it was generated) or a New image generated
-  afresh at its own width and height (per view), saved as png, qoi or jxl
-  (lossless, or lossy with a quality setting). "Export" saves into the
+  afresh at its own width and height (per view), saved as jxl (the default),
+  png or qoi (jxl lossless, or lossy with a quality setting). "Export" saves into the
   exports folder (next to the program) under a default name; "Export As..." asks for one. Both are
   disabled until an image has finished generating.
 
@@ -226,10 +226,22 @@ Window layout (six panels, in three columns)
                  settings (fps, format, bitrate, downsampling), a preview of
                  the latest frame, and Start Render / Re-encode / Clear
 
+Projects
+  File > New / Open / Save / Save as (Ctrl+N, O, S, Shift+S) keep a whole setup in a
+  .lightbounce file: the simulation settings, decorations, every obstacle, view and
+  keyframe, and the Export designer and video choices (not the generated image: after
+  opening a project the image is blank and Start makes it again, identical because
+  fuzzing is seeded). A project file is pretty-printed, versioned JSON, so it can be read,
+  diffed and kept in version control. The window title shows the project's name and a *
+  while there are unsaved changes; New, Open and closing the window ask first. The dialogs
+  start in the projects folder next to the program.
+
 Saved image files (all written to the exports folder) are named
   <program name>-YYYYMMDD-hhmmss-<simulation settings>.<png|qoi|jxl>
 and rendered videos
   <program name>-video-YYYYMMDD-hhmmss.<mp4|gif|apng|jxl>  (.ffv1.mkv for mkv)
+A JPEG XL file (still or video) also says its quality right before the extension:
+name.q90.jxl for lossy quality 90 (5 to 95), name.q100.jxl for lossless.
 where the program name is taken from this file's own name (so it follows any
 renaming).
 
@@ -258,9 +270,10 @@ Development aids (screenshots and dumps)
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 109
+FILE_VERSION = 112
 
 import dataclasses
+import json
 import math
 import os
 import random
@@ -883,6 +896,7 @@ PROGRAM_NAME = os.path.splitext(os.path.basename(SCRIPT_PATH))[0]
 # Everything the program writes (exported images and videos) goes in EXPORT_DIR;
 # the video frames' TEMP folder lives inside it.
 EXPORT_DIR = os.path.join(SCRIPT_DIR, "exports")
+PROJECT_DIR = os.path.join(SCRIPT_DIR, "projects")     # where the project dialogs start
 # Development aid: if this folder exists, the app screenshots its own window once
 # per launch into DEV_DIR/screenshots (see take_ui_screenshot).
 DEV_DIR = os.path.join(SCRIPT_DIR, "dev")
@@ -967,6 +981,7 @@ def make_scrollable_tab(tab):
 MODIFIED_OUTLINE = "#1e88e5"     # blue: a setting changed since the selected keyframe was
 MODIFIED_OUTLINE_PX = 2          # loaded / last saved (see App.check_modified)
 MODIFIED_POLL_MS = 100
+PROJECT_POLL_MS = 1000     # how often the window title's unsaved-changes mark is refreshed
 
 
 class ModifiedOutline:
@@ -1195,6 +1210,7 @@ class Shape:
     thread can read an obstacle while the GUI is editing the live one. A frozen
     copy has every method of the live shape."""
     KIND = None             # the SHAPE_* code the kernels know this kind by
+    KEY = None              # the permanent name a project file calls this kind by
     LAYOUT = None           # the LAYOUT_* its bound array is packed as
     NAME = None             # shown to the user
     PARAMS = ()             # this kind's own ShapeParam rows
@@ -1352,6 +1368,7 @@ class Shape:
 class EllipseShape(Shape):
     KIND = SHAPE_ELLIPSE
     LAYOUT = LAYOUT_ELLIPSE
+    KEY = "ellipse"
     NAME = "Ellipse"
     PARAMS = (_slider("width", "Width", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
               _slider("height", "Height", 1.0, ELLIPSE_MIN, ELLIPSE_MAX))
@@ -1384,6 +1401,7 @@ class EllipseShape(Shape):
 class RegularPolygonShape(Shape):
     KIND = SHAPE_POLYGON
     LAYOUT = LAYOUT_POLYGON
+    KEY = "regular_polygon"
     NAME = "Regular polygon"
     PARAMS = (_count("sides", "Sides", DEFAULT_SIDES, POLY_MIN_SIDES, POLY_MAX_SIDES),
               RADIUS_PARAM)
@@ -1414,6 +1432,7 @@ class RegularPolygonShape(Shape):
 class MossEggShape(Shape):
     KIND = SHAPE_MOSS_EGG
     LAYOUT = LAYOUT_ARCS_EDGES
+    KEY = "moss_egg"
     NAME = "Moss's egg"
     PARAMS = (_slider("moss_angle", "Angle ACB", DEFAULT_MOSS_ANGLE, MOSS_ANGLE_MIN,
                       MOSS_ANGLE_MAX, 0.5, "angle", "{:.1f}"),
@@ -1441,6 +1460,7 @@ class MossEggShape(Shape):
 class CircularSectorShape(Shape):
     KIND = SHAPE_SECTOR
     LAYOUT = LAYOUT_ARCS_EDGES
+    KEY = "circular_sector"
     NAME = "Circular sector"
     PARAMS = (RADIUS_PARAM,
               _slider("sector_span", "Span", DEFAULT_SECTOR_SPAN, ARC_SPAN_MIN,
@@ -1467,6 +1487,7 @@ class CircularSectorShape(Shape):
 class CircularSegmentShape(Shape):
     KIND = SHAPE_SEGMENT
     LAYOUT = LAYOUT_ARCS_EDGES
+    KEY = "circular_segment"
     NAME = "Circular segment"
     PARAMS = (RADIUS_PARAM,
               _slider("segment_span", "Span", DEFAULT_SEGMENT_SPAN, ARC_SPAN_MIN,
@@ -1493,6 +1514,7 @@ class CircularSegmentShape(Shape):
 class LensShape(Shape):
     KIND = SHAPE_LENS
     LAYOUT = LAYOUT_CIRCLES
+    KEY = "two_circle_lens"
     NAME = "Two-circle lens"
     PARAMS = (_slider("lens_radius1", "Radius 1", DEFAULT_LENS_RADIUS, LENS_RADIUS_MIN,
                       LENS_RADIUS_MAX),
@@ -1523,6 +1545,7 @@ class LensShape(Shape):
 class ReuleauxPolygonShape(Shape):
     KIND = SHAPE_REULEAUX
     LAYOUT = LAYOUT_CIRCLES
+    KEY = "reuleaux_polygon"
     NAME = "Reuleaux polygon"
     PARAMS = (_count("reuleaux_sides", "Sides (odd)", DEFAULT_REULEAUX_SIDES,
                      REULEAUX_MIN_SIDES, REULEAUX_MAX_SIDES, step=2),
@@ -1549,6 +1572,7 @@ class ReuleauxPolygonShape(Shape):
 class CapsuleShape(Shape):
     KIND = SHAPE_CAPSULE
     LAYOUT = LAYOUT_ARCS_EDGES
+    KEY = "capsule"
     NAME = "Capsule"
     PARAMS = (_slider("capsule_length", "Length", DEFAULT_CAPSULE_LENGTH,
                       CAPSULE_LENGTH_MIN, CAPSULE_LENGTH_MAX),
@@ -1609,6 +1633,7 @@ class LobedShape(ArcLoopShape):
 
 class TrefoilShape(LobedShape):
     KIND = SHAPE_TREFOIL
+    KEY = "trefoil"
     NAME = "Trefoil"
     LOBES = 3
     __slots__ = ()
@@ -1616,6 +1641,7 @@ class TrefoilShape(LobedShape):
 
 class QuatrefoilShape(LobedShape):
     KIND = SHAPE_QUATREFOIL
+    KEY = "quatrefoil"
     NAME = "Quatrefoil"
     LOBES = 4
     __slots__ = ()
@@ -1623,6 +1649,7 @@ class QuatrefoilShape(LobedShape):
 
 class LuneShape(ArcLoopShape):
     KIND = SHAPE_LUNE
+    KEY = "lune"
     NAME = "Lune"
     PARAMS = (RADIUS_PARAM,
               _slider("cut_radius", "Cut radius", DEFAULT_CUT_RADIUS, CUT_RADIUS_MIN, CUT_RADIUS_MAX),
@@ -1649,6 +1676,7 @@ class LuneShape(ArcLoopShape):
 
 class ArbelosShape(ArcLoopShape):
     KIND = SHAPE_ARBELOS
+    KEY = "arbelos"
     NAME = "Arbelos"
     PARAMS = (RADIUS_PARAM, _slider("split", "Split", DEFAULT_SPLIT, SPLIT_MIN, SPLIT_MAX))
     __slots__ = ("radius", "split")
@@ -2168,6 +2196,12 @@ def settings_suffix(settings):
     return "-".join(parts)
 
 
+def ensure_project_dir():
+    """PROJECT_DIR, created first if it doesn't exist yet."""
+    os.makedirs(PROJECT_DIR, exist_ok=True)
+    return PROJECT_DIR
+
+
 def ensure_export_dir():
     """EXPORT_DIR, created first if it doesn't exist yet."""
     os.makedirs(EXPORT_DIR, exist_ok=True)
@@ -2300,12 +2334,22 @@ def dump_app_state(app, cause, include_large_arrays, exc_info=None):
         return None
 
 
-def default_filename(settings=None, ext="png"):
-    """programname-YYYYMMDD-hhmmss-<settings>.<ext>, stamped with the current time."""
+def default_filename(settings=None, ext="png", quality_tag=None):
+    """programname-YYYYMMDD-hhmmss-<settings>[.<quality_tag>].<ext>, stamped with the
+    current time."""
     name = f"{PROGRAM_NAME}-{time.strftime('%Y%m%d-%H%M%S')}"
     if settings is not None:
         name += "-" + settings_suffix(settings)
+    if quality_tag:
+        name += "." + quality_tag
     return f"{name}.{ext}"
+
+
+def image_filename(settings, fmt, jxl_lossless, jxl_quality):
+    """The default name of a saved still image: a JPEG XL file also says its quality
+    right before the extension (name.q90.jxl; q100 for lossless)."""
+    tag = jxl_quality_tag(jxl_lossless, jxl_quality) if fmt == "jxl" else None
+    return default_filename(settings, fmt, tag)
 
 
 def parse_iter_limit(text):
@@ -2569,6 +2613,17 @@ def write_qoi(path, rgb):
         fh.write(encode_qoi_bytes(rgb))
 
 
+JXL_LOSSY_MAX_QUALITY = 95   # lossy quality stops here: "q100" in a file name always means lossless
+
+
+def jxl_quality_tag(lossless, quality):
+    """The quality part of a JPEG XL file's name (name.q90.jxl): q100 for lossless, else
+    q<quality> (a lossy quality is at most JXL_LOSSY_MAX_QUALITY)."""
+    if lossless:
+        return "q100"
+    return f"q{min(int(round(quality)), JXL_LOSSY_MAX_QUALITY)}"
+
+
 def jxl_quality_to_distance(quality):
     """A 0..100 "quality" (higher = better, matching the usual convention)
     -> libjxl's own "distance" scale (0 = lossless, higher = worse; sane
@@ -2589,7 +2644,8 @@ def write_jxl(path, rgb, lossless, quality=90):
     tmp_path = os.path.join(TEMP_DIR, "_jxl_source.png")
     write_png(tmp_path, rgb)
     try:
-        distance = 0.0 if lossless else jxl_quality_to_distance(quality)
+        distance = 0.0 if lossless else jxl_quality_to_distance(
+            min(quality, JXL_LOSSY_MAX_QUALITY))
         stream = ffmpeg.input(tmp_path)
         stream = ffmpeg.output(stream, path, **{"c:v": "libjxl", "distance": distance,
                                                 "update": 1, "frames:v": 1})
@@ -2607,34 +2663,76 @@ def cjxl_available():
     return shutil.which("cjxl") is not None
 
 
-def convert_apng_to_jxl(apng_path, jxl_path):
+def convert_apng_to_jxl(apng_path, jxl_path, lossless=True, quality=90):
     """Converts an animated PNG to an animated JPEG XL file via the external
     `cjxl` tool. This is the only available path to an animated JXL file:
     ffmpeg cannot produce one directly (its libjxl wrapper is still-image
     only), but it CAN produce an APNG (natively, losslessly), and cjxl CAN
     convert an existing APNG's full animation to JXL - so the video export
     pipeline renders to APNG first and hands the result to this function.
-    Lossless (-d 0): the source APNG is itself lossless, so there would be
-    nothing to gain from a lossy pass, and no separate quality control is
-    exposed for this in the video panel."""
+    Lossless (-d 0) by default; with `lossless` False, cjxl makes a lossy animation
+    (verified with cjxl 0.12: jxlinfo reports a lossy animation) at the distance
+    that `quality` (0-100, as the still images' quality slider) maps to."""
     # Run the path shutil.which resolved, not the bare name "cjxl": on
     # Windows, a bare name only launches .exe files, whereas which() (and
     # so cjxl_available()) also finds .cmd/.bat shims.
     cjxl_path = shutil.which("cjxl")
     if cjxl_path is None:
         raise RuntimeError("cjxl failed: the cjxl tool was not found on PATH")
-    result = subprocess.run([cjxl_path, apng_path, jxl_path, "-d", "0"],
+    distance = 0.0 if lossless else jxl_quality_to_distance(min(quality, JXL_LOSSY_MAX_QUALITY))
+    result = subprocess.run([cjxl_path, apng_path, jxl_path, "-d", f"{distance:g}"],
                             capture_output=True, text=True)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "no output captured"
         raise RuntimeError(f"cjxl failed (exit code {result.returncode}): {detail}")
 
 
+class JxlQualityControls:
+    """The JPEG XL choices - lossless, or lossy with a quality - as one row of controls
+    (`frame`); used by the still-image export and by the video panel."""
+
+    def __init__(self, parent, label="JPEG XL mode:"):
+        self.frame = ttk.Frame(parent)
+        ttk.Label(self.frame, text=label).pack(side="left", padx=(0, 4))
+        self.mode_var = tk.StringVar(value=JXL_MODES[0])
+        combo = ttk.Combobox(self.frame, textvariable=self.mode_var, values=JXL_MODES,
+                             state="readonly", width=8)
+        combo.pack(side="left")
+        combo.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+        # lossy only: a quality slider on the same line
+        self.quality_frame = ttk.Frame(self.frame)
+        ttk.Label(self.quality_frame, text="Quality:").pack(side="left", padx=(8, 4))
+        self.scale = tk.Scale(self.quality_frame, from_=5, to=JXL_LOSSY_MAX_QUALITY,
+                              resolution=5, orient="horizontal", showvalue=False,
+                              highlightthickness=0, width=14, sliderlength=18, length=80)
+        self.scale.set(90)
+        self.scale.pack(side="left")
+        value_label = ttk.Label(self.quality_frame, text="90", width=3, anchor="e")
+        value_label.pack(side="left", padx=(4, 0))
+        self.scale.configure(command=lambda v: value_label.configure(text=f"{float(v):.0f}"))
+        self.refresh()
+
+    def lossless(self):
+        return self.mode_var.get() == "Lossless"
+
+    def quality(self):
+        return int(round(float(self.scale.get())))
+
+    def refresh(self):
+        """The quality slider only matters in Lossy mode."""
+        if self.lossless():
+            self.quality_frame.pack_forget()
+        else:
+            self.quality_frame.pack(side="left")
+
+
 # Saving a freshly generated image (as opposed to the live preview): what to
 # render, and which format to encode it in
 SAVE_SOURCE_OPTIONS = ["Current image", "New image"]
-SAVE_NEW_FORMATS = ["png", "qoi", "jxl"]
+SAVE_NEW_FORMATS = ["jxl", "png", "qoi"]      # the first is the default
 JXL_MODES = ["Lossless", "Lossy"]
+VIDEO_FORMATS = ["mp4 (h264)", "GIF", "APNG", "mkv (ffv1)", "JXL"]
+VIDEO_BITRATE_MODES = ["Constant quality", "Target bitrate", "Variable bitrate"]
 
 # Export designer: where (if anywhere) each kind of info text goes
 COLOR_INFO_LOCATIONS = ["None", "Overlay", "Bottom margin"]
@@ -3728,6 +3826,32 @@ class ViewConfig:
         self.buddha_brightness = list(DEFAULT_BUDDHA_BRIGHTNESSES)
         self.constant_choice = list(DEFAULT_CONSTANT_CHOICES)
 
+    def set_channel(self, c, channel):
+        """Make channel `c` what the ChannelSettings record `channel` says (a loaded keyframe
+        or project)."""
+        self.chan_src[c] = channel.chan_src
+        self.kinds[c] = channel.kind
+        if channel.kind == KIND_POINT:
+            self.point_metric[c] = channel.stat
+        else:
+            self.other_metric[c] = channel.stat
+        self.point1_choice[c] = channel.point1
+        self.point2_choice[c] = channel.point2
+        self.buddha_points[c] = channel.buddha_points
+        self.buddha_compression[c] = channel.buddha_compression
+        self.buddha_brightness[c] = channel.buddha_brightness
+        self.constant_choice[c] = channel.constant
+
+    def settings(self):
+        """This view as the ViewSettings the colouring code takes."""
+        return ViewSettings(mode=self.mode, kinds=self.kinds, point_metric=self.point_metric,
+                            other_metric=self.other_metric, point1_choice=self.point1_choice,
+                            point2_choice=self.point2_choice, chan_src=self.chan_src,
+                            buddha_points=self.buddha_points,
+                            buddha_compression=self.buddha_compression,
+                            buddha_brightness=self.buddha_brightness,
+                            constant_choice=self.constant_choice)
+
 
 @strict_record
 class ViewSnapshot:
@@ -3862,6 +3986,530 @@ def resolve_views(view_snapshots, keyframes_sorted, frame_number):
     return tuple(result)
 
 
+# --------------------------------------------------------------------------- #
+# Projects: saving and loading everything the user has set up
+#
+# A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the
+# controls' simulation settings, the decorations, every obstacle, view and keyframe, and
+# the Export designer and video panel choices - not the generated image, which Start makes
+# again (fuzzing is seeded, so the same settings give the same image).
+#
+# Every choice in the file is a readable string KEY ("euclidean_distance", "reflect",
+# "lune"), never a number. A key is permanent: once a project file can contain it, it is
+# never renamed or reused, and a Catalog translates it to the program's own code (an int
+# the kernels index arrays with, which may be renumbered freely). So the program is free
+# to reorder, insert and renumber its codes; test_the_keys_in_project_files_never_change
+# pins the keys. Object ids (obstacles, views, keyframes) stay the whole numbers they are.
+# --------------------------------------------------------------------------- #
+PROJECT_EXTENSION = ".lightbounce"
+PROJECT_FORMAT_NAME = "light-bounces-project"
+PROJECT_FORMAT_VERSION = 2
+PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
+PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
+
+
+class ProjectError(Exception):
+    """A project that cannot be saved or loaded; the message is shown to the user."""
+
+
+class Catalog:
+    """The choices of one kind as a project file stores them: (key, code) pairs. A key is a
+    permanent name (lower-case letters, digits, underscores) and all the file holds; the code
+    is what the program uses inside - an int (renumberable) or, for a choice made in a
+    control, the text the control holds."""
+
+    def __init__(self, name, entries):
+        self.name = name
+        self.entries = tuple(entries)
+        self.by_key = dict(self.entries)
+        self.by_code = {code: key for key, code in self.entries}
+        assert len(self.by_key) == len(self.by_code) == len(self.entries), name
+        assert all(PROJECT_KEY_PATTERN.fullmatch(key) for key in self.by_key), name
+
+    @property
+    def codes(self):
+        return list(self.by_code)
+
+    def key(self, code):
+        if code not in self.by_code:
+            raise ProjectError(f"This {self.name} ({code!r}) cannot be saved in a project.")
+        return self.by_code[code]
+
+    def code(self, key, where):
+        if not isinstance(key, str) or key not in self.by_key:
+            raise ProjectError(f"{where}: {key!r} is not a {self.name} this version of the "
+                               "program knows (was the project made by a newer version?).")
+        return self.by_key[key]
+
+
+def _string_catalog(name, keys, labels):
+    """A Catalog for a choice made in a control: key -> the text the control holds."""
+    assert len(keys) == len(labels), name
+    return Catalog(name, zip(keys, labels))
+
+
+CAT_CHAN_SOURCE = Catalog("channel source", [
+    ("query", CHAN_SRC_QUERY), ("buddha", CHAN_SRC_BUDDHA), ("constant", CHAN_SRC_CONSTANT)])
+CAT_CHAN_KIND = Catalog("channel kind", [("point_metric", KIND_POINT), ("other_metric", KIND_OTHER)])
+CAT_METRIC = Catalog("metric", [
+    ("horizontal_distance", ST_HDIST), ("vertical_distance", ST_VDIST),
+    ("manhattan_distance", ST_MANHATTAN), ("euclidean_distance", ST_EUCLIDEAN),
+    ("bounces", ST_BOUNCES), ("ray_bounce_fraction", ST_RAY_FRAC),
+    ("boundary_bounce_fraction", ST_BOUNDARY_FRAC), ("loop_area", ST_LOOP_AREA),
+    ("mean_bounce_angle", ST_ANGLES), ("ray_length", ST_LENGTH),
+    ("last_segment_direction", ST_LAST_DIR), ("termination_reason", ST_TERMINATION),
+    ("last_segment_ratio", ST_LAST_RATIO)])
+CAT_POINT = Catalog("point", [
+    ("start_point", POINT_START), ("end_point", POINT_END), ("all_bounces_mean", POINT_ALL_MEAN),
+    ("boundary_bounces_mean", POINT_BOUNDARY_MEAN), ("self_bounces_mean", POINT_SELF_MEAN),
+    ("uppermost_bounce", POINT_TOP), ("lowermost_bounce", POINT_BOTTOM),
+    ("rightmost_bounce", POINT_RIGHT), ("leftmost_bounce", POINT_LEFT),
+    ("uppermost_self_bounce", POINT_SELF_TOP), ("lowermost_self_bounce", POINT_SELF_BOTTOM),
+    ("rightmost_self_bounce", POINT_SELF_RIGHT), ("leftmost_self_bounce", POINT_SELF_LEFT),
+    ("origin", POINT_ORIGIN), ("top_left_corner", POINT_TOP_LEFT_CORNER)])
+CAT_BUDDHA_POINT = Catalog("Buddha point", [          # the code is the place in BUDDHA_POINT_CATALOG
+    ("all_bounces_mean", 0), ("self_bounces_mean", 1), ("boundary_bounces_mean", 2),
+    ("termination_point", 3), ("termination_point_distance_limit", 4),
+    ("termination_point_perpendicular_collision", 5), ("termination_point_confined", 6),
+    ("all_self_bounces", 7), ("all_segment_midpoints", 8),
+    ("progressive_means_of_bounce_points", 9), ("progressive_means_of_segment_midpoints", 10)])
+CAT_BUDDHA_COMPRESSION = Catalog("Buddha compression", [
+    ("arctangent", BUDDHA_COMPRESS_ARCTAN), ("modulus", BUDDHA_COMPRESS_MODULUS)])
+CAT_BUDDHA_BRIGHTNESS = Catalog("Buddha brightness", [      # the code is the place in the options
+    ("1x", 0), ("2x", 1), ("4x", 2), ("8x", 3), ("16x", 4)])
+CAT_CONSTANT = Catalog("constant", [("zero", NONE_ZERO), ("one", NONE_ONE)])
+CAT_EMIT_MODE = Catalog("emission mode", [("up", EMIT_UP), ("towards_point", EMIT_TOWARDS)])
+CAT_CONFINE_METHOD = Catalog("confinement method", [
+    ("box", CONFINE_BOX), ("path_length", CONFINE_PATH)])
+CAT_BLUR_TYPE = Catalog("blur type", [
+    ("gaussian", BUDDHA_BLUR_GAUSSIAN), ("triangular", BUDDHA_BLUR_TRIANGULAR),
+    ("bokeh", BUDDHA_BLUR_BOKEH), ("catadioptric_bokeh", BUDDHA_BLUR_CATADIOPTRIC)])
+CAT_EFFECT = Catalog("ray effect", [
+    ("reflect", OBSTACLE_EFFECT_REFLECT), ("terminate", OBSTACLE_EFFECT_TERMINATE),
+    ("pass_through", OBSTACLE_EFFECT_PASS)])
+CAT_SHAPE_KIND = Catalog("obstacle kind", [(cls.KEY, cls) for cls in SHAPE_CLASSES])
+# The simulation settings that are choices, by setting key
+RAY_CHOICE_CATALOGS = {"emit_mode": CAT_EMIT_MODE, "confine_method": CAT_CONFINE_METHOD,
+                       "buddha_blur_type": CAT_BLUR_TYPE}
+# Choices made in the Export designer and video panel
+CAT_COLOR_INFO = _string_catalog("colour info location", ["none", "overlay", "bottom_margin"],
+                                 COLOR_INFO_LOCATIONS)
+CAT_FIGURE_INFO = _string_catalog("figure info location", ["none", "left_margin"],
+                                  FIGURE_INFO_LOCATIONS)
+CAT_IMAGE_SOURCE = _string_catalog("image to export", ["current_image", "new_image"],
+                                   SAVE_SOURCE_OPTIONS)
+CAT_IMAGE_FORMAT = _string_catalog("image format", ["jxl", "png", "qoi"], SAVE_NEW_FORMATS)
+CAT_JXL_MODE = _string_catalog("JPEG XL mode", ["lossless", "lossy"], JXL_MODES)
+CAT_VIDEO_FORMAT = _string_catalog("video format", ["mp4_h264", "gif", "apng", "mkv_ffv1", "jxl"],
+                                   VIDEO_FORMATS)
+CAT_BITRATE_MODE = _string_catalog(
+    "bitrate mode", ["constant_quality", "target_bitrate", "variable_bitrate"],
+    VIDEO_BITRATE_MODES)
+CAT_DOWNSAMPLE_FACTOR = _string_catalog("downsample factor", ["none", "2x2", "4x4", "8x8"],
+                                        DOWNSAMPLE_FACTORS)
+CAT_DOWNSAMPLE_METHOD = _string_catalog(
+    "downsample method", ["mean", "median", "sum", "max", "ffmpeg"], DOWNSAMPLE_METHODS)
+
+# The Export designer and video panel choices a project keeps:
+#   (key in the file, the App attribute holding the control - a Tk variable or slider with
+#    .get()/.set(), possibly a dotted path - what it holds, its Catalog if it is a choice)
+# "choice" holds one of the catalog's texts, "text" any string, "bool", "number" an int or float.
+EXPORT_OPTIONS = [
+    ("include_all_views", "include_all_views_var", "bool", None),
+    ("color_info_location", "color_info_location_var", "choice", CAT_COLOR_INFO),
+    ("figure_info_location", "figure_info_location_var", "choice", CAT_FIGURE_INFO),
+    ("image_source", "save_source_var", "choice", CAT_IMAGE_SOURCE),
+    ("image_format", "save_format_var", "choice", CAT_IMAGE_FORMAT),
+    ("image_jxl_mode", "save_jxl_mode_var", "choice", CAT_JXL_MODE),
+    ("image_jxl_quality", "save_jxl_quality_scale", "number", None),
+    ("image_width", "save_new_w_var", "text", None),
+    ("image_height", "save_new_h_var", "text", None),
+    ("video_fps", "fps_var", "text", None),
+    ("video_width", "video_w_var", "text", None),
+    ("video_height", "video_h_var", "text", None),
+    ("video_skip_first_frame", "skip_first_frame_var", "bool", None),
+    ("video_format", "export_format_var", "choice", CAT_VIDEO_FORMAT),
+    ("video_bitrate_mode", "bitrate_mode_var", "choice", CAT_BITRATE_MODE),
+    ("video_quality", "quality_scale", "number", None),
+    ("video_bitrate", "bitrate_var", "text", None),
+    ("video_vbr_target", "vbr_target_var", "text", None),
+    ("video_vbr_max", "vbr_max_var", "text", None),
+    ("video_downsample_factor", "downsample_factor_var", "choice", CAT_DOWNSAMPLE_FACTOR),
+    ("video_downsample_method", "downsample_method_var", "choice", CAT_DOWNSAMPLE_METHOD),
+    ("video_jxl_mode", "video_jxl_controls.mode_var", "choice", CAT_JXL_MODE),
+    ("video_jxl_quality", "video_jxl_controls.scale", "number", None),
+]
+
+
+@strict_record
+class Project:
+    """Everything a project file holds, as plain values (the obstacles, views and keyframes
+    are independent frozen copies). Made by App.capture_project or project_from_dict."""
+    ray: RaySettings                    # the simulation controls
+    decorations: dict                   # decoration key -> bool
+    obstacles: tuple                    # frozen Shapes, in list order
+    views: tuple                        # ViewSnapshots, in list order
+    keyframes: tuple                    # Keyframes, in list order
+    export: dict                        # EXPORT_OPTIONS key -> the control's value
+    obstacle_counter: int               # the next new obstacle's / view's / keyframe's id
+    view_counter: int
+    keyframe_counter: int
+    selected_obstacle_id: int           # -1 for none
+    selected_view_id: int
+
+
+def view_config_from_snapshot(snapshot):
+    """A live ViewConfig with the contents of a ViewSnapshot."""
+    view = ViewConfig(snapshot.id)
+    view.mode = snapshot.mode
+    for c in range(3):
+        view.set_channel(c, view_channel_value(snapshot, c))
+    return view
+
+
+def project_signature(project):
+    """What a project's content amounts to, comparable with == : two projects with the same
+    signature would save the same file apart from which obstacle or view is selected and the
+    id counters. Used to tell whether there are unsaved changes."""
+    return (tuple(sorted(ray_settings_to_dict(project.ray).items())),
+            tuple(sorted(project.decorations.items())),
+            tuple((type(o).__name__, o.id, o.state()) for o in project.obstacles),
+            project.views,
+            tuple((kf.id, kf.frame_index, tuple(sorted(kf.data.items(), key=lambda kv: kv[0])))
+                  for kf in project.keyframes),
+            tuple(sorted(project.export.items())))
+
+
+def _json_default(value):
+    """json.dumps's fallback: numpy numbers become Python ones."""
+    if hasattr(value, "item"):
+        return value.item()
+    raise TypeError(f"{type(value).__name__} cannot be saved in a project")
+
+
+def _channel_to_json(channel):
+    return {"source": CAT_CHAN_SOURCE.key(channel.chan_src),
+            "kind": CAT_CHAN_KIND.key(channel.kind),
+            "metric": CAT_METRIC.key(channel.stat),
+            "point1": CAT_POINT.key(channel.point1),
+            "point2": CAT_POINT.key(channel.point2),
+            "buddha_points": [CAT_BUDDHA_POINT.key(i)
+                              for i, chosen in enumerate(channel.buddha_points) if chosen],
+            "buddha_compression": CAT_BUDDHA_COMPRESSION.key(channel.buddha_compression),
+            "buddha_brightness": CAT_BUDDHA_BRIGHTNESS.key(channel.buddha_brightness),
+            "constant": CAT_CONSTANT.key(channel.constant)}
+
+
+def _setting_catalog(key):
+    """The Catalog for the values of a simulation or keyframe setting `key` that is a choice."""
+    if key in RAY_CHOICE_CATALOGS:
+        return RAY_CHOICE_CATALOGS[key]
+    if key.startswith("obst:") and key.rsplit(":", 1)[-1] in ("in_effect", "out_effect"):
+        return CAT_EFFECT
+    return None
+
+
+def _setting_to_json(key, value):
+    if isinstance(value, ChannelSettings):
+        return _channel_to_json(value)
+    catalog = _setting_catalog(key)
+    return catalog.key(value) if catalog is not None else value
+
+
+def project_to_dict(project):
+    """The JSON-ready dict of a Project (the file's contents, see project_from_dict)."""
+    export = {}
+    for key, _path, _kind, catalog in EXPORT_OPTIONS:
+        if key in project.export:
+            export[key] = catalog.key(project.export[key]) if catalog else project.export[key]
+    return {
+        "format": PROJECT_FORMAT_NAME,
+        "format_version": PROJECT_FORMAT_VERSION,
+        "program_version": FILE_VERSION,
+        "simulation": {key: _setting_to_json(key, value)
+                       for key, value in ray_settings_to_dict(project.ray).items()},
+        "decorations": dict(project.decorations),
+        "obstacles": [{"kind": type(o).KEY, "id": o.id,
+                       "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
+                                  for name in o.FIELD_NAMES}}
+                      for o in project.obstacles],
+        "views": [{"id": v.id, "mode": v.mode,
+                   "channels": [_channel_to_json(view_channel_value(v, c)) for c in range(3)]}
+                  for v in project.views],
+        "keyframes": [{"id": kf.id, "frame_index": kf.frame_index,
+                       "settings": {key: _setting_to_json(key, value)
+                                    for key, value in kf.data.items()}}
+                      for kf in project.keyframes],
+        "export": export,
+        "counters": {"obstacle": project.obstacle_counter, "view": project.view_counter,
+                     "keyframe": project.keyframe_counter},
+        "selected": {"obstacle": (project.selected_obstacle_id
+                                  if project.selected_obstacle_id >= 0 else None),
+                     "view": project.selected_view_id},
+    }
+
+
+def project_text(project):
+    """The text of a project file: pretty-printed JSON (two-space indent, one value per
+    line), ending with a newline."""
+    try:
+        return json.dumps(project_to_dict(project), indent=2, ensure_ascii=False,
+                          allow_nan=False, default=_json_default) + "\n"
+    except (TypeError, ValueError) as exc:
+        raise ProjectError(f"The project could not be saved: {exc}") from exc
+
+
+def save_project(path, project):
+    """Write `project` to `path` (an existing file there is replaced). The whole text is made
+    first, so a project that cannot be saved never leaves a half-written file."""
+    text = project_text(project)
+    try:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+    except OSError as exc:
+        raise ProjectError(f"The project could not be written to {path}:\n{exc}") from exc
+
+
+def load_project(path):
+    """The Project in the file at `path`; ProjectError (with a message fit to show) if it
+    cannot be read or is not a usable project."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as exc:
+        raise ProjectError(f"The file could not be read:\n{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ProjectError(f"This is not a valid project file (the JSON is damaged at line "
+                           f"{exc.lineno}, column {exc.colno}: {exc.msg}).") from exc
+    except UnicodeDecodeError as exc:
+        raise ProjectError("This is not a project file (it is not UTF-8 text).") from exc
+    return project_from_dict(data)
+
+
+def _expect(condition, message):
+    if not condition:
+        raise ProjectError(message)
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _channel_from_json(data, where):
+    _expect(isinstance(data, dict), f"{where}: a colour channel must be an object")
+    for name in ("source", "kind", "metric", "point1", "point2", "buddha_points",
+                 "buddha_compression", "buddha_brightness", "constant"):
+        _expect(name in data, f"{where}: the channel has no {name!r}")
+    chosen = data["buddha_points"]
+    _expect(isinstance(chosen, list), f"{where}: buddha_points must be a list")
+    codes = {CAT_BUDDHA_POINT.code(key, where) for key in chosen}
+    channel = ChannelSettings(
+        chan_src=CAT_CHAN_SOURCE.code(data["source"], where),
+        kind=CAT_CHAN_KIND.code(data["kind"], where),
+        stat=CAT_METRIC.code(data["metric"], where),
+        point1=CAT_POINT.code(data["point1"], where),
+        point2=CAT_POINT.code(data["point2"], where),
+        buddha_points=tuple(code in codes for code in range(N_BUDDHA_POINTS)),
+        buddha_compression=CAT_BUDDHA_COMPRESSION.code(data["buddha_compression"], where),
+        buddha_brightness=CAT_BUDDHA_BRIGHTNESS.code(data["buddha_brightness"], where),
+        constant=CAT_CONSTANT.code(data["constant"], where))
+    _expect(channel.stat in (POINT_STATS if channel.kind == KIND_POINT else OTHER_STATS),
+            f"{where}: the metric {data['metric']!r} does not suit a {data['kind']!r} channel")
+    return channel
+
+
+def _setting_from_json(key, value, where):
+    """The value of simulation or keyframe setting `key`, as the program holds it."""
+    catalog = _setting_catalog(key)
+    if catalog is not None:
+        return catalog.code(value, where)
+    _expect(isinstance(value, (bool, int, float, str)),
+            f"{where}: the value of {key!r} must be a number, true/false or text")
+    return value
+
+
+def _shape_from_json(data, seen_ids):
+    _expect(isinstance(data, dict), "an obstacle must be an object")
+    kind, shape_id, fields = data.get("kind"), data.get("id"), data.get("fields")
+    shape_class = CAT_SHAPE_KIND.code(kind, "an obstacle's kind")
+    _expect(isinstance(shape_id, int) and not isinstance(shape_id, bool) and shape_id >= 0,
+            f"obstacle {kind}: its id must be a whole number")
+    _expect(shape_id not in seen_ids, f"two obstacles have the id {shape_id}")
+    seen_ids.add(shape_id)
+    _expect(isinstance(fields, dict), f"obstacle #{shape_id}: fields must be an object")
+    shape = shape_class(shape_id)
+    ranges = {p.field: p for p in shape_class.NUMERIC_PARAMS if p.lo is not None}
+    for name, value in fields.items():
+        _expect(name in shape_class.FIELD_NAMES,
+                f"obstacle #{shape_id} ({kind}) has a field {name!r} that this kind does not have")
+        value = _setting_from_json(f"obst:{shape_id}:{name}", value, f"obstacle #{shape_id}")
+        try:
+            setattr(shape, name, value)
+        except TypeError as exc:
+            raise ProjectError(f"obstacle #{shape_id} ({kind}): {exc}") from exc
+        if name in ranges:
+            p = ranges[name]
+            _expect(p.lo <= value <= p.hi,
+                    f"obstacle #{shape_id} ({kind}): {name} = {value} is outside {p.lo} to {p.hi}")
+    return shape.snapshot()
+
+
+def _view_from_json(data, seen_ids):
+    _expect(isinstance(data, dict), "a view must be an object")
+    view_id, mode, channels = data.get("id"), data.get("mode"), data.get("channels")
+    _expect(isinstance(view_id, int) and not isinstance(view_id, bool) and view_id >= 0,
+            "a view's id must be a whole number")
+    _expect(view_id not in seen_ids, f"two views have the id {view_id}")
+    seen_ids.add(view_id)
+    _expect(mode in MODES, f"view {view_id}: unknown colour model {mode!r}")
+    _expect(isinstance(channels, list) and len(channels) == 3,
+            f"view {view_id}: it needs exactly 3 channels")
+    view = ViewConfig(view_id)
+    view.mode = mode
+    for c, channel in enumerate(channels):
+        view.set_channel(c, _channel_from_json(channel, f"view {view_id} channel {c + 1}"))
+    return snapshot_view(view)
+
+
+def _keyframe_from_json(data, seen_ids):
+    _expect(isinstance(data, dict), "a keyframe must be an object")
+    kf_id, frame_index, settings = data.get("id"), data.get("frame_index"), data.get("settings")
+    _expect(isinstance(kf_id, int) and not isinstance(kf_id, bool) and kf_id >= 0,
+            "a keyframe's id must be a whole number")
+    _expect(kf_id not in seen_ids, f"two keyframes have the id {kf_id}")
+    seen_ids.add(kf_id)
+    _expect(isinstance(frame_index, int) and not isinstance(frame_index, bool),
+            f"keyframe {kf_id}: its frame index must be a whole number")
+    _expect(isinstance(settings, dict), f"keyframe {kf_id}: settings must be an object")
+    values = {}
+    for key, value in settings.items():
+        if key.startswith("view:") and ":chan" in key:
+            values[key] = _channel_from_json(value, f"keyframe {kf_id} {key}")
+        else:
+            values[key] = _setting_from_json(key, value, f"keyframe {kf_id}")
+    return Keyframe(kf_id, frame_index, values)
+
+
+def _migrate_project_1_to_2(data):
+    """Format 1 stored choices as the program's numbers (and obstacle kinds as class names); format 2
+    stores their keys. Converts a parsed format-1 file."""
+    import copy
+    data = copy.deepcopy(data)
+    kind_keys = {cls.__name__: cls.KEY for cls in SHAPE_CLASSES}
+    choice = {key: catalog for key, catalog in RAY_CHOICE_CATALOGS.items()}
+
+    def channel(old, where):
+        _expect(isinstance(old, dict), f"{where}: a colour channel must be an object")
+        points = old.get("buddha_points")
+        _expect(isinstance(points, list), f"{where}: buddha_points must be a list")
+        padded = tuple(bool(p) for p in points)[:N_BUDDHA_POINTS] + \
+            (False,) * max(0, N_BUDDHA_POINTS - len(points))
+        return _channel_to_json(ChannelSettings(
+            chan_src=old["chan_src"], kind=old["kind"], stat=old["stat"], point1=old["point1"],
+            point2=old["point2"], buddha_points=padded,
+            buddha_compression=old["buddha_compression"],
+            buddha_brightness=old["buddha_brightness"], constant=old["constant"]))
+
+    def setting(key, value, where):
+        if key.startswith("view:") and ":chan" in key:
+            return channel(value, where)
+        catalog = _setting_catalog(key)
+        return catalog.key(value) if catalog is not None else value
+
+    simulation = data.get("simulation")
+    if isinstance(simulation, dict):
+        data["simulation"] = {key: (choice[key].key(value) if key in choice else value)
+                              for key, value in simulation.items()}
+    for obstacle in data.get("obstacles", []):
+        obstacle["kind"] = kind_keys.get(obstacle.get("kind"), obstacle.get("kind"))
+        fields = obstacle.get("fields")
+        if isinstance(fields, dict):
+            for name in ("in_effect", "out_effect"):
+                if name in fields:
+                    fields[name] = CAT_EFFECT.key(fields[name])
+    for view in data.get("views", []):
+        view["channels"] = [channel(ch, f"view {view.get('id')} channel {c + 1}")
+                            for c, ch in enumerate(view.get("channels", []))]
+    for kf in data.get("keyframes", []):
+        kf["settings"] = {key: setting(key, value, f"keyframe {kf.get('id')} {key}")
+                          for key, value in kf.get("settings", {}).items()}
+    export = data.get("export")
+    if isinstance(export, dict):
+        for key, _path, _kind, catalog in EXPORT_OPTIONS:
+            if catalog is not None and export.get(key) in catalog.by_code:
+                export[key] = catalog.by_code[export[key]]
+    data["format_version"] = 2
+    return data
+
+
+PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2}      # format n -> format n + 1
+
+
+def project_from_dict(data):
+    """A Project from the parsed JSON of a project file. Anything unusable raises ProjectError;
+    nothing is partly applied. Tolerant of a file from another version of the program: settings
+    it lacks take their defaults and things it has that this version does not know are ignored -
+    except a key this version has no code for (an unknown kind of obstacle, metric...), which
+    is refused."""
+    try:
+        return _project_from_dict(data)
+    except ProjectError:
+        raise
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ProjectError(f"The project file is damaged ({type(exc).__name__}: {exc}).") from exc
+
+
+def _project_from_dict(data):
+    _expect(isinstance(data, dict) and data.get("format") == PROJECT_FORMAT_NAME,
+            "This is not a Light bounces project file.")
+    version = data.get("format_version")
+    _expect(isinstance(version, int) and not isinstance(version, bool) and version >= 1,
+            "The project file has no valid format version.")
+    _expect(version <= PROJECT_FORMAT_VERSION,
+            f"This project was saved by a newer version of the program (project format "
+            f"{version}; this version reads up to {PROJECT_FORMAT_VERSION}).")
+    while version < PROJECT_FORMAT_VERSION:
+        data = PROJECT_MIGRATIONS[version](data)
+        version += 1
+
+    file_simulation = {key: value for key, value in (data.get("simulation") or {}).items()
+                       if key in RAY_SETTING_SPECS}
+    simulation = {**ray_settings_to_dict(DEFAULT_RAY_SETTINGS),
+                  **{key: _setting_from_json(key, value, "the simulation settings")
+                     for key, value in file_simulation.items()}}
+    ray = ray_settings_from_dict(simulation)
+
+    decorations = {key: value for key, value in (data.get("decorations") or {}).items()
+                   if isinstance(value, bool)}
+    export = {}
+    for key, _path, _kind, catalog in EXPORT_OPTIONS:
+        value = (data.get("export") or {}).get(key)
+        if catalog is not None:                       # an unknown choice is dropped (the control
+            if isinstance(value, str) and value in catalog.by_key:     # keeps its own value)
+                export[key] = catalog.by_key[value]
+        elif isinstance(value, (bool, int, float, str)):
+            export[key] = value
+
+    obstacle_ids, view_ids, keyframe_ids = set(), set(), set()
+    obstacles = tuple(_shape_from_json(o, obstacle_ids) for o in data.get("obstacles", []))
+    views = tuple(_view_from_json(v, view_ids) for v in data.get("views", []))
+    _expect(views, "The project has no views.")
+    keyframes = tuple(_keyframe_from_json(kf, keyframe_ids) for kf in data.get("keyframes", []))
+
+    counters = data.get("counters") or {}
+    selected = data.get("selected") or {}
+    selected_obstacle = selected.get("obstacle")
+    selected_view = selected.get("view")
+    return Project(
+        ray=ray, decorations=decorations, obstacles=obstacles, views=views,
+        keyframes=keyframes, export=export,
+        obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
+        view_counter=max(counters.get("view", 0), max(view_ids) + 1),
+        keyframe_counter=max(counters.get("keyframe", 0), max(keyframe_ids, default=-1) + 1),
+        selected_obstacle_id=selected_obstacle if selected_obstacle in obstacle_ids else -1,
+        selected_view_id=selected_view if selected_view in view_ids else views[0].id)
+
+
 DEFAULT_SETTING_VALUES = {**ray_settings_to_dict(DEFAULT_RAY_SETTINGS), "outline": True}
 
 
@@ -3963,6 +4611,32 @@ def run_self_checks():
     if "constant_choice" not in ViewConfig.__slots__:
         raise AssertionError("ViewConfig is missing its dedicated constant_choice field")
 
+    kind_keys = [cls.KEY for cls in SHAPE_CLASSES]
+    if (None in kind_keys or len(set(kind_keys)) != len(kind_keys)
+            or not all(PROJECT_KEY_PATTERN.fullmatch(key) for key in kind_keys)):
+        raise AssertionError("every shape kind needs its own KEY (lower-case letters, digits "
+                             f"and underscores), which a project file calls it by: {kind_keys}")
+    for catalog, wanted in (
+            (CAT_CHAN_SOURCE, {CHAN_SRC_QUERY, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT}),
+            (CAT_CHAN_KIND, {KIND_POINT, KIND_OTHER}),
+            (CAT_METRIC, set(range(N_STATS))), (CAT_POINT, set(range(N_POINT_CHOICES))),
+            (CAT_BUDDHA_POINT, set(range(N_BUDDHA_POINTS))),
+            (CAT_BUDDHA_COMPRESSION, set(range(len(BUDDHA_COMPRESSION_LABELS)))),
+            (CAT_BUDDHA_BRIGHTNESS, set(range(len(BUDDHA_BRIGHTNESS_OPTIONS)))),
+            (CAT_CONSTANT, {NONE_ZERO, NONE_ONE}),
+            (CAT_EFFECT, set(range(len(OBSTACLE_EFFECT_NAMES))))):
+        if set(catalog.codes) != wanted:
+            raise AssertionError(
+                f"the {catalog.name} catalog (the keys project files use) does not cover exactly "
+                f"the program's codes - missing a key for {wanted - set(catalog.codes) or None}, "
+                f"a key for a code that does not exist: {set(catalog.codes) - wanted or None}")
+    choice_settings = {key for key, spec in RAY_SETTING_SPECS.items() if spec.kind == "choice"}
+    if set(RAY_CHOICE_CATALOGS) != choice_settings:
+        raise AssertionError("RAY_CHOICE_CATALOGS and the choice settings in RAY_SETTING_SPECS "
+                             f"disagree: {set(RAY_CHOICE_CATALOGS) ^ choice_settings}")
+    for key, catalog in RAY_CHOICE_CATALOGS.items():
+        if set(catalog.codes) != set(range(len(RAY_SETTING_SPECS[key].names))):
+            raise AssertionError(f"the catalog of the {key} setting does not cover its choices")
     if set(SETTING_WIDGET_ATTRS) != info_keys:
         raise AssertionError(
             "SETTING_WIDGET_ATTRS and SETTING_INFO disagree - "
@@ -5427,9 +6101,10 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
                          obstacles, seed_base, want_all_self, want_all_mid,
                          want_prog_bounce, want_prog_mid, counts):
     """
-    For rows [row0, row1), re-trace every ray that actually fires (using the
-    exact same seed formula as render_rows, so this reproduces the identical
-    rays already shown) and, for whichever of the four "multi-point" Buddha
+    For rows [row0, row1), re-trace every ray that actually fires (starting at the
+    centre of each pixel of `counts`' own grid, and using the exact same seed
+    formula as render_rows / render_rows_wh, so this reproduces the identical
+    rays already shown, at whatever resolution that is) and, for whichever of the four "multi-point" Buddha
     options are requested, scatter every one of that option's points into
     `counts` (in place) - cheap, no blur kernel applied here; blur (if any)
     is applied once, afterward, to the whole accumulated counts array.
@@ -5439,13 +6114,15 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
     """
     fuzzing = fuzz.enabled
     h, w = counts.shape
+    step_x = 2.0 / w                         # the grid of `counts` covers [-1, 1] on both axes
+    step_y = 2.0 / h                         # (exactly render_rows_wh's rays, at any resolution)
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(N_RAW)
     for j in range(row0, row1):
         for i in range(w):
-            x = (i + 0.5) * PIXEL - 1.0
-            y = 1.0 - (j + 0.5) * PIXEL
+            x = (i + 0.5) * step_x - 1.0
+            y = 1.0 - (j + 0.5) * step_y
             if not emits_ray(x, y, obstacles):
                 continue
             if fuzzing:
@@ -5715,8 +6392,266 @@ class App:
         self.draw()
         self.update_status()
         self.update_buttons()
+        self.start_project_handling()
         root.update()                              # show the window before compiling
         root.after(20, self.warm_up)
+
+    # ---- projects ---------------------------------------------------------- #
+    def start_project_handling(self):
+        """Called once the window is built: the starting state is the "new project" one;
+        remember it (File > New returns to it) and when a project is saved or has unsaved
+        changes."""
+        self.project_path = None
+        self.default_project = self.capture_project()
+        self.saved_signature = project_signature(self.default_project)
+        self.title_shown = None
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close_window)
+        for sequence, command in (("<Control-n>", self.new_project),
+                                  ("<Control-o>", self.open_project),
+                                  ("<Control-s>", self.save_project),
+                                  ("<Control-Shift-S>", self.save_project_as)):
+            self.root.bind_all(sequence, lambda _event, command=command: command())
+        self.update_title()
+        self.root.after(PROJECT_POLL_MS, self.poll_project_title)
+
+    def export_option_control(self, path):
+        control = self
+        for name in path.split("."):
+            control = getattr(control, name)
+        return control
+
+    def capture_export_options(self):
+        """{EXPORT_OPTIONS key: value} from the Export designer and video panel controls."""
+        values = {}
+        for key, path, kind, _allowed in EXPORT_OPTIONS:
+            value = self.export_option_control(path).get()
+            if kind == "number":
+                value = float(value)
+                value = int(value) if value.is_integer() else value
+            elif kind == "bool":
+                value = bool(value)
+            else:
+                value = str(value)
+            values[key] = value
+        return values
+
+    def apply_export_options(self, values):
+        """Put saved Export designer / video choices into their controls. A value that is
+        missing, of the wrong kind, or not one of the allowed choices leaves its control alone."""
+        for key, path, kind, allowed in EXPORT_OPTIONS:
+            value = values.get(key)
+            if kind == "bool":
+                ok = isinstance(value, bool)
+            elif kind == "number":
+                ok = _is_number(value)
+            elif kind == "choice":
+                ok = value in allowed.codes
+            else:
+                ok = isinstance(value, str)
+            if ok:
+                self.export_option_control(path).set(value)
+
+    def capture_project(self, show_error=True):
+        """A Project holding everything now set up (None, after telling the user unless
+        `show_error` is False, while an entry holds an invalid value)."""
+        ray = self.current_ray_settings()
+        if ray is None:
+            if show_error:
+                messagebox.showerror("Invalid settings", "Fix the highlighted entries first.")
+            return None
+        selected = self.selected_obstacle
+        return Project(
+            ray=ray, decorations={key: bool(var.get()) for key, var in self.deco.items()},
+            obstacles=tuple(o.snapshot() for o in self.obstacles),
+            views=tuple(snapshot_view(v) for v in self.views),
+            keyframes=tuple(snapshot_keyframes(self.keyframes)),
+            export=self.capture_export_options(), obstacle_counter=self._obst_counter,
+            view_counter=self._view_counter, keyframe_counter=self._kf_counter,
+            selected_obstacle_id=selected.id if selected is not None else -1,
+            selected_view_id=self.selected_view_id)
+
+    def discard_generated_image(self):
+        """Back to the blank state before the first Start (stopping a generation in progress)."""
+        if self.tick_id is not None:
+            self.root.after_cancel(self.tick_id)
+            self.tick_id = None
+        self.running = False
+        self.done = False
+        self.generated_settings = None
+        self.gen_fuzz = fuzz_rule(DEFAULT_FUZZ)
+        self.gen_confine = CONFINE_DEFAULT
+        self.gen_emission = EMISSION_DEFAULT
+        self.gen_obstacles = build_obstacle_arrays([])
+        self.gen_obstacles_sig = ()
+        self.gen_obstacle_snapshots = []
+        self.gen_obstacles_by_id = {}
+        self.stats[:] = 0
+        self.points[:] = 0
+        self.status[:] = 0
+        self.img[:] = BACKGROUND
+        self.rows_done = 0
+        self.batch_rows = 1
+        self.view_thumb_cache = {}
+        self.canvas.delete("pending")
+        self.pinned_px = None
+        self.clear_overlay()
+
+    def apply_project(self, project):
+        """Make the program hold exactly `project`: the controls, obstacles, views, keyframes
+        and export choices are replaced, and the image goes blank until Start. Used by
+        File > Open and File > New alike, so a loaded project cannot differ from a fresh one."""
+        self.discard_generated_image()
+        self.kf_applying = True
+        try:
+            for key, value in ray_settings_to_dict(project.ray).items():
+                self.set_setting_control(key, value)
+            self.baseline = project.ray
+            for key, value in project.decorations.items():
+                if key in self.deco:
+                    self.deco[key].set(value)
+            self.obstacles = [o.duplicate(o.id) for o in project.obstacles]
+            self._obst_counter = project.obstacle_counter
+            self.selected_obstacle = next(
+                (o for o in self.obstacles if o.id == project.selected_obstacle_id),
+                self.obstacles[0] if self.obstacles else None)
+            self.views = [view_config_from_snapshot(v) for v in project.views]
+            self._view_counter = project.view_counter
+            self.selected_view_id = project.selected_view_id
+            self.keyframes = snapshot_keyframes(project.keyframes)
+            self._kf_counter = project.keyframe_counter
+            self.selected_keyframe = None
+            self.kf_modified = set()
+            self.kf_last_seen = None
+            self.apply_export_options(project.export)
+        finally:
+            self.kf_applying = False
+        self.on_limit_var_changed()
+        self.on_fuzz_changed()
+        self.update_fuzz_enabled_state()
+        self.on_save_source_changed()
+        self.on_save_format_changed()
+        self.on_export_format_changed()
+        self.on_bitrate_mode_changed()
+        self.on_downsample_factor_changed()
+        self.refresh_obstacle_editor()
+        self.rebuild_obstacle_list()
+        self.refresh_color_controls_for_selected_view()
+        self.rebuild_view_list()
+        self.refresh_live_preview_state()
+        self.on_decoration_changed("outline")
+        self.on_decoration_changed("pending")
+        self.on_shape_param_changed()
+        self.rebuild_keyframe_list()
+        self.refresh_timeline_diffs()
+        self.refresh_modified_outlines()
+        self.update_buttons()
+        self.draw()
+
+    def project_display_name(self):
+        return os.path.basename(self.project_path) if self.project_path else "Untitled"
+
+    def is_dirty(self):
+        """Whether there are changes not saved in the project (an entry holding an invalid
+        value counts as one)."""
+        project = self.capture_project(show_error=False)
+        return project is None or project_signature(project) != self.saved_signature
+
+    def update_title(self):
+        title = f"{'*' if self.is_dirty() else ''}{self.project_display_name()} - " \
+                f"{os.path.basename(sys.argv[0]) or 'Light bounces'}"
+        if title != self.title_shown:
+            self.title_shown = title
+            self.root.title(title)
+
+    def poll_project_title(self):
+        try:
+            self.update_title()
+        finally:
+            self.root.after(PROJECT_POLL_MS, self.poll_project_title)
+
+    def mark_project_saved(self):
+        """The project as it now is counts as saved (after New, Open and Save)."""
+        project = self.capture_project(show_error=False)
+        if project is not None:
+            self.saved_signature = project_signature(project)
+        self.update_title()
+
+    def can_replace_project(self, action, check_busy=True):
+        """Whether the current project may be replaced (or the program closed): not while a
+        video renders, and if it has unsaved changes only once the user has chosen to save
+        them or not."""
+        if check_busy and self.busy_with_render_or_reencode():
+            messagebox.showinfo("A video is rendering",
+                                f"Wait for the video render to finish (or cancel it) before "
+                                f"you {action}.")
+            return False
+        if not self.is_dirty():
+            return True
+        answer = messagebox.askyesnocancel(
+            "Unsaved changes",
+            f"Save the changes to {self.project_display_name()} before you {action}?")
+        if answer is None:
+            return False
+        return self.save_project() if answer else True
+
+    def new_project(self):
+        if not self.can_replace_project("start a new project"):
+            return
+        self.apply_project(self.default_project)
+        self.project_path = None
+        self.mark_project_saved()
+
+    def open_project(self):
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Open project", initialdir=self.project_dialog_dir(),
+            filetypes=PROJECT_FILE_TYPES)
+        if not path:
+            return
+        try:
+            project = load_project(path)
+        except ProjectError as exc:
+            messagebox.showerror("Could not open project", f"{path}\n\n{exc}")
+            return
+        if not self.can_replace_project("open another project"):
+            return
+        self.apply_project(project)
+        self.project_path = path
+        self.mark_project_saved()
+
+    def project_dialog_dir(self):
+        return os.path.dirname(self.project_path) if self.project_path else ensure_project_dir()
+
+    def save_project(self):
+        """Save to the project's file (asking for one first if it has none). True if saved."""
+        if self.project_path is None:
+            return self.save_project_as()
+        return self.save_project_to(self.project_path)
+
+    def save_project_as(self):
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title="Save project as", initialdir=self.project_dialog_dir(),
+            initialfile=self.project_display_name() if self.project_path
+            else "untitled" + PROJECT_EXTENSION,
+            defaultextension=PROJECT_EXTENSION, filetypes=PROJECT_FILE_TYPES)
+        return bool(path) and self.save_project_to(path)
+
+    def save_project_to(self, path):
+        project = self.capture_project()
+        if project is None:
+            return False
+        try:
+            save_project(path, project)
+        except ProjectError as exc:
+            messagebox.showerror("Could not save project", str(exc))
+            return False
+        self.project_path = path
+        self.saved_signature = project_signature(project)
+        self.update_title()
+        return True
+
+    def on_close_window(self):
+        if self.can_replace_project("close the program", check_busy=False):
+            self.root.destroy()
 
     # ---- layout ------------------------------------------------------------ #
     def build_image_quadrant(self):
@@ -7118,34 +8053,10 @@ class App:
                                     values=SAVE_NEW_FORMATS, state="readonly", width=6)
         format_combo.pack(side="left", padx=(0, 10))
         format_combo.bind("<<ComboboxSelected>>", self.on_save_format_changed)
-        self.save_jxl_label = ttk.Label(fmt_row, text="JPEG XL mode:")
-        self.save_jxl_label.pack(side="left", padx=(0, 4))
-        self.save_jxl_mode_var = tk.StringVar(value=JXL_MODES[0])
-        self.save_jxl_combo = ttk.Combobox(
-            fmt_row, textvariable=self.save_jxl_mode_var, values=JXL_MODES,
-            state="readonly", width=8)
-        self.save_jxl_combo.pack(side="left")
-        self.save_jxl_combo.bind("<<ComboboxSelected>>", self.on_save_jxl_mode_changed)
-        self.save_jxl_label.pack_forget()
-        self.save_jxl_combo.pack_forget()
-
-        # JXL + Lossy only: a quality slider, on the same line as the rest
-        self.save_jxl_quality_frame = ttk.Frame(fmt_row)
-        ttk.Label(self.save_jxl_quality_frame, text="Quality:").pack(
-            side="left", padx=(8, 4))
-        self.save_jxl_quality_scale = tk.Scale(
-            self.save_jxl_quality_frame, from_=5, to=100, resolution=5,
-            orient="horizontal", showvalue=False, highlightthickness=0,
-            width=14, sliderlength=18, length=80)
-        self.save_jxl_quality_scale.set(90)
-        self.save_jxl_quality_scale.pack(side="left")
-        self.save_jxl_quality_value = ttk.Label(self.save_jxl_quality_frame, text="90",
-                                                width=3, anchor="e")
-        self.save_jxl_quality_value.pack(side="left", padx=(4, 0))
-        self.save_jxl_quality_scale.configure(
-            command=lambda v: self.save_jxl_quality_value.configure(text=f"{float(v):.0f}"))
-        self.save_jxl_quality_frame.pack(side="left")
-        self.save_jxl_quality_frame.pack_forget()
+        self.save_jxl_controls = JxlQualityControls(fmt_row)
+        self.save_jxl_mode_var = self.save_jxl_controls.mode_var
+        self.save_jxl_quality_scale = self.save_jxl_controls.scale
+        self.on_save_format_changed()          # (the default format is jxl)
 
         # "New image" only: its own resolution (an existing preview already
         # has one, so this only makes sense when generating a fresh image) -
@@ -7335,7 +8246,7 @@ class App:
         ttk.Label(fmt_row, text="Format:").pack(side="left", padx=(0, 4))
         self.export_format_var = tk.StringVar(value="mp4 (h264)")
         format_combo = ttk.Combobox(fmt_row, textvariable=self.export_format_var,
-                                    values=["mp4 (h264)", "GIF", "APNG", "mkv (ffv1)", "JXL"],
+                                    values=VIDEO_FORMATS,
                                     state="readonly", width=6)
         format_combo.pack(side="left")
         format_combo.bind("<<ComboboxSelected>>", self.on_export_format_changed)
@@ -7349,10 +8260,12 @@ class App:
         self.bitrate_mode_var = tk.StringVar(value="Constant quality")
         mode_combo = ttk.Combobox(
             self.bitrate_mode_row, textvariable=self.bitrate_mode_var,
-            values=["Constant quality", "Target bitrate", "Variable bitrate"],
+            values=VIDEO_BITRATE_MODES,
             state="readonly", width=15)
         mode_combo.pack(side="left", padx=(0, 10))
         mode_combo.bind("<<ComboboxSelected>>", self.on_bitrate_mode_changed)
+
+        self.video_jxl_controls = JxlQualityControls(mode_line)
 
         self.quality_row = ttk.Frame(self.bitrate_mode_row)
         self.quality_scale = self.add_slider_row(
@@ -8208,9 +9121,20 @@ class App:
         self.root.after(500, self.take_startup_captures)   # let the UI settle first
 
     def build_menu_bar(self):
-        """The menu bar: for now just the Debug menu (the dev aids; they do
-        nothing unless the dev/ folder exists)."""
+        """The menu bar: File (projects) and Debug (the dev aids; they do nothing
+        unless the dev/ folder exists)."""
         bar = tk.Menu(self.root, tearoff=False)
+        file_menu = tk.Menu(bar, tearoff=False)
+        file_menu.add_command(label="New project", accelerator="Ctrl+N",
+                              command=self.new_project)
+        file_menu.add_command(label="Open project...", accelerator="Ctrl+O",
+                              command=self.open_project)
+        file_menu.add_separator()
+        file_menu.add_command(label="Save project", accelerator="Ctrl+S",
+                              command=self.save_project)
+        file_menu.add_command(label="Save project as...", accelerator="Ctrl+Shift+S",
+                              command=self.save_project_as)
+        bar.add_cascade(label="File", menu=file_menu)
         debug = tk.Menu(bar, tearoff=False)
         debug.add_command(label="Take screenshot", command=self.manual_screenshot)
         debug.add_command(label="Dump (without large arrays)",
@@ -8669,30 +9593,18 @@ class App:
 
     def on_save_format_changed(self, _event=None):
         if self.save_format_var.get() == "jxl":
-            self.save_jxl_label.pack(side="left", padx=(0, 4))
-            self.save_jxl_combo.pack(side="left")
+            self.save_jxl_controls.frame.pack(side="left")
         else:
-            self.save_jxl_label.pack_forget()
-            self.save_jxl_combo.pack_forget()
-        self.update_save_jxl_quality_visibility()
-
-    def on_save_jxl_mode_changed(self, _event=None):
-        self.update_save_jxl_quality_visibility()
-
-    def update_save_jxl_quality_visibility(self):
-        """The quality slider only matters for JPEG XL in Lossy mode."""
-        if self.save_format_var.get() == "jxl" and self.save_jxl_mode_var.get() == "Lossy":
-            self.save_jxl_quality_frame.pack(side="left")
-        else:
-            self.save_jxl_quality_frame.pack_forget()
+            self.save_jxl_controls.frame.pack_forget()
 
     def save(self):
         if self.save_source_var.get() == SAVE_SOURCE_OPTIONS[1]:
             self.save_new_image(None)
         else:
             fmt = self.save_format_var.get()
-            self._write(os.path.join(ensure_export_dir(),
-                                     default_filename(self.generated_settings, fmt)))
+            self._write(os.path.join(ensure_export_dir(), image_filename(
+                self.generated_settings, fmt, self.save_jxl_mode_var.get() == "Lossless",
+                int(round(float(self.save_jxl_quality_scale.get()))))))
 
     def save_as(self):
         if self.save_source_var.get() == SAVE_SOURCE_OPTIONS[1]:
@@ -8703,7 +9615,9 @@ class App:
             path = filedialog.asksaveasfilename(
                 parent=self.root, title="Save image as",
                 initialdir=ensure_export_dir(),
-                initialfile=default_filename(self.generated_settings, fmt),
+                initialfile=image_filename(
+                    self.generated_settings, fmt, self.save_jxl_mode_var.get() == "Lossless",
+                    int(round(float(self.save_jxl_quality_scale.get())))),
                 defaultextension="." + fmt, filetypes=[(label, f"*.{fmt}")])
             if path:
                 self._write(path)
@@ -8737,14 +9651,7 @@ class App:
         obst_arrays = self.gen_obstacles
         images = []
         for v in views:
-            vs = ViewSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
-                              other_metric=v.other_metric, point1_choice=v.point1_choice,
-                              point2_choice=v.point2_choice, chan_src=v.chan_src,
-                              buddha_points=v.buddha_points,
-                              buddha_compression=v.buddha_compression,
-                              buddha_brightness=v.buddha_brightness,
-                              constant_choice=v.constant_choice)
-            images.append(self.colorize_view(vs, self.stats, self.points, self.status,
+            images.append(self.colorize_view(v.settings(), self.stats, self.points, self.status,
                                              SIZE, SIZE, mini_settings, self.gen_fuzz,
                                              obst_arrays))
         outline = self.deco.get("outline")
@@ -8780,7 +9687,9 @@ class App:
         nothing), then generate and save a "New image" there."""
         fmt = self.save_format_var.get()
         label = {"png": "PNG image", "qoi": "QOI image", "jxl": "JPEG XL image"}[fmt]
-        initial = default_filename(self.generated_settings, fmt)
+        initial = image_filename(
+            self.generated_settings, fmt, self.save_jxl_mode_var.get() == "Lossless",
+            int(round(float(self.save_jxl_quality_scale.get()))))
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Save new image as",
             initialdir=ensure_export_dir(), initialfile=initial,
@@ -8821,7 +9730,7 @@ class App:
         if path_or_none is None:
             settings_for_name = data.settings
             path = os.path.join(ensure_export_dir(),
-                                default_filename(settings_for_name, fmt))
+                                image_filename(settings_for_name, fmt, jxl_lossless, jxl_quality))
         else:
             path = path_or_none
         self.save_btn.state(["disabled"])
@@ -8931,18 +9840,7 @@ class App:
                 v.mode = val
             else:
                 c = int(field[-1])
-                v.chan_src[c] = val.chan_src
-                v.kinds[c] = val.kind
-                if val.kind == KIND_POINT:
-                    v.point_metric[c] = val.stat
-                else:
-                    v.other_metric[c] = val.stat
-                v.point1_choice[c] = val.point1
-                v.point2_choice[c] = val.point2
-                v.buddha_points[c] = val.buddha_points
-                v.buddha_compression[c] = val.buddha_compression
-                v.buddha_brightness[c] = val.buddha_brightness
-                v.constant_choice[c] = val.constant
+                v.set_channel(c, val)
             if v is self.selected_view_obj():
                 self.refresh_color_controls_for_selected_view()
             if v is self.live_view():
@@ -9451,8 +10349,11 @@ class App:
     def on_export_format_changed(self, _event=None):
         fmt = self.export_format_var.get()
         self.bitrate_mode_row.pack_forget()
+        self.video_jxl_controls.frame.pack_forget()
         if fmt == "mp4 (h264)":
             self.bitrate_mode_row.pack(side="left")
+        elif fmt == "JXL":
+            self.video_jxl_controls.frame.pack(side="left")
 
     def on_bitrate_mode_changed(self, _event=None):
         mode = self.bitrate_mode_var.get()
@@ -9604,14 +10505,7 @@ class App:
         cached = self.view_thumb_cache.get(view_obj.id)
         if cached is not None and cached[0] == (self.rows_done, size):
             return cached[1]
-        v = ViewSettings(mode=view_obj.mode, kinds=view_obj.kinds,
-                         point_metric=view_obj.point_metric, other_metric=view_obj.other_metric,
-                         point1_choice=view_obj.point1_choice,
-                         point2_choice=view_obj.point2_choice, chan_src=view_obj.chan_src,
-                         buddha_points=view_obj.buddha_points,
-                         buddha_compression=view_obj.buddha_compression,
-                         buddha_brightness=view_obj.buddha_brightness,
-                         constant_choice=view_obj.constant_choice)
+        v = view_obj.settings()
         mini_settings = self.settings_of_current_image()
         obst_arrays = build_obstacle_arrays(self.obstacles)
         full = self.colorize_view(v, self.stats, self.points, self.status, SIZE, SIZE,
@@ -9707,6 +10601,8 @@ class App:
         return {"fps": fps, "video_w": video_w, "video_h": video_h, "fmt": fmt,
                "mode": mode, "quality": quality, "bitrate": bitrate,
                "vbr_target": vbr_target, "vbr_max": vbr_max,
+               "jxl_lossless": self.video_jxl_controls.lossless(),
+               "jxl_quality": self.video_jxl_controls.quality(),
                "downsample_factor": DOWNSAMPLE_FACTOR_VALUES[self.downsample_factor_var.get()],
                "downsample_method": self.downsample_method_var.get()}
 
@@ -9783,7 +10679,7 @@ class App:
         if fmt == "APNG":
             return "apng", ""
         if fmt == "JXL":
-            return "jxl", ""
+            return "jxl", "." + jxl_quality_tag(rs["jxl_lossless"], rs["jxl_quality"])
         if fmt == "mkv (ffv1)":
             return "mkv", ".ffv1"     # MKV can hold many codecs, so the codec goes in
                                       # the filename itself for clarity
@@ -9865,7 +10761,8 @@ class App:
         and losslessly), and the external `cjxl` tool (part of libjxl,
         checked for availability back in read_render_settings) converts
         that APNG's full animation to the final JXL file, which it does
-        support - the temporary APNG is removed either way."""
+        support (lossless, or lossy at the quality chosen in the video panel) - the
+        temporary APNG is removed either way."""
         kwargs = self.ffmpeg_output_kwargs(rs["fmt"], rs["mode"], rs["quality"],
                                            rs["bitrate"], rs["vbr_target"],
                                            rs["vbr_max"])
@@ -9881,7 +10778,8 @@ class App:
         if jxl_apng_temp is not None:
             self.root.after(0, lambda: self.set_video_status("Converting to JXL with cjxl..."))
             try:
-                convert_apng_to_jxl(jxl_apng_temp, out_path)
+                convert_apng_to_jxl(jxl_apng_temp, out_path, rs["jxl_lossless"],
+                                    rs["jxl_quality"])
             finally:
                 if os.path.exists(jxl_apng_temp):
                     os.remove(jxl_apng_temp)

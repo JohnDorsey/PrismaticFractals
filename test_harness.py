@@ -105,6 +105,7 @@ def _install_stubs():
     messagebox.showwarning = lambda *_a, **_k: None
     messagebox.showinfo = lambda *_a, **_k: None
     messagebox.askyesno = lambda *_a, **_k: True
+    messagebox.askyesnocancel = lambda *_a, **_k: False
 
     tk.ttk = ttk
     tk.font = font_mod
