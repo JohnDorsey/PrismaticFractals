@@ -21,18 +21,24 @@ The figure
   process or decorate the data generated from it.
 
 Obstacles
-  Any number of shapes, each one of eight kinds with its own size/angle
+  Any number of shapes, each one of twelve kinds with its own size/angle
   parameters and rotation:
 
   * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
     circle),
   * a regular polygon (number of sides and a radius),
   * a Moss's egg, a circular sector, a circular segment, a two-circle lens,
-    a Reuleaux polygon (odd number of sides), or a capsule.
+    a Reuleaux polygon (odd number of sides), or a capsule,
+  * and four concave shapes made of circular arcs: a trefoil and a quatrefoil
+    (three and four overlapping lobes), a lune (a disc with a bite taken out
+    by a second disc) and an arbelos (a half-disc minus two smaller ones).
 
   Each is placed by a polar position (r, theta) from the origin plus an x/y
   offset, and has its own incoming and outgoing ray effects and its own "Fire
   rays inside" box. Every one of these fields can be animated by keyframes.
+  An obstacle's kind is chosen when it is made, with the "new..." menu in the
+  Obstacles tab, and cannot be changed afterwards (delete it and make
+  another); it has only the parameters its own kind needs.
 
 Ray effects
   What happens to a ray as it reaches the edge of a shape depends on which
@@ -149,8 +155,8 @@ Decorations
 Timeline and video
   A keyframe has a frame index and a set of settings - any subset of every setting in the
   Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
-  obstacle's and every view's own fields (an obstacle's shape and ray effects
-  included). "New keyframe (from current settings)" defines every setting
+  obstacle's and every view's own fields (an obstacle's shape parameters and
+  ray effects included; its kind is not a setting). "New keyframe (from current settings)" defines every setting
   from the controls' current values; "New keyframe (empty)" defines none.
   Selecting a keyframe loads into the controls every setting it defines and
   every setting its neighbors animate through it (settings nobody defines are
@@ -252,7 +258,7 @@ Development aids (screenshots and dumps)
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 103
+FILE_VERSION = 109
 
 import dataclasses
 import math
@@ -475,25 +481,39 @@ SHAPE_SEGMENT = 4
 SHAPE_LENS = 5
 SHAPE_REULEAUX = 6
 SHAPE_CAPSULE = 7
-SHAPE_NAMES = ["Ellipse", "Regular polygon", "Moss's egg", "Circular sector",
-              "Circular segment", "Two-circle lens", "Reuleaux polygon", "Capsule"]
+SHAPE_TREFOIL = 8           # from here on: arc loops, which can be concave (see inside_arcs_parity)
+SHAPE_QUATREFOIL = 9
+SHAPE_LUNE = 10
+SHAPE_ARBELOS = 11
+SHAPE_FIRST_ARC_LOOP = SHAPE_TREFOIL
+
+# How a shape's geometry is packed into its bound array (documented above ellipse_bound);
+# every Shape subclass declares its LAYOUT, and the Python code that has to treat a packing
+# differently (offset_bound, ring_layer_masks) branches on it rather than on the kind.
+LAYOUT_ELLIPSE = 0          # a quadratic form
+LAYOUT_POLYGON = 1          # half-planes
+LAYOUT_CIRCLES = 2          # circles (the shape is their intersection)
+LAYOUT_ARCS_EDGES = 3       # circular arcs and straight edges
+LAYOUT_ARC_LOOPS = 4        # circular arcs forming a closed loop that may be concave; inside by even-odd
+LAYOUTS = (LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_CIRCLES, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS)
 
 # Ellipse controls: full width / height (0..2), rotation in degrees
 ELLIPSE_MIN = 0.0
 ELLIPSE_MAX = 2.0
 DEFAULT_WIDTH = 2.0        # 2.0 x 2.0, no rotation = the unit circle
 DEFAULT_HEIGHT = 2.0
-DEFAULT_ELL_ROTATION = 0.0
+DEFAULT_RADIUS = 1.0         # a new polygon / Reuleaux / sector / segment's radius
+DEFAULT_ROTATION = 0.0       # a new obstacle's rotation
+OBST_POS_MIN = -1.0         # obstacle centre (cx, cy) slider range
+OBST_POS_MAX = 1.0
+OBST_RADIUS_MIN = 0.0       # the radius slider range (polygon, Reuleaux, sector, segment)
+OBST_RADIUS_MAX = 2.0
 AXIS_MIN = 1e-3            # smallest semi-axis used in the maths (avoids 1/0)
 
 # Regular-polygon controls (circumradius is fixed at 1: vertices on the unit circle)
 POLY_MIN_SIDES = 3
 POLY_MAX_SIDES = 64
 DEFAULT_SIDES = 5
-DEFAULT_POLY_ROTATION = 0.0
-
-ROTATION_MIN = -90.0       # covers every orientation: an ellipse repeats every
-ROTATION_MAX = 90.0        # 180 degrees, a regular polygon at least every 120
 
 # Moss's egg: apex angle ACB (the isosceles triangle's apex angle), size
 MOSS_ANGLE_MIN = 60.0      # below this the construction degenerates further
@@ -504,10 +524,7 @@ MOSS_SIZE_MAX = 2.0
 DEFAULT_MOSS_SIZE = 0.9    # at 1.0 the default egg's top edge passed y = 1.03, outside
                            # the view; 0.9 keeps every apex angle inside with a margin
 
-# Circular sector / segment: radius, angular span (degrees), rotation
-ARC_RADIUS_MIN = 0.0
-ARC_RADIUS_MAX = 2.0
-DEFAULT_ARC_RADIUS = 1.0
+# Circular sector / segment: angular span (degrees); the radius is the shared one
 ARC_SPAN_MIN = 1.0         # degrees; kept off 0 and 360 to avoid degenerate wedges
 ARC_SPAN_MAX = 359.0       # circular segment's range
 SECTOR_SPAN_MAX = 180.0    # circular sector's range: capped at a straight angle,
@@ -536,6 +553,25 @@ DEFAULT_CAPSULE_LENGTH = 1.0
 CAPSULE_RADIUS_MIN = 0.0
 CAPSULE_RADIUS_MAX = 1.0
 DEFAULT_CAPSULE_RADIUS = 0.5
+
+# Trefoil / quatrefoil: lobe size as a fraction of the radius (the distance from the
+# centre to the farthest point); below 0.5 the lobes would leave a hole in the middle
+LOBE_SIZE_MIN = 0.52
+LOBE_SIZE_MAX = 1.0
+DEFAULT_LOBE_SIZE = 0.6
+
+# Lune: the outer circle's radius is the shared radius; a second circle cuts a bite out of it
+CUT_RADIUS_MIN = 0.0
+CUT_RADIUS_MAX = 2.0
+DEFAULT_CUT_RADIUS = 0.8
+CUT_OFFSET_MIN = 0.0
+CUT_OFFSET_MAX = 2.0
+DEFAULT_CUT_OFFSET = 0.6
+
+# Arbelos: where the diameter is split, as a fraction of its length from one end
+SPLIT_MIN = 0.05
+SPLIT_MAX = 0.95
+DEFAULT_SPLIT = 0.35
 
 # Fuzzing controls
 FUZZ_JITTER_MIN = 0.0      # jitter range (+/-), degrees
@@ -598,14 +634,6 @@ def strict_record(cls):
     record.__getstate__ = __getstate__
     record.__setstate__ = __setstate__
     return record
-
-
-def strict_record_type(name, field_types, doc=None):
-    """strict_record() for a record whose fields are only known at import time
-    (ObstacleSnapshot and ViewSnapshot mirror the slots of Obstacle and ViewConfig):
-    `field_types` maps each field name to its annotation."""
-    return strict_record(type(name, (), {"__annotations__": dict(field_types),
-                                         "__module__": __name__, "__doc__": doc}))
 
 
 @strict_record
@@ -1102,61 +1130,159 @@ def snapshot_keyframes(keyframes):
     return [Keyframe(kf.id, kf.frame_index, dict(kf.data)) for kf in keyframes]
 
 
-class Obstacle:
-    """One obstacle: another shape that rays can reflect off, be terminated
-    by, or pass through - separately for rays crossing its edge from outside
-    (in_effect) and from inside (out_effect). Its position is given in polar
-    coordinates (r, theta) from the origin, with (cx, cy) as an additional
-    plain x/y offset from that polar position."""
-    __slots__ = ("id", "shape", "width", "height", "ell_rotation", "sides",
-                "poly_rotation", "poly_radius", "moss_angle", "moss_size", "moss_rotation",
-                "sector_radius", "sector_span", "sector_rotation", "segment_radius",
-                "segment_span", "segment_rotation", "lens_radius1", "lens_radius2",
-                "lens_sep", "lens_rotation", "reuleaux_sides", "reuleaux_rotation",
-                "reuleaux_radius", "capsule_length", "capsule_radius",
-                "capsule_rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
-                "fire_inside")
+# --------------------------------------------------------------------------- #
+# Shapes: the obstacles. Every obstacle is an instance of one subclass of Shape and
+# stays that kind for its whole life (the kind is chosen when it is created); a
+# subclass has only the parameters its own geometry needs.
+# --------------------------------------------------------------------------- #
+# One row per parameter of a shape (and of the position every shape shares):
+#   field        the attribute name (and the keyframe key's last part)
+#   label        its name in the obstacle editor and the keyframe settings list
+#   default      its value on a new obstacle
+#   animate      True for a float (interpolated between keyframes), False for a
+#                whole number (held)
+#   fmt          how short_value_text shows it: "size" (N.NN), "angle" (N.N and a
+#                degree sign), "offset" (+N.NN) or "int"
+#   lo, hi, step, slider_fmt   the editor slider; lo None means a free angle entry
+#                (any number of degrees) instead of a slider
+ShapeParam = namedtuple("ShapeParam", ["field", "label", "default", "animate", "fmt",
+                                       "lo", "hi", "step", "slider_fmt"])
+
+
+def _slider(field, label, default, lo, hi, step=0.01, fmt="size", slider_fmt="{:.2f}"):
+    return ShapeParam(field, label, default, True, fmt, lo, hi, step, slider_fmt)
+
+
+def _count(field, label, default, lo, hi, step=1):
+    return ShapeParam(field, label, default, False, "int", lo, hi, step, "{:.0f}")
+
+
+def _free_angle(field, label, default=0.0):
+    return ShapeParam(field, label, default, True, "angle", None, None, None, None)
+
+
+# What every shape has besides its own parameters.
+ROTATION_PARAM = _free_angle("rotation", "Rotation", DEFAULT_ROTATION)
+POSITION_PARAMS = (
+    _slider("r", "Distance (r)", 0.0, 0.0, OBST_POS_MAX),
+    _free_angle("theta", "Angle (θ)"),
+    _slider("cx", "Offset X", 0.0, OBST_POS_MIN, OBST_POS_MAX, fmt="offset",
+            slider_fmt="{:+.2f}"),
+    _slider("cy", "Offset Y", 0.0, OBST_POS_MIN, OBST_POS_MAX, fmt="offset",
+            slider_fmt="{:+.2f}"),
+)
+# The other fields of every shape, which are not numbers: (field, label, type).
+EFFECT_FIELDS = (("in_effect", "Incoming ray effect", int),
+                 ("out_effect", "Outgoing ray effect", int),
+                 ("fire_inside", "Fire rays inside", bool))
+RADIUS_PARAM = _slider("radius", "Radius", DEFAULT_RADIUS, OBST_RADIUS_MIN, OBST_RADIUS_MAX)
+
+
+class Shape:
+    """One obstacle: a shape that rays can reflect off, be terminated by, or pass
+    through - separately for rays crossing its edge from outside (in_effect) and
+    from inside (out_effect). This is the base class; the kinds are its
+    subclasses below, each declaring only its own parameters in PARAMS (and the
+    same names in __slots__; a self-check keeps the two in step). Its position is
+    given in polar coordinates (r, theta) from the origin, with (cx, cy) as an
+    additional plain x/y offset from that polar position.
+
+    A field only ever takes a number of the type its row declares (a float field
+    any real number, an int field a whole number), or it raises TypeError.
+    snapshot() / with_values() give frozen copies - the same class, but with
+    every assignment refused - for the background threads (video render, new-image
+    export) and for the settings the image on screen was generated with, so a
+    thread can read an obstacle while the GUI is editing the live one. A frozen
+    copy has every method of the live shape."""
+    KIND = None             # the SHAPE_* code the kernels know this kind by
+    LAYOUT = None           # the LAYOUT_* its bound array is packed as
+    NAME = None             # shown to the user
+    PARAMS = ()             # this kind's own ShapeParam rows
+    __slots__ = ("id", "rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
+                 "fire_inside", "_frozen")
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.NUMERIC_PARAMS = (ROTATION_PARAM,) + tuple(cls.PARAMS) + POSITION_PARAMS
+        # (field, label, is_float) for every field a keyframe can hold, in display order
+        cls.KEYFRAME_FIELDS = (
+            tuple((p.field, p.label, p.animate) for p in cls.NUMERIC_PARAMS)
+            + tuple((field, label, False) for field, label, _type in EFFECT_FIELDS))
+        cls.FIELD_NAMES = tuple(field for field, _label, _is_float in cls.KEYFRAME_FIELDS)
+        types = {p.field: (float if p.animate else int) for p in cls.NUMERIC_PARAMS}
+        types.update({field: type_ for field, _label, type_ in EFFECT_FIELDS})
+        types["id"] = int
+        cls.FIELD_TYPES = types
 
     def __init__(self, id_):
+        object.__setattr__(self, "_frozen", False)
         self.id = id_
-        self.shape = SHAPE_ELLIPSE
-        self.width = 1.0
-        self.height = 1.0
-        self.ell_rotation = 0.0
-        self.sides = DEFAULT_SIDES
-        self.poly_rotation = 0.0
-        self.poly_radius = 0.5
-        self.moss_angle = DEFAULT_MOSS_ANGLE
-        self.moss_size = DEFAULT_MOSS_SIZE
-        self.moss_rotation = 0.0
-        self.sector_radius = DEFAULT_ARC_RADIUS
-        self.sector_span = DEFAULT_SECTOR_SPAN
-        self.sector_rotation = 0.0
-        self.segment_radius = DEFAULT_ARC_RADIUS
-        self.segment_span = DEFAULT_SEGMENT_SPAN
-        self.segment_rotation = 0.0
-        self.lens_radius1 = DEFAULT_LENS_RADIUS
-        self.lens_radius2 = DEFAULT_LENS_RADIUS
-        self.lens_sep = DEFAULT_LENS_SEP
-        self.lens_rotation = 0.0
-        self.reuleaux_sides = DEFAULT_REULEAUX_SIDES
-        self.reuleaux_rotation = 0.0
-        self.reuleaux_radius = 0.5
-        self.capsule_length = DEFAULT_CAPSULE_LENGTH
-        self.capsule_radius = DEFAULT_CAPSULE_RADIUS
-        self.capsule_rotation = 0.0
-        self.r = 0.0
-        self.theta = 0.0
-        self.cx = 0.0
-        self.cy = 0.0
+        for p in self.NUMERIC_PARAMS:
+            setattr(self, p.field, p.default)
         self.in_effect = OBSTACLE_EFFECT_REFLECT
         self.out_effect = OBSTACLE_EFFECT_REFLECT
         self.fire_inside = True
 
-    def params(self):
-        """The selected shape's own parameter tuple - see shape_params_tuple
-        (polygon and Reuleaux tuples end with their radius)."""
-        return shape_params_tuple(self.shape, self)
+    def __setattr__(self, name, value):
+        if self._frozen:
+            raise AttributeError(f"{type(self).__name__} is a frozen copy: can't set {name}")
+        want = self.FIELD_TYPES.get(name)
+        if want is None:
+            raise AttributeError(f"{type(self).__name__} has no field {name!r}")
+        if want is bool:
+            ok = isinstance(value, (bool, np.bool_))
+        elif want is int:
+            ok = isinstance(value, (int, np.integer)) and not isinstance(value, bool)
+        else:
+            ok = isinstance(value, (int, float, np.integer, np.floating)) \
+                and not isinstance(value, bool)
+        if not ok:
+            raise TypeError(f"{type(self).__name__}.{name} must be {want.__name__}, "
+                            f"got {type(value).__name__}: {value!r}")
+        object.__setattr__(self, name, value)
+
+    def _copy(self, id_, values, frozen):
+        unknown = set(values) - set(self.FIELD_NAMES)
+        if unknown:
+            raise AttributeError(f"{type(self).__name__} has no field(s) {sorted(unknown)}")
+        copy = type(self)(id_)
+        for name in self.FIELD_NAMES:
+            setattr(copy, name, values[name] if name in values else getattr(self, name))
+        object.__setattr__(copy, "_frozen", frozen)
+        return copy
+
+    def __getstate__(self):
+        # (None, {slot: value}) is the state pickle already gives a slotted object, which
+        # keeps the dump viewer's reading of a shape unchanged; copy and pickle restore it
+        # through __setstate__, so every value is checked again and a frozen copy stays frozen
+        return (None, {name: getattr(self, name)
+                       for name in ("id",) + self.FIELD_NAMES + ("_frozen",)})
+
+    def __setstate__(self, state):
+        values = state[1]
+        object.__setattr__(self, "_frozen", False)
+        for name, value in values.items():
+            if name != "_frozen":
+                setattr(self, name, value)
+        object.__setattr__(self, "_frozen", values["_frozen"])
+
+    def snapshot(self):
+        """A frozen copy (see the class docstring)."""
+        return self._copy(self.id, {}, True)
+
+    def with_values(self, **values):
+        """A frozen copy with some fields replaced (the values a video frame
+        resolves from the keyframes)."""
+        return self._copy(self.id, values, True)
+
+    def duplicate(self, new_id):
+        """A live, editable copy under a new id, of the same kind."""
+        return self._copy(new_id, {}, False)
+
+    def state(self):
+        """Every field but the id, with the kind - for telling whether an obstacle
+        has changed since the last Start."""
+        return (self.KIND,) + tuple(getattr(self, f) for f in self.FIELD_NAMES)
 
     def center(self):
         """World (x, y) of the obstacle's centre: the polar position (r,
@@ -1164,57 +1290,410 @@ class Obstacle:
         th = radians(self.theta)
         return self.r * cos(th) + self.cx, self.r * sin(th) + self.cy
 
+    def describe(self):
+        """The one-line description shown in the obstacle list."""
+        pos_txt = f"r{self.r:.2f} @ {self.theta:.1f}°"
+        if self.cx or self.cy:
+            pos_txt += f" +({self.cx:+.2f}, {self.cy:+.2f})"
+        return (f"{self.shape_text()}, {pos_txt}, in: {OBSTACLE_EFFECT_NAMES[self.in_effect]}, "
+                f"out: {OBSTACLE_EFFECT_NAMES[self.out_effect]}")
+
+    def info_lines(self, index):
+        """Every setting that defines the obstacle (`index` is its number in the
+        list), as text lines no longer than FIGURE_INFO_COLUMN_CHARS, using only
+        glyphs the pixel font has."""
+        return [f"Obstacle #{index}: {self.NAME}", self.info_param_line(),
+                f"  rot {self.rotation:.1f}°",
+                f"  pos r{self.r:.2f} θ{self.theta:.1f}°",
+                f"  offset {self.cx:+.2f} {self.cy:+.2f}",
+                f"  in:{OBSTACLE_EFFECT_NAMES[int(self.in_effect)]}",
+                f"  out:{OBSTACLE_EFFECT_NAMES[int(self.out_effect)]}",
+                f"  fire:{'On' if self.fire_inside else 'Off'}"]
+
+    # What each kind provides:
+    def params(self):
+        """The tuple its bound function takes (see bound_from_params)."""
+        raise NotImplementedError
+
+    @classmethod
+    def bound_from_params(cls, params):
+        """The packed shape array (see make_bound) for a params() tuple."""
+        raise NotImplementedError
+
+    def shape_text(self):
+        """The shape's part of its one-line description in the obstacle list."""
+        raise NotImplementedError
+
+    def extent(self):
+        """A reasonable half-width (world units) to zoom its thumbnail to fit."""
+        raise NotImplementedError
+
+    def info_param_line(self):
+        """The one line of the figure-settings margin that gives its own parameters."""
+        raise NotImplementedError
+
+    def bound(self):
+        return self.bound_from_params(self.params())
+
+    def boundary_xy(self):
+        """(x, y) arrays tracing its edge around its own centre."""
+        return sample_boundary_xy(self.KIND, self.bound())
+
+    def outline_coords(self):
+        """Canvas coordinates (flat list) of a polygon tracing the shape, at its
+        centre (polar position plus x/y offset)."""
+        wx, wy = self.boundary_xy()
+        ocx, ocy = self.center()
+        xs = (wx + ocx + 1.0) * (SIZE / 2.0)
+        ys = (1.0 - (wy + ocy)) * (SIZE / 2.0)
+        return np.column_stack((xs, ys)).ravel().tolist()
+
+
+class EllipseShape(Shape):
+    KIND = SHAPE_ELLIPSE
+    LAYOUT = LAYOUT_ELLIPSE
+    NAME = "Ellipse"
+    PARAMS = (_slider("width", "Width", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
+              _slider("height", "Height", 1.0, ELLIPSE_MIN, ELLIPSE_MAX))
+    __slots__ = ("width", "height")
+
+    def params(self):
+        return (self.width, self.height, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return ellipse_bound(*params)
+
+    def shape_text(self):
+        return f"Ellipse {self.width:.2f}×{self.height:.2f}, rot {self.rotation:.1f}°"
+
+    def extent(self):
+        return max(self.width, self.height) / 2.0
+
+    def info_param_line(self):
+        return f"  w{self.width:.2f} h{self.height:.2f}"
+
+    def boundary_xy(self):
+        t = np.linspace(0.0, 2.0 * pi, 181)
+        ex, ey = 0.5 * self.width * np.cos(t), 0.5 * self.height * np.sin(t)
+        th = radians(self.rotation)
+        c, s = cos(th), sin(th)
+        return c * ex - s * ey, s * ex + c * ey
+
+
+class RegularPolygonShape(Shape):
+    KIND = SHAPE_POLYGON
+    LAYOUT = LAYOUT_POLYGON
+    NAME = "Regular polygon"
+    PARAMS = (_count("sides", "Sides", DEFAULT_SIDES, POLY_MIN_SIDES, POLY_MAX_SIDES),
+              RADIUS_PARAM)
+    __slots__ = ("sides", "radius")
+
+    def params(self):
+        return (self.sides, self.rotation, self.radius)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return polygon_bound(*params)
+
+    def shape_text(self):
+        return f"{self.sides}-gon r{self.radius:.2f}, rot {self.rotation:.1f}°"
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  sides {int(round(self.sides))} r{self.radius:.2f}"
+
+    def boundary_xy(self):
+        ang = (pi / 2.0 + radians(self.rotation)
+               + 2.0 * pi * np.arange(self.sides + 1) / self.sides)
+        return self.radius * np.cos(ang), self.radius * np.sin(ang)
+
+
+class MossEggShape(Shape):
+    KIND = SHAPE_MOSS_EGG
+    LAYOUT = LAYOUT_ARCS_EDGES
+    NAME = "Moss's egg"
+    PARAMS = (_slider("moss_angle", "Angle ACB", DEFAULT_MOSS_ANGLE, MOSS_ANGLE_MIN,
+                      MOSS_ANGLE_MAX, 0.5, "angle", "{:.1f}"),
+              _slider("moss_size", "Size", DEFAULT_MOSS_SIZE, MOSS_SIZE_MIN, MOSS_SIZE_MAX))
+    __slots__ = ("moss_angle", "moss_size")
+
+    def params(self):
+        return (self.moss_angle, self.moss_size, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return moss_egg_bound(*params)
+
+    def shape_text(self):
+        return (f"Moss's egg {self.moss_angle:.0f}°, size {self.moss_size:.2f}, "
+                f"rot {self.rotation:.1f}°")
+
+    def extent(self):
+        return 2.2 * self.moss_size
+
+    def info_param_line(self):
+        return f"  angle {self.moss_angle:.1f}° size {self.moss_size:.2f}"
+
+
+class CircularSectorShape(Shape):
+    KIND = SHAPE_SECTOR
+    LAYOUT = LAYOUT_ARCS_EDGES
+    NAME = "Circular sector"
+    PARAMS = (RADIUS_PARAM,
+              _slider("sector_span", "Span", DEFAULT_SECTOR_SPAN, ARC_SPAN_MIN,
+                      SECTOR_SPAN_MAX, 0.5, "angle", "{:.1f}"))
+    __slots__ = ("radius", "sector_span")
+
+    def params(self):
+        return (self.radius, self.sector_span, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return sector_bound(*params)
+
+    def shape_text(self):
+        return f"Sector r{self.radius:.2f} {self.sector_span:.0f}°"
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} span {self.sector_span:.1f}°"
+
+
+class CircularSegmentShape(Shape):
+    KIND = SHAPE_SEGMENT
+    LAYOUT = LAYOUT_ARCS_EDGES
+    NAME = "Circular segment"
+    PARAMS = (RADIUS_PARAM,
+              _slider("segment_span", "Span", DEFAULT_SEGMENT_SPAN, ARC_SPAN_MIN,
+                      ARC_SPAN_MAX, 0.5, "angle", "{:.1f}"))
+    __slots__ = ("radius", "segment_span")
+
+    def params(self):
+        return (self.radius, self.segment_span, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return segment_bound(*params)
+
+    def shape_text(self):
+        return f"Segment r{self.radius:.2f} {self.segment_span:.0f}°"
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} span {self.segment_span:.1f}°"
+
+
+class LensShape(Shape):
+    KIND = SHAPE_LENS
+    LAYOUT = LAYOUT_CIRCLES
+    NAME = "Two-circle lens"
+    PARAMS = (_slider("lens_radius1", "Radius 1", DEFAULT_LENS_RADIUS, LENS_RADIUS_MIN,
+                      LENS_RADIUS_MAX),
+              _slider("lens_radius2", "Radius 2", DEFAULT_LENS_RADIUS, LENS_RADIUS_MIN,
+                      LENS_RADIUS_MAX),
+              _slider("lens_sep", "Separation", DEFAULT_LENS_SEP, LENS_SEP_MIN, LENS_SEP_MAX))
+    __slots__ = ("lens_radius1", "lens_radius2", "lens_sep")
+
+    def params(self):
+        return (self.lens_radius1, self.lens_radius2, self.lens_sep, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return lens_bound(*params)
+
+    def shape_text(self):
+        return (f"Lens r{self.lens_radius1:.2f}/{self.lens_radius2:.2f} "
+                f"d{self.lens_sep:.2f}")
+
+    def extent(self):
+        return max(self.lens_radius1, self.lens_radius2) + self.lens_sep / 2.0
+
+    def info_param_line(self):
+        return (f"  r1 {self.lens_radius1:.2f} r2 {self.lens_radius2:.2f} "
+                f"sep {self.lens_sep:.2f}")
+
+
+class ReuleauxPolygonShape(Shape):
+    KIND = SHAPE_REULEAUX
+    LAYOUT = LAYOUT_CIRCLES
+    NAME = "Reuleaux polygon"
+    PARAMS = (_count("reuleaux_sides", "Sides (odd)", DEFAULT_REULEAUX_SIDES,
+                     REULEAUX_MIN_SIDES, REULEAUX_MAX_SIDES, step=2),
+              RADIUS_PARAM)
+    __slots__ = ("reuleaux_sides", "radius")
+
+    def params(self):
+        return (self.reuleaux_sides, self.rotation, self.radius)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return reuleaux_bound(*params)
+
+    def shape_text(self):
+        return f"Reuleaux-{self.reuleaux_sides} r{self.radius:.2f}"
+
+    def extent(self):
+        return self.radius * 2.0
+
+    def info_param_line(self):
+        return f"  sides {int(round(self.reuleaux_sides))} r{self.radius:.2f}"
+
+
+class CapsuleShape(Shape):
+    KIND = SHAPE_CAPSULE
+    LAYOUT = LAYOUT_ARCS_EDGES
+    NAME = "Capsule"
+    PARAMS = (_slider("capsule_length", "Length", DEFAULT_CAPSULE_LENGTH,
+                      CAPSULE_LENGTH_MIN, CAPSULE_LENGTH_MAX),
+              _slider("capsule_radius", "Radius", DEFAULT_CAPSULE_RADIUS,
+                      CAPSULE_RADIUS_MIN, CAPSULE_RADIUS_MAX))
+    __slots__ = ("capsule_length", "capsule_radius")
+
+    def params(self):
+        return (self.capsule_length, self.capsule_radius, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return capsule_bound(*params)
+
+    def shape_text(self):
+        return f"Capsule L{self.capsule_length:.2f} r{self.capsule_radius:.2f}"
+
+    def extent(self):
+        return self.capsule_length / 2.0 + self.capsule_radius
+
+    def info_param_line(self):
+        return f"  len {self.capsule_length:.2f} r{self.capsule_radius:.2f}"
+
+
+class ArcLoopShape(Shape):
+    """Base of the kinds whose edge is a closed loop of circular arcs that may be concave
+    (a kind that only subclasses this is not a kind of its own: see SHAPE_CLASSES)."""
+    LAYOUT = LAYOUT_ARC_LOOPS
+
+    def boundary_xy(self):
+        return chain_arcs_xy(self.bound())
+
+
+class LobedShape(ArcLoopShape):
+    """Base of the trefoil and quatrefoil: a union of LOBES circles."""
+    LOBES = None
+    PARAMS = (RADIUS_PARAM,
+              _slider("lobe_size", "Lobe size", DEFAULT_LOBE_SIZE, LOBE_SIZE_MIN, LOBE_SIZE_MAX))
+    __slots__ = ("radius", "lobe_size")
+
+    def params(self):
+        return (self.radius, self.lobe_size, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return lobed_bound(cls.KIND, cls.LOBES, *params)
+
+    def shape_text(self):
+        return (f"{self.NAME} r{self.radius:.2f} lobe {self.lobe_size:.2f}, "
+                f"rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} lobe {self.lobe_size:.2f}"
+
+
+class TrefoilShape(LobedShape):
+    KIND = SHAPE_TREFOIL
+    NAME = "Trefoil"
+    LOBES = 3
+    __slots__ = ()
+
+
+class QuatrefoilShape(LobedShape):
+    KIND = SHAPE_QUATREFOIL
+    NAME = "Quatrefoil"
+    LOBES = 4
+    __slots__ = ()
+
+
+class LuneShape(ArcLoopShape):
+    KIND = SHAPE_LUNE
+    NAME = "Lune"
+    PARAMS = (RADIUS_PARAM,
+              _slider("cut_radius", "Cut radius", DEFAULT_CUT_RADIUS, CUT_RADIUS_MIN, CUT_RADIUS_MAX),
+              _slider("cut_offset", "Cut offset", DEFAULT_CUT_OFFSET, CUT_OFFSET_MIN, CUT_OFFSET_MAX))
+    __slots__ = ("radius", "cut_radius", "cut_offset")
+
+    def params(self):
+        return (self.radius, self.cut_radius, self.cut_offset, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return lune_bound(*params)
+
+    def shape_text(self):
+        return (f"Lune r{self.radius:.2f} cut {self.cut_radius:.2f} at {self.cut_offset:.2f}, "
+                f"rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} cut {self.cut_radius:.2f} off {self.cut_offset:.2f}"
+
+
+class ArbelosShape(ArcLoopShape):
+    KIND = SHAPE_ARBELOS
+    NAME = "Arbelos"
+    PARAMS = (RADIUS_PARAM, _slider("split", "Split", DEFAULT_SPLIT, SPLIT_MIN, SPLIT_MAX))
+    __slots__ = ("radius", "split")
+
+    def params(self):
+        return (self.radius, self.split, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return arbelos_bound(*params)
+
+    def shape_text(self):
+        return f"Arbelos r{self.radius:.2f} split {self.split:.2f}, rot {self.rotation:.1f}\u00b0"
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} split {self.split:.2f}"
+
+
+# Every kind, indexed by its SHAPE_* code (the order of the "new..." menu).
+SHAPE_CLASSES = [EllipseShape, RegularPolygonShape, MossEggShape, CircularSectorShape,
+                 CircularSegmentShape, LensShape, ReuleauxPolygonShape, CapsuleShape,
+                 TrefoilShape, QuatrefoilShape, LuneShape, ArbelosShape]
+SHAPE_NAMES = [cls.NAME for cls in SHAPE_CLASSES]
+
+# What a keyframe key's field name says about the field, whichever kind it is on
+# (a self-check keeps a name that several kinds share consistent).
+OBST_FIELD_FMT = {p.field: p.fmt for cls in SHAPE_CLASSES for p in cls.NUMERIC_PARAMS}
+OBST_FIELD_IS_FLOAT = {field: is_float for cls in SHAPE_CLASSES
+                       for field, _label, is_float in cls.KEYFRAME_FIELDS}
+
+
+def obstacle_tab_title(index, o):
+    """The title of obstacle `o`'s section of the keyframe settings list (`index` is
+    its place in the list, from 0)."""
+    return f"Obstacle #{index + 1} ({o.NAME})"
+
 
 def obstacle_center_from(r, theta, cx, cy):
-    """Same as Obstacle.center(), for already-resolved field values (used
+    """Same as Shape.center(), for already-resolved field values (used
     when animating obstacles between keyframes)."""
     th = radians(theta)
     return r * cos(th) + cx, r * sin(th) + cy
-
-
-def describe_obstacle(o):
-    if o.shape == SHAPE_ELLIPSE:
-        shape_txt = f"Ellipse {o.width:.2f}\u00d7{o.height:.2f}, rot {o.ell_rotation:.1f}\u00b0"
-    elif o.shape == SHAPE_POLYGON:
-        shape_txt = f"{o.sides}-gon r{o.poly_radius:.2f}, rot {o.poly_rotation:.1f}\u00b0"
-    elif o.shape == SHAPE_MOSS_EGG:
-        shape_txt = (f"Moss's egg {o.moss_angle:.0f}\u00b0, size {o.moss_size:.2f}, "
-                    f"rot {o.moss_rotation:.1f}\u00b0")
-    elif o.shape == SHAPE_SECTOR:
-        shape_txt = f"Sector r{o.sector_radius:.2f} {o.sector_span:.0f}\u00b0"
-    elif o.shape == SHAPE_SEGMENT:
-        shape_txt = f"Segment r{o.segment_radius:.2f} {o.segment_span:.0f}\u00b0"
-    elif o.shape == SHAPE_LENS:
-        shape_txt = f"Lens r{o.lens_radius1:.2f}/{o.lens_radius2:.2f} d{o.lens_sep:.2f}"
-    elif o.shape == SHAPE_REULEAUX:
-        shape_txt = f"Reuleaux-{o.reuleaux_sides} r{o.reuleaux_radius:.2f}"
-    else:
-        shape_txt = f"Capsule L{o.capsule_length:.2f} r{o.capsule_radius:.2f}"
-    pos_txt = f"r{o.r:.2f} @ {o.theta:.1f}\u00b0"
-    if o.cx or o.cy:
-        pos_txt += f" +({o.cx:+.2f}, {o.cy:+.2f})"
-    return (f"{shape_txt}, {pos_txt}, in: {OBSTACLE_EFFECT_NAMES[o.in_effect]}, "
-            f"out: {OBSTACLE_EFFECT_NAMES[o.out_effect]}")
-
-
-def obstacle_extent(o):
-    """A reasonable half-width (in world units) to zoom an obstacle's
-    thumbnail to fit, per shape."""
-    if o.shape == SHAPE_ELLIPSE:
-        return max(o.width, o.height) / 2.0
-    if o.shape == SHAPE_POLYGON:
-        return o.poly_radius
-    if o.shape == SHAPE_MOSS_EGG:
-        return 2.2 * o.moss_size
-    if o.shape == SHAPE_SECTOR:
-        return o.sector_radius
-    if o.shape == SHAPE_SEGMENT:
-        return o.segment_radius
-    if o.shape == SHAPE_LENS:
-        return max(o.lens_radius1, o.lens_radius2) + o.lens_sep / 2.0
-    if o.shape == SHAPE_REULEAUX:
-        return o.reuleaux_radius * 2.0
-    return o.capsule_length / 2.0 + o.capsule_radius   # CAPSULE
 
 
 def render_obstacle_thumbnail(o, size):
@@ -1224,13 +1703,13 @@ def render_obstacle_thumbnail(o, size):
     it gets in the image (outer layer = incoming effect, inner layer =
     outgoing effect) around a plain grey fill, on a mid-grey background so
     all three effect colors (including black) show up."""
-    extent = max(obstacle_extent(o), 1e-6)
+    extent = max(o.extent(), 1e-6)
     scale = (size / 2.0) * 0.86 / extent            # zoom to fill, with a small margin
     ys, xs = np.mgrid[0:size, 0:size]
     wx = (xs + 0.5 - size / 2.0) / scale
     wy = -(ys + 0.5 - size / 2.0) / scale
-    bound = make_bound(o.shape, o.params())
-    mask = inside_boundary_grid(wx, wy, o.shape, bound)
+    bound = o.bound()
+    mask = inside_boundary_grid(wx, wy, o.KIND, bound)
     layer = 2                                       # pixels per outline layer
     eroded, dilated = mask.copy(), mask.copy()
     for dy, dx in ((-layer, 0), (layer, 0), (0, -layer), (0, layer)):
@@ -1243,18 +1722,34 @@ def render_obstacle_thumbnail(o, size):
     return canvas
 
 
+def arc_loop_distance(bound, x, y):
+    """On the grid (x, y): the distance from each point to the nearest arc of an arc-loops
+    shape (to the arc itself where the point's angle is within it, else to its end points)."""
+    best = np.full(x.shape, 1e30)
+    for k in range(int(bound[1])):
+        cx, cy, r, lo, span = bound[3 + ARC_FIELDS * k:3 + ARC_FIELDS * (k + 1)]
+        dx, dy = x - cx, y - cy
+        within = np.mod(np.arctan2(dy, dx) - lo, 2.0 * pi) <= span
+        d = np.where(within, np.abs(np.hypot(dx, dy) - r), 1e30)
+        for end in (lo, lo + span):
+            d = np.minimum(d, np.hypot(x - (cx + r * cos(end)), y - (cy + r * sin(end))))
+        best = np.minimum(best, d)
+    return best
+
+
 def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
     """(outer, inner) boolean masks on the world-coordinate grid (x, y) for a
     shape's two-layer outline: `outer` is the band just outside its edge and
     `inner` the band just inside it, each `layer_px` pixels thick."""
     w = layer_px * PIXEL
-    if shape == SHAPE_ELLIPSE:
+    layout = SHAPE_CLASSES[shape].LAYOUT
+    if layout == LAYOUT_ELLIPSE:
         m11, m12, m22 = bound[1], bound[2], bound[3]
         q = m11 * x * x + 2.0 * m12 * x * y + m22 * y * y
         grad = 2.0 * np.sqrt((m11 * x + m12 * y) ** 2 + (m12 * x + m22 * y) ** 2)
         sd = (q - 1.0) / np.maximum(grad, 1e-9)    # first-order signed distance (+ outside)
         return (sd >= 0.0) & (sd < w), (sd < 0.0) & (sd >= -w)
-    if shape == SHAPE_POLYGON:
+    if layout == LAYOUT_POLYGON:
         h = bound[1]
         n = int(bound[2])
         f = np.full(x.shape, -1e9)
@@ -1263,6 +1758,9 @@ def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
         sd = f - h
         return (sd >= 0.0) & (sd < w), (sd < 0.0) & (sd >= -w)
     inside = inside_boundary_grid(x, y, shape, bound)
+    if layout == LAYOUT_ARC_LOOPS:
+        near = arc_loop_distance(bound, x, y) < w       # (offsetting an arc outward would move a
+        return near & ~inside, near & inside            # concave arc into the shape)
     bigger = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, w))
     smaller = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, -w))
     return bigger & ~inside, inside & ~smaller
@@ -1282,7 +1780,7 @@ def default_starting_obstacle(id_):
     """The obstacle the app starts with: the unit circle at the origin (which
     fills the image), reflecting rays both ways, and firing rays inside
     itself."""
-    o = Obstacle(id_)
+    o = EllipseShape(id_)
     o.width = o.height = DEFAULT_WIDTH
     o.in_effect = o.out_effect = OBSTACLE_EFFECT_REFLECT
     o.fire_inside = True
@@ -1290,14 +1788,14 @@ def default_starting_obstacle(id_):
 
 
 # Every obstacle's data as the parallel arrays the simulation kernels take, bundled in one
-# argument (numba reads the fields by name). Build it only with build_obstacle_arrays /
-# obstacle_arrays_from_values.
+# argument (numba reads the fields by name). Build it only with build_obstacle_arrays.
 ObstacleArrays = namedtuple("ObstacleArrays", [
     "shapes", "bounds", "cx", "cy", "effects", "fire_inside"])
 
 
 def build_obstacle_arrays(obstacles):
-    """[Obstacle, ...] -> an ObstacleArrays: parallel numpy arrays, one entry per obstacle (an obstacle that passes
+    """[Shape, ...] (live obstacles, or frozen copies such as resolved video-frame
+    values) -> an ObstacleArrays: parallel numpy arrays, one entry per obstacle (an obstacle that passes
     rays through in both directions is kept, since it can still fire rays and
     still has an outline). `effects` is an (n, 2) array: column 0 the
     incoming effect, column 1 the outgoing effect. The returned cx/cy are
@@ -1312,8 +1810,8 @@ def build_obstacle_arrays(obstacles):
     effects = np.empty((n, 2), dtype=np.int64)
     fire_inside = np.empty(n, dtype=np.bool_)
     for idx, o in enumerate(active):
-        shapes[idx] = o.shape
-        b = make_bound(o.shape, o.params())
+        shapes[idx] = o.KIND
+        b = o.bound()
         bounds[idx, :len(b)] = b
         cx[idx], cy[idx] = o.center()
         effects[idx, 0] = o.in_effect
@@ -1326,185 +1824,11 @@ def build_obstacle_arrays(obstacles):
 def obstacles_signature(obstacles):
     """A plain-data snapshot of every obstacle's settings, for detecting
     whether the obstacle list has changed since the last Start."""
-    fields = [f for f in Obstacle.__slots__ if f != "id"]
-    return tuple(tuple(getattr(o, f) for f in fields) for o in obstacles)
-
-
-# Every field of an obstacle that can be saved into a keyframe and animated:
-# (field name, short label, whether it's a float slider - only float fields
-# are ever smoothly interpolated, exactly like the fields in SETTING_INFO).
-# Every shape parameter's identity, in one place: an obstacle can be any of
-# the eight shapes, and each shape's parameters are described by one row of
-# this table instead of being repeated by hand across the obstacle editor,
-# OBST_FIELD_INFO and short_value_text's formatting rules.
-#   field   the Obstacle attribute name (and the ObstacleSnapshot field)
-#   widget  the name (after an "obs_" prefix) of the control that holds this
-#           parameter's live value in the Obstacles tab (a FloatEntryHandle- or
-#           tk.Scale-like object with .get()/.set()) - usually "<field>_scale"
-#           but inconsistently abbreviated for several fields
-#           (moss_rotation -> moss_rot_scale, lens_radius1 -> lens_r1_scale, ...)
-#   label   the text shown for it
-#   default its default value
-#
-# `animate` says whether this parameter smoothly interpolates between
-# keyframes rather than holding the nearest earlier keyframe's value - true
-# for every genuinely continuous parameter; false only for the two whole-number
-# "how many sides/points" counts. `fmt` says how short_value_text displays a
-# value: "size" (N.NN), "angle" (N.N followed by a degree sign), or "int" (plain).
-ShapeParamInfo = namedtuple("ShapeParamInfo",
-                            ["field", "widget", "label", "default", "animate", "fmt"])
-
-SHAPE_PARAM_INFO = [
-    ShapeParamInfo("width", "width_scale", "Width", DEFAULT_WIDTH, True, "size"),
-    ShapeParamInfo("height", "height_scale", "Height", DEFAULT_HEIGHT, True, "size"),
-    ShapeParamInfo("ell_rotation", "ell_rot_scale", "Ellipse rotation",
-                   DEFAULT_ELL_ROTATION, True, "angle"),
-    ShapeParamInfo("sides", "sides_scale", "Sides", DEFAULT_SIDES, False, "int"),
-    ShapeParamInfo("poly_rotation", "poly_rot_scale", "Polygon rotation",
-                   DEFAULT_POLY_ROTATION, True, "angle"),
-    ShapeParamInfo("moss_angle", "moss_angle_scale", "Moss egg angle ACB",
-                   DEFAULT_MOSS_ANGLE, True, "angle"),
-    ShapeParamInfo("moss_size", "moss_size_scale", "Moss egg size",
-                   DEFAULT_MOSS_SIZE, True, "size"),
-    ShapeParamInfo("moss_rotation", "moss_rot_scale", "Moss egg rotation",
-                   0.0, True, "angle"),
-    ShapeParamInfo("sector_radius", "sector_radius_scale", "Sector radius",
-                   DEFAULT_ARC_RADIUS, True, "size"),
-    ShapeParamInfo("sector_span", "sector_span_scale", "Sector span",
-                   DEFAULT_SECTOR_SPAN, True, "angle"),
-    ShapeParamInfo("sector_rotation", "sector_rot_scale",
-                   "Sector rotation", 0.0, True, "angle"),
-    ShapeParamInfo("segment_radius", "segment_radius_scale",
-                   "Segment radius", DEFAULT_ARC_RADIUS, True, "size"),
-    ShapeParamInfo("segment_span", "segment_span_scale", "Segment span",
-                   DEFAULT_SEGMENT_SPAN, True, "angle"),
-    ShapeParamInfo("segment_rotation", "segment_rot_scale",
-                   "Segment rotation", 0.0, True, "angle"),
-    ShapeParamInfo("lens_radius1", "lens_r1_scale", "Lens radius 1",
-                   DEFAULT_LENS_RADIUS, True, "size"),
-    ShapeParamInfo("lens_radius2", "lens_r2_scale", "Lens radius 2",
-                   DEFAULT_LENS_RADIUS, True, "size"),
-    ShapeParamInfo("lens_sep", "lens_sep_scale", "Lens separation",
-                   DEFAULT_LENS_SEP, True, "size"),
-    ShapeParamInfo("lens_rotation", "lens_rot_scale", "Lens rotation",
-                   0.0, True, "angle"),
-    ShapeParamInfo("reuleaux_sides", "reuleaux_sides_scale",
-                   "Reuleaux sides", DEFAULT_REULEAUX_SIDES, False, "int"),
-    ShapeParamInfo("reuleaux_rotation", "reuleaux_rot_scale",
-                   "Reuleaux rotation", 0.0, True, "angle"),
-    ShapeParamInfo("capsule_length", "capsule_length_scale",
-                   "Capsule length", DEFAULT_CAPSULE_LENGTH, True, "size"),
-    ShapeParamInfo("capsule_radius", "capsule_radius_scale",
-                   "Capsule radius", DEFAULT_CAPSULE_RADIUS, True, "size"),
-    ShapeParamInfo("capsule_rotation", "capsule_rot_scale",
-                   "Capsule rotation", 0.0, True, "angle"),
-]
-SHAPE_PARAM_BY_FIELD = {p.field: p for p in SHAPE_PARAM_INFO}
-
-# Display format for the handful of Obstacle fields that AREN'T in
-# SHAPE_PARAM_INFO (the extra radius a polygon or Reuleaux-polygon obstacle
-# has) - everything else's format comes from SHAPE_PARAM_BY_FIELD above.
-OBST_ONLY_FMT = {"poly_radius": "size", "reuleaux_radius": "size", "r": "size",
-                 "theta": "angle"}
-
-def _shared_obst_field(field):
-    """An OBST_FIELD_INFO row for a shape parameter, read from
-    SHAPE_PARAM_INFO instead of repeated here."""
-    p = SHAPE_PARAM_BY_FIELD[field]
-    return (p.field, p.label, p.animate)
-
-
-OBST_FIELD_INFO = [
-    ("shape", "Shape", False),
-    _shared_obst_field("width"),
-    _shared_obst_field("height"),
-    _shared_obst_field("ell_rotation"),
-    _shared_obst_field("sides"),
-    _shared_obst_field("poly_rotation"),
-    ("poly_radius", "Radius", True),
-    _shared_obst_field("moss_angle"),
-    _shared_obst_field("moss_size"),
-    _shared_obst_field("moss_rotation"),
-    _shared_obst_field("sector_radius"),
-    _shared_obst_field("sector_span"),
-    _shared_obst_field("sector_rotation"),
-    _shared_obst_field("segment_radius"),
-    _shared_obst_field("segment_span"),
-    _shared_obst_field("segment_rotation"),
-    _shared_obst_field("lens_radius1"),
-    _shared_obst_field("lens_radius2"),
-    _shared_obst_field("lens_sep"),
-    _shared_obst_field("lens_rotation"),
-    _shared_obst_field("reuleaux_sides"),
-    _shared_obst_field("reuleaux_rotation"),
-    ("reuleaux_radius", "Reuleaux radius", True),
-    _shared_obst_field("capsule_length"),
-    _shared_obst_field("capsule_radius"),
-    _shared_obst_field("capsule_rotation"),
-    ("r", "Distance (r)", True),
-    ("theta", "Angle (\u03b8)", True),
-    ("cx", "Offset X", True),
-    ("cy", "Offset Y", True),
-    ("in_effect", "Incoming ray effect", False),
-    ("out_effect", "Outgoing ray effect", False),
-    ("fire_inside", "Fire rays inside", False),
-]
-
-# The same for obstacle fields that are not in SHAPE_PARAM_INFO (those use
-# "obs_" + their ShapeParamInfo.widget). The editor's controls show whichever
-# obstacle is selected.
-OBSTACLE_FIELD_WIDGET_ATTRS = {
-    "shape": "obs_shape_combo", "poly_radius": "obs_radius_scale",
-    "reuleaux_radius": "obs_reuleaux_radius_scale", "r": "obs_r_scale",
-    "theta": "obs_theta_scale", "cx": "obs_cx_scale", "cy": "obs_cy_scale",
-    "in_effect": "obs_in_effect_combo", "out_effect": "obs_out_effect_combo",
-    "fire_inside": "obs_fire_inside_check",
-}
-
-def _obstacle_field_types():
-    """Obstacle.__slots__ -> the type of each field: float for the animatable ones
-    (OBST_FIELD_INFO), else whatever a fresh Obstacle holds (int, or bool)."""
-    is_float = {field: flag for field, _label, flag in OBST_FIELD_INFO}
-    fresh = Obstacle(0)
-    return {field: float if is_float.get(field) else type(getattr(fresh, field))
-            for field in Obstacle.__slots__}
-
-
-ObstacleSnapshot = strict_record_type(
-    "ObstacleSnapshot", _obstacle_field_types(),
-    "A frozen copy of one Obstacle's fields (see snapshot_obstacle).")
-
-
-def snapshot_obstacle(o):
-    """A plain, immutable copy of one Obstacle's fields - safe to read from a
-    background render thread while the GUI thread might still be editing the
-    live Obstacle object."""
-    return ObstacleSnapshot(**{f: getattr(o, f) for f in Obstacle.__slots__})
-
-
-def obstacle_params_from_vals(shape, vals):
-    """The shape-specific params() tuple, built from a dict of resolved field
-    values (used when animating an obstacle's fields between keyframes)."""
-    if shape == SHAPE_ELLIPSE:
-        return (vals["width"], vals["height"], vals["ell_rotation"])
-    if shape == SHAPE_POLYGON:
-        return (vals["sides"], vals["poly_rotation"], vals["poly_radius"])
-    if shape == SHAPE_MOSS_EGG:
-        return (vals["moss_angle"], vals["moss_size"], vals["moss_rotation"])
-    if shape == SHAPE_SECTOR:
-        return (vals["sector_radius"], vals["sector_span"], vals["sector_rotation"])
-    if shape == SHAPE_SEGMENT:
-        return (vals["segment_radius"], vals["segment_span"], vals["segment_rotation"])
-    if shape == SHAPE_LENS:
-        return (vals["lens_radius1"], vals["lens_radius2"], vals["lens_sep"],
-               vals["lens_rotation"])
-    if shape == SHAPE_REULEAUX:
-        return (vals["reuleaux_sides"], vals["reuleaux_rotation"], vals["reuleaux_radius"])
-    return (vals["capsule_length"], vals["capsule_radius"], vals["capsule_rotation"])
+    return tuple(o.state() for o in obstacles)
 
 
 def resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number):
-    """[ObstacleSnapshot, ...] for one video frame: the set of obstacles is
+    """[frozen Shape, ...] for one video frame: the set of obstacles is
     fixed (whichever existed when the render started), but every field of
     every one of them is independently resolved (animated or held) from the
     keyframes, exactly like the other settings - falling back to that
@@ -1512,53 +1836,18 @@ def resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number):
     a given field."""
     resolved = []
     for snap in obstacle_snapshots:
-        vals = {"id": snap.id}
-        for field, _label, is_float in OBST_FIELD_INFO:
-            key = f"obst:{snap.id}:{field}"
-            vals[field] = resolve_value(key, keyframes_sorted, frame_number,
-                                        getattr(snap, field), is_float)
-        resolved.append(ObstacleSnapshot(**vals))
+        values = {field: resolve_value(f"obst:{snap.id}:{field}", keyframes_sorted,
+                                       frame_number, getattr(snap, field), is_float)
+                  for field, _label, is_float in snap.KEYFRAME_FIELDS}
+        resolved.append(snap.with_values(**values))
     return resolved
 
 
 def resolve_obstacle_arrays(obstacle_snapshots, keyframes_sorted, frame_number):
     """An ObstacleArrays (parallel arrays) for one
     video frame - see resolve_obstacles."""
-    return obstacle_arrays_from_values(
+    return build_obstacle_arrays(
         resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number))
-
-
-def obstacle_arrays_from_values(values):
-    """The kernels' parallel arrays for a list of already-resolved obstacles
-    (ObstacleSnapshots)."""
-    active = []
-    for v in values:
-        vals = v.as_dict()
-        shape = vals["shape"]
-        params = obstacle_params_from_vals(shape, vals)
-        bound = make_bound(shape, params)
-        cx, cy = obstacle_center_from(vals["r"], vals["theta"], vals["cx"], vals["cy"])
-        active.append((shape, bound, cx, cy, vals["in_effect"], vals["out_effect"],
-                       vals["fire_inside"]))
-
-    n = len(active)
-    shapes = np.empty(n, dtype=np.int64)
-    bounds = np.zeros((n, OBST_BOUND_LEN), dtype=np.float64)
-    cxs = np.empty(n, dtype=np.float64)
-    cys = np.empty(n, dtype=np.float64)
-    effects = np.empty((n, 2), dtype=np.int64)
-    fire_inside = np.empty(n, dtype=np.bool_)
-    for i, (shape, bound, cx, cy, in_effect, out_effect, fire) in enumerate(active):
-        shapes[i] = shape
-        bounds[i, :len(bound)] = bound
-        cxs[i] = cx
-        cys[i] = cy
-        effects[i, 0] = in_effect
-        effects[i, 1] = out_effect
-        fire_inside[i] = fire
-    return ObstacleArrays(shapes=shapes, bounds=bounds, cx=cxs, cy=cys, effects=effects,
-                          fire_inside=fire_inside)
-
 
 
 @strict_record
@@ -1740,28 +2029,6 @@ SETTING_FLOAT_KEYS = {key for key, spec in RAY_SETTING_SPECS.items() if _is_floa
 # outline is drawn. run_self_checks() keeps this in step with SETTING_INFO.
 SETTING_WIDGET_ATTRS = {**{key: spec.widget for key, spec in RAY_SETTING_SPECS.items()},
                         "outline": "deco_outline_check"}
-
-
-def shape_params_tuple(shape, obj):
-    """The given shape's own parameter tuple, read directly off `obj` (an
-    Obstacle, or an ObstacleSnapshot - both expose the same field names).
-    The single place that maps a shape to its own parameters. Polygon and
-    Reuleaux tuples end with their radius."""
-    if shape == SHAPE_ELLIPSE:
-        return (obj.width, obj.height, obj.ell_rotation)
-    if shape == SHAPE_POLYGON:
-        return (obj.sides, obj.poly_rotation, obj.poly_radius)
-    if shape == SHAPE_MOSS_EGG:
-        return (obj.moss_angle, obj.moss_size, obj.moss_rotation)
-    if shape == SHAPE_SECTOR:
-        return (obj.sector_radius, obj.sector_span, obj.sector_rotation)
-    if shape == SHAPE_SEGMENT:
-        return (obj.segment_radius, obj.segment_span, obj.segment_rotation)
-    if shape == SHAPE_LENS:
-        return (obj.lens_radius1, obj.lens_radius2, obj.lens_sep, obj.lens_rotation)
-    if shape == SHAPE_REULEAUX:
-        return (obj.reuleaux_sides, obj.reuleaux_rotation, obj.reuleaux_radius)
-    return (obj.capsule_length, obj.capsule_radius, obj.capsule_rotation)  # CAPSULE
 
 
 # The rules the simulation kernels take, as namedtuples (numba reads their fields by
@@ -2557,6 +2824,10 @@ def polygon_bound(sides, rotation, radius=1.0):
 #   angle from (cx, cy), normalized into [ang_lo, ang_lo + span), is in range
 #   then n_e * (ax, ay, bx, by) - a bounded segment from (ax, ay) to (bx, by)
 #
+# "Arc loops" (trefoil, quatrefoil, lune, arbelos) use the same arrays as "arcs + edges"
+# (with no edges), but the loop may be concave, so a point is inside by the even-odd rule
+# (inside_arcs_parity), not by an AND of circles or a ray from the origin.
+#
 # "Circle intersection" (two-circle lens, Reuleaux polygon): the shape is
 # exactly the intersection of a few full circles (so its ray-exit is just the
 # minimum of each circle's own, and its obstacle-entry the same style of
@@ -2598,61 +2869,22 @@ def pack_circles(area, circles):
     return bound
 
 
-def scale_bound(shape, bound, factor, center=(0.0, 0.0)):
-    """A copy of `bound` uniformly scaled by `factor` around `center` (every
-    length grows/shrinks; angles and counts don't change) - used to draw a
-    thin ring around a shape without a simple analytic gradient, by taking
-    the boundary between a slightly bigger and a slightly smaller copy of it.
-    `center` MUST be strictly inside the shape (see find_interior_point) for
-    the bigger copy to actually contain the smaller one - scaling around a
-    point outside the shape, or a corner of it, doesn't produce nested
-    shapes and silently gives an empty or wrong ring instead."""
-    cx0, cy0 = center
-    b = bound.copy()
-    b[0] *= factor * factor                     # area scales with factor^2
-    if shape in (SHAPE_LENS, SHAPE_REULEAUX):
-        n = int(b[1])
-        idx = 2
-        for _ in range(n):
-            b[idx] = cx0 + factor * (b[idx] - cx0)
-            b[idx + 1] = cy0 + factor * (b[idx + 1] - cy0)
-            b[idx + 2] *= factor                # r
-            idx += 3
-    elif shape in (SHAPE_MOSS_EGG, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_CAPSULE):
-        n_a = int(b[1])
-        n_e = int(b[2])
-        idx = 3
-        for _ in range(n_a):
-            b[idx] = cx0 + factor * (b[idx] - cx0)
-            b[idx + 1] = cy0 + factor * (b[idx + 1] - cy0)
-            b[idx + 2] *= factor                # r (ang_lo/span untouched)
-            idx += 5
-        for _ in range(n_e):
-            b[idx] = cx0 + factor * (b[idx] - cx0)         # ax
-            b[idx + 1] = cy0 + factor * (b[idx + 1] - cy0)  # ay
-            b[idx + 2] = cx0 + factor * (b[idx + 2] - cx0)  # bx
-            b[idx + 3] = cy0 + factor * (b[idx + 3] - cy0)  # by
-            idx += 4
-    return b
-
-
 def offset_bound(shape, bound, thickness):
     """A copy of `bound` moved outward by a fixed absolute `thickness`
     (negative moves it inward): every arc's radius changes by `thickness`,
-    and every edge shifts along its own outward normal by `thickness`. Unlike
-    scale_bound, this gives a ring of CONSTANT width everywhere - scaling by a
-    multiplicative factor instead shifts each point by an amount proportional
-    to its distance from the scaling centre, which for a point close to that
-    centre (e.g. capsule's straight edges, close to its own middle) can be a
-    tiny fraction of a pixel and effectively invisible."""
+    and every edge shifts along its own outward normal by `thickness`, so it gives
+    a ring of CONSTANT width everywhere (scaling the shape instead would shift each
+    point in proportion to its distance from the scaling centre, a tiny fraction of
+    a pixel near that centre). Only for the circles and arcs+edges layouts."""
     b = bound.copy()
-    if shape in (SHAPE_LENS, SHAPE_REULEAUX):
+    layout = SHAPE_CLASSES[shape].LAYOUT
+    if layout == LAYOUT_CIRCLES:
         n = int(b[1])
         idx = 2
         for _ in range(n):
             b[idx + 2] = max(b[idx + 2] + thickness, 1e-9)   # r
             idx += 3
-    elif shape in (SHAPE_MOSS_EGG, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_CAPSULE):
+    elif layout == LAYOUT_ARCS_EDGES:
         n_a = int(b[1])
         n_e = int(b[2])
         idx = 3
@@ -2864,22 +3096,123 @@ def capsule_bound(length, radius, rotation_deg):
 
 
 
+def region_arcs(circles, member):
+    """The boundary of a region built from full circles [(cx, cy, r), ...], as a
+    list of arcs (cx, cy, r, ang_lo, span): `member(x, y)` says whether a point is in
+    the region. Each circle is cut where it crosses the others, and a piece is kept
+    when the region is on one side of it only (probed just inside and just outside)."""
+    unique = []
+    for circle in circles:
+        if not any(all(abs(circle[i] - other[i]) < 1e-9 for i in range(3)) for other in unique):
+            unique.append(circle)
+    tau = 2.0 * pi
+    arcs = []
+    for ci, (cx, cy, r) in enumerate(unique):
+        cuts = [0.0]
+        for cj, (ox, oy, other_r) in enumerate(unique):
+            d = sqrt((ox - cx) ** 2 + (oy - cy) ** 2)
+            if cj == ci or d >= r + other_r or d <= abs(r - other_r) or d == 0.0:
+                continue
+            half = acos(max(-1.0, min(1.0, (r * r - other_r * other_r + d * d) / (2.0 * d * r))))
+            base = atan2(oy - cy, ox - cx)
+            cuts += [(base + half) % tau, (base - half) % tau]
+        cuts = sorted(set(round(a, 12) for a in cuts)) + [tau]
+        eps = 1e-6 * max(r, 1e-3)
+        kept = []
+        for lo, hi in zip(cuts[:-1], cuts[1:]):
+            if hi - lo < 1e-9:
+                continue
+            mid = 0.5 * (lo + hi)
+            ux, uy = cos(mid), sin(mid)
+            if member(cx + (r + eps) * ux, cy + (r + eps) * uy) != \
+                    member(cx + (r - eps) * ux, cy + (r - eps) * uy):
+                kept.append([lo, hi - lo])
+        if len(kept) > 1 and kept[0][0] == 0.0 and abs(kept[-1][0] + kept[-1][1] - tau) < 1e-9:
+            kept[-1][1] += kept.pop(0)[1]              # join the pieces either side of angle 0
+        arcs += [(cx, cy, r, lo, span) for lo, span in kept]
+    return arcs
+
+
+def arc_loop_bound(shape, arcs, extent):
+    """Pack `arcs` as an arc-loops shape of kind `shape`; its area is estimated."""
+    bound = pack_arcs_edges(0.0, arcs, [])
+    bound[0] = estimate_area_numeric(shape, bound, extent)
+    return bound
+
+
+def lobed_bound(shape, lobes, radius, lobe_size, rotation):
+    """A trefoil / quatrefoil: the union of `lobes` equal circles whose centres lie on a
+    circle round the origin, one pointing straight up at rotation 0. The farthest point of
+    the shape is `radius` from the origin and each lobe's radius is `lobe_size` * `radius`."""
+    big = max(radius, 1e-6)
+    size = max(min(lobe_size, LOBE_SIZE_MAX), 0.5)
+    r = size * big
+    ring = big - r
+    circles = []
+    for k in range(lobes):
+        ang = pi / 2.0 + radians(rotation) + 2.0 * pi * k / lobes
+        circles.append((ring * cos(ang), ring * sin(ang), r))
+
+    def member(x, y):
+        return any((x - cx) ** 2 + (y - cy) ** 2 < rr * rr for cx, cy, rr in circles)
+    return arc_loop_bound(shape, region_arcs(circles, member), 1.05 * big)
+
+
+def lune_bound(radius, cut_radius, cut_offset, rotation):
+    """A lune (crescent): the disc of radius `radius` about the origin, minus a second disc of
+    radius `cut_radius` whose centre is `cut_offset` away, in the direction `rotation` (0 = +x)."""
+    big = max(radius, 1e-6)
+    cut = max(cut_radius, 1e-6)
+    rot = radians(rotation)
+    cut_cx, cut_cy = max(cut_offset, 0.0) * cos(rot), max(cut_offset, 0.0) * sin(rot)
+    circles = [(0.0, 0.0, big), (cut_cx, cut_cy, cut)]
+
+    def member(x, y):
+        return x * x + y * y < big * big and (x - cut_cx) ** 2 + (y - cut_cy) ** 2 >= cut * cut
+    return arc_loop_bound(SHAPE_LUNE, region_arcs(circles, member), 1.05 * big)
+
+
+def arbelos_bound(radius, split, rotation):
+    """An arbelos: the half-disc on a diameter of length 2 * `radius`, minus the half-discs on the two
+    parts the diameter is split into (`split` is the first part's share). It is centred
+    vertically on its bounding box, with the curved side up at rotation 0."""
+    big = max(radius, 1e-6)
+    share = max(min(split, SPLIT_MAX), SPLIT_MIN)
+    small_a, small_b = share * big, (1.0 - share) * big          # the small radii (they sum to `big`)
+    shift = -0.5 * big
+    rot = radians(rotation)
+    cs, sn = cos(rot), sin(rot)
+    arcs = []
+    for cx, r in ((0.0, big), (-big + small_a, small_a), (big - small_b, small_b)):
+        arcs.append((cx * cs - shift * sn, cx * sn + shift * cs, r, rot, pi))
+    return arc_loop_bound(SHAPE_ARBELOS, arcs, 1.05 * big)
+
+
+def chain_arcs_xy(bound, per_arc=60):
+    """(x, y) arrays tracing the boundary of an arc-loops shape: each arc sampled, then the
+    arcs joined end to end (an arc is turned round when its far end is the nearer one)."""
+    pieces = []
+    for k in range(int(bound[1])):
+        cx, cy, r, lo, span = bound[3 + ARC_FIELDS * k:3 + ARC_FIELDS * (k + 1)]
+        ang = lo + span * np.linspace(0.0, 1.0, 8 + int(per_arc * span / (2.0 * pi)))
+        pieces.append(np.column_stack((cx + r * np.cos(ang), cy + r * np.sin(ang))))
+    if not pieces:
+        return np.zeros(2), np.zeros(2)
+    path = pieces.pop(0)
+    while pieces:
+        end = path[-1]
+        gap = [min(np.hypot(*(p[0] - end)), np.hypot(*(p[-1] - end))) for p in pieces]
+        nxt = pieces.pop(int(np.argmin(gap)))
+        if np.hypot(*(nxt[-1] - end)) < np.hypot(*(nxt[0] - end)):
+            nxt = nxt[::-1]
+        path = np.vstack((path, nxt))
+    path = np.vstack((path, path[:1]))
+    return path[:, 0], path[:, 1]
+
+
 def make_bound(shape, params):
-    if shape == SHAPE_ELLIPSE:
-        return ellipse_bound(*params)
-    if shape == SHAPE_POLYGON:
-        return polygon_bound(*params)
-    if shape == SHAPE_MOSS_EGG:
-        return moss_egg_bound(*params)
-    if shape == SHAPE_SECTOR:
-        return sector_bound(*params)
-    if shape == SHAPE_SEGMENT:
-        return segment_bound(*params)
-    if shape == SHAPE_LENS:
-        return lens_bound(*params)
-    if shape == SHAPE_REULEAUX:
-        return reuleaux_bound(*params)
-    return capsule_bound(*params)         # SHAPE_CAPSULE
+    """The packed shape array for SHAPE_* code `shape` and its params() tuple."""
+    return SHAPE_CLASSES[shape].bound_from_params(params)
 
 
 def is_robustly_interior(shape, bound, x, y, margin):
@@ -2900,9 +3233,8 @@ def find_interior_point(shape, bound, extent=2.2):
     """Some point robustly inside the shape (not a corner or a point right on
     the boundary) - a spiral search using the same inside_boundary test the
     simulation itself uses, so it's correct for any of the 8 shapes without
-    needing a bespoke formula per family. Used both as a ray-casting origin
-    (sample_boundary_xy) and as scale_bound's scaling centre, both of which
-    need genuine breathing room to work correctly."""
+    needing a bespoke formula per family. Used as a ray-casting origin
+    (sample_boundary_xy), which needs genuine breathing room to work correctly."""
     margin = max(0.02, extent * 0.02)
     if is_robustly_interior(shape, bound, 0.0, 0.0, margin):
         return 0.0, 0.0
@@ -2937,29 +3269,6 @@ def sample_boundary_xy(shape, bound, n=181):
         xs[k] = ix + t * ux
         ys[k] = iy + t * uy
     return xs, ys
-
-
-def obstacle_outline_coords(o):
-    """Canvas coordinates (flat list) of a polygon tracing obstacle `o`'s
-    shape, at its centre (polar position plus x/y offset)."""
-    if o.shape == SHAPE_ELLIPSE:
-        t = np.linspace(0.0, 2.0 * pi, 181)
-        ex, ey = 0.5 * o.width * np.cos(t), 0.5 * o.height * np.sin(t)
-        th = radians(o.ell_rotation)
-        c, s = cos(th), sin(th)
-        wx, wy = c * ex - s * ey, s * ex + c * ey
-    elif o.shape == SHAPE_POLYGON:
-        ang = (pi / 2.0 + radians(o.poly_rotation)
-              + 2.0 * pi * np.arange(o.sides + 1) / o.sides)
-        wx, wy = o.poly_radius * np.cos(ang), o.poly_radius * np.sin(ang)
-    else:
-        wx, wy = sample_boundary_xy(o.shape, make_bound(o.shape, o.params()))
-    ocx, ocy = o.center()
-    wx = wx + ocx
-    wy = wy + ocy
-    xs = (wx + 1.0) * (SIZE / 2.0)
-    ys = (1.0 - wy) * (SIZE / 2.0)
-    return np.column_stack((xs, ys)).ravel().tolist()
 
 
 # --------------------------------------------------------------------------- #
@@ -3306,18 +3615,15 @@ def short_value_text(key, val):
     text in the keyframe settings list."""
     if key.startswith("obst:"):
         field = key.split(":", 2)[2]
-        if field == "shape":
-            return SHAPE_NAMES[val]
         if field in ("in_effect", "out_effect"):
             return OBSTACLE_EFFECT_NAMES[val]
         if field == "fire_inside":
             return "On" if val else "Off"
-        if field in ("cx", "cy"):
-            return f"{val:+.2f}"
-        p = SHAPE_PARAM_BY_FIELD.get(field)
-        fmt = p.fmt if p is not None else OBST_ONLY_FMT.get(field)
+        fmt = OBST_FIELD_FMT.get(field)
         if fmt == "size":
             return f"{val:.2f}"
+        if fmt == "offset":
+            return f"{val:+.2f}"
         if fmt == "angle":
             return f"{val:.1f}\u00b0"
         return str(val)                          # "int" fields, and anything else
@@ -3392,7 +3698,7 @@ DEFAULT_MODE = "RGB"
 # (self.selected_view_id) in the Coloration tab; selecting a view for
 # editing is what makes it the preview too, there's no separate step. Every
 # view uses the same dynamic "view:<id>:..." keyframe keys, mirroring
-# Obstacle/self.obstacles and "obst:<id>:<field>" exactly, since the two
+# Shape/self.obstacles and "obst:<id>:<field>" exactly, since the two
 # problems are the same shape: a dynamic list of same-structure things,
 # each with its own independently keyframeable fields, where the SET of
 # things is fixed for a given render but every field of every one of them
@@ -3423,16 +3729,29 @@ class ViewConfig:
         self.constant_choice = list(DEFAULT_CONSTANT_CHOICES)
 
 
-ViewSnapshot = strict_record_type(
-    "ViewSnapshot", {field: (int if field == "id" else str if field == "mode" else tuple)
-                     for field in ViewConfig.__slots__},
-    "A frozen copy of one ViewConfig's fields (see snapshot_view).")
+@strict_record
+class ViewSnapshot:
+    """A frozen copy of one ViewConfig's fields (see snapshot_view). Its fields
+    mirror ViewConfig.__slots__ (a test keeps them in step); the per-channel lists
+    are stored as tuples."""
+    id: int
+    mode: str
+    chan_src: tuple
+    kinds: tuple
+    point_metric: tuple
+    other_metric: tuple
+    point1_choice: tuple
+    point2_choice: tuple
+    buddha_points: tuple
+    buddha_compression: tuple
+    buddha_brightness: tuple
+    constant_choice: tuple
 
 
 def snapshot_view(v):
     """A plain, immutable copy of one ViewConfig's fields - safe to read from
     a background render thread while the GUI thread might still be editing
-    the live ViewConfig object (mirrors snapshot_obstacle). ViewConfig's
+    the live ViewConfig object (mirrors Shape.snapshot). ViewConfig's
     per-channel fields are mutable lists (the UI mutates them in place, e.g.
     self.chan_src[c] = ...), so each one is copied here rather than shared -
     a shared reference would let a background thread see a live edit
@@ -3471,7 +3790,7 @@ def view_channel_value(v, c):
 
 
 # Every field a view can define in a keyframe: (field, label, is_float) -
-# mirrors OBST_FIELD_INFO. None of these are float (a color model or a whole
+# mirrors the shapes' KEYFRAME_FIELDS. None of these are float (a color model or a whole
 # channel's configuration is held between keyframes, never interpolated).
 VIEW_FIELD_INFO = [("mode", "Color model", False), ("chan0", "Channel 1", False),
                    ("chan1", "Channel 2", False), ("chan2", "Channel 3", False)]
@@ -3576,13 +3895,37 @@ def run_self_checks():
         raise AssertionError(f"SETTING_FLOAT_KEYS references unknown setting(s): "
                              f"{unknown_float_keys}")
 
-    slot_fields = set(Obstacle.__slots__) - {"id"}
-    obst_info_fields = {field for field, _label, _is_float in OBST_FIELD_INFO}
-    if slot_fields != obst_info_fields:
-        raise AssertionError(
-            "Obstacle.__slots__ and OBST_FIELD_INFO disagree - "
-            f"only in __slots__: {slot_fields - obst_info_fields or None}; "
-            f"only in OBST_FIELD_INFO: {obst_info_fields - slot_fields or None}")
+    names_seen = {}
+    for index, cls in enumerate(SHAPE_CLASSES):
+        if cls.KIND != index:
+            raise AssertionError(f"{cls.__name__}.KIND is {cls.KIND} but it is item {index} "
+                                 "of SHAPE_CLASSES")
+        slots = {s for klass in cls.__mro__ for s in getattr(klass, "__slots__", ())}
+        slots -= {"id", "_frozen"}
+        if slots != set(cls.FIELD_NAMES):
+            raise AssertionError(
+                f"{cls.__name__}: __slots__ and PARAMS disagree - "
+                f"only in __slots__: {slots - set(cls.FIELD_NAMES) or None}; "
+                f"only in the parameter tables: {set(cls.FIELD_NAMES) - slots or None}")
+        if cls.LAYOUT not in LAYOUTS:
+            raise AssertionError(f"{cls.__name__}.LAYOUT is {cls.LAYOUT!r}, not a LAYOUT_* code")
+        if len(set(cls.FIELD_NAMES)) != len(cls.FIELD_NAMES):
+            raise AssertionError(f"{cls.__name__} has a duplicate field name")
+        for p in cls.NUMERIC_PARAMS:
+            if p.fmt not in ("size", "angle", "offset", "int"):
+                raise AssertionError(f"{cls.__name__}.{p.field} has invalid fmt {p.fmt!r}")
+            if not isinstance(p.default, int if not p.animate else (int, float)):
+                raise AssertionError(f"{cls.__name__}.{p.field}'s default is {p.default!r}")
+            if (p.lo is None) != (p.hi is None) or (p.lo is None) != (p.step is None):
+                raise AssertionError(f"{cls.__name__}.{p.field}: lo, hi and step go together")
+            if p.lo is not None and not p.lo <= p.default <= p.hi:
+                raise AssertionError(f"{cls.__name__}.{p.field}'s default is outside its range")
+            seen = names_seen.setdefault(p.field, (p.fmt, p.animate))
+            if seen != (p.fmt, p.animate):
+                raise AssertionError(f"{p.field} means different things on different shapes "
+                                     f"(fmt/animate {seen} vs {(p.fmt, p.animate)})")
+    if len({cls.NAME for cls in SHAPE_CLASSES}) != len(SHAPE_CLASSES):
+        raise AssertionError("two shape kinds have the same NAME")
 
     if len(DEFAULT_BUDDHA_POINTS) != N_BUDDHA_POINTS:
         raise AssertionError(
@@ -3620,15 +3963,6 @@ def run_self_checks():
     if "constant_choice" not in ViewConfig.__slots__:
         raise AssertionError("ViewConfig is missing its dedicated constant_choice field")
 
-    for attr in ("field", "widget"):
-        names = [getattr(p, attr) for p in SHAPE_PARAM_INFO]
-        if len(names) != len(set(names)):
-            dupes = {n for n in names if names.count(n) > 1}
-            raise AssertionError(f"SHAPE_PARAM_INFO has duplicate {attr} value(s): {dupes}")
-    bad_fmt = [p.field for p in SHAPE_PARAM_INFO if p.fmt not in ("size", "angle", "int")]
-    if bad_fmt:
-        raise AssertionError(f"SHAPE_PARAM_INFO has invalid fmt for: {bad_fmt}")
-
     if set(SETTING_WIDGET_ATTRS) != info_keys:
         raise AssertionError(
             "SETTING_WIDGET_ATTRS and SETTING_INFO disagree - "
@@ -3650,13 +3984,6 @@ def run_self_checks():
                  or bool(spec.names) != (spec.kind == "choice")]
     if bad_kinds:
         raise AssertionError(f"RAY_SETTING_SPECS rows with a bad kind or names: {bad_kinds}")
-    obst_widget_fields = set(OBSTACLE_FIELD_WIDGET_ATTRS) | {p.field for p in SHAPE_PARAM_INFO}
-    obst_info_fields = {f for f, _label, _is_float in OBST_FIELD_INFO}
-    if obst_widget_fields != obst_info_fields:
-        raise AssertionError(
-            "OBSTACLE_FIELD_WIDGET_ATTRS/SHAPE_PARAM_INFO and OBST_FIELD_INFO disagree - "
-            f"only in the widget tables: {obst_widget_fields - obst_info_fields or None}; "
-            f"only in OBST_FIELD_INFO: {obst_info_fields - obst_widget_fields or None}")
 
 
 run_self_checks()
@@ -3739,44 +4066,6 @@ def coloration_info_lines(view):
 FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines up to this long
 
 
-def obstacle_info_lines(index, o):
-    """Every setting that defines obstacle `o` (an Obstacle or a resolved
-    ObstacleSnapshot; `index` is its number in the list), as text lines no
-    longer than FIGURE_INFO_COLUMN_CHARS, using only glyphs the pixel font
-    has."""
-    shape = int(o.shape)
-    lines = [f"Obstacle #{index}: {SHAPE_NAMES[shape]}"]
-    if shape == SHAPE_ELLIPSE:
-        lines += [f"  w{o.width:.2f} h{o.height:.2f}", f"  rot {o.ell_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_POLYGON:
-        lines += [f"  sides {int(round(o.sides))} r{o.poly_radius:.2f}",
-                  f"  rot {o.poly_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_MOSS_EGG:
-        lines += [f"  angle {o.moss_angle:.1f}\u00b0 size {o.moss_size:.2f}",
-                  f"  rot {o.moss_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_SECTOR:
-        lines += [f"  r{o.sector_radius:.2f} span {o.sector_span:.1f}\u00b0",
-                  f"  rot {o.sector_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_SEGMENT:
-        lines += [f"  r{o.segment_radius:.2f} span {o.segment_span:.1f}\u00b0",
-                  f"  rot {o.segment_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_LENS:
-        lines += [f"  r1 {o.lens_radius1:.2f} r2 {o.lens_radius2:.2f} sep {o.lens_sep:.2f}",
-                  f"  rot {o.lens_rotation:.1f}\u00b0"]
-    elif shape == SHAPE_REULEAUX:
-        lines += [f"  sides {int(round(o.reuleaux_sides))} r{o.reuleaux_radius:.2f}",
-                  f"  rot {o.reuleaux_rotation:.1f}\u00b0"]
-    else:                                          # SHAPE_CAPSULE
-        lines += [f"  len {o.capsule_length:.2f} r{o.capsule_radius:.2f}",
-                  f"  rot {o.capsule_rotation:.1f}\u00b0"]
-    lines += [f"  pos r{o.r:.2f} \u03b8{o.theta:.1f}\u00b0",
-              f"  offset {o.cx:+.2f} {o.cy:+.2f}",
-              f"  in:{OBSTACLE_EFFECT_NAMES[int(o.in_effect)]}",
-              f"  out:{OBSTACLE_EFFECT_NAMES[int(o.out_effect)]}",
-              f"  fire:{'On' if o.fire_inside else 'Off'}"]
-    return lines
-
-
 def figure_info_blocks(settings, obstacles):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
@@ -3815,7 +4104,7 @@ def figure_info_blocks(settings, obstacles):
                 f"  Seed {f.seed}"]
     blocks = [limits, emission, confinement, fuzz]
     if obstacles:
-        blocks += [obstacle_info_lines(i + 1, o) for i, o in enumerate(obstacles)]
+        blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]
     else:
         blocks.append(["no obstacles"])
     return blocks
@@ -4018,10 +4307,6 @@ N_RAW = 12
 # can live in one ordinary numpy array for the njit kernels.
 OBST_BOUND_LEN = 3 + 2 * POLY_MAX_SIDES
 OBST_OBJ_BASE = -100        # best_obj <= this encodes "obstacle index -100 - best_obj"
-OBST_POS_MIN = -1.0         # obstacle centre (cx, cy) slider range
-OBST_POS_MAX = 1.0
-OBST_RADIUS_MIN = 0.0       # polygon obstacle circumradius slider range
-OBST_RADIUS_MAX = 2.0
 
 
 # --------------------------------------------------------------------------- #
@@ -4094,9 +4379,10 @@ def edge_exit_hit(px, py, dx, dy, ax, ay, bx, by):
 def arcs_edges_hit(px, py, dx, dy, bound):
     """The nearest point (t > EPS) where a ray touches the actual boundary of
     an "arcs + edges" shape (Moss's egg / circular sector / circular segment /
-    capsule) - works identically whether the ray starts inside (this is then
-    its exit) or outside (this is then its entry), since a convex shape's
-    boundary is touched at exactly the near point either way."""
+    capsule, and the arc loops) - works identically whether the ray starts inside
+    (this is then its exit) or outside (this is then its entry), since the
+    nearest crossing of the boundary is always the way out of, or into, the shape
+    (for the concave arc loops too)."""
     n_a = int(bound[1])
     n_e = int(bound[2])
     best_t = 1e30
@@ -4170,6 +4456,45 @@ def inside_arcs_edges_star(x, y, bound):
     uy = y / dist
     t_exit, _nx, _ny = arcs_edges_hit(0.0, 0.0, ux, uy, bound)
     return dist <= t_exit
+
+
+PARITY_DX = cos(0.3719)     # the fixed, generic direction inside_arcs_parity casts along
+PARITY_DY = sin(0.3719)     # (an odd angle, so it almost never runs along an edge)
+
+
+@njit(cache=True)
+def inside_arcs_parity(x, y, bound):
+    """Is (x, y) inside an "arc loops" shape? These can be concave, so neither the
+    AND of their circles nor a ray from the origin works; use the even-odd rule
+    instead: a ray from the point crosses the boundary an odd number of times
+    exactly when the point is inside."""
+    n_a = int(bound[1])
+    n_e = int(bound[2])
+    count = 0
+    idx = 3
+    for _i in range(n_a):
+        cx = bound[idx]
+        cy = bound[idx + 1]
+        r = bound[idx + 2]
+        ang_lo = bound[idx + 3]
+        span = bound[idx + 4]
+        idx += 5
+        t_near, t_far = _circle_roots(x, y, PARITY_DX, PARITY_DY, cx, cy, r)
+        if EPS < t_near < 1e29 and _angle_in_range(
+                atan2(y + t_near * PARITY_DY - cy, x + t_near * PARITY_DX - cx), ang_lo, span):
+            count += 1
+        if t_far > EPS and _angle_in_range(
+                atan2(y + t_far * PARITY_DY - cy, x + t_far * PARITY_DX - cx), ang_lo, span):
+            count += 1
+    for _i in range(n_e):
+        ax = bound[idx]
+        ay = bound[idx + 1]
+        bx = bound[idx + 2]
+        by = bound[idx + 3]
+        idx += 4
+        if edge_exit_hit(x, y, PARITY_DX, PARITY_DY, ax, ay, bx, by) < 1e29:
+            count += 1
+    return count % 2 == 1
 
 
 @njit(cache=True)
@@ -4257,6 +4582,8 @@ def inside_boundary(x, y, shape, bound):
         return inside_circles(x, y, bound)
     if shape == SHAPE_SECTOR or shape == SHAPE_SEGMENT:
         return inside_arcs_edges_and(x, y, bound)
+    if shape >= SHAPE_FIRST_ARC_LOOP:
+        return inside_arcs_parity(x, y, bound)
     return inside_arcs_edges_star(x, y, bound)   # MOSS_EGG, CAPSULE
 
 
@@ -4540,7 +4867,7 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     for oi in range(n_obst):
         inside[oi] = inside_boundary(x0 - obst_cx[oi], y0 - obst_cy[oi],
                                      obst_shapes[oi], obst_bounds[oi])
-    max_cross = 2 * n_obst + 2               # a straight line crosses a convex shape at most twice
+    max_cross = 2 * n_obst + 2               # a shape passes rays one way only, so it is passed through at most once per segment
 
     px = x0
     py = y0
@@ -5331,7 +5658,7 @@ class App:
         # ---- obstacles ---- (the scene: not part of Settings, but every obstacle's
         # own fields are keyframeable). The app starts with one obstacle: the
         # unit circle, which reflects rays and fires them inside itself.
-        self.obstacles = [default_starting_obstacle(0)]   # list[Obstacle], in list order
+        self.obstacles = [default_starting_obstacle(0)]   # list[Shape], in list order
         self._obst_counter = 1
         self.selected_obstacle = self.obstacles[0]
         empty_i64 = np.empty(0, dtype=np.int64)
@@ -6280,14 +6607,17 @@ class App:
                 row=len(items), column=0, sticky="w", padx=10, pady=(2, 6))
 
     def build_obstacles_controls(self, parent):
-        """Obstacle list (scrollable, with New/Dupe/Del stacked to its left)
-        plus a shared editor for whichever obstacle is selected: the same
-        shape controls (rotation full-width above
-        the others, which are paired up to save space), a polar position (r,
-        theta) with an x/y offset, incoming and outgoing ray-effect dropdowns,
-        and a "fire rays inside" checkbox. Every one of an obstacle's settings can be animated
-        between keyframes, just like the main Simulation/Fuzzing/Coloration
-        settings."""
+        """Obstacle list (scrollable, with "new..." - a button opening a menu of the shape kinds -
+        Dupe and Del stacked to its left) plus an editor for whichever obstacle is
+        selected: its shape's name (fixed when it was made), a rotation, the
+        controls of its own shape kind (one group per kind, built from that
+        kind's PARAMS table; only the selected obstacle's is shown), a polar
+        position (r, theta) with an x/y offset, incoming and outgoing ray-effect
+        dropdowns, and a "fire rays inside" checkbox. Every one of an obstacle's
+        settings can be animated between keyframes, just like the main
+        Simulation/Fuzzing/Coloration settings. `self.obs_widgets` maps
+        (Shape, field) to the control of a field every kind has, and (a kind,
+        field) to the control of one of that kind's own."""
         self._obst_editor_loading = False
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
@@ -6299,8 +6629,16 @@ class App:
 
         btn_col = ttk.Frame(top_row)
         btn_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
-        ttk.Button(btn_col, text="New", width=6, command=self.new_obstacle).pack(
-            fill="x", pady=(0, 3))
+        # An ordinary button (so it matches Dupe and Del; a ttk Menubutton is shorter than
+        # a Button) that opens the menu of kinds just below itself.
+        new_button = ttk.Button(btn_col, text="new...", width=6)
+        new_menu = tk.Menu(new_button, tearoff=0)
+        for shape_class in SHAPE_CLASSES:
+            new_menu.add_command(label=shape_class.NAME,
+                                 command=lambda cls=shape_class: self.new_obstacle(cls))
+        new_button.configure(command=lambda: self.show_new_obstacle_menu(new_button))
+        new_button.pack(fill="x", pady=(0, 3))
+        self.obs_new_menu = new_menu
         ttk.Button(btn_col, text="Dupe", width=6, command=self.duplicate_obstacle).pack(
             fill="x", pady=(0, 3))
         ttk.Button(btn_col, text="Del", width=6, command=self.delete_obstacle).pack(
@@ -6332,139 +6670,42 @@ class App:
         top = ttk.Frame(editor)
         top.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
         ttk.Label(top, text="Shape:").pack(side="left")
-        self.obs_shape_var = tk.StringVar(value=SHAPE_NAMES[SHAPE_ELLIPSE])
-        self.obs_shape_combo = ttk.Combobox(top, textvariable=self.obs_shape_var,
-                                            values=SHAPE_NAMES, state="readonly",
-                                            width=16)
-        self.obs_shape_combo.pack(side="left", padx=(8, 0))
-        self.obs_shape_combo.bind("<<ComboboxSelected>>", self.on_obstacle_shape_changed)
+        self.obs_shape_label = ttk.Label(top, text="")
+        self.obs_shape_label.pack(side="left", padx=(8, 0))
 
-        oeg = ttk.Frame(editor)
-        oeg.grid(row=1, column=0, sticky="ew")
-        oeg.columnconfigure((0, 1), weight=1)
-        self.obs_ell_rot_scale = self.add_angle_entry(
-            oeg, 0, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_width_scale, self.obs_height_scale = self.add_slider_pair(
-            oeg, 1,
-            ("Width", ELLIPSE_MIN, ELLIPSE_MAX, 0.01, 1.0, "{:.2f}"),
-            ("Height", ELLIPSE_MIN, ELLIPSE_MAX, 0.01, 1.0, "{:.2f}"),
+        self.obs_widgets = {}
+        rotg = ttk.Frame(editor)
+        rotg.grid(row=1, column=0, sticky="ew")
+        rotg.columnconfigure(1, weight=1)
+        self.obs_widgets[(Shape, "rotation")] = self.add_angle_entry(
+            rotg, 0, "Rotation (\u00b0)", DEFAULT_ROTATION,
             on_change=self.on_obstacle_param_changed)
-        self.obs_ellipse_group = oeg
 
-        opg = ttk.Frame(editor)
-        opg.grid(row=1, column=0, sticky="ew")
-        opg.columnconfigure((0, 1), weight=1)
-        self.obs_poly_rot_scale = self.add_angle_entry(
-            opg, 0, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_sides_scale, self.obs_radius_scale = self.add_slider_pair(
-            opg, 1,
-            ("Sides", POLY_MIN_SIDES, POLY_MAX_SIDES, 1, DEFAULT_SIDES, "{:.0f}"),
-            ("Radius", OBST_RADIUS_MIN, OBST_RADIUS_MAX, 0.01, 0.5, "{:.2f}"),
-            on_change=self.on_obstacle_param_changed)
-        self.obs_polygon_group = opg
-
-        # Moss's egg
-        omg = ttk.Frame(editor)
-        omg.grid(row=1, column=0, sticky="ew")
-        omg.columnconfigure(1, weight=1)
-        self.obs_moss_angle_scale = self.add_slider_row(
-            omg, 0, "Angle ACB (\u00b0)", MOSS_ANGLE_MIN, MOSS_ANGLE_MAX, 0.5,
-            DEFAULT_MOSS_ANGLE, "{:.1f}", on_change=self.on_obstacle_param_changed)
-        self.obs_moss_size_scale = self.add_slider_row(
-            omg, 1, "Size", MOSS_SIZE_MIN, MOSS_SIZE_MAX, 0.01,
-            DEFAULT_MOSS_SIZE, "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_moss_rot_scale = self.add_angle_entry(
-            omg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_moss_group = omg
-
-        # Circular sector
-        osecg = ttk.Frame(editor)
-        osecg.grid(row=1, column=0, sticky="ew")
-        osecg.columnconfigure(1, weight=1)
-        self.obs_sector_radius_scale = self.add_slider_row(
-            osecg, 0, "Radius", ARC_RADIUS_MIN, ARC_RADIUS_MAX, 0.01,
-            DEFAULT_ARC_RADIUS, "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_sector_span_scale = self.add_slider_row(
-            osecg, 1, "Span (\u00b0)", ARC_SPAN_MIN, SECTOR_SPAN_MAX, 0.5,
-            DEFAULT_SECTOR_SPAN, "{:.1f}", on_change=self.on_obstacle_param_changed)
-        self.obs_sector_rot_scale = self.add_angle_entry(
-            osecg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_sector_group = osecg
-
-        # Circular segment
-        osegg = ttk.Frame(editor)
-        osegg.grid(row=1, column=0, sticky="ew")
-        osegg.columnconfigure(1, weight=1)
-        self.obs_segment_radius_scale = self.add_slider_row(
-            osegg, 0, "Radius", ARC_RADIUS_MIN, ARC_RADIUS_MAX, 0.01,
-            DEFAULT_ARC_RADIUS, "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_segment_span_scale = self.add_slider_row(
-            osegg, 1, "Span (\u00b0)", ARC_SPAN_MIN, ARC_SPAN_MAX, 0.5,
-            DEFAULT_SEGMENT_SPAN, "{:.1f}", on_change=self.on_obstacle_param_changed)
-        self.obs_segment_rot_scale = self.add_angle_entry(
-            osegg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_segment_group = osegg
-
-        # Two-circle lens
-        olg = ttk.Frame(editor)
-        olg.grid(row=1, column=0, sticky="ew")
-        olg.columnconfigure((0, 1), weight=1)
-        self.obs_lens_r1_scale, self.obs_lens_r2_scale = self.add_slider_pair(
-            olg, 0,
-            ("Radius 1", LENS_RADIUS_MIN, LENS_RADIUS_MAX, 0.01, DEFAULT_LENS_RADIUS, "{:.2f}"),
-            ("Radius 2", LENS_RADIUS_MIN, LENS_RADIUS_MAX, 0.01, DEFAULT_LENS_RADIUS, "{:.2f}"),
-            on_change=self.on_obstacle_param_changed)
-        self.obs_lens_sep_scale = self.add_slider_row(
-            olg, 1, "Separation", LENS_SEP_MIN, LENS_SEP_MAX, 0.01, DEFAULT_LENS_SEP,
-            "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_lens_rot_scale = self.add_angle_entry(
-            olg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_lens_group = olg
-
-        # Reuleaux polygon
-        org = ttk.Frame(editor)
-        org.grid(row=1, column=0, sticky="ew")
-        org.columnconfigure((0, 1), weight=1)
-        self.obs_reuleaux_rot_scale = self.add_angle_entry(
-            org, 0, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_reuleaux_sides_scale, self.obs_reuleaux_radius_scale = self.add_slider_pair(
-            org, 1,
-            ("Sides (odd)", REULEAUX_MIN_SIDES, REULEAUX_MAX_SIDES, 2,
-             DEFAULT_REULEAUX_SIDES, "{:.0f}"),
-            ("Radius", OBST_RADIUS_MIN, OBST_RADIUS_MAX, 0.01, 0.5, "{:.2f}"),
-            on_change=self.on_obstacle_param_changed)
-        self.obs_reuleaux_group = org
-
-        # Capsule (stadium)
-        ocg = ttk.Frame(editor)
-        ocg.grid(row=1, column=0, sticky="ew")
-        ocg.columnconfigure(1, weight=1)
-        self.obs_capsule_length_scale = self.add_slider_row(
-            ocg, 0, "Length", CAPSULE_LENGTH_MIN, CAPSULE_LENGTH_MAX, 0.01,
-            DEFAULT_CAPSULE_LENGTH, "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_capsule_radius_scale = self.add_slider_row(
-            ocg, 1, "Radius", CAPSULE_RADIUS_MIN, CAPSULE_RADIUS_MAX, 0.01,
-            DEFAULT_CAPSULE_RADIUS, "{:.2f}", on_change=self.on_obstacle_param_changed)
-        self.obs_capsule_rot_scale = self.add_angle_entry(
-            ocg, 2, "Rotation (\u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_capsule_group = ocg
+        self.obs_shape_groups = {}
+        for shape_class in SHAPE_CLASSES:
+            group = ttk.Frame(editor)
+            group.grid(row=2, column=0, sticky="ew")
+            group.columnconfigure(1, weight=1)
+            for row, p in enumerate(shape_class.PARAMS):
+                self.obs_widgets[(shape_class, p.field)] = self.add_shape_param_row(group, row, p)
+            self.obs_shape_groups[shape_class] = group
 
         pos_group = ttk.Frame(editor)
-        pos_group.grid(row=2, column=0, sticky="ew")
+        pos_group.grid(row=3, column=0, sticky="ew")
         pos_group.columnconfigure((0, 1), weight=1)
-        self.obs_r_scale = self.add_slider_row(
-            pos_group, 0, "Distance (r)", 0.0, OBST_POS_MAX, 0.01, 0.0, "{:.2f}",
+        r_param, theta_param, cx_param, cy_param = POSITION_PARAMS
+        self.obs_widgets[(Shape, "r")] = self.add_shape_param_row(pos_group, 0, r_param)
+        self.obs_widgets[(Shape, "theta")] = self.add_angle_entry(
+            pos_group, 1, "Angle (\u03b8, \u00b0)", theta_param.default,
             on_change=self.on_obstacle_param_changed)
-        self.obs_theta_scale = self.add_angle_entry(
-            pos_group, 1, "Angle (\u03b8, \u00b0)", 0.0, on_change=self.on_obstacle_param_changed)
-        self.obs_cx_scale, self.obs_cy_scale = self.add_slider_pair(
+        (self.obs_widgets[(Shape, "cx")], self.obs_widgets[(Shape, "cy")]) = self.add_slider_pair(
             pos_group, 2,
-            ("Offset X", OBST_POS_MIN, OBST_POS_MAX, 0.01, 0.0, "{:+.2f}"),
-            ("Offset Y", OBST_POS_MIN, OBST_POS_MAX, 0.01, 0.0, "{:+.2f}"),
+            *[(p.label, p.lo, p.hi, p.step, p.default, p.slider_fmt)
+              for p in (cx_param, cy_param)],
             on_change=self.on_obstacle_param_changed)
 
         in_row = ttk.Frame(editor)
-        in_row.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 2))
+        in_row.grid(row=4, column=0, sticky="ew", padx=8, pady=(4, 2))
         ttk.Label(in_row, text="Incoming ray effect:", width=20).pack(side="left")
         self.obs_in_effect_var = tk.StringVar(
             value=OBSTACLE_EFFECT_NAMES[OBSTACLE_EFFECT_REFLECT])
@@ -6473,9 +6714,10 @@ class App:
                                                 state="readonly", width=12)
         self.obs_in_effect_combo.pack(side="left", padx=(8, 0))
         self.obs_in_effect_combo.bind("<<ComboboxSelected>>", self.on_obstacle_effect_changed)
+        self.obs_widgets[(Shape, "in_effect")] = self.obs_in_effect_combo
 
         out_row = ttk.Frame(editor)
-        out_row.grid(row=4, column=0, sticky="ew", padx=8, pady=(2, 2))
+        out_row.grid(row=5, column=0, sticky="ew", padx=8, pady=(2, 2))
         ttk.Label(out_row, text="Outgoing ray effect:", width=20).pack(side="left")
         self.obs_out_effect_var = tk.StringVar(
             value=OBSTACLE_EFFECT_NAMES[OBSTACLE_EFFECT_REFLECT])
@@ -6484,12 +6726,14 @@ class App:
                                                  state="readonly", width=12)
         self.obs_out_effect_combo.pack(side="left", padx=(8, 0))
         self.obs_out_effect_combo.bind("<<ComboboxSelected>>", self.on_obstacle_effect_changed)
+        self.obs_widgets[(Shape, "out_effect")] = self.obs_out_effect_combo
 
         self.obs_fire_inside_var = tk.BooleanVar(value=True)
         self.obs_fire_inside_check = ttk.Checkbutton(
             editor, text="Fire rays inside", variable=self.obs_fire_inside_var,
             command=self.on_obstacle_fire_inside_changed)
-        self.obs_fire_inside_check.grid(row=5, column=0, sticky="w", padx=8, pady=2)
+        self.obs_fire_inside_check.grid(row=6, column=0, sticky="w", padx=8, pady=2)
+        self.obs_widgets[(Shape, "fire_inside")] = self.obs_fire_inside_check
 
         ttk.Label(parent, foreground="#666", wraplength=RIGHT_W - 70,
                   text="Every one of an obstacle's settings can be saved "
@@ -6505,39 +6749,52 @@ class App:
         self.refresh_obstacle_editor()
         self.rebuild_obstacle_list()
 
+    def show_new_obstacle_menu(self, button):
+        """Open the menu of shape kinds just below `button`."""
+        try:
+            self.obs_new_menu.tk_popup(button.winfo_rootx(),
+                                       button.winfo_rooty() + button.winfo_height())
+        finally:
+            self.obs_new_menu.grab_release()
+
+    def add_shape_param_row(self, parent, row, p):
+        """The control for one ShapeParam: a slider row, or an angle entry when the
+        parameter has no range."""
+        if p.lo is None:
+            return self.add_angle_entry(parent, row, f"{p.label} (\u00b0)", p.default,
+                                        on_change=self.on_obstacle_param_changed)
+        label = f"{p.label} (\u00b0)" if p.fmt == "angle" else p.label
+        return self.add_slider_row(parent, row, label, p.lo, p.hi, p.step, p.default,
+                                   p.slider_fmt, on_change=self.on_obstacle_param_changed)
+
+    def obstacle_widget(self, shape_class, field):
+        """The editor's control for `field` of an obstacle of kind `shape_class`
+        (None if there is none)."""
+        widget = self.obs_widgets.get((shape_class, field))
+        return widget if widget is not None else self.obs_widgets.get((Shape, field))
+
     def show_obstacle_shape_controls(self):
-        shape = SHAPE_NAMES.index(self.obs_shape_var.get())
-        groups = {
-            SHAPE_ELLIPSE: self.obs_ellipse_group, SHAPE_POLYGON: self.obs_polygon_group,
-            SHAPE_MOSS_EGG: self.obs_moss_group, SHAPE_SECTOR: self.obs_sector_group,
-            SHAPE_SEGMENT: self.obs_segment_group, SHAPE_LENS: self.obs_lens_group,
-            SHAPE_REULEAUX: self.obs_reuleaux_group, SHAPE_CAPSULE: self.obs_capsule_group,
-        }
-        for s, g in groups.items():
-            if s == shape:
-                g.grid()
+        """Show the control group of the selected obstacle's kind, and hide the others."""
+        o = self.selected_obstacle
+        shown = type(o) if o is not None else None
+        for shape_class, group in self.obs_shape_groups.items():
+            if shape_class is shown:
+                group.grid()
             else:
-                g.grid_remove()
+                group.grid_remove()
 
     def refresh_obstacle_editor(self):
         """Populate the editor controls from the selected obstacle (or leave
-        them as-is, disabled-by-convention, if none is selected). Every shape
-        field is set table-driven off SHAPE_PARAM_INFO, rather than one
-        hand-written line per field."""
+        them as-is, disabled-by-convention, if none is selected). Every numeric
+        field is set table-driven off the obstacle's own parameter tables."""
         o = self.selected_obstacle
         if o is None:
             return
         self._obst_editor_loading = True
         try:
-            self.obs_shape_var.set(SHAPE_NAMES[o.shape])
-            for p in SHAPE_PARAM_INFO:
-                getattr(self, "obs_" + p.widget).set(getattr(o, p.field))
-            self.obs_radius_scale.set(o.poly_radius)
-            self.obs_reuleaux_radius_scale.set(o.reuleaux_radius)
-            self.obs_r_scale.set(o.r)
-            self.obs_theta_scale.set(o.theta)
-            self.obs_cx_scale.set(o.cx)
-            self.obs_cy_scale.set(o.cy)
+            self.obs_shape_label.configure(text=o.NAME)
+            for p in o.NUMERIC_PARAMS:
+                self.obstacle_widget(type(o), p.field).set(getattr(o, p.field))
             self.obs_in_effect_var.set(OBSTACLE_EFFECT_NAMES[o.in_effect])
             self.obs_out_effect_var.set(OBSTACLE_EFFECT_NAMES[o.out_effect])
             self.obs_fire_inside_var.set(o.fire_inside)
@@ -6545,8 +6802,9 @@ class App:
         finally:
             self._obst_editor_loading = False
 
-    def new_obstacle(self):
-        o = Obstacle(self._obst_counter)
+    def new_obstacle(self, shape_class):
+        """Add an obstacle of kind `shape_class` (the kind is fixed from now on)."""
+        o = shape_class(self._obst_counter)
         self._obst_counter += 1
         self.obstacles.append(o)
         self.selected_obstacle = o
@@ -6578,22 +6836,10 @@ class App:
             thumb_lbl.grid(row=0, column=0, padx=(2, 6), pady=2)
             thumb_lbl.bind("<Button-1>", lambda _e, o=o: self.select_obstacle(o))
 
-            lbl = tk.Label(row, text=f"#{idx + 1}  {describe_obstacle(o)}",
+            lbl = tk.Label(row, text=f"#{idx + 1}  {o.describe()}",
                           anchor="w", cursor="hand2", font=self.small_font)
             lbl.grid(row=0, column=1, sticky="ew")
             lbl.bind("<Button-1>", lambda _e, o=o: self.select_obstacle(o))
-
-    def on_obstacle_shape_changed(self, _event=None):
-        if self._obst_editor_loading:
-            return
-        o = self.selected_obstacle
-        if o is None:
-            return
-        o.shape = SHAPE_NAMES.index(self.obs_shape_var.get())
-        self.obs_shape_combo.selection_clear()
-        self.show_obstacle_shape_controls()
-        self.rebuild_obstacle_list()
-        self.on_shape_param_changed()
 
     def on_obstacle_param_changed(self):
         if self._obst_editor_loading:
@@ -6601,16 +6847,10 @@ class App:
         o = self.selected_obstacle
         if o is None:
             return
-        for p in SHAPE_PARAM_INFO:
-            raw = getattr(self, "obs_" + p.widget).get()
+        for p in o.NUMERIC_PARAMS:
+            raw = self.obstacle_widget(type(o), p.field).get()
             setattr(o, p.field,
                    int(round(float(raw))) if p.fmt == "int" else round(float(raw), 2))
-        o.poly_radius = round(float(self.obs_radius_scale.get()), 2)
-        o.reuleaux_radius = round(float(self.obs_reuleaux_radius_scale.get()), 2)
-        o.r = round(float(self.obs_r_scale.get()), 2)
-        o.theta = round(float(self.obs_theta_scale.get()), 2)
-        o.cx = round(float(self.obs_cx_scale.get()), 2)
-        o.cy = round(float(self.obs_cy_scale.get()), 2)
         self.rebuild_obstacle_list()
         self.on_shape_param_changed()
 
@@ -6640,11 +6880,8 @@ class App:
         o = self.selected_obstacle
         if o is None:
             return
-        new_o = Obstacle(self._obst_counter)
+        new_o = o.duplicate(self._obst_counter)
         self._obst_counter += 1
-        for field in Obstacle.__slots__:
-            if field != "id":
-                setattr(new_o, field, getattr(o, field))
         idx = self.obstacles.index(o)
         self.obstacles.insert(idx + 1, new_o)
         self.selected_obstacle = new_o
@@ -7461,12 +7698,6 @@ class App:
         if self.generated_settings is None:       # nothing generated yet: live preview
             self.draw()
 
-    def obstacle_state(self, o):
-        """A plain-data snapshot of one obstacle's settings, for the "changed
-        since the last generation" comparison."""
-        return (o.shape, o.params(), o.r, o.theta, o.cx, o.cy, o.in_effect, o.out_effect,
-                o.fire_inside)
-
     def obstacle_is_pending(self, o):
         """Should `o` get the dashed editing guide? Yes if it does nothing to
         rays (passes them through both ways - regardless of whether it
@@ -7475,7 +7706,7 @@ class App:
         if o.in_effect == OBSTACLE_EFFECT_PASS and o.out_effect == OBSTACLE_EFFECT_PASS:
             return True
         frozen = self.gen_obstacles_by_id.get(o.id)
-        return frozen is None or self.obstacle_state(o) != frozen
+        return frozen is None or o.state() != frozen
 
     def update_pending_outline(self):
         """Dashed outline of every obstacle that is pending: doing nothing, new,
@@ -7488,7 +7719,7 @@ class App:
             return                                 # nothing generated yet: nothing "pending"
         for o in self.obstacles:
             if self.obstacle_is_pending(o):
-                self.canvas.create_line(*obstacle_outline_coords(o),
+                self.canvas.create_line(*o.outline_coords(),
                                         fill=PENDING_OUTLINE, dash=(5, 4), tags="pending")
 
     # ---- settings, Start and Revert ---------------------------------------- #
@@ -7949,7 +8180,7 @@ class App:
     def warm_up(self):
         """Trigger numba compilation (slow only the first time; then cached)."""
         big = float(DIST_LIMIT_MAX)
-        bound = ellipse_bound(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_ELL_ROTATION)
+        bound = ellipse_bound(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_ROTATION)
         fz = fuzz_rule(DEFAULT_FUZZ)
         empty_i64 = np.empty(0, dtype=np.int64)
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
@@ -8098,8 +8329,8 @@ class App:
         self.gen_emission = settings_emission(settings)
         self.gen_obstacles = build_obstacle_arrays(self.obstacles)
         self.gen_obstacles_sig = obstacles_signature(self.obstacles)
-        self.gen_obstacles_by_id = {o.id: self.obstacle_state(o) for o in self.obstacles}
-        self.gen_obstacle_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
+        self.gen_obstacles_by_id = {o.id: o.state() for o in self.obstacles}
+        self.gen_obstacle_snapshots = [o.snapshot() for o in self.obstacles]
         self.canvas.delete("pending")
         self.stats[:] = 0
         self.points[:] = 0
@@ -8184,7 +8415,7 @@ class App:
         rings = []
         for o in self.obstacles:
             cx, cy = o.center()
-            rings.append(ObstacleRing(shape=o.shape, bound=make_bound(o.shape, o.params()),
+            rings.append(ObstacleRing(shape=o.KIND, bound=o.bound(),
                                       cx=cx, cy=cy, in_effect=o.in_effect,
                                       out_effect=o.out_effect))
         return rings
@@ -8580,9 +8811,9 @@ class App:
         jxl_quality = int(round(float(self.save_jxl_quality_scale.get())))
         fake_kf = Keyframe(-1, 0, settings_dict)
         data = resolve_frame_settings([fake_kf], 0)
-        obst_snapshots = [snapshot_obstacle(o) for o in self.obstacles]
+        obst_snapshots = [o.snapshot() for o in self.obstacles]
         obst_values = resolve_obstacles(obst_snapshots, [fake_kf], 0)
-        obst_arrays = obstacle_arrays_from_values(obst_values)
+        obst_arrays = build_obstacle_arrays(obst_values)
         view_snapshots = [snapshot_view(v) for v in self.views_to_export()]
         views = resolve_views(view_snapshots, [fake_kf], 0)
         color_location = self.color_info_location_var.get()
@@ -8645,7 +8876,7 @@ class App:
         d = ray_settings_to_dict(snap)
         d["outline"] = self.deco["outline"].get()
         for o in self.obstacles:
-            for field, _label, _is_float in OBST_FIELD_INFO:
+            for field in o.FIELD_NAMES:
                 d[f"obst:{o.id}:{field}"] = getattr(o, field)
         for v in self.views:
             d[f"view:{v.id}:mode"] = v.mode
@@ -8683,8 +8914,10 @@ class App:
             _prefix, obst_id, field = key.split(":", 2)
             obst_id = int(obst_id)
             o = next((o for o in self.obstacles if o.id == obst_id), None)
-            if o is not None:
-                setattr(o, field, val)
+            if o is not None and field in o.FIELD_NAMES:
+                want = o.FIELD_TYPES[field]
+                setattr(o, field, want(val) if want is float else
+                        int(round(val)) if want is int else bool(val))
                 if o is self.selected_obstacle:
                     self.refresh_obstacle_editor()
                 self.rebuild_obstacle_list()
@@ -8767,8 +9000,7 @@ class App:
 
     def setting_is_float(self, key):
         if key.startswith("obst:"):
-            field = key.split(":", 2)[2]
-            return next(is_f for f, _label, is_f in OBST_FIELD_INFO if f == field)
+            return OBST_FIELD_IS_FLOAT[key.split(":", 2)[2]]
         if key.startswith("view:"):
             field = key.split(":", 2)[2]
             return next(is_f for f, _label, is_f in VIEW_FIELD_INFO if f == field)
@@ -8918,10 +9150,8 @@ class App:
             o = self.selected_obstacle
             if o is None or o.id != int(obst_id):
                 return []
-            name = OBSTACLE_FIELD_WIDGET_ATTRS.get(field)
-            if name is None:
-                name = "obs_" + next(p.widget for p in SHAPE_PARAM_INFO if p.field == field)
-            widget = attr(name)
+            widget = self.obstacle_widget(type(o), field)
+            widget = getattr(widget, "widget", widget)
             return [widget] if widget is not None else []
         if key.startswith("view:"):
             _prefix, view_id, field = key.split(":", 2)
@@ -8975,8 +9205,8 @@ class App:
                                 fallback=DEFAULT_SETTING_VALUES[key])
                    for key, tab, label in SETTING_INFO]
         for idx, o in enumerate(self.obstacles):
-            tab = f"Obstacle #{idx + 1}"
-            for field, label, is_float in OBST_FIELD_INFO:
+            tab = obstacle_tab_title(idx, o)
+            for field, label, is_float in o.KEYFRAME_FIELDS:
                 entries.append(SettingEntry(key=f"obst:{o.id}:{field}", tab=tab, label=label,
                                             is_float=is_float, fallback=getattr(o, field)))
         for idx, v in enumerate(self.views):
@@ -8990,7 +9220,7 @@ class App:
     def all_setting_tabs(self):
         """Tab names in display order: the fixed ones, then one per
         obstacle, then one per view."""
-        return (SETTING_TABS_ORDER + [f"Obstacle #{i + 1}" for i in range(len(self.obstacles))]
+        return (SETTING_TABS_ORDER + [obstacle_tab_title(i, o) for i, o in enumerate(self.obstacles)]
                + [f"View {i}" for i in range(len(self.views))])
 
     def refresh_timeline_diffs(self):
@@ -9525,7 +9755,7 @@ class App:
                 return
         kf_snapshot = snapshot_keyframes(self.keyframes)   # independent copies: edits made
                                                    # while rendering must not leak in
-        obst_snapshot = [snapshot_obstacle(o) for o in self.obstacles]
+        obst_snapshot = [o.snapshot() for o in self.obstacles]
         view_snapshot = [snapshot_view(v) for v in self.views_to_export()]
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
@@ -9674,7 +9904,7 @@ class App:
                     return
                 data = resolve_frame_settings(assigned_sorted, fn)
                 obst_values = resolve_obstacles(obst_snapshot, assigned_sorted, fn)
-                obst_arrays = obstacle_arrays_from_values(obst_values)
+                obst_arrays = build_obstacle_arrays(obst_values)
                 views = resolve_views(view_snapshot, assigned_sorted, fn)
                 rgb = self.render_full_image(data, rs["video_w"], rs["video_h"], obst_arrays,
                                              views)

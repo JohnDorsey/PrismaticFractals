@@ -74,16 +74,6 @@ def test_self_checks_catch_a_setting_info_mismatch():
         assert "SETTING_INFO" in str(e)
 
 
-def test_self_checks_catch_an_obstacle_field_mismatch():
-    fresh = load_module()
-    fresh.OBST_FIELD_INFO = [f for f in fresh.OBST_FIELD_INFO if f[0] != "moss_size"]
-    try:
-        fresh.run_self_checks()
-        raise AssertionError("expected run_self_checks() to raise")
-    except AssertionError as e:
-        assert "OBST_FIELD_INFO" in str(e)
-
-
 # --------------------------------------------------------------------------- #
 # Distance limit: non-integer support (regression coverage for two bugs)
 # --------------------------------------------------------------------------- #
@@ -127,7 +117,7 @@ def test_dist_animates_smoothly_between_keyframes():
 def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     start = m.default_starting_obstacle(0)
     start.width, start.height = width, height
-    bound = m.make_bound(start.shape, start.params())
+    bound = start.bound()
     arrays = m.build_obstacle_arrays([start])
     fz = m.fuzz_rule(m.DEFAULT_FUZZ)
     pts = np.empty((max_iter + 2, 2))
@@ -201,9 +191,8 @@ def test_moss_egg_area_scales_quadratically_with_size():
 
 
 def test_obstacle_and_snapshot_agree_on_moss_egg_param_order():
-    o = m.Obstacle(1)
-    o.shape = m.SHAPE_MOSS_EGG
-    o.moss_angle, o.moss_size, o.moss_rotation = 100.0, 1.3, 15.0
+    o = m.MossEggShape(1)
+    o.moss_angle, o.moss_size, o.rotation = 100.0, 1.3, 15.0
     via_dispatch = m.make_bound(m.SHAPE_MOSS_EGG, o.params())
     direct = m.moss_egg_bound(100.0, 1.3, 15.0)
     assert np.allclose(via_dispatch, direct)
@@ -329,29 +318,68 @@ def test_downsample_max_is_per_channel_independent():
 
 
 # --------------------------------------------------------------------------- #
-# Declarative shape-parameter table (SHAPE_PARAM_INFO)
+# The shape kinds' parameter tables (Shape subclasses)
 # --------------------------------------------------------------------------- #
-def test_self_checks_catch_a_shape_param_table_duplicate():
-    fresh = load_module()
-    dup = fresh.SHAPE_PARAM_INFO[0]._replace(field="height")
-    fresh.SHAPE_PARAM_INFO = [dup] + fresh.SHAPE_PARAM_INFO[1:]
+def _breaks_a_self_check(fresh, expected_text):
     try:
         fresh.run_self_checks()
-        raise AssertionError("expected run_self_checks() to raise")
     except AssertionError as e:
-        assert "duplicate" in str(e)
+        assert expected_text in str(e), str(e)
+    else:
+        raise AssertionError("expected run_self_checks() to raise")
 
 
-# --------------------------------------------------------------------------- #
-# Baseline behavior lock-in for the shape/obstacle de-duplication refactor:
-# the bounding shape's own controls (read_shape_controls, load_value/
-# Revert) are already table-driven off SHAPE_PARAM_INFO;
-# the obstacle side (refresh_obstacle_editor, on_obstacle_param_changed) is
-# still 25+ hand-written lines each, and describe_shape/describe_obstacle and
-# params()/snapshot_shape_params are still separate implementations. These
-# tests capture their exact current behavior so the refactor can be verified
-# against it rather than against assumptions.
-# --------------------------------------------------------------------------- #
+def test_self_checks_catch_a_kinds_slots_and_parameter_table_disagreeing():
+    fresh = load_module()
+    fresh.MossEggShape.FIELD_NAMES = tuple(f for f in fresh.MossEggShape.FIELD_NAMES
+                                           if f != "moss_size")
+    _breaks_a_self_check(fresh, "MossEggShape: __slots__ and PARAMS disagree")
+
+
+def test_self_checks_catch_a_duplicate_field_in_a_kind():
+    fresh = load_module()
+    fresh.EllipseShape.FIELD_NAMES = fresh.EllipseShape.FIELD_NAMES + ("width",)
+    _breaks_a_self_check(fresh, "duplicate field name")
+
+
+def test_self_checks_catch_a_field_that_means_different_things_on_two_kinds():
+    fresh = load_module()
+    fresh.CircularSectorShape.NUMERIC_PARAMS = tuple(
+        p._replace(fmt="angle") if p.field == "radius" else p
+        for p in fresh.CircularSectorShape.NUMERIC_PARAMS)
+    _breaks_a_self_check(fresh, "radius means different things")
+
+
+def test_self_checks_catch_a_kind_without_a_valid_layout():
+    fresh = load_module()
+    fresh.LensShape.LAYOUT = None
+    _breaks_a_self_check(fresh, "LensShape.LAYOUT")
+
+
+def test_every_kind_declares_how_its_bound_array_is_packed():
+    expected = {m.EllipseShape: m.LAYOUT_ELLIPSE, m.RegularPolygonShape: m.LAYOUT_POLYGON,
+                m.LensShape: m.LAYOUT_CIRCLES, m.ReuleauxPolygonShape: m.LAYOUT_CIRCLES,
+                m.MossEggShape: m.LAYOUT_ARCS_EDGES, m.CircularSectorShape: m.LAYOUT_ARCS_EDGES,
+                m.CircularSegmentShape: m.LAYOUT_ARCS_EDGES, m.CapsuleShape: m.LAYOUT_ARCS_EDGES,
+                m.TrefoilShape: m.LAYOUT_ARC_LOOPS, m.QuatrefoilShape: m.LAYOUT_ARC_LOOPS,
+                m.LuneShape: m.LAYOUT_ARC_LOOPS, m.ArbelosShape: m.LAYOUT_ARC_LOOPS}
+    assert {cls: cls.LAYOUT for cls in m.SHAPE_CLASSES} == expected
+
+
+def test_self_checks_catch_a_kind_out_of_place_in_the_kind_list():
+    fresh = load_module()
+    fresh.SHAPE_CLASSES[0], fresh.SHAPE_CLASSES[1] = fresh.SHAPE_CLASSES[1], fresh.SHAPE_CLASSES[0]
+    _breaks_a_self_check(fresh, "KIND")
+
+
+class _StubLabel:
+    def __init__(self):
+        self.text = ""
+
+    def configure(self, **options):
+        self.text = options.get("text", self.text)
+
+
 def _fake_obstacle_editor_app():
     """A minimal stand-in for App with stub controls for
     refresh_obstacle_editor() and on_obstacle_param_changed() to run for
@@ -359,32 +387,21 @@ def _fake_obstacle_editor_app():
     class FakeApp:
         pass
     app = FakeApp()
-    app.refresh_obstacle_editor = m.App.refresh_obstacle_editor.__get__(app)
-    app.on_obstacle_param_changed = m.App.on_obstacle_param_changed.__get__(app)
-    app.show_obstacle_shape_controls = m.App.show_obstacle_shape_controls.__get__(app)
+    for name in ("refresh_obstacle_editor", "on_obstacle_param_changed",
+                 "show_obstacle_shape_controls", "obstacle_widget"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
 
-    app.obs_shape_var = _StubVar(m.SHAPE_NAMES[m.SHAPE_ELLIPSE])
+    app.obs_shape_label = _StubLabel()
     app.obs_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_REFLECT])
     app.obs_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_PASS])
     app.obs_fire_inside_var = _StubVar(False)
-
-    app.obs_ellipse_group = _TrackedFrame()
-    app.obs_polygon_group = _TrackedFrame()
-    app.obs_moss_group = _TrackedFrame()
-    app.obs_sector_group = _TrackedFrame()
-    app.obs_segment_group = _TrackedFrame()
-    app.obs_lens_group = _TrackedFrame()
-    app.obs_reuleaux_group = _TrackedFrame()
-    app.obs_capsule_group = _TrackedFrame()
-
-    for p in m.SHAPE_PARAM_INFO:
-        setattr(app, "obs_" + p.widget, _StubVar(p.default))
-    app.obs_radius_scale = _StubVar(0.5)            # poly_radius (obstacle-only)
-    app.obs_reuleaux_radius_scale = _StubVar(0.5)   # reuleaux_radius (obstacle-only)
-    app.obs_r_scale = _StubVar(0.0)
-    app.obs_theta_scale = _StubVar(0.0)
-    app.obs_cx_scale = _StubVar(0.0)
-    app.obs_cy_scale = _StubVar(0.0)
+    app.obs_shape_groups = {cls: _TrackedFrame() for cls in m.SHAPE_CLASSES}
+    app.obs_widgets = {}
+    for cls in m.SHAPE_CLASSES:
+        for p in cls.PARAMS:
+            app.obs_widgets[(cls, p.field)] = _StubVar(p.default)
+    for p in (m.ROTATION_PARAM,) + m.POSITION_PARAMS:
+        app.obs_widgets[(m.Shape, p.field)] = _StubVar(p.default)
 
     app.rebuild_calls = []
     app.rebuild_obstacle_list = lambda: app.rebuild_calls.append(1)
@@ -393,74 +410,55 @@ def _fake_obstacle_editor_app():
     return app
 
 
-def _make_distinct_obstacle(shape=None):
-    """An Obstacle with a distinct, easily-checked value in every shared
-    field, an obstacle-only value in the radius/position fields, and a
-    non-default effect/fire_inside - so a test can tell every field apart
-    from every other."""
-    o = m.Obstacle(1)
-    if shape is not None:
-        o.shape = shape
-    values = {"width": 1.11, "height": 1.22, "ell_rotation": 10.0, "sides": 6,
-             "poly_rotation": 20.0, "moss_angle": 91.0, "moss_size": 1.33,
-             "moss_rotation": 30.0, "sector_radius": 1.44, "sector_span": 70.0,
-             "sector_rotation": 40.0, "segment_radius": 1.55, "segment_span": 80.0,
-             "segment_rotation": 50.0, "lens_radius1": 1.66, "lens_radius2": 1.77,
-             "lens_sep": 0.88, "lens_rotation": 60.0, "reuleaux_sides": 7,
-             "reuleaux_rotation": 70.0, "capsule_length": 1.99, "capsule_radius": 0.55,
-             "capsule_rotation": 80.0}
+def _make_distinct_obstacle(shape=m.SHAPE_ELLIPSE):
+    """A shape of kind `shape` with a distinct, easily-checked value in every
+    field it has, and a non-default effect - so a test can tell every field
+    apart from every other."""
+    o = m.SHAPE_CLASSES[shape](1)
+    values = {"width": 1.11, "height": 1.22, "rotation": 10.0, "sides": 6,
+             "radius": 1.44, "moss_angle": 91.0, "moss_size": 1.33,
+             "sector_span": 70.0, "segment_span": 80.0, "lens_radius1": 1.66,
+             "lens_radius2": 1.77, "lens_sep": 0.88, "reuleaux_sides": 7,
+             "capsule_length": 1.99, "capsule_radius": 0.55, "lobe_size": 0.77,
+             "cut_radius": 0.66, "cut_offset": 0.55, "split": 0.45,
+             "r": 0.5, "theta": 45.0, "cx": 0.1, "cy": -0.2}
     for field, val in values.items():
-        setattr(o, field, val)
-    o.poly_radius = 0.61
-    o.reuleaux_radius = 0.62
-    o.r = 0.5
-    o.theta = 45.0
-    o.cx = 0.1
-    o.cy = -0.2
+        if field in o.FIELD_NAMES:
+            setattr(o, field, val)
     o.in_effect = m.OBSTACLE_EFFECT_TERMINATE
     o.out_effect = m.OBSTACLE_EFFECT_REFLECT
     o.fire_inside = True
     return o
 
 
-def test_refresh_obstacle_editor_loads_every_shared_field():
-    app = _fake_obstacle_editor_app()
-    o = _make_distinct_obstacle()
-    app.selected_obstacle = o
-    app.refresh_obstacle_editor()
-    for p in m.SHAPE_PARAM_INFO:
-        got = getattr(app, "obs_" + p.widget).get()
-        expected = getattr(o, p.field)
-        assert got == expected, f"obs_{p.widget} = {got}, expected {expected} (o.{p.field})"
+def test_refresh_obstacle_editor_loads_every_field_of_every_kind():
+    for shape in range(len(m.SHAPE_CLASSES)):
+        app = _fake_obstacle_editor_app()
+        o = _make_distinct_obstacle(shape)
+        app.selected_obstacle = o
+        app.refresh_obstacle_editor()
+        for p in o.NUMERIC_PARAMS:
+            got = app.obstacle_widget(type(o), p.field).get()
+            assert got == getattr(o, p.field), (type(o).__name__, p.field, got)
 
 
-def test_refresh_obstacle_editor_loads_obstacle_only_fields():
+def test_refresh_obstacle_editor_loads_the_shape_name_and_effects():
     app = _fake_obstacle_editor_app()
-    o = _make_distinct_obstacle()
+    o = _make_distinct_obstacle(m.SHAPE_LENS)
     app.selected_obstacle = o
     app.refresh_obstacle_editor()
-    assert app.obs_shape_var.get() == m.SHAPE_NAMES[o.shape]
-    assert app.obs_radius_scale.get() == o.poly_radius
-    assert app.obs_reuleaux_radius_scale.get() == o.reuleaux_radius
-    assert app.obs_r_scale.get() == o.r
-    assert app.obs_theta_scale.get() == o.theta
-    assert app.obs_cx_scale.get() == o.cx
-    assert app.obs_cy_scale.get() == o.cy
+    assert app.obs_shape_label.text == "Two-circle lens"
     assert app.obs_in_effect_var.get() == m.OBSTACLE_EFFECT_NAMES[o.in_effect]
     assert app.obs_out_effect_var.get() == m.OBSTACLE_EFFECT_NAMES[o.out_effect]
     assert app.obs_fire_inside_var.get() == o.fire_inside
 
 
-def test_refresh_obstacle_editor_shows_only_the_selected_shapes_group():
-    app = _fake_obstacle_editor_app()
-    o = _make_distinct_obstacle(shape=m.SHAPE_LENS)
-    app.selected_obstacle = o
-    app.refresh_obstacle_editor()
-    assert app.obs_lens_group.shown
-    for other in (app.obs_ellipse_group, app.obs_polygon_group, app.obs_moss_group,
-                 app.obs_sector_group, app.obs_segment_group, app.obs_reuleaux_group,
-                 app.obs_capsule_group):
-        assert not other.shown
+def test_refresh_obstacle_editor_shows_only_the_selected_kinds_group():
+    for shape, cls in enumerate(m.SHAPE_CLASSES):
+        app = _fake_obstacle_editor_app()
+        app.selected_obstacle = _make_distinct_obstacle(shape)
+        app.refresh_obstacle_editor()
+        assert {c for c, g in app.obs_shape_groups.items() if g.shown} == {cls}, cls.__name__
 
 
 def test_refresh_obstacle_editor_does_nothing_without_a_selected_obstacle():
@@ -469,44 +467,39 @@ def test_refresh_obstacle_editor_does_nothing_without_a_selected_obstacle():
     app.refresh_obstacle_editor()   # must not raise
 
 
-def test_on_obstacle_param_changed_writes_every_shared_field_with_correct_rounding():
-    app = _fake_obstacle_editor_app()
-    o = m.Obstacle(1)
-    app.selected_obstacle = o
-    app._obst_editor_loading = False
-    for p in m.SHAPE_PARAM_INFO:
-        widget = getattr(app, "obs_" + p.widget)
-        widget.set(3 if p.fmt == "int" else 1.23456)
-    app.on_obstacle_param_changed()
-    for p in m.SHAPE_PARAM_INFO:
-        got = getattr(o, p.field)
-        expected = 3 if p.fmt == "int" else 1.23
-        assert got == expected, f"o.{p.field} = {got}, expected {expected}"
+def test_on_obstacle_param_changed_writes_every_field_of_every_kind_with_correct_rounding():
+    for shape, cls in enumerate(m.SHAPE_CLASSES):
+        app = _fake_obstacle_editor_app()
+        o = cls(1)
+        app.selected_obstacle = o
+        app._obst_editor_loading = False
+        for widget in app.obs_widgets.values():     # every kind's controls, not just this one's
+            widget.set(1.23456)
+        for p in cls.PARAMS:
+            app.obs_widgets[(cls, p.field)].set(3 if p.fmt == "int" else 1.23456)
+        app.obs_widgets[(m.Shape, "theta")].set(12.345)
+        app.on_obstacle_param_changed()
+        for p in o.NUMERIC_PARAMS:
+            got = getattr(o, p.field)
+            expected = (3 if p.fmt == "int" else 12.35 if p.field == "theta" else 1.23)
+            assert got == expected or (p.field == "theta" and got == 12.34), \
+                f"{cls.__name__}.{p.field} = {got}, expected {expected}"
 
 
-def test_on_obstacle_param_changed_writes_obstacle_only_fields():
+def test_on_obstacle_param_changed_reads_only_the_selected_kinds_own_controls():
     app = _fake_obstacle_editor_app()
-    o = m.Obstacle(1)
+    o = m.LensShape(1)
     app.selected_obstacle = o
     app._obst_editor_loading = False
-    app.obs_radius_scale.set(0.6789)
-    app.obs_reuleaux_radius_scale.set(0.7654)
-    app.obs_r_scale.set(0.98765)
-    app.obs_theta_scale.set(12.345)
-    app.obs_cx_scale.set(0.1111)
-    app.obs_cy_scale.set(-0.2222)
+    app.obs_widgets[(m.EllipseShape, "width")].set(1.7)       # another kind's control
+    app.obs_widgets[(m.LensShape, "lens_sep")].set(0.3)
     app.on_obstacle_param_changed()
-    assert o.poly_radius == 0.68
-    assert o.reuleaux_radius == 0.77
-    assert o.r == 0.99
-    assert o.theta == 12.35 or o.theta == 12.34   # banker's-rounding-safe
-    assert o.cx == 0.11
-    assert o.cy == -0.22
+    assert o.lens_sep == 0.3 and not hasattr(o, "width")
 
 
 def test_on_obstacle_param_changed_calls_rebuild_and_param_changed():
     app = _fake_obstacle_editor_app()
-    app.selected_obstacle = m.Obstacle(1)
+    app.selected_obstacle = m.EllipseShape(1)
     app._obst_editor_loading = False
     app.on_obstacle_param_changed()
     assert len(app.rebuild_calls) == 1
@@ -515,11 +508,11 @@ def test_on_obstacle_param_changed_calls_rebuild_and_param_changed():
 
 def test_on_obstacle_param_changed_skips_while_loading():
     app = _fake_obstacle_editor_app()
-    o = m.Obstacle(1)
+    o = m.EllipseShape(1)
     o.width = 9.0
     app.selected_obstacle = o
     app._obst_editor_loading = True
-    app.obs_width_scale.set(1.0)
+    app.obs_widgets[(m.EllipseShape, "width")].set(1.0)
     app.on_obstacle_param_changed()
     assert o.width == 9.0, "must not write anything while the editor is loading"
     assert app.rebuild_calls == []
@@ -536,17 +529,18 @@ def test_on_obstacle_param_changed_skips_without_a_selected_obstacle():
 def test_obstacle_editor_round_trip_preserves_already_rounded_values():
     """refresh then immediately re-read-and-write must be a no-op, since
     _make_distinct_obstacle's values are already at 2 decimal places."""
-    app = _fake_obstacle_editor_app()
-    o = _make_distinct_obstacle()
-    app.selected_obstacle = o
-    app.refresh_obstacle_editor()
-    app._obst_editor_loading = False
-    app.on_obstacle_param_changed()
-    for p in m.SHAPE_PARAM_INFO:
-        assert getattr(o, p.field) == getattr(_make_distinct_obstacle(), p.field)
+    for shape in range(len(m.SHAPE_CLASSES)):
+        app = _fake_obstacle_editor_app()
+        o = _make_distinct_obstacle(shape)
+        app.selected_obstacle = o
+        app.refresh_obstacle_editor()
+        app._obst_editor_loading = False
+        app.on_obstacle_param_changed()
+        for p in o.NUMERIC_PARAMS:
+            assert getattr(o, p.field) == getattr(_make_distinct_obstacle(shape), p.field)
 
 
-# describe_shape / describe_obstacle: exact current text for every shape,
+# Shape.describe: exact current text for every shape,
 # captured before unifying the two implementations
 _DESCRIBE_SHAPE_CASES = [
     (m.SHAPE_ELLIPSE, (1.5, 2.5, 30.0), "Ellipse 1.50 \u00d7 2.50, rotated 30.0\u00b0"),
@@ -565,30 +559,28 @@ _DESCRIBE_SHAPE_CASES = [
 
 
 def _make_obstacle_from_params(shape, params):
-    """An Obstacle configured to match a _DESCRIBE_SHAPE_CASES params tuple,
-    for the equivalent describe_obstacle case - fills in the one extra
-    radius field polygon/Reuleaux obstacles have that the bounding shape's
-    tuple doesn't carry."""
-    o = m.Obstacle(1)
-    o.shape = shape
+    """A shape of the given kind configured to match a _DESCRIBE_SHAPE_CASES
+    params tuple, for the equivalent describe() case - fills in the
+    radius polygon/Reuleaux shapes have that the tuple doesn't carry."""
+    o = m.SHAPE_CLASSES[shape](1)
     if shape == m.SHAPE_ELLIPSE:
-        o.width, o.height, o.ell_rotation = params
+        o.width, o.height, o.rotation = params
     elif shape == m.SHAPE_POLYGON:
-        o.sides, o.poly_rotation = params
-        o.poly_radius = 0.5
+        o.sides, o.rotation = params
+        o.radius = 0.5
     elif shape == m.SHAPE_MOSS_EGG:
-        o.moss_angle, o.moss_size, o.moss_rotation = params
+        o.moss_angle, o.moss_size, o.rotation = params
     elif shape == m.SHAPE_SECTOR:
-        o.sector_radius, o.sector_span, o.sector_rotation = params
+        o.radius, o.sector_span, o.rotation = params
     elif shape == m.SHAPE_SEGMENT:
-        o.segment_radius, o.segment_span, o.segment_rotation = params
+        o.radius, o.segment_span, o.rotation = params
     elif shape == m.SHAPE_LENS:
-        o.lens_radius1, o.lens_radius2, o.lens_sep, o.lens_rotation = params
+        o.lens_radius1, o.lens_radius2, o.lens_sep, o.rotation = params
     elif shape == m.SHAPE_REULEAUX:
-        o.reuleaux_sides, o.reuleaux_rotation = params
-        o.reuleaux_radius = 0.5
+        o.reuleaux_sides, o.rotation = params
+        o.radius = 0.5
     else:
-        o.capsule_length, o.capsule_radius, o.capsule_rotation = params
+        o.capsule_length, o.capsule_radius, o.rotation = params
     return o
 
 
@@ -604,21 +596,21 @@ _DESCRIBE_OBSTACLE_SHAPE_TEXT = {
 }
 
 
-def test_describe_obstacle_exact_shape_text_for_every_shape():
+def test_describe_exact_shape_text_for_every_shape():
     for shape, params, _ in _DESCRIBE_SHAPE_CASES:
         o = _make_obstacle_from_params(shape, params)
         o.r, o.theta, o.cx, o.cy = 0.0, 0.0, 0.0, 0.0
-        text = m.describe_obstacle(o)
+        text = o.describe()
         assert text.startswith(_DESCRIBE_OBSTACLE_SHAPE_TEXT[shape]), \
             f"got: {text!r}"
 
 
-def test_describe_obstacle_includes_position_and_effect():
+def test_describe_includes_position_and_effect():
     o = _make_obstacle_from_params(m.SHAPE_ELLIPSE, (1.0, 1.0, 0.0))
     o.r, o.theta, o.cx, o.cy = 0.5, 45.0, 0.1, -0.2
     o.in_effect = m.OBSTACLE_EFFECT_TERMINATE
     o.out_effect = m.OBSTACLE_EFFECT_REFLECT
-    text = m.describe_obstacle(o)
+    text = o.describe()
     assert "r0.50 @ 45.0\u00b0" in text
     assert "+(+0.10, -0.20)" in text
     assert f"in: {m.OBSTACLE_EFFECT_NAMES[m.OBSTACLE_EFFECT_TERMINATE]}" in text
@@ -638,17 +630,21 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     o1.id = 1
     o2 = _make_distinct_obstacle(shape=m.SHAPE_LENS)
     o2.id = 2
-    o2.width = 4.44   # a value o1 doesn't have, to catch id cross-contamination
+    o2.lens_sep = 0.44   # a value o1 doesn't have, to catch id cross-contamination
     app.obstacles = [o1, o2]
 
     captured = app.capture_all_settings()
-    for field, _label, _is_float in m.OBST_FIELD_INFO:
+    assert {k for k in captured if k.startswith("obst:1:")} == {f"obst:1:{f}" for f in o1.FIELD_NAMES}
+    assert {k for k in captured if k.startswith("obst:2:")} == {f"obst:2:{f}" for f in o2.FIELD_NAMES}
+    assert "obst:1:width" not in captured and "obst:2:moss_size" not in captured
+    for field in o1.FIELD_NAMES:
         assert captured[f"obst:1:{field}"] == getattr(o1, field)
+    for field in o2.FIELD_NAMES:
         assert captured[f"obst:2:{field}"] == getattr(o2, field)
 
-    # load onto fresh obstacles with matching ids
-    fresh1 = m.Obstacle(1)
-    fresh2 = m.Obstacle(2)
+    # load onto fresh obstacles of the same kinds with matching ids
+    fresh1 = m.MossEggShape(1)
+    fresh2 = m.LensShape(2)
     load_app = _fake_obstacle_editor_app()
     load_app.load_value = m.App.load_value.__get__(load_app)
     load_app.obstacles = [fresh1, fresh2]
@@ -657,16 +653,17 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     for key, val in captured.items():
         if key.startswith("obst:"):
             load_app.load_value(key, val)
-    for field, _label, _is_float in m.OBST_FIELD_INFO:
+    for field in o1.FIELD_NAMES:
         assert getattr(fresh1, field) == getattr(o1, field), f"field={field}"
+    for field in o2.FIELD_NAMES:
         assert getattr(fresh2, field) == getattr(o2, field), f"field={field}"
 
 
 def test_obstacle_keyframe_load_only_touches_the_matching_id():
     app = _fake_obstacle_editor_app()
     app.load_value = m.App.load_value.__get__(app)
-    o1 = m.Obstacle(1)
-    o2 = m.Obstacle(2)
+    o1 = m.EllipseShape(1)
+    o2 = m.EllipseShape(2)
     o1.width, o2.width = 1.0, 2.0
     app.obstacles = [o1, o2]
     app.selected_obstacle = None
@@ -1145,7 +1142,7 @@ def test_video_frame_render_widens_when_a_second_view_is_added_and_included():
     app.include_all_views_var = _StubVar(True)
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
-    obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
+    obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
 
@@ -1186,7 +1183,7 @@ def _fake_current_image_app():
         effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
     app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
     app.obstacle_ring_specs = lambda: []
-    app.gen_obstacle_snapshots = [m.snapshot_obstacle(m.default_starting_obstacle(0))]
+    app.gen_obstacle_snapshots = [m.default_starting_obstacle(0).snapshot()]
     app.frame = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
     app.render_current_image = m.App.render_current_image.__get__(app)
@@ -1392,18 +1389,18 @@ def _every_kind_of_obstacle():
     """One obstacle of each of the eight kinds, each with awkward values
     (negative and large numbers, an offset, every effect)."""
     out = []
-    for i, shape in enumerate(range(len(m.SHAPE_NAMES))):
-        o = m.Obstacle(i)
-        o.shape = shape
-        o.width, o.height, o.ell_rotation = 1.99, 0.01, -89.9
-        o.sides, o.poly_radius, o.poly_rotation = 64, 1.99, -179.9
-        o.moss_angle, o.moss_size, o.moss_rotation = 179.0, 1.99, -89.9
-        o.sector_radius, o.sector_span, o.sector_rotation = 1.99, 180.0, -89.9
-        o.segment_radius, o.segment_span, o.segment_rotation = 1.99, 359.0, -89.9
-        o.lens_radius1, o.lens_radius2, o.lens_sep, o.lens_rotation = 1.99, 1.99, 1.99, -89.9
-        o.reuleaux_sides, o.reuleaux_radius, o.reuleaux_rotation = 21, 1.99, -89.9
-        o.capsule_length, o.capsule_radius, o.capsule_rotation = 1.99, 0.99, -89.9
-        o.r, o.theta, o.cx, o.cy = 1.0, -179.9, -0.99, 0.99
+    awkward = {"width": 1.99, "height": 0.01, "rotation": -179.9, "sides": 64, "radius": 1.99,
+               "moss_angle": 179.0, "moss_size": 1.99, "sector_span": 180.0,
+               "segment_span": 359.0, "lens_radius1": 1.99, "lens_radius2": 1.99,
+               "lens_sep": 1.99, "reuleaux_sides": 21, "capsule_length": 1.99,
+               "capsule_radius": 0.99, "lobe_size": 0.99, "cut_radius": 1.99,
+               "cut_offset": 1.99, "split": 0.95, "r": 1.0, "theta": -179.9, "cx": -0.99,
+               "cy": 0.99}
+    for i, cls in enumerate(m.SHAPE_CLASSES):
+        o = cls(i)
+        for field, value in awkward.items():
+            if field in o.FIELD_NAMES:
+                setattr(o, field, value)
         o.in_effect, o.out_effect = i % 3, (i + 1) % 3
         o.fire_inside = bool(i % 2)
         out.append(o)
@@ -1455,29 +1452,33 @@ def test_figure_info_lines_shows_every_field_that_defines_each_kind_of_obstacle(
     """Changing any one of an obstacle's own settings must change the text - so
     nothing that defines the figure is left out of the margin."""
     relevant = {
-        m.SHAPE_ELLIPSE: ["width", "height", "ell_rotation"],
-        m.SHAPE_POLYGON: ["sides", "poly_radius", "poly_rotation"],
-        m.SHAPE_MOSS_EGG: ["moss_angle", "moss_size", "moss_rotation"],
-        m.SHAPE_SECTOR: ["sector_radius", "sector_span", "sector_rotation"],
-        m.SHAPE_SEGMENT: ["segment_radius", "segment_span", "segment_rotation"],
-        m.SHAPE_LENS: ["lens_radius1", "lens_radius2", "lens_sep", "lens_rotation"],
-        m.SHAPE_REULEAUX: ["reuleaux_sides", "reuleaux_radius", "reuleaux_rotation"],
-        m.SHAPE_CAPSULE: ["capsule_length", "capsule_radius", "capsule_rotation"],
+        m.SHAPE_ELLIPSE: ["width", "height", "rotation"],
+        m.SHAPE_POLYGON: ["sides", "radius", "rotation"],
+        m.SHAPE_MOSS_EGG: ["moss_angle", "moss_size", "rotation"],
+        m.SHAPE_SECTOR: ["radius", "sector_span", "rotation"],
+        m.SHAPE_SEGMENT: ["radius", "segment_span", "rotation"],
+        m.SHAPE_LENS: ["lens_radius1", "lens_radius2", "lens_sep", "rotation"],
+        m.SHAPE_REULEAUX: ["reuleaux_sides", "radius", "rotation"],
+        m.SHAPE_CAPSULE: ["capsule_length", "capsule_radius", "rotation"],
+        m.SHAPE_TREFOIL: ["radius", "lobe_size", "rotation"],
+        m.SHAPE_QUATREFOIL: ["radius", "lobe_size", "rotation"],
+        m.SHAPE_LUNE: ["radius", "cut_radius", "cut_offset", "rotation"],
+        m.SHAPE_ARBELOS: ["radius", "split", "rotation"],
     }
     everywhere = ["r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"]
     changed = {"sides": 7, "reuleaux_sides": 9, "in_effect": 2, "out_effect": 1,
                "fire_inside": False, "theta": 33.0}
     for shape, fields in relevant.items():
-        base = m.Obstacle(0)
-        base.shape = shape
+        cls = m.SHAPE_CLASSES[shape]
+        assert set(fields + everywhere) == set(cls.FIELD_NAMES), cls.__name__
+        base = cls(0)
         base.fire_inside = True
-        base_text = m.obstacle_info_lines(1, base)
+        base_text = base.info_lines(1)
         for field in fields + everywhere:
-            o = m.Obstacle(0)
-            o.shape = shape
+            o = cls(0)
             o.fire_inside = True
             setattr(o, field, changed.get(field, getattr(base, field) + 0.37))
-            assert m.obstacle_info_lines(1, o) != base_text, (m.SHAPE_NAMES[shape], field)
+            assert o.info_lines(1) != base_text, (m.SHAPE_NAMES[shape], field)
 
 
 def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
@@ -1500,7 +1501,7 @@ def test_figure_info_layout_depends_only_on_how_many_obstacles_there_are():
     scene_a = _every_kind_of_obstacle()
     scene_b = _every_kind_of_obstacle()
     for o in scene_b:
-        o.width, o.r, o.theta, o.fire_inside = 0.5, 0.0, 12.5, not o.fire_inside
+        o.rotation, o.r, o.theta, o.fire_inside = 5.0, 0.0, 12.5, not o.fire_inside
     fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
     shapes = []
     for settings, scene in [(_settings(), scene_a), (_settings(max_dist=3.0, seg_mult=0.5,
@@ -1547,7 +1548,7 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
     scene = _every_kind_of_obstacle()
     moved = _every_kind_of_obstacle()
     for o in moved:
-        o.r, o.width = 0.25, 0.5
+        o.r, o.rotation = 0.25, 5.0
     fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
     a = m.add_left_figure_margin(img, _settings(), scene)
     b = m.add_left_figure_margin(img, _settings(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
@@ -1588,9 +1589,9 @@ def test_export_designer_calls_them_figure_settings_not_simulation_info():
 # Obstacle values resolved for one frame (what the margin's text shows)
 # --------------------------------------------------------------------------- #
 def test_resolve_obstacles_interpolates_float_fields_and_holds_the_rest():
-    o = m.Obstacle(3)
+    o = m.EllipseShape(3)
     o.fire_inside = False
-    snap = m.snapshot_obstacle(o)
+    snap = o.snapshot()
     kf0 = m.Keyframe(0, 0, {"obst:3:r": 0.0, "obst:3:fire_inside": False,
                             "obst:3:in_effect": R})
     kf1 = m.Keyframe(1, 10, {"obst:3:r": 1.0, "obst:3:fire_inside": True,
@@ -1604,20 +1605,19 @@ def test_resolve_obstacles_interpolates_float_fields_and_holds_the_rest():
 
 
 def test_resolve_obstacle_arrays_is_the_arrays_of_the_resolved_obstacles():
-    o = m.Obstacle(1)
-    o.shape = m.SHAPE_POLYGON
-    snaps = [m.snapshot_obstacle(o)]
+    o = m.RegularPolygonShape(1)
+    snaps = [o.snapshot()]
     kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.2}),
            m.Keyframe(1, 4, {"obst:1:r": 0.6})]
     direct = m.resolve_obstacle_arrays(snaps, kfs, 2)
-    via = m.obstacle_arrays_from_values(m.resolve_obstacles(snaps, kfs, 2))
+    via = m.build_obstacle_arrays(m.resolve_obstacles(snaps, kfs, 2))
     for a, b in zip(direct, via):
         assert np.array_equal(a, b)
 
 
 def test_left_margin_of_a_video_frame_shows_that_frames_animated_values():
-    o = m.Obstacle(1)
-    snaps = [m.snapshot_obstacle(o)]
+    o = m.EllipseShape(1)
+    snaps = [o.snapshot()]
     kfs = [m.Keyframe(0, 0, {"obst:1:theta": 0.0}),
            m.Keyframe(1, 10, {"obst:1:theta": 90.0})]
     settings = _settings()
@@ -1980,7 +1980,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     app = _fake_export_app()
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
-    obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
+    obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
     view_snapshot = [m.snapshot_view(v) for v in app.views_to_export()]
@@ -1996,7 +1996,7 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     app = _fake_export_app()
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
-    obst_snapshot = [m.snapshot_obstacle(o) for o in app.obstacles]
+    obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
     view_snapshot = [m.snapshot_view(v) for v in app.views_to_export()]
@@ -3181,7 +3181,7 @@ def _fake_delete_obstacle_app():
 
 def test_delete_obstacle_purges_its_settings_from_every_keyframe():
     app = _fake_delete_obstacle_app()
-    keep, doomed = m.Obstacle(0), m.Obstacle(1)
+    keep, doomed = m.EllipseShape(0), m.EllipseShape(1)
     app.obstacles = [keep, doomed]
     app.selected_obstacle = doomed
     app.keyframes = [_kf(0, 0, {"iter": 5, "obst:0:r": 0.1, "obst:1:r": 0.5,
@@ -3196,7 +3196,7 @@ def test_delete_obstacle_purges_its_settings_from_every_keyframe():
 
 def test_delete_obstacle_with_nothing_selected_changes_no_keyframe():
     app = _fake_delete_obstacle_app()
-    o = m.Obstacle(0)
+    o = m.EllipseShape(0)
     app.obstacles = [o]
     app.keyframes = [_kf(0, 0, {"obst:0:r": 0.1})]
     app.delete_obstacle()
@@ -3241,7 +3241,7 @@ def test_render_keyframe_snapshot_is_unaffected_by_later_edits_to_the_keyframes(
 # Obstacle incoming / outgoing ray effects (replacing the single "effect")
 # --------------------------------------------------------------------------- #
 def test_new_obstacle_defaults_to_reflecting_both_ways_and_firing_rays_inside():
-    o = m.Obstacle(0)
+    o = m.EllipseShape(0)
     assert o.in_effect == m.OBSTACLE_EFFECT_REFLECT
     assert o.out_effect == m.OBSTACLE_EFFECT_REFLECT
     assert o.fire_inside is True
@@ -3254,14 +3254,13 @@ def test_effect_names_and_colors_cover_every_effect():
                                  m.OBSTACLE_EFFECT_PASS: (0, 0, 0)}
 
 
-def test_obstacle_field_info_has_both_effects_and_no_old_effect_field():
-    fields = [f for f, _label, _is_float in m.OBST_FIELD_INFO]
-    assert "in_effect" in fields and "out_effect" in fields
-    assert "effect" not in fields
+def test_every_shape_kind_has_both_effects():
+    for cls in m.SHAPE_CLASSES:
+        assert "in_effect" in cls.FIELD_NAMES and "out_effect" in cls.FIELD_NAMES
 
 
 def test_build_obstacle_arrays_effects_are_n_by_2_and_keep_pass_through_obstacles():
-    a, b, c = m.Obstacle(0), m.Obstacle(1), m.Obstacle(2)
+    a, b, c = m.EllipseShape(0), m.EllipseShape(1), m.EllipseShape(2)
     a.in_effect, a.out_effect = m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_REFLECT
     b.in_effect, b.out_effect = m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS
     c.in_effect, c.out_effect = m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_TERMINATE
@@ -3279,8 +3278,8 @@ def test_build_obstacle_arrays_with_no_obstacles_gives_an_empty_n_by_2_effects_a
 
 
 def test_resolve_obstacle_arrays_animates_nothing_but_holds_each_effect_per_keyframe():
-    o = m.Obstacle(3)
-    snap = m.snapshot_obstacle(o)
+    o = m.EllipseShape(3)
+    snap = o.snapshot()
     kf0 = m.Keyframe(0, 0, {"obst:3:in_effect": m.OBSTACLE_EFFECT_TERMINATE,
                             "obst:3:out_effect": m.OBSTACLE_EFFECT_REFLECT})
     kf1 = m.Keyframe(1, 10, {"obst:3:in_effect": m.OBSTACLE_EFFECT_PASS,
@@ -3305,8 +3304,16 @@ def test_ring_layers_for_every_shape_kind_are_disjoint_outer_outside_inner_insid
     gx, gy = _grid_around()
     cases = [(m.SHAPE_ELLIPSE, m.ellipse_bound(1.6, 1.0, 20.0)),
              (m.SHAPE_POLYGON, m.polygon_bound(5, 10.0, 0.9)),
+             (m.SHAPE_MOSS_EGG, m.moss_egg_bound(91.0, 1.1, 30.0)),
+             (m.SHAPE_SECTOR, m.sector_bound(1.2, 70.0, 40.0)),
+             (m.SHAPE_SEGMENT, m.segment_bound(1.1, 80.0, 50.0)),
              (m.SHAPE_CAPSULE, m.capsule_bound(1.0, 0.4, 30.0)),
-             (m.SHAPE_LENS, m.lens_bound(1.0, 1.0, 1.0, 0.0))]
+             (m.SHAPE_LENS, m.lens_bound(1.0, 1.0, 1.0, 0.0)),
+             (m.SHAPE_REULEAUX, m.reuleaux_bound(5, 70.0, 0.7)),
+             (m.SHAPE_TREFOIL, m.lobed_bound(m.SHAPE_TREFOIL, 3, 0.9, 0.6, 15.0)),
+             (m.SHAPE_QUATREFOIL, m.lobed_bound(m.SHAPE_QUATREFOIL, 4, 0.9, 0.6, 15.0)),
+             (m.SHAPE_LUNE, m.lune_bound(1.0, 0.8, 0.6, 30.0)),
+             (m.SHAPE_ARBELOS, m.arbelos_bound(1.0, 0.35, 30.0))]
     for shape, bound in cases:
         outer, inner = m.ring_layer_masks(shape, bound, gx, gy, layer_px=8.0)
         inside = m.inside_boundary_grid(gx, gy, shape, bound)
@@ -3343,7 +3350,7 @@ def test_draw_obstacle_outline_paints_outer_layer_incoming_and_inner_layer_outgo
 
 
 def test_obstacle_thumbnail_shows_both_effect_colors():
-    o = m.Obstacle(0)
+    o = m.EllipseShape(0)
     o.in_effect, o.out_effect = m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_REFLECT
     thumb = m.render_obstacle_thumbnail(o, m.THUMB_SIZE)
     assert thumb.shape == (m.THUMB_SIZE, m.THUMB_SIZE, 3)
@@ -3355,14 +3362,13 @@ def test_a_pass_through_both_ways_obstacle_counts_as_pending_even_if_unchanged()
     class FakeApp:
         pass
     app = FakeApp()
-    o = m.Obstacle(0)
+    o = m.EllipseShape(0)
     o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_PASS
-    app.obstacle_state = m.App.obstacle_state.__get__(app)
     app.obstacle_is_pending = m.App.obstacle_is_pending.__get__(app)
-    app.gen_obstacles_by_id = {0: app.obstacle_state(o)}     # unchanged since generation
+    app.gen_obstacles_by_id = {0: o.state()}     # unchanged since generation
     assert app.obstacle_is_pending(o)
     o.out_effect = m.OBSTACLE_EFFECT_REFLECT
-    app.gen_obstacles_by_id = {0: app.obstacle_state(o)}
+    app.gen_obstacles_by_id = {0: o.state()}
     assert not app.obstacle_is_pending(o)
 
 
@@ -3440,7 +3446,7 @@ def _seed_kernel_rng(seed):
 
 
 def _circle_obstacle(cx, cy, radius, in_effect, out_effect, fire=False, id_=0):
-    o = m.Obstacle(id_)
+    o = m.EllipseShape(id_)
     o.width = o.height = 2.0 * radius
     o.r, o.theta, o.cx, o.cy = 0.0, 0.0, cx, cy
     o.in_effect, o.out_effect, o.fire_inside = in_effect, out_effect, fire
@@ -3677,7 +3683,7 @@ def test_obstacle_effect_dropdowns_write_both_effects_to_the_selected_obstacle()
         pass
     app = FakeApp()
     app._obst_editor_loading = False
-    app.selected_obstacle = m.Obstacle(0)
+    app.selected_obstacle = m.EllipseShape(0)
     app.obs_in_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[T])
     app.obs_out_effect_var = _StubVar(m.OBSTACLE_EFFECT_NAMES[R])
     app.obs_in_effect_combo = _StubWidget()
@@ -3809,34 +3815,33 @@ FUZZ_FIELD_ORDER = ("enabled", "emit_jitter", "bnd_offset", "bnd_jitter", "bnd_m
 
 CLASSIC_SCENES = [
     dict(name="circle", shape=m.SHAPE_ELLIPSE, main=(2.0, 2.0, 0.0),
-         fields=dict(width=2.0, height=2.0, ell_rotation=0.0), iters=32),
+         fields=dict(width=2.0, height=2.0, rotation=0.0), iters=32),
     dict(name="ellipse", shape=m.SHAPE_ELLIPSE, main=(1.7, 1.1, 25.0),
-         fields=dict(width=1.7, height=1.1, ell_rotation=25.0), iters=30),
+         fields=dict(width=1.7, height=1.1, rotation=25.0), iters=30),
     dict(name="polygon", shape=m.SHAPE_POLYGON, main=(5, 10.0),
-         fields=dict(sides=5, poly_rotation=10.0, poly_radius=1.0), iters=30),
+         fields=dict(sides=5, rotation=10.0, radius=1.0), iters=30),
     dict(name="moss", shape=m.SHAPE_MOSS_EGG, main=(90.0, 1.0, 10.0),
-         fields=dict(moss_angle=90.0, moss_size=1.0, moss_rotation=10.0), iters=30),
+         fields=dict(moss_angle=90.0, moss_size=1.0, rotation=10.0), iters=30),
     dict(name="sector", shape=m.SHAPE_SECTOR, main=(1.0, 100.0, 15.0),
-         fields=dict(sector_radius=1.0, sector_span=100.0, sector_rotation=15.0), iters=30),
+         fields=dict(radius=1.0, sector_span=100.0, rotation=15.0), iters=30),
     dict(name="segment", shape=m.SHAPE_SEGMENT, main=(1.0, 120.0, 20.0),
-         fields=dict(segment_radius=1.0, segment_span=120.0, segment_rotation=20.0), iters=30),
+         fields=dict(radius=1.0, segment_span=120.0, rotation=20.0), iters=30),
     dict(name="lens", shape=m.SHAPE_LENS, main=(1.0, 1.0, 1.0, 20.0),
-         fields=dict(lens_radius1=1.0, lens_radius2=1.0, lens_sep=1.0, lens_rotation=20.0),
+         fields=dict(lens_radius1=1.0, lens_radius2=1.0, lens_sep=1.0, rotation=20.0),
          iters=30),
     dict(name="reuleaux", shape=m.SHAPE_REULEAUX, main=(3, 0.0),
-         fields=dict(reuleaux_sides=3, reuleaux_rotation=0.0, reuleaux_radius=1.0), iters=30),
+         fields=dict(reuleaux_sides=3, rotation=0.0, radius=1.0), iters=30),
     dict(name="capsule", shape=m.SHAPE_CAPSULE, main=(1.0, 0.5, 30.0),
-         fields=dict(capsule_length=1.0, capsule_radius=0.5, capsule_rotation=30.0), iters=30),
+         fields=dict(capsule_length=1.0, capsule_radius=0.5, rotation=30.0), iters=30),
     dict(name="ellipse_fuzz_seg_dist", shape=m.SHAPE_ELLIPSE, main=(1.8, 1.3, -20.0),
-         fields=dict(width=1.8, height=1.3, ell_rotation=-20.0), iters=40,
+         fields=dict(width=1.8, height=1.3, rotation=-20.0), iters=40,
          fuzz=(True, 3.0, 2.0, 5.0, 1.1, 1.0, 4.0, 0.9, 7), seg_mult=0.7, dist=4.0),
 ]
 
 
 def _scene_obstacle(scene):
     """The obstacle equivalent to a classic bounding shape."""
-    o = m.Obstacle(0)
-    o.shape = scene["shape"]
+    o = m.SHAPE_CLASSES[scene["shape"]](0)
     for field, value in scene["fields"].items():
         setattr(o, field, value)
     o.r = o.theta = o.cx = o.cy = 0.0
@@ -3864,7 +3869,7 @@ def test_every_classic_scene_is_expressible_as_an_obstacle_with_identical_geomet
     for scene in CLASSIC_SCENES:
         o = _scene_obstacle(scene)
         classic = m.make_bound(scene["shape"], scene["main"])
-        equivalent = m.make_bound(o.shape, o.params())
+        equivalent = o.bound()
         assert np.allclose(classic, equivalent), scene["name"]
 
 
@@ -3885,13 +3890,13 @@ def test_an_obstacle_reproduces_the_recorded_classic_golden_data():
 def test_the_starting_obstacle_is_the_unit_circle_that_reflects_and_fires_rays_inside():
     start = m.default_starting_obstacle(7)
     assert start.id == 7
-    assert start.shape == m.SHAPE_ELLIPSE
-    assert (start.width, start.height, start.ell_rotation) == (2.0, 2.0, 0.0)
+    assert type(start) is m.EllipseShape
+    assert (start.width, start.height, start.rotation) == (2.0, 2.0, 0.0)
     assert (start.r, start.theta, start.cx, start.cy) == (0.0, 0.0, 0.0, 0.0)
     assert (start.in_effect, start.out_effect) == (m.OBSTACLE_EFFECT_REFLECT,
                                                      m.OBSTACLE_EFFECT_REFLECT)
     assert start.fire_inside is True
-    assert np.allclose(m.make_bound(start.shape, start.params()), UNIT_CIRCLE)
+    assert np.allclose(start.bound(), UNIT_CIRCLE)
 
 
 def test_the_app_starts_with_the_starting_obstacle_selected():
@@ -3911,16 +3916,6 @@ def test_the_old_bounding_shape_system_is_gone():
                  "control_shape", "show_shape_controls", "on_shape_changed", "reset_ellipse",
                  "compute_ring", "set_ring"):
         assert not hasattr(m.App, name), name
-
-
-def test_the_kernels_no_longer_take_a_bounding_shape():
-    import inspect
-    for fn in (m.emits_ray, m.trace_path, m.render_rows, m.render_rows_wh,
-               m.scatter_multi_buddha):
-        params = inspect.signature(fn.py_func).parameters
-        for gone in ("shape", "bound", "main_ctl"):
-            assert gone not in params, (fn.py_func.__name__, gone)
-        assert "obstacles" in params
 
 
 def test_snapshot_and_settings_hold_only_the_simulation_controls():
@@ -3963,14 +3958,264 @@ def test_settings_suffix_is_only_the_limits_and_fuzzing():
         assert word not in suffix
 
 
-def test_obstacle_params_for_polygon_and_reuleaux_end_with_their_radius():
-    o = m.Obstacle(0)
-    o.sides, o.poly_rotation, o.poly_radius = 6, 15.0, 0.7
-    o.reuleaux_sides, o.reuleaux_rotation, o.reuleaux_radius = 5, 20.0, 0.4
-    assert m.shape_params_tuple(m.SHAPE_POLYGON, o) == (6, 15.0, 0.7)
-    assert m.shape_params_tuple(m.SHAPE_REULEAUX, o) == (5, 20.0, 0.4)
-    o.shape = m.SHAPE_POLYGON
-    assert o.params() == (6, 15.0, 0.7)
+def test_params_for_polygon_and_reuleaux_end_with_their_radius():
+    polygon, reuleaux = m.RegularPolygonShape(0), m.ReuleauxPolygonShape(1)
+    polygon.sides, polygon.rotation, polygon.radius = 6, 15.0, 0.7
+    reuleaux.reuleaux_sides, reuleaux.rotation, reuleaux.radius = 5, 20.0, 0.4
+    assert polygon.params() == (6, 15.0, 0.7)
+    assert reuleaux.params() == (5, 20.0, 0.4)
+
+
+def test_every_shape_kind_has_the_shared_fields_and_only_the_parameters_its_geometry_needs():
+    own = {m.EllipseShape: {"width", "height"}, m.RegularPolygonShape: {"sides", "radius"},
+           m.MossEggShape: {"moss_angle", "moss_size"},
+           m.CircularSectorShape: {"radius", "sector_span"},
+           m.CircularSegmentShape: {"radius", "segment_span"},
+           m.LensShape: {"lens_radius1", "lens_radius2", "lens_sep"},
+           m.ReuleauxPolygonShape: {"reuleaux_sides", "radius"},
+           m.CapsuleShape: {"capsule_length", "capsule_radius"},
+           m.TrefoilShape: {"radius", "lobe_size"}, m.QuatrefoilShape: {"radius", "lobe_size"},
+           m.LuneShape: {"radius", "cut_radius", "cut_offset"},
+           m.ArbelosShape: {"radius", "split"}}
+    shared = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"}
+    assert set(own) == set(m.SHAPE_CLASSES)
+    for cls, fields in own.items():
+        assert set(cls.FIELD_NAMES) == fields | shared, cls.__name__
+        o = cls(0)
+        for field in fields:
+            assert hasattr(o, field)
+        for field in set().union(*own.values()) - fields:
+            assert not hasattr(o, field), (cls.__name__, field)     # no field it doesn't use
+
+
+def test_one_rotation_serves_every_kind_and_the_default_radius_is_1_for_every_kind_with_one():
+    for cls in m.SHAPE_CLASSES:
+        o = cls(0)
+        assert o.rotation == 0.0
+        o.rotation = 33.0
+        assert 33.0 in o.params(), cls.__name__
+        if "radius" in cls.FIELD_NAMES:
+            assert o.radius == 1.0, cls.__name__
+
+
+# --------------------------------------------------------------------------- #
+# The arc-loop kinds (trefoil, quatrefoil, lune, arbelos): concave shapes made of circular arcs
+# --------------------------------------------------------------------------- #
+ARC_LOOP_CLASSES = [m.TrefoilShape, m.QuatrefoilShape, m.LuneShape, m.ArbelosShape]
+
+
+def _arc_loop_membership(o):
+    """The shape as an independent formula (not the packed arcs): point -> inside?"""
+    if isinstance(o, (m.TrefoilShape, m.QuatrefoilShape)):
+        r = o.lobe_size * o.radius
+        ring = o.radius - r
+        circles = []
+        for k in range(o.LOBES):
+            a = np.pi / 2 + np.radians(o.rotation) + 2 * np.pi * k / o.LOBES
+            circles.append((ring * np.cos(a), ring * np.sin(a), r))
+        return lambda x, y: any((x - cx) ** 2 + (y - cy) ** 2 < rr * rr for cx, cy, rr in circles)
+    if isinstance(o, m.LuneShape):
+        t = np.radians(o.rotation)
+        cx, cy = o.cut_offset * np.cos(t), o.cut_offset * np.sin(t)
+        return lambda x, y: (x * x + y * y < o.radius ** 2
+                             and (x - cx) ** 2 + (y - cy) ** 2 >= o.cut_radius ** 2)
+    big, share = o.radius, o.split
+    t = np.radians(o.rotation)
+    cs, sn = np.cos(t), np.sin(t)
+
+    def member(x, y):
+        u, v = x * cs + y * sn, -x * sn + y * cs + 0.5 * big      # into the unrotated frame
+        return (v > 0 and u * u + v * v < big * big
+                and (u + big - share * big) ** 2 + v * v >= (share * big) ** 2
+                and (u - big + (1 - share) * big) ** 2 + v * v >= ((1 - share) * big) ** 2)
+    return member
+
+
+def test_the_arc_loop_kinds_agree_with_an_independent_formula_about_what_is_inside():
+    rng = np.random.RandomState(5)
+    pts = rng.uniform(-1.3, 1.3, size=(2500, 2))
+    for cls in ARC_LOOP_CLASSES:
+        o = cls(0)
+        o.rotation = 17.0
+        bound, member = o.bound(), _arc_loop_membership(o)
+        wrong = [(x, y) for x, y in pts if m.inside_boundary(x, y, cls.KIND, bound) != member(x, y)]
+        assert not wrong, (cls.__name__, wrong[:3])
+
+
+def test_a_lune_is_hollow_where_its_cut_is_and_the_origin_of_a_trefoil_is_inside():
+    lune = m.LuneShape(0)                                   # cut centre at (0.6, 0), radius 0.8
+    assert not m.inside_boundary(0.0, 0.0, m.SHAPE_LUNE, lune.bound())     # in the bite
+    assert m.inside_boundary(-0.9, 0.0, m.SHAPE_LUNE, lune.bound())        # in the crescent
+    assert not m.inside_boundary(1.2, 0.0, m.SHAPE_LUNE, lune.bound())     # past the disc
+    assert m.inside_boundary(0.0, 0.0, m.SHAPE_TREFOIL, m.TrefoilShape(0).bound())
+
+
+def test_the_nearest_crossing_of_an_arc_loop_is_the_way_out_or_in_even_when_concave():
+    """From inside, the first edge hit is the exit (boundary_hit); from outside it is the
+    entry (obstacle_hit) - checked against walking along the ray and watching the inside test flip."""
+    rng = np.random.RandomState(8)
+
+    def walked(x, y, ux, uy, kind, bound):
+        prev = m.inside_boundary(x, y, kind, bound)
+        for t in np.linspace(1e-6, 4.0, 3000):
+            if m.inside_boundary(x + t * ux, y + t * uy, kind, bound) != prev:
+                lo, hi = t - 4.0 / 3000, t
+                for _ in range(30):
+                    mid = 0.5 * (lo + hi)
+                    if m.inside_boundary(x + mid * ux, y + mid * uy, kind, bound) == prev:
+                        lo = mid
+                    else:
+                        hi = mid
+                return 0.5 * (lo + hi)
+        return None
+
+    for cls in ARC_LOOP_CLASSES:
+        o = cls(0)
+        o.rotation = 23.0
+        bound = o.bound()
+        checked = 0
+        for _ in range(60):
+            x, y = rng.uniform(-1.4, 1.4, 2)
+            a = rng.uniform(0, 2 * np.pi)
+            ux, uy = np.cos(a), np.sin(a)
+            if m.inside_boundary(x, y, cls.KIND, bound):
+                t = m.boundary_hit(x, y, ux, uy, cls.KIND, bound)[0]
+            else:
+                t = m.obstacle_hit(x, y, ux, uy, cls.KIND, bound)[0]
+                t = 1e30 if t < 0 else t
+            expected = walked(x, y, ux, uy, cls.KIND, bound)
+            assert (expected is None) == (t > 1e29), cls.__name__
+            if expected is not None:
+                checked += 1
+                assert abs(expected - t) < 2e-3, (cls.__name__, t, expected)
+        assert checked > 15, cls.__name__
+
+
+def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_edge():
+    """Reflection off a concave arc (a lune's bite, a trefoil's notch) must keep the ray
+    inside the shape: every recorded bounce off its edge is a point where the inside test flips."""
+    for cls in (m.LuneShape, m.QuatrefoilShape, m.ArbelosShape):
+        o = cls(0)
+        o.rotation = 10.0
+        bound = o.bound()
+        arrays = m.build_obstacle_arrays([o])
+        pts = np.empty((40, 2))
+        kinds = np.empty(40)
+        raw = np.empty(m.N_RAW)
+        rng = np.random.RandomState(2)
+        bounced = 0
+        for _ in range(40):
+            x, y = rng.uniform(-1, 1, 2)
+            if not m.inside_boundary(x, y, cls.KIND, bound):
+                continue
+            term, npts = m.trace_path(x, y, pts, kinds, 30, m.effective_dist(0.0), 1.0,
+                                      m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT,
+                                      m.EMISSION_DEFAULT, arrays, raw)
+            for k in range(1, npts):
+                if kinds[k] != m.KIND_BOUNDARY:                # (a bounce off the ray's own path
+                    continue                                   # is not on the shape's edge)
+                px, py = pts[k]
+                around = [m.inside_boundary(px + 1e-5 * np.cos(a), py + 1e-5 * np.sin(a),
+                                            cls.KIND, bound) for a in np.linspace(0, 6.28, 16)]
+                assert any(around) and not all(around), (cls.__name__, px, py)
+                bounced += 1
+        assert bounced > 40, cls.__name__
+
+
+def test_the_outline_of_an_arc_loop_is_one_closed_curve_without_stray_jumps():
+    for cls in ARC_LOOP_CLASSES:
+        xs, ys = cls(0).boundary_xy()
+        assert (xs[0], ys[0]) == (xs[-1], ys[-1]), cls.__name__
+        assert np.max(np.hypot(np.diff(xs), np.diff(ys))) < 0.2, cls.__name__
+    coords = m.LuneShape(0).outline_coords()
+    assert len(coords) % 2 == 0 and len(coords) > 40
+
+
+def test_a_lune_whose_two_circles_do_not_cross_is_still_a_valid_shape():
+    far = m.lune_bound(1.0, 0.5, 1.8, 0.0)                    # the cut misses the disc: a full disc
+    assert int(far[1]) == 1 and m.inside_boundary(0.0, 0.0, m.SHAPE_LUNE, far)
+    ring = m.lune_bound(1.0, 0.3, 0.2, 0.0)                   # the cut is inside: a disc with a hole
+    assert int(ring[1]) == 2
+    assert m.inside_boundary(0.7, 0.0, m.SHAPE_LUNE, ring)
+    assert not m.inside_boundary(0.2, 0.0, m.SHAPE_LUNE, ring)
+    gone = m.lune_bound(1.0, 2.0, 0.0, 0.0)                   # the cut covers everything: nothing left
+    assert int(gone[1]) == 0 and not m.inside_boundary(0.0, 0.0, m.SHAPE_LUNE, gone)
+    lune = m.LuneShape(0)
+    lune.radius, lune.cut_radius, lune.cut_offset = 1.0, 2.0, 0.0
+    lune.outline_coords()                                       # must not raise for an empty shape
+    m.render_obstacle_thumbnail(lune, 16)
+
+
+def test_two_coincident_lobes_are_one_edge_not_two():
+    """A quatrefoil at lobe size 1 is four identical circles: if each counted as its own edge
+    the even-odd rule would call the inside outside."""
+    quat = m.QuatrefoilShape(0)
+    quat.lobe_size = 1.0
+    assert int(quat.bound()[1]) == 1 and m.inside_boundary(0.1, 0.1, m.SHAPE_QUATREFOIL, quat.bound())
+
+
+def test_a_shape_only_accepts_numbers_of_the_type_its_field_declares():
+    o = m.RegularPolygonShape(1)
+    assert _raises(TypeError, lambda: setattr(o, "sides", 5.5))        # a count is whole
+    assert _raises(TypeError, lambda: setattr(o, "radius", "1"))
+    assert _raises(TypeError, lambda: setattr(o, "radius", True))
+    assert _raises(TypeError, lambda: setattr(o, "fire_inside", 1))
+    assert _raises(AttributeError, lambda: setattr(o, "width", 1.0))   # another kind's field
+    o.radius = 2                                                       # an int is fine for a float
+    o.sides = np.int64(7)
+    o.radius = np.float64(0.5)
+    assert (o.sides, o.radius) == (7, 0.5)
+
+
+def test_a_snapshot_is_a_frozen_copy_of_the_same_kind_with_every_method():
+    o = m.LensShape(5)
+    o.lens_sep, o.r = 0.4, 0.5
+    snap = o.snapshot()
+    assert type(snap) is m.LensShape and snap.id == 5 and snap.state() == o.state()
+    assert snap.describe() == o.describe()
+    assert np.array_equal(snap.bound(), o.bound()) and snap.center() == o.center()
+    o.lens_sep = 0.9                                      # a later live edit never reaches it
+    assert snap.lens_sep == 0.4
+    assert _raises(AttributeError, lambda: setattr(snap, "r", 1.0))
+
+
+def test_with_values_and_duplicate_make_copies_of_the_same_kind():
+    o = m.CapsuleShape(3)
+    frozen = o.with_values(capsule_length=1.5, r=0.25)
+    assert type(frozen) is m.CapsuleShape and frozen.id == 3
+    assert (frozen.capsule_length, frozen.r, o.capsule_length, o.r) == (1.5, 0.25, 1.0, 0.0)
+    assert _raises(AttributeError, lambda: o.with_values(width=1.0))   # not a capsule's field
+    assert _raises(AttributeError, lambda: setattr(frozen, "r", 0.0))
+    dupe = o.duplicate(9)
+    assert type(dupe) is m.CapsuleShape and dupe.id == 9 and dupe.state() == o.state()
+    dupe.r = 0.5                                          # editable, and independent of the original
+    assert o.r == 0.0
+
+
+def test_shapes_copy_and_pickle_as_the_same_kind_and_a_frozen_one_stays_frozen():
+    import copy
+    import pickle
+    o = m.MossEggShape(2)
+    o.moss_size = 1.25
+    for original in (o, o.snapshot()):
+        for clone in (copy.deepcopy(original), copy.copy(original)):
+            assert type(clone) is m.MossEggShape and clone.state() == original.state()
+            assert clone.id == 2
+        with _ModuleRegistered():
+            clone = pickle.loads(pickle.dumps(original))
+        assert type(clone) is m.MossEggShape and clone.state() == original.state()
+        assert (clone._frozen) == (original._frozen)
+    assert _raises(AttributeError, lambda: setattr(copy.deepcopy(o.snapshot()), "r", 1.0))
+
+
+def test_the_new_menu_lists_every_kind_and_a_new_obstacle_has_that_kind_only():
+    for cls in m.SHAPE_CLASSES:
+        o = cls(0)
+        assert type(o) is cls and o.NAME == m.SHAPE_NAMES[o.KIND]
+    assert m.SHAPE_NAMES == ["Ellipse", "Regular polygon", "Moss's egg", "Circular sector",
+                             "Circular segment", "Two-circle lens", "Reuleaux polygon", "Capsule",
+                             "Trefoil", "Quatrefoil", "Lune", "Arbelos"]
+
 
 
 def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_rays_out():
@@ -4637,7 +4882,7 @@ def test_the_target_point_is_positioned_like_an_obstacle():
     rule = m.settings_emission(s)
     tx, ty = rule.target_x, rule.target_y
     assert abs(tx - 0.5) < 1e-12 and abs(ty - 1.75) < 1e-12
-    o = m.Obstacle(0)
+    o = m.EllipseShape(0)
     o.r, o.theta, o.cx, o.cy = 2.0, 90.0, 0.5, -0.25
     assert (tx, ty) == o.center()
     # a negative r flips through the origin; theta is not limited to one turn
@@ -5667,16 +5912,6 @@ def test_self_checks_catch_a_missing_setting_widget_entry():
         assert "SETTING_WIDGET_ATTRS" in str(e)
 
 
-def test_self_checks_catch_a_missing_obstacle_field_widget_entry():
-    fresh = load_module()
-    del fresh.OBSTACLE_FIELD_WIDGET_ATTRS["cx"]
-    try:
-        fresh.run_self_checks()
-        raise AssertionError("expected run_self_checks() to raise")
-    except AssertionError as e:
-        assert "OBSTACLE_FIELD_WIDGET_ATTRS" in str(e)
-
-
 def _fake_kf_app():
     """K0 (frame 0) {a: 0.0, c: 0.0}, K1 (frame 5) {b: 5}, K2 (frame 10) {a: 10.0,
     c: 10.0}. a and c are animated through K1; d is defined by no keyframe."""
@@ -5977,22 +6212,31 @@ class _WidgetsApp:
 def test_every_setting_and_obstacle_field_resolves_to_a_control():
     import types
     app = _WidgetsApp()
-    names = set(m.SETTING_WIDGET_ATTRS.values()) | set(m.OBSTACLE_FIELD_WIDGET_ATTRS.values())
-    names |= {"obs_" + p.widget for p in m.SHAPE_PARAM_INFO}
-    names |= {"mode_combo"}
+    names = set(m.SETTING_WIDGET_ATTRS.values()) | {"mode_combo"}
     for name in names:
         setattr(app, name, types.SimpleNamespace(name=name))
     app.chan_blocks = [types.SimpleNamespace(name=f"block{c}") for c in range(3)]
-    o = m.Obstacle(4)
+    app.obs_widgets = {}
+    for cls in m.SHAPE_CLASSES:
+        for p in cls.PARAMS:
+            app.obs_widgets[(cls, p.field)] = types.SimpleNamespace(name=f"{cls.__name__}.{p.field}")
+    for field in m.EllipseShape.FIELD_NAMES:
+        if field not in ("width", "height"):
+            app.obs_widgets[(m.Shape, field)] = types.SimpleNamespace(name=f"Shape.{field}")
     v = m.ViewConfig(2)
-    app.selected_obstacle = o
     app.selected_view_obj = lambda: v
     app.widgets_for_setting = m.App.widgets_for_setting.__get__(app)
+    app.obstacle_widget = m.App.obstacle_widget.__get__(app)
     for key in m.SETTING_WIDGET_ATTRS:
         assert [w.name for w in app.widgets_for_setting(key)] == [m.SETTING_WIDGET_ATTRS[key]]
-    for field, _label, _f in m.OBST_FIELD_INFO:
-        assert len(app.widgets_for_setting(f"obst:4:{field}")) == 1, field
-        assert app.widgets_for_setting(f"obst:5:{field}") == []     # not the edited obstacle
+    for cls in m.SHAPE_CLASSES:
+        o = cls(4)
+        app.selected_obstacle = o
+        for field in o.FIELD_NAMES:
+            found = app.widgets_for_setting(f"obst:4:{field}")
+            owner = cls.__name__ if field in {p.field for p in cls.PARAMS} else "Shape"
+            assert [w.name for w in found] == [f"{owner}.{field}"], (cls.__name__, field)
+            assert app.widgets_for_setting(f"obst:5:{field}") == []     # not the edited obstacle
     assert [w.name for w in app.widgets_for_setting("view:2:mode")] == ["mode_combo"]
     assert [w.name for w in app.widgets_for_setting("view:2:chan1")] == ["block1"]
     assert app.widgets_for_setting("view:3:chan1") == []
@@ -6091,15 +6335,15 @@ def test_dump_keeps_picklable_values_exactly_as_they_are():
         pass
     app = App()
     app.arr = np.arange(12.0).reshape(3, 4)
-    app.nested = {"a": [1, (2, 3)], "b": m.Obstacle(4), "c": m.DEFAULT_RAY_SETTINGS}
-    app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
+    app.nested = {"a": [1, (2, 3)], "b": m.EllipseShape(4), "c": m.DEFAULT_RAY_SETTINGS}
+    app.obstacles = [m.EllipseShape(1), m.EllipseShape(2)]
     app.obstacles[1].r = 0.75
     data = _dump_roundtrip(app)["app"]
     assert np.array_equal(data["arr"], app.arr)
     assert data["nested"]["a"] == [1, (2, 3)]
     assert data["nested"]["b"].id == 4 and data["nested"]["c"] == m.DEFAULT_RAY_SETTINGS
     assert [o.r for o in data["obstacles"]] == [0.0, 0.75]
-    assert isinstance(data["obstacles"][0], m.Obstacle)       # still the real class
+    assert isinstance(data["obstacles"][0], m.EllipseShape)       # still the real class
 
 
 def test_dump_replaces_what_cannot_be_pickled_with_readable_stand_ins():
@@ -6166,7 +6410,7 @@ def test_dump_without_large_arrays_replaces_big_arrays_wherever_they_are():
     app.in_dict = {"k": {"deep": big}}
     app.in_object = _Holder(big)
     app.small = np.arange(5.0)
-    app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
+    app.obstacles = [m.EllipseShape(1), m.EllipseShape(2)]
     data = _dump_roundtrip(app, include_large_arrays=False, module_globals={"GRID": big, "SMALL": np.ones(3)})
     want = {"__standin__": "large array", "shape": (200, 200), "dtype": "float64",
             "nbytes": 320000}
@@ -6180,7 +6424,7 @@ def test_dump_without_large_arrays_replaces_big_arrays_wherever_they_are():
     assert np.array_equal(data["app"]["small"], np.arange(5.0))
     assert data["module"]["GRID"] == want and np.array_equal(data["module"]["SMALL"], np.ones(3))
     # values with no large array inside are still stored exactly, real classes and all
-    assert [type(o).__name__ for o in data["app"]["obstacles"]] == ["Obstacle", "Obstacle"]
+    assert [type(o).__name__ for o in data["app"]["obstacles"]] == ["EllipseShape", "EllipseShape"]
     assert data["meta"]["large_arrays_included"] is False
     assert data["meta"]["large_array_bytes"] == 64 * 1024
 
@@ -6620,13 +6864,13 @@ def _write_pickle(obj):
 
 def test_the_viewer_reads_application_classes_back_as_placeholders_without_importing_them():
     viewer = _load_viewer()
-    o = m.Obstacle(3)
+    o = m.EllipseShape(3)
     o.r = 0.75
     with _ModuleRegistered():
         path = _write_pickle({"obstacles": [o], "snap": m.DEFAULT_RAY_SETTINGS})
     data = viewer.load_pickle(path)
     held = data["obstacles"][0]
-    assert isinstance(held, viewer.Placeholder) and held._qual.endswith(".Obstacle")
+    assert isinstance(held, viewer.Placeholder) and held._qual.endswith(".EllipseShape")
     attrs = dict(viewer.object_attributes(held))
     assert attrs["id"] == 3 and attrs["r"] == 0.75 and attrs["fire_inside"] is True
     snap = data["snap"]                          # a slotted dataclass: placeholder with named attributes
@@ -6654,7 +6898,7 @@ def test_plain_values_arrays_and_large_array_stand_ins_are_shown_inline():
     assert "ndarray (3, 4) float64" in viewer.inline_text(np.zeros((3, 4)))
     assert "large array" in viewer.inline_text(big) and "1.0 MB" in viewer.inline_text(big)
     assert viewer.inline_text([1, 2]) is None and viewer.inline_text({"a": 1}) is None
-    assert viewer.inline_text(m.Obstacle(1)) is None
+    assert viewer.inline_text(m.EllipseShape(1)) is None
 
 
 def test_containers_become_boxes_with_an_arrow_per_container_row():
@@ -6764,7 +7008,7 @@ def test_the_layout_of_a_real_shaped_dump_has_no_overlaps_or_crossings():
     app = App()
     app.var = _FakeVar()
     app.widget = _FakeWidget()
-    app.obstacles = [m.Obstacle(1), m.Obstacle(2)]
+    app.obstacles = [m.EllipseShape(1), m.EllipseShape(2)]
     app.handle = m.FloatEntryHandle(_FakeVar(), "{:.2f}", 1.0)
     app.points = np.zeros((200, 200))
     app.same = app.obstacles
@@ -6778,7 +7022,7 @@ def test_the_layout_of_a_real_shaped_dump_has_no_overlaps_or_crossings():
     assert viewer.count_crossings(g) == 0
     titles = [n.title for n in g.nodes]
     assert any(t.startswith("widget:") for t in titles) and any(t.startswith("tk variable:") for t in titles)
-    assert any("Obstacle" in t for t in titles)
+    assert any("EllipseShape" in t for t in titles)
     rows = {r.key: r.text for n in g.nodes for r in n.rows}
     assert "large array" in rows["points"]
 
@@ -6786,7 +7030,7 @@ def test_the_layout_of_a_real_shaped_dump_has_no_overlaps_or_crossings():
 def _filter_sample():
     return {"meta": {"cause": "x"},
             "app": {"count": 3, "name": "n", "items": [1, {"deep": 2}], "empty": [],
-                    "obst": m.Obstacle(1)},
+                    "obst": m.EllipseShape(1)},
             "module": {}, "threads": []}
 
 
@@ -6814,7 +7058,7 @@ def test_the_type_inventory_lists_box_types_and_plain_value_types_with_counts():
     boxes, leaves = viewer.type_inventory(g)
     box_types = dict(boxes)
     assert box_types["dict"] == 3 and box_types["list"] == 1 and "dump" not in box_types
-    assert any(k.endswith("Obstacle") for k in box_types)
+    assert any(k.endswith("EllipseShape") for k in box_types)
     leaf_types = dict(leaves)
     assert leaf_types["int"] >= 3 and leaf_types["str"] >= 2
     assert "list" not in leaf_types and "dict" not in leaf_types     # listed once, as box types
@@ -8096,24 +8340,8 @@ def test_ray_settings_holds_the_buddha_blur_as_its_own_record():
     assert s.replace(buddha_blur=s.buddha_blur.replace(radius=0.2)).buddha_blur.radius == 0.2
 
 
-def test_the_snapshot_records_mirror_the_slots_of_the_live_classes():
-    assert [f.name for f in dataclasses.fields(m.ObstacleSnapshot)] == list(m.Obstacle.__slots__)
+def test_the_view_snapshot_record_mirrors_the_slots_of_the_live_view():
     assert [f.name for f in dataclasses.fields(m.ViewSnapshot)] == list(m.ViewConfig.__slots__)
-    types = {f.name: f.type for f in dataclasses.fields(m.ObstacleSnapshot)}
-    assert types["id"] is int and types["shape"] is int and types["sides"] is int
-    assert types["in_effect"] is int and types["fire_inside"] is bool
-    assert types["width"] is float and types["r"] is float and types["theta"] is float
-
-
-def test_snapshot_obstacle_copies_every_field_and_a_live_edit_does_not_reach_the_copy():
-    o = m.Obstacle(5)
-    o.r, o.sides, o.fire_inside = 0.5, 7, True
-    snap = m.snapshot_obstacle(o)
-    assert isinstance(snap, m.ObstacleSnapshot)
-    assert all(getattr(snap, f) == getattr(o, f) for f in m.Obstacle.__slots__)
-    o.r = 0.9
-    assert snap.r == 0.5
-    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(snap, "r", 1.0))
 
 
 def test_snapshot_view_stores_the_channel_lists_as_tuples_unshared_with_the_live_view():
@@ -8127,11 +8355,12 @@ def test_snapshot_view_stores_the_channel_lists_as_tuples_unshared_with_the_live
     assert m.view_channel_value(snap, 0) == m.view_channel_value(m.ViewConfig(2), 0)
 
 
-def test_resolved_obstacles_and_views_are_strict_records():
+def test_resolved_obstacles_are_frozen_shapes_and_views_and_settings_are_strict_records():
     kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.25})]
-    o = m.Obstacle(1)
-    resolved = m.resolve_obstacles([m.snapshot_obstacle(o)], kfs, 0)
-    assert isinstance(resolved[0], m.ObstacleSnapshot) and resolved[0].r == 0.25
+    o = m.EllipseShape(1)
+    resolved = m.resolve_obstacles([o.snapshot()], kfs, 0)
+    assert type(resolved[0]) is m.EllipseShape and resolved[0].r == 0.25
+    assert _raises(AttributeError, lambda: setattr(resolved[0], "r", 1.0))     # frozen
     views = m.resolve_views([m.snapshot_view(m.ViewConfig(0))], [], 0)
     assert isinstance(views[0], m.ViewSettings)
     assert isinstance(m.resolve_frame_settings([], 0), m.KeyframeData)
@@ -8338,7 +8567,7 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     class FakeApp:
         pass
     app = FakeApp()
-    o1, o2 = m.Obstacle(4), m.Obstacle(9)
+    o1, o2 = m.EllipseShape(4), m.EllipseShape(9)
     o2.width = 0.7
     app.obstacles = [o1, o2]
     app.views = [m.ViewConfig(3)]
@@ -8348,10 +8577,12 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     assert [(e.key, e.tab, e.label) for e in static] == m.SETTING_INFO
     assert [e.is_float for e in static] == [e.key in m.SETTING_FLOAT_KEYS for e in static]
     width = next(e for e in entries if e.key == "obst:9:width")
-    assert (width.tab, width.fallback, width.is_float) == ("Obstacle #2", 0.7, True)
+    assert (width.tab, width.fallback, width.is_float) == (m.obstacle_tab_title(1, o2), 0.7, True)
     chan = next(e for e in entries if e.key == "view:3:chan1")
     assert chan.tab == "View 0" and chan.fallback == m.view_channel_value(app.views[0], 1)
-    assert [e.tab for e in entries].count("Obstacle #1") == len(m.OBST_FIELD_INFO)
+    assert m.obstacle_tab_title(0, o1) == "Obstacle #1 (Ellipse)"
+    assert [e.tab for e in entries].count(m.obstacle_tab_title(0, o1)) == len(o1.KEYFRAME_FIELDS)
+    assert "obst:4:shape" not in [e.key for e in entries]       # a shape's kind is not a setting
 
 
 def test_setting_info_is_derived_from_the_spec_rows_so_every_setting_has_a_label_and_tab():
@@ -8369,7 +8600,7 @@ def _ring_app(generated):
         pass
     app = FakeApp()
     o = m.default_starting_obstacle(0)
-    o2 = m.Obstacle(1)
+    o2 = m.EllipseShape(1)
     o2.r, o2.theta, o2.cx, o2.in_effect, o2.out_effect = 0.5, 90.0, 0.25, m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS
     app.obstacles = [o, o2]
     arrays = m.build_obstacle_arrays(app.obstacles)
@@ -8412,7 +8643,7 @@ def test_the_rule_builders_give_named_typed_fields():
 
 
 def test_obstacle_arrays_bundle_parallel_arrays_in_one_argument():
-    a, b = m.default_starting_obstacle(0), m.Obstacle(1)
+    a, b = m.default_starting_obstacle(0), m.EllipseShape(1)
     arrays = m.build_obstacle_arrays([a, b])
     assert isinstance(arrays, m.ObstacleArrays)
     assert arrays._fields == ("shapes", "bounds", "cx", "cy", "effects", "fire_inside")
@@ -8422,7 +8653,7 @@ def test_obstacle_arrays_bundle_parallel_arrays_in_one_argument():
     assert arrays.fire_inside.tolist() == [True, True]
     empty = m.build_obstacle_arrays([])
     assert len(empty.shapes) == 0 and empty.effects.shape == (0, 2)
-    resolved = m.resolve_obstacle_arrays([m.snapshot_obstacle(a)], [], 0)
+    resolved = m.resolve_obstacle_arrays([a.snapshot()], [], 0)
     assert isinstance(resolved, m.ObstacleArrays) and len(resolved.shapes) == 1
 
 
