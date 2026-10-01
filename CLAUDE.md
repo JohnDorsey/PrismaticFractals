@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is a git repo (the user commits between turns), no build step, no linter. The app is `light_bounces.py` (today one ~11k-line file; the project is no longer required to be a single file, and splitting it into modules is allowed where it helps maintainability - see the numba caching constraint under Architecture) with its tests in `test_light_bounces.py` (+ `test_harness.py`).
 
+**A refactor is in progress: splitting `light_bounces.py` into a package. The plan, its rules and its progress log are in `dev/refactor_plan.md` - read it before touching the structure of the code, and follow its reporting rule (end every step's summary with the next step and the effort level to recommend). When the plan is finished the file moves to `dev/finished_plans/` and this paragraph is removed.** Helper scripts for it are in `dev/refactor/`.
+
 ```bash
 python -m py_compile light_bounces.py      # compile-check
 python test_light_bounces.py               # full suite (~8s); custom runner, not pytest
