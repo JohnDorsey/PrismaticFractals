@@ -270,7 +270,7 @@ Development aids (screenshots and dumps)
 # completed task/turn that changed the file, not once per individual edit
 # within it. It is a delivery counter, not a semantic/feature version - it
 # says nothing about what changed.
-FILE_VERSION = 112
+FILE_VERSION = 113
 
 import dataclasses
 import json
@@ -4168,16 +4168,14 @@ def view_config_from_snapshot(snapshot):
 
 
 def project_signature(project):
-    """What a project's content amounts to, comparable with == : two projects with the same
-    signature would save the same file apart from which obstacle or view is selected and the
-    id counters. Used to tell whether there are unsaved changes."""
-    return (tuple(sorted(ray_settings_to_dict(project.ray).items())),
-            tuple(sorted(project.decorations.items())),
-            tuple((type(o).__name__, o.id, o.state()) for o in project.obstacles),
-            project.views,
-            tuple((kf.id, kf.frame_index, tuple(sorted(kf.data.items(), key=lambda kv: kv[0])))
-                  for kf in project.keyframes),
-            tuple(sorted(project.export.items())))
+    """What a project's content amounts to, comparable with == : exactly what its file would say,
+    apart from the program version, the id counters and which obstacle or view is selected. Used
+    to tell whether there are unsaved changes (so a setting a file does not keep, like the
+    Buddha compression of a channel that is not a Buddha channel, never counts as one)."""
+    content = project_to_dict(project)
+    for name in ("program_version", "counters", "selected"):
+        del content[name]
+    return json.dumps(content, sort_keys=True, default=_json_default)
 
 
 def _json_default(value):
@@ -4188,16 +4186,24 @@ def _json_default(value):
 
 
 def _channel_to_json(channel):
-    return {"source": CAT_CHAN_SOURCE.key(channel.chan_src),
-            "kind": CAT_CHAN_KIND.key(channel.kind),
-            "metric": CAT_METRIC.key(channel.stat),
-            "point1": CAT_POINT.key(channel.point1),
-            "point2": CAT_POINT.key(channel.point2),
-            "buddha_points": [CAT_BUDDHA_POINT.key(i)
-                              for i, chosen in enumerate(channel.buddha_points) if chosen],
-            "buddha_compression": CAT_BUDDHA_COMPRESSION.key(channel.buddha_compression),
-            "buddha_brightness": CAT_BUDDHA_BRIGHTNESS.key(channel.buddha_brightness),
-            "constant": CAT_CONSTANT.key(channel.constant)}
+    """A colour channel as the file holds it: its source and only the settings that source uses -
+    a query channel its metric (and the two points, if the metric compares points), a Buddha
+    channel its points, compression and brightness, a constant channel its constant."""
+    out = {"source": CAT_CHAN_SOURCE.key(channel.chan_src)}
+    if channel.chan_src == CHAN_SRC_QUERY:
+        out["kind"] = CAT_CHAN_KIND.key(channel.kind)
+        out["metric"] = CAT_METRIC.key(channel.stat)
+        if channel.kind == KIND_POINT:
+            out["point1"] = CAT_POINT.key(channel.point1)
+            out["point2"] = CAT_POINT.key(channel.point2)
+    elif channel.chan_src == CHAN_SRC_BUDDHA:
+        out["buddha_points"] = [CAT_BUDDHA_POINT.key(i)
+                                for i, chosen in enumerate(channel.buddha_points) if chosen]
+        out["buddha_compression"] = CAT_BUDDHA_COMPRESSION.key(channel.buddha_compression)
+        out["buddha_brightness"] = CAT_BUDDHA_BRIGHTNESS.key(channel.buddha_brightness)
+    else:
+        out["constant"] = CAT_CONSTANT.key(channel.constant)
+    return out
 
 
 def _setting_catalog(key):
@@ -4295,27 +4301,40 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _channel_from_json(data, where):
+def _channel_from_json(data, where, c):
+    """Channel number `c` (0-2) from its JSON. Only the settings its source uses have to be there;
+    any other setting that is there is kept, and one that is not takes the channel's default."""
     _expect(isinstance(data, dict), f"{where}: a colour channel must be an object")
-    for name in ("source", "kind", "metric", "point1", "point2", "buddha_points",
-                 "buddha_compression", "buddha_brightness", "constant"):
+    _expect("source" in data, f"{where}: the channel has no 'source'")
+    default = view_channel_value(ViewConfig(0), c)
+    source = CAT_CHAN_SOURCE.code(data["source"], where)
+    values = {"chan_src": source, "kind": default.kind, "stat": default.stat,
+              "point1": default.point1, "point2": default.point2,
+              "buddha_points": default.buddha_points,
+              "buddha_compression": default.buddha_compression,
+              "buddha_brightness": default.buddha_brightness, "constant": default.constant}
+    for name, field, catalog in (("kind", "kind", CAT_CHAN_KIND), ("metric", "stat", CAT_METRIC),
+                                 ("point1", "point1", CAT_POINT), ("point2", "point2", CAT_POINT),
+                                 ("buddha_compression", "buddha_compression", CAT_BUDDHA_COMPRESSION),
+                                 ("buddha_brightness", "buddha_brightness", CAT_BUDDHA_BRIGHTNESS),
+                                 ("constant", "constant", CAT_CONSTANT)):
+        if name in data:
+            values[field] = catalog.code(data[name], where)
+    if "buddha_points" in data:
+        chosen = data["buddha_points"]
+        _expect(isinstance(chosen, list), f"{where}: buddha_points must be a list")
+        codes = {CAT_BUDDHA_POINT.code(key, where) for key in chosen}
+        values["buddha_points"] = tuple(code in codes for code in range(N_BUDDHA_POINTS))
+    needed = {CHAN_SRC_QUERY: ["kind", "metric"] + (["point1", "point2"]
+                                                    if values["kind"] == KIND_POINT else []),
+              CHAN_SRC_BUDDHA: ["buddha_points", "buddha_compression", "buddha_brightness"],
+              CHAN_SRC_CONSTANT: ["constant"]}[source]
+    for name in needed:
         _expect(name in data, f"{where}: the channel has no {name!r}")
-    chosen = data["buddha_points"]
-    _expect(isinstance(chosen, list), f"{where}: buddha_points must be a list")
-    codes = {CAT_BUDDHA_POINT.code(key, where) for key in chosen}
-    channel = ChannelSettings(
-        chan_src=CAT_CHAN_SOURCE.code(data["source"], where),
-        kind=CAT_CHAN_KIND.code(data["kind"], where),
-        stat=CAT_METRIC.code(data["metric"], where),
-        point1=CAT_POINT.code(data["point1"], where),
-        point2=CAT_POINT.code(data["point2"], where),
-        buddha_points=tuple(code in codes for code in range(N_BUDDHA_POINTS)),
-        buddha_compression=CAT_BUDDHA_COMPRESSION.code(data["buddha_compression"], where),
-        buddha_brightness=CAT_BUDDHA_BRIGHTNESS.code(data["buddha_brightness"], where),
-        constant=CAT_CONSTANT.code(data["constant"], where))
-    _expect(channel.stat in (POINT_STATS if channel.kind == KIND_POINT else OTHER_STATS),
-            f"{where}: the metric {data['metric']!r} does not suit a {data['kind']!r} channel")
-    return channel
+    if source == CHAN_SRC_QUERY:
+        _expect(values["stat"] in (POINT_STATS if values["kind"] == KIND_POINT else OTHER_STATS),
+                f"{where}: the metric {data['metric']!r} does not suit a {data['kind']!r} channel")
+    return ChannelSettings(**values)
 
 
 def _setting_from_json(key, value, where):
@@ -4367,7 +4386,7 @@ def _view_from_json(data, seen_ids):
     view = ViewConfig(view_id)
     view.mode = mode
     for c, channel in enumerate(channels):
-        view.set_channel(c, _channel_from_json(channel, f"view {view_id} channel {c + 1}"))
+        view.set_channel(c, _channel_from_json(channel, f"view {view_id} channel {c + 1}", c))
     return snapshot_view(view)
 
 
@@ -4384,7 +4403,9 @@ def _keyframe_from_json(data, seen_ids):
     values = {}
     for key, value in settings.items():
         if key.startswith("view:") and ":chan" in key:
-            values[key] = _channel_from_json(value, f"keyframe {kf_id} {key}")
+            channel_number = key.rsplit(":chan", 1)[1]
+            _expect(channel_number in ("0", "1", "2"), f"keyframe {kf_id}: {key!r} is not a channel")
+            values[key] = _channel_from_json(value, f"keyframe {kf_id} {key}", int(channel_number))
         else:
             values[key] = _setting_from_json(key, value, f"keyframe {kf_id}")
     return Keyframe(kf_id, frame_index, values)
@@ -6554,7 +6575,12 @@ class App:
         """Whether there are changes not saved in the project (an entry holding an invalid
         value counts as one)."""
         project = self.capture_project(show_error=False)
-        return project is None or project_signature(project) != self.saved_signature
+        if project is None:
+            return True
+        try:
+            return project_signature(project) != self.saved_signature
+        except ProjectError:                       # something that cannot be saved is a change
+            return True
 
     def update_title(self):
         title = f"{'*' if self.is_dirty() else ''}{self.project_display_name()} - " \

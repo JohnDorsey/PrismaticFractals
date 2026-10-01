@@ -8917,6 +8917,12 @@ def _sample_project(**changes):
     return m.Project(**fields)
 
 
+def _as_saved(channel, number):
+    """A colour channel as it comes back from a file: the settings its source does not use
+    are not kept, so they take the channel's defaults."""
+    return m._channel_from_json(m._channel_to_json(channel), "test", number)
+
+
 def _round_trip(project):
     import json
     return m.project_from_dict(json.loads(m.project_text(project)))
@@ -8926,7 +8932,11 @@ def test_a_project_survives_being_saved_and_loaded():
     project = _sample_project()
     loaded = _round_trip(project)
     assert m.project_signature(loaded) == m.project_signature(project)
-    assert loaded.ray == project.ray and loaded.views == project.views
+    assert loaded.ray == project.ray and [v.id for v in loaded.views] == [0, 5]
+    for want, got in zip(project.views, loaded.views):
+        assert got.mode == want.mode
+        for number in range(3):
+            assert m.view_channel_value(got, number) == _as_saved(m.view_channel_value(want, number), number)
     assert [type(o) for o in loaded.obstacles] == list(m.SHAPE_CLASSES)
     assert loaded.export == project.export
     assert [o.id for o in loaded.obstacles] == [i * 2 + 1 for i in range(len(m.SHAPE_CLASSES))]
@@ -8935,9 +8945,114 @@ def test_a_project_survives_being_saved_and_loaded():
     assert (loaded.obstacle_counter, loaded.view_counter, loaded.keyframe_counter) == (40, 9, 12)
     assert (loaded.selected_obstacle_id, loaded.selected_view_id) == (5, 5)
     kf = loaded.keyframes[0]
-    assert (kf.id, kf.frame_index) == (2, 0) and kf.data == project.keyframes[0].data
+    assert (kf.id, kf.frame_index) == (2, 0)
+    want = project.keyframes[0].data
+    assert kf.data["view:5:chan1"] == _as_saved(want["view:5:chan1"], 1)
+    assert kf.data["view:0:chan0"] == _as_saved(want["view:0:chan0"], 0)
+    assert {k: v for k, v in kf.data.items() if not k.startswith("view:") or k.endswith("mode")} \
+        == {k: v for k, v in want.items() if not k.startswith("view:") or k.endswith("mode")}
     assert isinstance(kf.data["view:5:chan1"], m.ChannelSettings)
     assert isinstance(kf.data["iter"], int) and kf.data["outline"] is False
+
+
+def _channel(source, **changes):
+    fields = dict(chan_src=source, kind=m.KIND_POINT, stat=m.ST_EUCLIDEAN, point1=m.POINT_TOP,
+                  point2=m.POINT_ORIGIN,
+                  buddha_points=(False, True) + (False,) * (m.N_BUDDHA_POINTS - 2),
+                  buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3,
+                  constant=m.NONE_ONE)
+    fields.update(changes)
+    return m.ChannelSettings(**fields)
+
+
+def test_a_channel_in_a_file_has_only_the_settings_its_source_uses():
+    query_points = m._channel_to_json(_channel(m.CHAN_SRC_QUERY))
+    assert query_points == {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
+                            "point1": "uppermost_bounce", "point2": "origin"}
+    query_other = m._channel_to_json(_channel(m.CHAN_SRC_QUERY, kind=m.KIND_OTHER, stat=m.ST_BOUNCES))
+    assert query_other == {"source": "query", "kind": "other_metric", "metric": "bounces"}
+    assert m._channel_to_json(_channel(m.CHAN_SRC_BUDDHA)) == {
+        "source": "buddha", "buddha_points": ["self_bounces_mean"],
+        "buddha_compression": "modulus", "buddha_brightness": "8x"}
+    assert m._channel_to_json(_channel(m.CHAN_SRC_CONSTANT)) == {"source": "constant",
+                                                                  "constant": "one"}
+    text = m.project_text(_sample_project())
+    import json
+    for view in json.loads(text)["views"]:
+        for channel in view["channels"]:
+            unused = {"query": ["buddha_points", "buddha_compression", "buddha_brightness",
+                                "constant"],
+                      "buddha": ["kind", "metric", "point1", "point2", "constant"],
+                      "constant": ["kind", "metric", "point1", "point2", "buddha_points",
+                                   "buddha_compression", "buddha_brightness"]}[channel["source"]]
+            assert not [name for name in unused if name in channel], channel
+
+
+def test_a_channel_missing_a_setting_its_source_uses_is_refused_and_unused_ones_take_defaults():
+    def refused(data, number=0):
+        try:
+            m._channel_from_json(data, "test", number)
+        except m.ProjectError as exc:
+            return str(exc)
+        raise AssertionError("accepted")
+    assert "'buddha_compression'" in refused({"source": "buddha", "buddha_points": []})
+    assert "'buddha_brightness'" in refused({"source": "buddha", "buddha_points": [],
+                                             "buddha_compression": "modulus"})
+    assert "'constant'" in refused({"source": "constant"})
+    assert "'metric'" in refused({"source": "query", "kind": "other_metric"})
+    assert "'point2'" in refused({"source": "query", "kind": "point_metric",
+                                  "metric": "horizontal_distance", "point1": "origin"})
+    assert "'source'" in refused({"kind": "point_metric"})
+    assert "does not suit" in refused({"source": "query", "kind": "other_metric",
+                                       "metric": "horizontal_distance"})
+    just_constant = m._channel_from_json({"source": "constant", "constant": "one"}, "test", 2)
+    default = m.view_channel_value(m.ViewConfig(0), 2)
+    assert just_constant == default.replace(chan_src=m.CHAN_SRC_CONSTANT, constant=m.NONE_ONE)
+    assert m._channel_from_json({"source": "query", "kind": "other_metric", "metric": "bounces"},
+                                "test", 1).point1 == m.view_channel_value(m.ViewConfig(0), 1).point1
+
+
+def test_a_file_that_keeps_unused_channel_settings_still_loads_with_them():
+    """The first files of format 2 held every setting of every channel; they must keep loading,
+    and what they kept is kept."""
+    everything = {"source": "query", "kind": "point_metric", "metric": "manhattan_distance",
+                  "point1": "origin", "point2": "end_point", "buddha_points": ["termination_point"],
+                  "buddha_compression": "modulus", "buddha_brightness": "16x", "constant": "one"}
+    channel = m._channel_from_json(everything, "test", 0)
+    assert channel.chan_src == m.CHAN_SRC_QUERY and channel.stat == m.ST_MANHATTAN
+    assert channel.buddha_compression == m.BUDDHA_COMPRESS_MODULUS and channel.buddha_brightness == 4
+    assert channel.constant == m.NONE_ONE and channel.buddha_points[3] is True
+
+
+def test_unused_channel_settings_do_not_count_as_a_change_to_the_project():
+    """What is not saved cannot make the project 'unsaved'."""
+    project = _sample_project()
+    sig = m.project_signature(project)
+    view = m.view_config_from_snapshot(project.views[0])
+    assert view.chan_src[0] == m.CHAN_SRC_QUERY
+    view.buddha_compression[0] = m.BUDDHA_COMPRESS_MODULUS            # unused: a query channel
+    view.constant_choice[0] = m.NONE_ONE
+    view.buddha_brightness[0] = 4
+    edited = project.replace(views=(m.snapshot_view(view), project.views[1]))
+    assert m.project_signature(edited) == sig
+    view.chan_src[0] = m.CHAN_SRC_BUDDHA                              # now they are used
+    changed = project.replace(views=(m.snapshot_view(view), project.views[1]))
+    assert m.project_signature(changed) != sig
+
+
+def test_a_project_that_cannot_be_saved_counts_as_having_unsaved_changes():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    ok = _sample_project()
+    app.saved_signature = m.project_signature(ok)
+    app.capture_project = lambda show_error=True: ok
+    app.is_dirty = m.App.is_dirty.__get__(app)
+    assert app.is_dirty() is False
+    app.capture_project = lambda show_error=True: ok.replace(ray=ok.ray.replace(seg_mult=float("nan")))
+    assert app.is_dirty() is True
+    app.capture_project = lambda show_error=True: None
+    assert app.is_dirty() is True
 
 
 def test_a_project_file_is_pretty_printed_versioned_json():
@@ -9042,6 +9157,9 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d14 = _dict_of()
     d14["views"][0]["channels"][0].pop("metric")
     _refused(d14, "no 'metric'")
+    d15 = _dict_of()
+    d15["keyframes"][0]["settings"]["view:5:chan7"] = {"source": "query"}
+    _refused(d15, "not a channel")
 
 
 def test_loading_a_file_that_is_not_json_or_not_text_or_missing_is_refused():
@@ -9282,11 +9400,9 @@ def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     assert {o["fields"]["in_effect"] for o in data["obstacles"]} <= set(m.CAT_EFFECT.by_key)
     assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
     channel = data["views"][1]["channels"][1]
-    assert channel == {"source": "buddha", "kind": "other_metric", "metric": "bounces",
-                       "point1": "start_point", "point2": "end_point",
+    assert channel == {"source": "buddha",
                        "buddha_points": ["self_bounces_mean", "boundary_bounces_mean"],
-                       "buddha_compression": "modulus", "buddha_brightness": "8x",
-                       "constant": "one"}
+                       "buddha_compression": "modulus", "buddha_brightness": "8x"}
     settings = data["keyframes"][0]["settings"]
     assert settings["view:5:chan1"] == channel and settings["iter"] == 40
     assert data["keyframes"][1]["settings"]["emit_mode"] == "towards_point"
