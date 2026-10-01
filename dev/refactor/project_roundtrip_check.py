@@ -26,9 +26,9 @@ import numpy as np                                   # noqa: E402
 import light_bounces as lb                           # noqa: E402
 
 folder = tempfile.mkdtemp(prefix="lb_check_")
-lb.EXPORT_DIR = os.path.join(folder, "exports")
-lb.TEMP_DIR = os.path.join(lb.EXPORT_DIR, "TEMP")
-lb.PROJECT_DIR = os.path.join(folder, "projects")
+lb.paths.EXPORT_DIR = os.path.join(folder, "exports")
+lb.paths.TEMP_DIR = os.path.join(lb.paths.EXPORT_DIR, "TEMP")
+lb.paths.PROJECT_DIR = os.path.join(folder, "projects")
 path = os.path.join(folder, "check" + lb.PROJECT_EXTENSION)
 prompts = []
 lb.messagebox.askyesnocancel = lambda *a, **k: prompts.append(a[0]) or False     # "don't save"

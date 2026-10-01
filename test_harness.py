@@ -1,7 +1,7 @@
 """
-Shared test harness for light_bounces.py.
+Shared test harness for the program (the `lightbounces` package).
 
-light_bounces.py is a Tkinter app, so importing it directly requires a
+The program is a Tkinter app, so importing it directly requires a
 display. This module stubs out just enough of tkinter/ttk for the import to
 succeed headlessly - every widget class becomes a no-op that accepts any
 constructor arguments and swallows any method call - so test scripts can
@@ -9,7 +9,7 @@ import the real module and call its plain functions (trace_path,
 resolve_frame_settings, the PNG/QOI encoders, etc.) directly, with no
 display, no mainloop, and no real widgets involved.
 
-Usage, from a test script in the same directory as light_bounces.py:
+Usage, from a test script in the same directory as light_bounces.py (and the lightbounces package):
 
     from test_harness import load_module
     m = load_module()
@@ -119,18 +119,40 @@ def _install_stubs():
     sys.modules["tkinter.messagebox"] = messagebox
 
 
+PACKAGE = "lightbounces"
+
+
+def _package_modules():
+    return {name: module for name, module in sys.modules.items()
+            if name == PACKAGE or name.startswith(PACKAGE + ".")}
+
+
 def load_module(path=None):
-    """Import light_bounces.py headlessly and return the module object.
-    `path` defaults to light_bounces.py next to this file. Safe to call
-    multiple times (e.g. once per test function that needs a clean module,
-    like the deliberate-breakage checks in test_light_bounces.py); each call
-    returns a fresh module object, so tests that mutate module-level state
-    don't affect each other."""
+    """Import the program headlessly and return it as a module-like object: the `lightbounces` package, whose
+    attributes include every name of every module of it (public and underscore). Safe to call multiple times
+    (e.g. once per test function that needs a clean copy to break on purpose, like the deliberate-breakage
+    checks in test_light_bounces.py); each call imports the WHOLE package afresh, so the copies are independent
+    and tests that mutate module-level state don't affect each other.
+
+    To PATCH a global of the program, patch the module that owns it (m.paths.EXPORT_DIR, m.external.ffmpeg):
+    reading any name through the package works, but an assignment on the package would not reach the functions
+    that read it. The copy's modules are kept in m.__lb_modules__ and are NOT left in sys.modules (so the next
+    copy starts clean); tests that need them there (pickling) use _ModuleRegistered.
+
+    `path` (for development scripts) loads one old single-file version of the program from that file."""
     _install_stubs()
-    if path is None:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "light_bounces.py")
-    spec = importlib.util.spec_from_file_location("light_bounces", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    if path is not None:
+        spec = importlib.util.spec_from_file_location("light_bounces", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    root = os.path.dirname(os.path.abspath(__file__))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    for name in _package_modules():
+        del sys.modules[name]
+    package = importlib.import_module(PACKAGE)
+    package.__lb_modules__ = _package_modules()
+    for name in package.__lb_modules__:
+        del sys.modules[name]
+    return package

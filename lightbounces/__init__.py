@@ -1,0 +1,285 @@
+"""
+Light-bounce image / video generator.
+
+The scene is made of shapes - "obstacles" - drawn in a 512x512 preview image
+that spans [-1, 1] in both directions (the simulation itself always runs in
+that fixed square, whatever resolution is later exported). There is no other
+kind of boundary: the app starts with a single obstacle - the unit circle,
+filling the image, which reflects rays and fires them inside itself - and
+everything else is built the same way, by editing, adding or deleting
+obstacles.
+
+The figure
+  The "figure" is the mathematical result of perfectly simulating the rules
+  below - like the Mandelbrot set or the Buddhabrot are the results of their
+  own rules. It can never be generated whole; this program generates views of
+  it, detailed and accurate enough to learn about it. What defines the figure
+  is the stopping limits, the segment length, the emission direction, the
+  confinement rule, the fuzzing and the obstacles.
+  Coloration, decorations and the Buddha blur are not part of it: they only
+  process or decorate the data generated from it.
+
+Obstacles
+  Any number of shapes, each one of twelve kinds with its own size/angle
+  parameters and rotation:
+
+  * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
+    circle),
+  * a regular polygon (number of sides and a radius),
+  * a Moss's egg, a circular sector, a circular segment, a two-circle lens,
+    a Reuleaux polygon (odd number of sides), or a capsule,
+  * and four concave shapes made of circular arcs: a trefoil and a quatrefoil
+    (three and four overlapping lobes), a lune (a disc with a bite taken out
+    by a second disc) and an arbelos (a half-disc minus two smaller ones).
+
+  Each is placed by a polar position (r, theta) from the origin plus an x/y
+  offset, and has its own incoming and outgoing ray effects and its own "Fire
+  rays inside" box. Every one of these fields can be animated by keyframes.
+  An obstacle's kind is chosen when it is made, with the "new..." menu in the
+  Obstacles tab, and cannot be changed afterwards (delete it and make
+  another); it has only the parameters its own kind needs.
+
+Ray effects
+  What happens to a ray as it reaches the edge of a shape depends on which
+  way it is crossing: coming in from outside uses the shape's "incoming ray
+  effect", going out from inside its "outgoing ray effect". Each is one of
+
+    Reflect       a mirror (using the boundary's fuzzing settings),
+    Terminate     the ray stops the instant it reaches the edge,
+    Pass through  the ray carries on across the edge. This is neither a bounce
+                  nor a recorded path point, and it doesn't cut the segment
+                  short: the ray simply becomes inside (or outside) that shape.
+
+  Reflect both ways makes a container that rays never leave;
+  Pass through both ways makes the shape invisible to rays; incoming Pass
+  through with outgoing Reflect lets rays in but never out. A new obstacle
+  defaults to Reflect both ways, with "fire rays inside" on.
+
+Rays
+  A ray starts at the centre of every pixel that is inside ANY shape whose
+  "Fire rays inside" box is ticked. Being inside a shape whose box is clear
+  makes no difference, and with no shape firing there are no rays at all. The
+  ray's direction is set by the emission settings (below) - by default up and
+  to the right, at 45 degrees - and it starts out inside every shape that
+  contains its start point. It reflects, terminates or passes through at each shape's
+  edge as described above, and it reflects off any earlier segment of its own
+  path. A ray stops when
+
+  * it becomes confined (see below),
+  * it has bounced as many times as the iteration limit allows (1 to 9999),
+  * its total path length reaches the distance limit (in units, where one unit
+    is half the image width; 0, the default, means no distance limit). If the
+    limit is reached part-way along a segment, the segment is cut off there,
+  * it reaches an edge whose effect for that direction is Terminate,
+  * it strikes a reflective surface at exactly perpendicular incidence (which
+    side it would retrace along is undefined, so it stops there), or
+  * it escapes: nothing is left ahead for it to hit, so its last point is
+    where it leaves the [-1, 1] image square.
+
+  Emission direction: each ray starts out pointing either straight up (90
+  degrees) or from its own start pixel towards a target point, which can be
+  anywhere (a pixel exactly on it points up) and is positioned the way an
+  obstacle is: a distance r at angle theta from the origin, plus an x and a y
+  offset; the angle offset is then added,
+  positive meaning more counterclockwise, and fuzzing's emission jitter (if on)
+  on top. The defaults - Up, offset -45 degrees - give the up-and-to-the-right
+  direction of 45 degrees.
+
+  Confinement is judged on the last few points of the ray's path (the window,
+  4 by default; 2 to 999). With the Box method (the default) the ray is confined
+  when those points fit in a box smaller than the threshold in both directions;
+  with Path length, when the segments between them add up to less than the
+  threshold. The threshold is one setting serving as either, in world units (the
+  image spans -1 to 1), and can be any number above zero; its default, one pixel
+  of the 512-pixel preview (2/512), is what was always built in.
+
+  A segment length multiplier (0.01 to 1; 1 means no effect) shortens every
+  ordinary bounce's segment to that fraction of its true length, after which
+  the ray continues in the newly bounced direction from where it stopped. A
+  segment includes any edges the ray passed through on the way.
+
+Fuzzing
+  Optional randomness/offsets applied to three kinds of angle: the ray's
+  emission direction (a random jitter added once, when it leaves its start
+  pixel), the deflection angle of each bounce off any reflecting edge, and the
+  deflection angle of each bounce off the ray's own earlier
+  path (each of the latter two with an offset, a jitter range and a
+  multiplier). A seed makes the randomness reproducible. The whole tab is
+  greyed out while fuzzing is off.
+
+Coloration
+  For every ray, thirteen metrics are measured (each scaled to 0..1): four
+  that compare two chosen sample points (horizontal, vertical, Manhattan and
+  Euclidean distance) and nine others (bounce counts and fractions, loop area,
+  bounce angles, path length, last-segment direction and length, and why the
+  ray stopped - one of six reasons, spaced evenly from 0 to 1). Fifteen sample points can be chosen: thirteen picked out of the
+  ray's path (its start and end, the means of its bounce points, its
+  uppermost/lowermost/rightmost/leftmost bounces overall and among only its
+  self-bounces) plus two fixed ones (the origin and the top-left corner).
+
+  A view is a color model (RGB or HSV) plus three channels. Each channel has a
+  source:
+    Query     a metric, evaluated once per ray for the pixel it was emitted
+              from - either a point comparison (with its two sample points)
+              or one of the other metrics,
+    Buddha    named after the Buddhabrot: characteristic points of every ray
+              are scattered into a visit-count histogram, and a pixel's
+              brightness comes from how often its own location was landed on
+              by any ray. Any number of point kinds can be scattered at once
+              (means, termination points by reason, every self-bounce, every
+              segment midpoint, progressive means). Counts are compressed to
+              0..1 (arctangent or modulus) with an optional brightness boost,
+              and the Buddha blur tab spreads each scattered point over a
+              neighborhood (Gaussian, triangular, bokeh or catadioptric
+              bokeh; radius 0 means no blur),
+    Constant  always 0 or always 1, taking no part in the simulation.
+  Per-pixel results are stored, so changing a view's coloration recolors the
+  image without regenerating it (Buddha channels rebuild their histograms
+  first; that never restarts the generation either).
+
+  Several views can exist at once, listed in the Coloration tab. Whichever
+  one is selected is the one shown in the preview (with its name overlaid,
+  in the preview only); exports and videos can include all of them, side by
+  side, so more than three channels' worth of information can be shown at once.
+
+Decorations
+  The outline of each obstacle is drawn into the image and so appears in
+  exports. An outline has two layers, each about 1.5 pixels thick: the outer
+  one shows the obstacle's incoming ray effect and the inner one its outgoing
+  effect (pale blue for Reflect, brown for Terminate, black for Pass through).
+  Everything else (the dashed outline of not-yet-generated shape
+  changes, the previewed ray's path, markers and guide lines, the color
+  sample points) is drawn over the preview only and never saved.
+
+Timeline and video
+  A keyframe has a frame index and a set of settings - any subset of every setting in the
+  Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
+  obstacle's and every view's own fields (an obstacle's shape parameters and
+  ray effects included; its kind is not a setting). "New keyframe (from current settings)" defines every setting
+  from the controls' current values; "New keyframe (empty)" defines none.
+  Selecting a keyframe loads into the controls every setting it defines and
+  every setting its neighbors animate through it (settings nobody defines are
+  left alone). While a keyframe is selected, any setting you change gets a blue
+  outline on its control and in the keyframe's settings list, until you save it
+  ("Save all modified", or a setting's own Save) or deselect the keyframe (click
+  the empty part of the keyframe list, or select another one) - the values then
+  stay in the controls, but no longer count as modified, so selecting another
+  keyframe can overwrite them. Each setting can also be deleted from the keyframe
+  individually (or all at once), so different settings can start and stop
+  animating at different points on the timeline. Changing the controls never
+  touches a keyframe until you save. "Split"
+  makes a duplicate right after the original, with the same frame index;
+  editing the selected keyframe's frame-index field re-sorts the list. Every
+  keyframe always has a frame index (0 for the first one created, one more
+  than the highest existing index for each new one after that).
+
+  Each setting is resolved independently, using only the keyframes that
+  define it. Between two of them, float-slider settings (shape dimensions and
+  rotations, fuzzing angles/jitters/multipliers, segment multiplier, blur
+  radius, obstacle geometry and position, and so on) are interpolated
+  linearly; everything else (which kind of
+  shape, which metric, colors, and so on) holds the earlier keyframe's value
+  until the later one is reached, since it isn't a number that could be
+  blended.
+
+  A render walks every whole frame from the lowest to the highest frame index
+  (optionally skipping the first), draws every frame at the chosen width and
+  height (the same world area as the preview), and writes each as a PNG into
+  exports/TEMP, next to this program. It then combines them with ffmpeg into
+  an .mp4 (h264), .gif, .apng or .mkv (ffv1), or, through the external cjxl
+  tool, an animated .jxl (lossless or lossy), saved in the exports folder; the bitrate mode
+  (constant quality, target or variable bitrate) and a downsampling factor
+  apply to that combined video only, never to the PNG frames. "Re-encode"
+  combines whatever frames are already in TEMP using the current encoding
+  settings. A render refuses to start if two keyframes share a frame index or
+  if the TEMP folder already has any files in it. This program never deletes a
+  file on its own; the one exception is the Video panel's Clear button, which,
+  after a confirmation, deletes only frame_NNNNN.png files from TEMP.
+
+Exporting a still image
+  Export designer: whether the export includes all views or only the selected
+  one, where to put the coloration description (none, overlaid on the image,
+  or in a bottom margin) and where to put the figure settings (none, or a left
+  margin listing every setting that defines the figure: the stopping limits,
+  segment length, fuzzing and every obstacle's own fields; the margin grows
+  extra columns if they need the room); these apply to videos as well, with
+  the values of that frame. Export: either the
+  Current image (the preview as it was generated) or a New image generated
+  afresh at its own width and height (per view), saved as jxl (the default),
+  png or qoi (jxl lossless, or lossy with a quality setting). "Export" saves into the
+  exports folder (next to the program) under a default name; "Export As..." asks for one. Both are
+  disabled until an image has finished generating.
+
+Window layout (six panels, in three columns)
+  top left       the generated image (512x512). Hover to preview a ray; click
+                 to pin the preview to that pixel, freeing the mouse.
+  top middle     Controls, in six tabs: Simulation (stopping limits and the
+                 segment length), Fuzzing, Coloration, Buddha blur, Decorations
+                 and Obstacles (which scroll where they need to); Start and
+                 Revert settings are always visible
+  top right      Timeline: the keyframe list, each
+                 keyframe's settings, and the selected keyframe's controls
+  bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
+  bottom middle  the Export designer, and Export
+  bottom right   Video: render settings (size, skip first frame), encoding
+                 settings (fps, format, bitrate, downsampling), a preview of
+                 the latest frame, and Start Render / Re-encode / Clear
+
+Projects
+  File > New / Open / Save / Save as (Ctrl+N, O, S, Shift+S) keep a whole setup in a
+  .lightbounce file: the simulation settings, decorations, every obstacle, view and
+  keyframe, and the Export designer and video choices (not the generated image: after
+  opening a project the image is blank and Start makes it again, identical because
+  fuzzing is seeded). A project file is pretty-printed, versioned JSON, so it can be read,
+  diffed and kept in version control. The window title shows the project's name and a *
+  while there are unsaved changes; New, Open and closing the window ask first. The dialogs
+  start in the projects folder next to the program.
+
+Saved image files (all written to the exports folder) are named
+  <program name>-YYYYMMDD-hhmmss-<simulation settings>.<png|qoi|jxl>
+and rendered videos
+  <program name>-video-YYYYMMDD-hhmmss.<mp4|gif|apng|jxl>  (.ffv1.mkv for mkv)
+A JPEG XL file (still or video) also says its quality right before the extension:
+name.q90.jxl for lossy quality 90 (5 to 95), name.q100.jxl for lossless.
+where the program name is taken from this file's own name (so it follows any
+renaming).
+
+Requirements:  pip install numpy numba ffmpeg-python   (tkinter ships with
+Python). The ffmpeg command-line tool must also be installed and on PATH for
+video rendering and for saving a still as JPEG XL; the cjxl command-line tool
+(part of libjxl) is additionally needed for animated JXL video. All three are
+otherwise unnecessary: PNG and QOI stills need only the packages above.
+Pillow is optional too, and used only for the development screenshots.
+
+Development aids (screenshots and dumps)
+  If a dev folder exists next to this program, then once per launch (shortly
+  after the numba warm-up finishes) the program grabs a picture of its own
+  window into dev/screenshots/<file version>-YYYYMMDD-hhmmss-startup.png and
+  then pickles everything it holds (except large arrays) into
+  dev/dumps/<file version>-YYYYMMDD-hhmmss-startup.pkl. The Debug menu does
+  the same on demand (suffix -manual; a dump with or without large arrays),
+  and an unhandled error leaves a dump without large arrays (suffix -crash) but
+  no screenshot. The dumping code is dev/debug_dump.py, which also reads a dump
+  back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
+  for screenshots).
+"""
+from . import core, external, image_io, kernels, paths, version, widgets
+
+# Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
+# the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
+# later patch do nothing. They are deliberately NOT re-exported below: `lightbounces.EXPORT_DIR` would be a stale
+# copy after a patch, so it does not exist - use `lightbounces.paths.EXPORT_DIR`.
+PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths",
+                     "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external"}
+
+_MODULES = (version, paths, external, image_io, widgets, kernels, core)
+
+# Everything every module defines is also reachable as an attribute of the package (public and underscore
+# names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a
+# global, patch the module that owns it (`lightbounces.paths.EXPORT_DIR`): functions read their own module's
+# globals.
+for _module in _MODULES:
+    for _name, _value in vars(_module).items():
+        if not _name.startswith("__") and _name not in PATCHABLE_GLOBALS:
+            globals()[_name] = _value
+del _module, _name, _value

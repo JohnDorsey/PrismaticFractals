@@ -31,7 +31,8 @@ list of which attributes hold the simulation's output or other big buffers.
 
 Loading: use load_dump(path). A dump written while the program ran as a script
 names its classes as belonging to "__main__"; load_dump maps that to the real
-module name (default "light_bounces", which must be importable).
+module name (default "lightbounces", the package, which must be importable; the program's own classes
+are recorded under their real module names, e.g. "lightbounces.core", and need no mapping).
 """
 import os
 import pickle
@@ -281,7 +282,7 @@ class _Unpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def load_dump(path, module_name="light_bounces"):
+def load_dump(path, module_name="lightbounces"):
     """Read a dump back. Classes recorded as belonging to "__main__" (the program
     run as a script) are looked up in `module_name` instead."""
     with open(path, "rb") as f:

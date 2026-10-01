@@ -56,7 +56,7 @@ def test_self_checks_catch_a_missing_termination_color():
 
 def test_self_checks_catch_an_unknown_float_key():
     fresh = load_module()
-    fresh.SETTING_FLOAT_KEYS = fresh.SETTING_FLOAT_KEYS | {"not_a_real_setting"}
+    fresh.core.SETTING_FLOAT_KEYS = fresh.SETTING_FLOAT_KEYS | {"not_a_real_setting"}
     try:
         fresh.run_self_checks()
         raise AssertionError("expected run_self_checks() to raise")
@@ -1083,8 +1083,8 @@ def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_inclu
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_export_dir = m.EXPORT_DIR
-    m.EXPORT_DIR = tmpdir
+    orig_export_dir = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1102,7 +1102,7 @@ def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_inclu
         assert img_two_views.shape == (20, 40, 3), \
             f"adding a second view should double the export width, got {img_two_views.shape}"
     finally:
-        m.EXPORT_DIR = orig_export_dir
+        m.paths.EXPORT_DIR = orig_export_dir
 
 
 def test_include_all_views_defaults_to_true():
@@ -1132,8 +1132,8 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
 
     app.new_view()
     tmpdir = tempfile.mkdtemp()
-    orig_export_dir = m.EXPORT_DIR
-    m.EXPORT_DIR = tmpdir
+    orig_export_dir = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1142,7 +1142,7 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
         assert img.shape == (20, 20, 3), \
             f"with 'Include all views' off, export must stay single-width, got {img.shape}"
     finally:
-        m.EXPORT_DIR = orig_export_dir
+        m.paths.EXPORT_DIR = orig_export_dir
 
 
 def test_video_frame_render_widens_when_a_second_view_is_added_and_included():
@@ -1972,8 +1972,8 @@ def test_save_new_image_draws_coloration_info_when_enabled():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_export_dir = m.EXPORT_DIR
-    m.EXPORT_DIR = tmpdir
+    orig_export_dir = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -1981,7 +1981,7 @@ def test_save_new_image_draws_coloration_info_when_enabled():
         img = m.read_png(os.path.join(tmpdir, files[0]))
         assert (img == m.COLORATION_INFO_BG).all(axis=-1).any()
     finally:
-        m.EXPORT_DIR = orig_export_dir
+        m.paths.EXPORT_DIR = orig_export_dir
 
 
 def test_video_render_worker_draws_coloration_info_when_enabled():
@@ -2279,8 +2279,8 @@ def _fake_save_app(fmt, lossless, quality):
 
 
 def test_saving_a_jxl_image_names_its_quality_and_other_formats_do_not():
-    orig = m.EXPORT_DIR
-    m.EXPORT_DIR = os.path.join(tempfile.mkdtemp(), "exports")
+    orig = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = os.path.join(tempfile.mkdtemp(), "exports")
     try:
         for fmt, lossless, quality, tail in (("jxl", True, 90, ".q100.jxl"),
                                              ("jxl", False, 80, ".q80.jxl"),
@@ -2291,7 +2291,7 @@ def test_saving_a_jxl_image_names_its_quality_and_other_formats_do_not():
             import re
             assert bool(re.search(r"\.q\d+\.jxl$", app.written[0])) == (fmt == "jxl")
     finally:
-        m.EXPORT_DIR = orig
+        m.paths.EXPORT_DIR = orig
 
 
 def _recorded_cjxl_arguments(**options):
@@ -2452,13 +2452,13 @@ def test_read_render_settings_allows_jxl_with_cjxl_available():
     app.downsample_method_var = _StubVar("Mean")
     app.video_jxl_controls = _StubJxlControls()
     app.read_render_settings = m.App.read_render_settings.__get__(app)
-    orig_ffmpeg = m.ffmpeg
-    m.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python
+    orig_ffmpeg = m.external.ffmpeg
+    m.external.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python
     try:
         with _fake_cjxl():
             rs = app.read_render_settings()
     finally:
-        m.ffmpeg = orig_ffmpeg
+        m.external.ffmpeg = orig_ffmpeg
     assert rs is not None
     assert rs["fmt"] == "JXL"
 
@@ -2514,12 +2514,12 @@ def test_encode_video_output_writes_directly_for_non_jxl_formats():
     app = _fake_encode_app()
     work_dir = tempfile.mkdtemp()
     out_path = os.path.join(work_dir, "out.mp4")
-    orig_ffmpeg = m.ffmpeg
-    m.ffmpeg = _FakeFfmpegModule()
+    orig_ffmpeg = m.external.ffmpeg
+    m.external.ffmpeg = _FakeFfmpegModule()
     try:
         app.encode_video_output("pattern_%05d.png", 0, _base_rs("mp4 (h264)"), out_path)
     finally:
-        m.ffmpeg = orig_ffmpeg
+        m.external.ffmpeg = orig_ffmpeg
     assert os.path.exists(out_path)
     with open(out_path, "rb") as f:
         assert f.read() == b"fake ffmpeg output bytes"
@@ -2529,22 +2529,22 @@ def test_encode_video_output_routes_jxl_through_apng_and_cjxl():
     app = _fake_encode_app()
     work_dir = tempfile.mkdtemp()
     out_path = os.path.join(work_dir, "out.jxl")
-    orig_ffmpeg = m.ffmpeg
-    orig_temp_dir = m.TEMP_DIR
-    m.ffmpeg = _FakeFfmpegModule()
-    m.TEMP_DIR = tempfile.mkdtemp()
+    orig_ffmpeg = m.external.ffmpeg
+    orig_temp_dir = m.paths.TEMP_DIR
+    m.external.ffmpeg = _FakeFfmpegModule()
+    m.paths.TEMP_DIR = tempfile.mkdtemp()
     try:
         with _fake_cjxl():
             app.encode_video_output("pattern_%05d.png", 0, _base_rs("JXL"), out_path)
     finally:
-        m.ffmpeg = orig_ffmpeg
-        m.TEMP_DIR = orig_temp_dir
+        m.external.ffmpeg = orig_ffmpeg
+        m.paths.TEMP_DIR = orig_temp_dir
     assert os.path.exists(out_path), "the final .jxl file must exist"
     with open(out_path, "rb") as f:
         assert f.read() == b"fake ffmpeg output bytes", \
             "the fake cjxl just copies its input, so this confirms the chain ran: " \
             "ffmpeg wrote the APNG, cjxl copied it to the final path"
-    temp_apng = os.path.join(m.TEMP_DIR, "_jxl_video_source.apng")
+    temp_apng = os.path.join(m.paths.TEMP_DIR, "_jxl_video_source.apng")
     assert not os.path.exists(temp_apng), "the intermediate APNG must be cleaned up"
     assert any("cjxl" in s for s in app.status_calls), \
         "the status should mention the cjxl conversion step"
@@ -2554,10 +2554,10 @@ def test_encode_video_output_cleans_up_temp_apng_even_on_cjxl_failure():
     app = _fake_encode_app()
     work_dir = tempfile.mkdtemp()
     out_path = os.path.join(work_dir, "out.jxl")
-    orig_ffmpeg = m.ffmpeg
-    orig_temp_dir = m.TEMP_DIR
-    m.ffmpeg = _FakeFfmpegModule()
-    m.TEMP_DIR = tempfile.mkdtemp()
+    orig_ffmpeg = m.external.ffmpeg
+    orig_temp_dir = m.paths.TEMP_DIR
+    m.external.ffmpeg = _FakeFfmpegModule()
+    m.paths.TEMP_DIR = tempfile.mkdtemp()
     try:
         with _fake_cjxl("_jxl_video_source"):
             try:
@@ -2566,9 +2566,9 @@ def test_encode_video_output_cleans_up_temp_apng_even_on_cjxl_failure():
             except RuntimeError:
                 pass
     finally:
-        m.ffmpeg = orig_ffmpeg
-        m.TEMP_DIR = orig_temp_dir
-    temp_apng = os.path.join(m.TEMP_DIR, "_jxl_video_source.apng")
+        m.external.ffmpeg = orig_ffmpeg
+        m.paths.TEMP_DIR = orig_temp_dir
+    temp_apng = os.path.join(m.paths.TEMP_DIR, "_jxl_video_source.apng")
     assert not os.path.exists(temp_apng), \
         "the intermediate APNG must still be cleaned up even when cjxl fails"
     assert not os.path.exists(out_path)
@@ -2579,7 +2579,7 @@ def test_encode_video_output_cleans_up_temp_apng_even_on_cjxl_failure():
 # one place in the whole program that deletes anything at all
 # --------------------------------------------------------------------------- #
 class _ClearTempFramesContext:
-    """Patches m.TEMP_DIR to a fresh scratch directory and m.messagebox's
+    """Patches m.paths.TEMP_DIR to a fresh scratch directory and m.messagebox's
     dialog functions to controllable, call-counting stubs, for the duration
     of a `with` block - and restores both afterward, since the test module
     loads light_bounces once and shares it across every test."""
@@ -2590,12 +2590,12 @@ class _ClearTempFramesContext:
         self.askyesno_calls = []
 
     def __enter__(self):
-        self.orig_temp_dir = m.TEMP_DIR
+        self.orig_temp_dir = m.paths.TEMP_DIR
         self.orig_showinfo = m.messagebox.showinfo
         self.orig_showerror = m.messagebox.showerror
         self.orig_askyesno = m.messagebox.askyesno
         self.tmpdir = tempfile.mkdtemp()
-        m.TEMP_DIR = self.tmpdir
+        m.paths.TEMP_DIR = self.tmpdir
         m.messagebox.showinfo = lambda *a, **k: self.showinfo_calls.append((a, k))
         m.messagebox.showerror = lambda *a, **k: self.showerror_calls.append((a, k))
         m.messagebox.askyesno = lambda *a, **k: (self.askyesno_calls.append((a, k))
@@ -2603,7 +2603,7 @@ class _ClearTempFramesContext:
         return self
 
     def __exit__(self, *exc):
-        m.TEMP_DIR = self.orig_temp_dir
+        m.paths.TEMP_DIR = self.orig_temp_dir
         m.messagebox.showinfo = self.orig_showinfo
         m.messagebox.showerror = self.orig_showerror
         m.messagebox.askyesno = self.orig_askyesno
@@ -2966,8 +2966,8 @@ def test_save_new_image_rounds_a_non_multiple_of_4_resolution():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_export_dir = m.EXPORT_DIR
-    m.EXPORT_DIR = tmpdir
+    orig_export_dir = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -2976,7 +2976,7 @@ def test_save_new_image_rounds_a_non_multiple_of_4_resolution():
         assert img.shape == (24, 20, 3), \
             f"21x22 should round to 20x24, got {img.shape}"
     finally:
-        m.EXPORT_DIR = orig_export_dir
+        m.paths.EXPORT_DIR = orig_export_dir
 
 
 def test_read_render_settings_rounds_a_non_multiple_of_4_resolution():
@@ -2993,13 +2993,13 @@ def test_read_render_settings_rounds_a_non_multiple_of_4_resolution():
     app.downsample_method_var = _StubVar("Mean")
     app.video_jxl_controls = _StubJxlControls()
     app.read_render_settings = m.App.read_render_settings.__get__(app)
-    orig_ffmpeg = m.ffmpeg
-    m.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python; the
+    orig_ffmpeg = m.external.ffmpeg
+    m.external.ffmpeg = orig_ffmpeg or object()   # only this sandbox lacks ffmpeg-python; the
                                         # function under test doesn't actually call it
     try:
         rs = app.read_render_settings()
     finally:
-        m.ffmpeg = orig_ffmpeg
+        m.external.ffmpeg = orig_ffmpeg
     assert rs is not None
     assert rs["video_w"] == 1080
     assert rs["video_h"] == 1080
@@ -3262,8 +3262,8 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
     tmpdir = tempfile.mkdtemp()
-    orig_export_dir = m.EXPORT_DIR
-    m.EXPORT_DIR = tmpdir
+    orig_export_dir = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = tmpdir
     try:
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
@@ -3271,7 +3271,7 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
         img = m.read_png(os.path.join(tmpdir, files[0]))
         assert img.shape == (40 + 40 // 4, 40, 3)
     finally:
-        m.EXPORT_DIR = orig_export_dir
+        m.paths.EXPORT_DIR = orig_export_dir
 
 
 # --------------------------------------------------------------------------- #
@@ -4485,7 +4485,7 @@ def test_the_comboboxes_are_given_the_reordered_labels():
 
 def test_the_menu_order_self_check_catches_a_missing_point():
     fresh = load_module()
-    fresh.POINT_MENU_ORDER = fresh.POINT_MENU_ORDER[:-1]
+    fresh.core.POINT_MENU_ORDER = fresh.POINT_MENU_ORDER[:-1]
     try:
         fresh.run_self_checks()
         raise AssertionError("expected run_self_checks() to raise")
@@ -5286,8 +5286,8 @@ class _FakeGeometryRoot:
 
 
 class _ScreenshotEnv:
-    """Points m.DEV_DIR at a scratch directory (created only if
-    `with_dev_dir`) and m.ImageGrab at a fake (or None), restoring both."""
+    """Points m.paths.DEV_DIR at a scratch directory (created only if
+    `with_dev_dir`) and m.external.ImageGrab at a fake (or None), restoring both."""
     def __init__(self, with_dev_dir=True, grab="fake"):
         self.with_dev_dir = with_dev_dir
         self.grab = _FakeImageGrab() if grab == "fake" else grab
@@ -5297,16 +5297,16 @@ class _ScreenshotEnv:
         self.dev_dir = os.path.join(self.parent, "dev")
         if self.with_dev_dir:
             os.makedirs(self.dev_dir)
-        self.orig_dev, self.orig_grab = m.DEV_DIR, m.ImageGrab
-        m.DEV_DIR, m.ImageGrab = self.dev_dir, self.grab
+        self.orig_dev, self.orig_grab = m.paths.DEV_DIR, m.external.ImageGrab
+        m.paths.DEV_DIR, m.external.ImageGrab = self.dev_dir, self.grab
         return self
 
     def __exit__(self, *exc):
-        m.DEV_DIR, m.ImageGrab = self.orig_dev, self.orig_grab
+        m.paths.DEV_DIR, m.external.ImageGrab = self.orig_dev, self.orig_grab
 
 
 def test_dev_dir_is_dev_next_to_the_program():
-    assert m.DEV_DIR == os.path.join(m.SCRIPT_DIR, "dev")
+    assert m.paths.DEV_DIR == os.path.join(m.SCRIPT_DIR, "dev")
 
 
 def test_screenshot_is_skipped_without_a_dev_dir():
@@ -5367,22 +5367,22 @@ def test_startup_screenshot_failure_never_breaks_the_app():
 # and the video frames' TEMP folder lives inside it
 # --------------------------------------------------------------------------- #
 def test_export_dir_is_exports_next_to_the_program_and_temp_is_inside_it():
-    assert m.EXPORT_DIR == os.path.join(m.SCRIPT_DIR, "exports")
-    assert m.TEMP_DIR == os.path.join(m.EXPORT_DIR, "TEMP")
+    assert m.paths.EXPORT_DIR == os.path.join(m.SCRIPT_DIR, "exports")
+    assert m.paths.TEMP_DIR == os.path.join(m.paths.EXPORT_DIR, "TEMP")
 
 
 def test_ensure_export_dir_creates_a_missing_directory_and_returns_it():
     parent = tempfile.mkdtemp()
     target = os.path.join(parent, "exports")
-    orig = m.EXPORT_DIR
-    m.EXPORT_DIR = target
+    orig = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = target
     try:
         assert not os.path.exists(target)
         assert m.ensure_export_dir() == target
         assert os.path.isdir(target)
         assert m.ensure_export_dir() == target      # already existing is fine
     finally:
-        m.EXPORT_DIR = orig
+        m.paths.EXPORT_DIR = orig
 
 
 def test_export_writes_the_current_image_into_the_export_dir():
@@ -5402,12 +5402,12 @@ def test_export_writes_the_current_image_into_the_export_dir():
     app.save = m.App.save.__get__(app)
     parent = tempfile.mkdtemp()
     target = os.path.join(parent, "exports")
-    orig = m.EXPORT_DIR
-    m.EXPORT_DIR = target
+    orig = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = target
     try:
         app.save()
     finally:
-        m.EXPORT_DIR = orig
+        m.paths.EXPORT_DIR = orig
     assert len(written) == 1
     assert os.path.dirname(written[0]) == target
     assert os.path.basename(written[0]).endswith(".png")
@@ -5431,12 +5431,12 @@ def test_export_as_dialog_opens_in_the_export_dir():
     m.filedialog.asksaveasfilename = lambda *a, **k: seen.update(k) or ""
     parent = tempfile.mkdtemp()
     target = os.path.join(parent, "exports")
-    orig = m.EXPORT_DIR
-    m.EXPORT_DIR = target
+    orig = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = target
     try:
         app.save_as()
     finally:
-        m.EXPORT_DIR = orig
+        m.paths.EXPORT_DIR = orig
         m.filedialog.asksaveasfilename = orig_dialog
     assert seen["initialdir"] == target
     assert os.path.isdir(target)
@@ -5459,12 +5459,12 @@ def test_new_image_export_creates_the_export_dir_if_missing():
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
     parent = tempfile.mkdtemp()
     target = os.path.join(parent, "exports")
-    orig = m.EXPORT_DIR
-    m.EXPORT_DIR = target
+    orig = m.paths.EXPORT_DIR
+    m.paths.EXPORT_DIR = target
     try:
         _run_save_new_image_synchronously(app)
     finally:
-        m.EXPORT_DIR = orig
+        m.paths.EXPORT_DIR = orig
     assert [f for f in os.listdir(target) if f.endswith(".png")], \
         "the exported image should have been written into the freshly created dir"
 
@@ -6391,7 +6391,7 @@ def test_every_setting_and_obstacle_field_resolves_to_a_control():
 def _load_dumper():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "debug_dump_under_test", os.path.join(os.path.dirname(os.path.abspath(m.__file__)),
+        "debug_dump_under_test", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                               "dev", "debug_dump.py"))
     dumper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(dumper)
@@ -6440,18 +6440,19 @@ class _Plain:
 
 
 class _ModuleRegistered:
-    """Pickle finds a class by looking its module up in sys.modules, but other tests
-    load fresh copies of light_bounces under the same name; make sys.modules
-    point at the copy these tests use."""
+    """Pickle finds a class by looking its module up in sys.modules, but every load_module() copy
+    keeps its modules out of sys.modules (so the next copy starts clean); put the modules of the
+    copy these tests use there for the duration."""
     def __enter__(self):
-        self.saved = sys.modules.get(m.__name__)
-        sys.modules[m.__name__] = m
+        self.saved = {name: sys.modules.get(name) for name in m.__lb_modules__}
+        sys.modules.update(m.__lb_modules__)
 
     def __exit__(self, *exc):
-        if self.saved is None:
-            sys.modules.pop(m.__name__, None)
-        else:
-            sys.modules[m.__name__] = self.saved
+        for name, module in self.saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
 
 
 def _load_test_dump(path):
@@ -6669,7 +6670,7 @@ class _DumpEnv(_ScreenshotEnv):
     def __enter__(self):
         import shutil
         super().__enter__()
-        shutil.copy(os.path.join(os.path.dirname(os.path.abspath(m.__file__)), "dev",
+        shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev",
                                  "debug_dump.py"), self.dev_dir)
         return self
 
@@ -6694,12 +6695,12 @@ def test_dump_file_names_carry_the_version_time_and_cause():
     app = _fake_debug_app()
     with _DumpEnv() as env:
         for cause in ("startup", "crash", "manual"):
-            path = m.dump_app_state(app, cause, False)
+            path = m.core.dump_app_state(app, cause, False)
             assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}-{cause}\.pkl",
                                 os.path.basename(path)), path
             assert os.path.dirname(path) == os.path.join(env.dev_dir, "dumps")
         try:
-            m.dump_app_state(app, "other", False)
+            m.core.dump_app_state(app, "other", False)
             raise AssertionError("expected ValueError")
         except ValueError:
             pass
@@ -6708,14 +6709,14 @@ def test_dump_file_names_carry_the_version_time_and_cause():
 def test_dumps_are_skipped_without_a_dev_dir_or_the_dumper_and_never_raise():
     app = _fake_debug_app()
     with _ScreenshotEnv(with_dev_dir=False) as env:
-        assert m.dump_app_state(app, "manual", True) is None
+        assert m.core.dump_app_state(app, "manual", True) is None
         assert not os.path.exists(env.dev_dir)
     with _ScreenshotEnv() as env:                      # dev/ but no dumper in it
-        assert m.dump_app_state(app, "manual", True) is None
+        assert m.core.dump_app_state(app, "manual", True) is None
     with _DumpEnv() as env:                            # a dumper that blows up
         with open(os.path.join(env.dev_dir, "debug_dump.py"), "w") as f:
             f.write("raise RuntimeError('broken dumper')\n")
-        assert m.dump_app_state(app, "manual", True) is None
+        assert m.core.dump_app_state(app, "manual", True) is None
 
 
 def test_startup_captures_take_a_screenshot_then_a_dump_without_large_arrays_once():
@@ -6800,14 +6801,14 @@ def test_crash_dumps_are_capped_per_launch():
         exc_info = sys.exc_info()
     import io, contextlib, time as _time
     calls = []
-    saved = m.dump_app_state
-    m.dump_app_state = lambda *a, **k: calls.append(a[1])
+    saved = m.core.dump_app_state
+    m.core.dump_app_state = lambda *a, **k: calls.append(a[1])
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             for _ in range(m.MAX_CRASH_DUMPS + 4):
                 app.on_callback_exception(*exc_info)
     finally:
-        m.dump_app_state = saved
+        m.core.dump_app_state = saved
     assert calls == ["crash"] * m.MAX_CRASH_DUMPS
 
 
@@ -6981,12 +6982,12 @@ def test_startup_captures_reposition_the_window_before_the_screenshot():
     app.keep_window_on_screen = lambda: order.append("move")
     app.take_startup_screenshot = lambda: order.append("shot")
     app.take_startup_captures = m.App.take_startup_captures.__get__(app)
-    saved = m.dump_app_state
-    m.dump_app_state = lambda *a, **k: order.append("dump")
+    saved = m.core.dump_app_state
+    m.core.dump_app_state = lambda *a, **k: order.append("dump")
     try:
         app.take_startup_captures()
     finally:
-        m.dump_app_state = saved
+        m.core.dump_app_state = saved
     assert order == ["move", "shot", "dump"]
 
 
@@ -6997,7 +6998,7 @@ def test_startup_captures_reposition_the_window_before_the_screenshot():
 def _load_viewer():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "dump_viewer_under_test", os.path.join(os.path.dirname(os.path.abspath(m.__file__)),
+        "dump_viewer_under_test", os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                "dev", "dump_viewer.py"))
     viewer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(viewer)
@@ -9412,14 +9413,14 @@ def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
 
 def test_self_checks_catch_a_catalog_that_misses_one_of_the_programs_codes():
     fresh = load_module()
-    fresh.CAT_METRIC = fresh.Catalog("metric", fresh.CAT_METRIC.entries[:-1])
+    fresh.core.CAT_METRIC = fresh.Catalog("metric", fresh.CAT_METRIC.entries[:-1])
     _breaks_a_self_check(fresh, "the metric catalog")
     fresh = load_module()
-    fresh.CAT_EFFECT = fresh.Catalog("ray effect", list(fresh.CAT_EFFECT.entries) + [("extra", 9)])
+    fresh.core.CAT_EFFECT = fresh.Catalog("ray effect", list(fresh.CAT_EFFECT.entries) + [("extra", 9)])
     _breaks_a_self_check(fresh, "the ray effect catalog")
     fresh = load_module()
-    fresh.RAY_CHOICE_CATALOGS = dict(fresh.RAY_CHOICE_CATALOGS)
-    del fresh.RAY_CHOICE_CATALOGS["emit_mode"]
+    fresh.core.RAY_CHOICE_CATALOGS = dict(fresh.RAY_CHOICE_CATALOGS)
+    del fresh.core.RAY_CHOICE_CATALOGS["emit_mode"]
     _breaks_a_self_check(fresh, "RAY_CHOICE_CATALOGS")
 
 
@@ -9586,6 +9587,197 @@ def test_a_failed_save_reports_the_problem_and_leaves_the_project_unsaved():
         m.messagebox.showerror = orig
     assert shown and "could not be written" in shown[0][1]
     assert not hasattr(app, "saved_signature")
+
+
+# --------------------------------------------------------------------------- #
+# The package: modules, re-exports, patchable globals, the launcher
+# --------------------------------------------------------------------------- #
+PACKAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lightbounces")
+
+
+def _package_sources():
+    import ast
+    for filename in sorted(os.listdir(PACKAGE_DIR)):
+        if filename.endswith(".py"):
+            with open(os.path.join(PACKAGE_DIR, filename), encoding="utf-8") as handle:
+                yield filename[:-3], ast.parse(handle.read())
+
+
+def test_patchable_globals_are_read_as_attributes_of_their_owner_never_imported_by_value():
+    """Tests patch these (m.paths.EXPORT_DIR = ...). A `from .paths import EXPORT_DIR` copies the value when
+    the module is imported, so a later patch would silently do nothing; every module therefore reads
+    `paths.EXPORT_DIR` at call time. Only the owner module may use the bare name."""
+    import ast
+    owners = m.PATCHABLE_GLOBALS
+    assert set(owners.values()) == {"paths", "external"}
+    for module, tree in _package_sources():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                bad = [a.name for a in node.names if a.name in owners and owners[a.name] != module]
+                assert not bad, f"lightbounces/{module}.py imports {bad} by value"
+            if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in owners
+                    and owners[node.id] != module and module != "__init__"):
+                raise AssertionError(f"lightbounces/{module}.py line {node.lineno} reads {node.id} directly; "
+                                     f"read {owners[node.id]}.{node.id}")
+    for name, owner in owners.items():
+        assert hasattr(getattr(m, owner), name), f"{owner} does not define {name}"
+        assert not hasattr(m, name), f"the package must not re-export {name}: it would be a stale copy after a patch"
+
+
+def test_the_package_re_exports_every_name_of_every_module_as_the_same_object():
+    import ast
+    seen = {}
+    for module, tree in _package_sources():
+        if module == "__init__":
+            continue
+        for node in tree.body:
+            for name in ([node.name] if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else
+                         [x.id for t in getattr(node, "targets", []) for x in ast.walk(t)
+                          if isinstance(x, ast.Name)]):
+                if name.startswith("__") or name in m.PATCHABLE_GLOBALS:
+                    continue
+                seen.setdefault(name, []).append(module)
+                assert hasattr(m, name), f"{module}.{name} is not reachable as lightbounces.{name}"
+    assert len(seen) > 400
+    for name, modules in seen.items():
+        if len(modules) == 1:
+            assert getattr(m, name) is getattr(getattr(m, modules[0]), name), name
+
+
+def test_every_load_of_the_package_is_an_independent_copy():
+    first, second = load_module(), load_module()
+    assert first is not second and first.core is not second.core and first.EllipseShape is not second.EllipseShape
+    first.LuneShape.KEY = "changed"
+    assert second.LuneShape.KEY == "lune"
+    assert set(first.__lb_modules__) >= {"lightbounces", "lightbounces.core", "lightbounces.paths"}
+    assert not [name for name in sys.modules if name.startswith("lightbounces")], \
+        "a copy must not stay in sys.modules (the next copy would not start clean)"
+
+
+def test_the_launcher_exposes_the_programs_names_and_names_the_output_files_after_itself():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "light_bounces.py")
+    spec = importlib.util.spec_from_file_location("launcher_under_test", path)
+    launcher = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(launcher)
+        package = sys.modules["lightbounces"]
+        assert launcher.App is package.core.App and launcher.main is package.core.main
+        assert launcher.paths is package.paths and launcher.paths.PROGRAM_NAME == "light_bounces"
+        assert launcher.Shape is package.Shape
+    finally:
+        for name in [n for n in sys.modules if n == "lightbounces" or n.startswith("lightbounces.")]:
+            del sys.modules[name]
+
+
+def test_the_program_folder_is_the_one_with_the_launcher():
+    assert m.paths.SCRIPT_DIR == os.path.dirname(os.path.abspath(__file__))
+    assert os.path.isfile(os.path.join(m.paths.SCRIPT_DIR, "light_bounces.py"))
+    assert m.paths.EXPORT_DIR == os.path.join(m.paths.SCRIPT_DIR, "exports")
+    assert m.paths.TEMP_DIR == os.path.join(m.paths.EXPORT_DIR, "TEMP")
+
+
+def test_no_name_is_defined_in_two_modules_of_the_package():
+    """The package re-exports every module's names, later modules winning, so a second definition of a name in another
+    module would silently shadow the first for everything that reads it through the package - and the two copies
+    could drift apart (a moved definition left behind in the module it came from is the likely way to get here)."""
+    import ast
+    homes = {}
+    for module, tree in _package_sources():
+        if module == "__init__":
+            continue
+        for node in tree.body:
+            names = [node.name] if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else \
+                [x.id for t in getattr(node, "targets", []) for x in ast.walk(t) if isinstance(x, ast.Name)]
+            for name in names:
+                homes.setdefault(name, set()).add(module)
+    assert len(homes) > 400
+    twice = {name: sorted(modules) for name, modules in homes.items() if len(modules) > 1}
+    assert not twice, f"defined in more than one module: {twice}"
+
+
+def _load_dev_tool(*parts):
+    """A script from dev/ loaded by its path (the dev tools are not part of the package)."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dev", *parts) + ".py"
+    spec = importlib.util.spec_from_file_location("dev_tool_under_test_" + parts[-1], path)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_the_numba_kernels_read_only_names_defined_in_their_own_file():
+    """numba freezes the value of every global a kernel reads into the compiled code, and when it reuses a cached
+    compile it only compares the modification time of the file the kernel is in (verified with
+    dev/refactor/numba_cache_check.py). So a constant or another @njit function living in a different file than
+    the kernel that uses it would leave the kernel running stale code after an edit there: every file with @njit
+    functions must define everything its kernels read, and kernels.py (the kernel ABI) may import nothing from the
+    package but njit/prange."""
+    reads = _load_dev_tool("refactor", "kernel_reads")
+    kernels_found = {}
+    for folder, _dirs, files in os.walk(PACKAGE_DIR):
+        for filename in sorted(files):
+            if not filename.endswith(".py"):
+                continue
+            path = os.path.join(folder, filename)
+            with open(path, encoding="utf-8") as handle:
+                source = handle.read()
+            problems = reads.kernel_rule_violations(source, kernels_file=(filename == "kernels.py"))
+            assert not problems, f"{os.path.relpath(path, PACKAGE_DIR)}: " + "; ".join(problems)
+            found = len(reads.symtable_global_reads(source))
+            if found:
+                kernels_found[os.path.relpath(path, PACKAGE_DIR)] = found
+    assert kernels_found.get("kernels.py", 0) >= 20, "the scan should have found the ray kernels it protects"
+    assert kernels_found.get("image_io.py", 0) >= 1, "...and the QOI encoder"
+    assert not (set(kernels_found) - {"kernels.py", "image_io.py"}), \
+        f"@njit functions in a new file: {sorted(kernels_found)} - they belong in kernels.py unless they call no other kernel"
+
+
+def test_the_kernel_rule_check_catches_each_way_of_breaking_the_rule():
+    """The check above must not pass just because it looks at nothing: feed it small sources that break the rule in
+    each way (and one that keeps it)."""
+    reads = _load_dev_tool("refactor", "kernel_reads")
+    head = "import numpy as np\nfrom math import sqrt\nfrom .external import njit, prange\n"
+    good = head + (
+        "LIMIT = 3\n"
+        "@njit(cache=True)\n"
+        "def inner(x):\n    return sqrt(x) * LIMIT\n"
+        "@njit(cache=True)\n"
+        "def outer(a):\n    out = np.empty(3)\n    for i in prange(3):\n        out[i] = inner(a)\n    return out\n")
+    assert reads.kernel_rule_violations(good, kernels_file=True) == []
+
+    def problems(source, kernels_file=False):
+        return reads.kernel_rule_violations(source, kernels_file=kernels_file)
+
+    undefined = head + "@njit(cache=True)\ndef k(x):\n    return x * MISSING\n"
+    found = problems(undefined)
+    assert len(found) == 1 and found[0].startswith("k reads MISSING")
+
+    constant = "from .constants import LIMIT\n" + head + "@njit(cache=True)\ndef k(x):\n    return x * LIMIT\n"
+    found = problems(constant)
+    assert len(found) == 1 and "k reads LIMIT, imported from .constants" in found[0]
+
+    callee = "from .helpers import inner\n" + head + "@njit(cache=True)\ndef k(x):\n    return inner(x)\n"
+    found = problems(callee)
+    assert len(found) == 1 and "k reads inner, imported from .helpers" in found[0]
+
+    module = "from . import paths\n" + head + "@njit(cache=True)\ndef k(x):\n    return x * paths.SCALE\n"
+    found = problems(module)
+    assert len(found) == 1 and "k reads paths, imported from .paths" in found[0]
+
+    unused_import = "from .constants import UNUSED\n" + good         # fine in an ordinary file...
+    assert problems(unused_import) == []
+    found = problems(unused_import, kernels_file=True)              # ...but not in the kernel ABI file
+    assert len(found) == 1 and "imports UNUSED from .constants" in found[0]
+
+    shadowed = "from .constants import LIMIT\n" + good              # imported AND assigned: the kernel may see either
+    found = problems(shadowed)
+    assert len(found) == 1 and "inner reads LIMIT, imported from .constants" in found[0]
+    assert problems("from . import external\n" + good, kernels_file=True)
+
+    # imports from outside the package, and a name only used outside the kernels, are fine
+    assert problems(head + "import json\nOTHER = json.dumps({})\n@njit\ndef k(x):\n    return sqrt(x)\n",
+                    kernels_file=True) == []
 
 
 def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_number():

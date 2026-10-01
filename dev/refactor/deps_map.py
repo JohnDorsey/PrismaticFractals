@@ -1,24 +1,52 @@
-"""Which part of light_bounces.py uses which other part (run: python dev/refactor/deps_map.py).
+"""Which part of lightbounces/core.py (what is left of the old single file) uses which other part (run: python dev/refactor/deps_map.py).
 
-Cuts the file into the regions in REGIONS (by line number), then reports, for every region, which
-names it uses from other regions, and every use of a region defined LATER in the file - the
-"back-references" that would become import cycles if the regions were separate modules.
+Cuts the file into the regions in ANCHORS (each region starts at the first top-level definition named
+there and runs to the next anchor, so moving code around does not stale it), then reports, for every
+region, which names it uses from other regions, and every use of a region defined LATER in the file -
+the "back-references" that would become import cycles if the regions were separate modules.
 
-The line numbers below are those of light_bounces.py at FILE_VERSION 113 (before any move). After
-step 1 of dev/refactor_plan.md they are stale: update REGIONS from the file's section comments
-first. This script was used to make the plan; it is kept so the picture can be redone.
+Used to make dev/refactor_plan.md. After step 1 of the plan the only back-references left are the
+kernels (and the constants they need) being below geometry and shapes.
 """
 import ast
 import collections
 import os
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "light_bounces.py")
-REGIONS = [("consts", 1, 361), ("consts2+blur", 362, 594), ("records", 595, 959),
-           ("ui_helpers", 960, 1111), ("keyframe", 1112, 1147), ("shapes", 1148, 1881),
-           ("settings", 1882, 2182), ("misc_utils", 2183, 2447), ("image_io", 2448, 2862),
-           ("geometry", 2863, 3371), ("metrics", 3372, 3786), ("views", 3787, 3988),
-           ("project", 3989, 4536), ("selfchecks", 4537, 4686), ("coloration", 4687, 5006),
-           ("kernels", 5007, 6230), ("app", 6231, 11000)]
+PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lightbounces", "core.py")
+ANCHORS = [("consts", None), ("consts2+blur", "world_radius_to_pixels"), ("records", "strict_record"),
+           ("ui_helpers", "make_scrollable_tab"), ("keyframe", "Keyframe"), ("shapes", "ShapeParam"),
+           ("settings", "SettingEntry"), ("misc_utils", "ensure_project_dir"), ("image_io", "png_rgba"),
+           ("naming", "default_filename"), ("geometry", "ellipse_bound"),
+           ("metrics", "ST_HDIST"), ("views", "MODES"), ("project", "PROJECT_EXTENSION"),
+           ("selfchecks", "run_self_checks"), ("coloration", "make_mapping"),
+           ("kernels", "_circle_roots"), ("app", "App")]
+REGIONS = []
+
+
+def build_regions(tree, total_lines):
+    """REGIONS = [(name, first line, last line)] from ANCHORS (the first anchor is line 1)."""
+    starts = []
+    for name, anchor in ANCHORS:
+        if anchor is None:
+            starts.append((name, 1))
+            continue
+        for node in tree.body:
+            names = ([node.name] if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else
+                     [x.id for t in getattr(node, "targets", []) for x in ast.walk(t)
+                      if isinstance(x, ast.Name)])
+            if anchor in names:
+                first = node.lineno
+                while first > 1 and LINES[first - 2].startswith("#"):
+                    first -= 1
+                starts.append((name, first))
+                break
+        else:
+            print(f"(region {name}: anchor {anchor!r} is not in core.py any more - it has been moved out)")
+    assert [s for _n, s in starts] == sorted(s for _n, s in starts), \
+        "an anchor is out of order: a region would be empty or negative - move the anchor"
+    for k, (name, first) in enumerate(starts):
+        last = starts[k + 1][1] - 1 if k + 1 < len(starts) else total_lines
+        REGIONS.append((name, first, last))
 
 
 def region_of(line):
@@ -28,9 +56,16 @@ def region_of(line):
     return None
 
 
+LINES = []
+
+
 def main():
+    global LINES
     with open(PATH, encoding="utf-8") as handle:
-        tree = ast.parse(handle.read())
+        text = handle.read()
+    LINES = text.split("\n")
+    tree = ast.parse(text)
+    build_regions(tree, len(LINES))
     defined = {}
     for node in tree.body:
         names = []

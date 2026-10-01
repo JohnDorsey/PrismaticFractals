@@ -36,7 +36,9 @@ more for the whole app), (3) one area's tests can be run alone, (4) the layering
   is changed in another file. Therefore **every @njit function that calls another, every constant a kernel reads
   (74 of them today, defined between lines 323 and 5444), and the kernel argument namedtuples (FuzzRule, ConfineRule,
   EmissionRule, ObstacleArrays) live in ONE file, `lightbounces/kernels.py`**; every other module imports them from
-  there. A test parses kernels.py and fails if an @njit function uses a name not defined in kernels.py (step 3).
+  there. `test_the_numba_kernels_read_only_names_defined_in_their_own_file` (checker: `dev/refactor/kernel_reads.py`) fails
+  if an @njit function in ANY file of the package reads a name its own file does not define, or one imported from another
+  module of the package, and if kernels.py imports anything from the package but njit/prange (done in step 3).
 - R2 Patchable globals are read as module attributes at call time. `from paths import TEMP_DIR` copies the value at
   import and makes a later patch do nothing. Patchable names: EXPORT_DIR, TEMP_DIR, PROJECT_DIR, DEV_DIR, ffmpeg,
   ImageGrab, dump_app_state. They are used only as `paths.X`, `external.X`, `debug.X`. A test scans the package source
@@ -49,11 +51,19 @@ more for the whole app), (3) one area's tests can be run alone, (4) the layering
 - R5 Moving code changes no logic. Anything that needs a fix is done in step 1 or reported and done in its own prompt.
 - R6 FILE_VERSION: +1 per prompt that changes code (D4).
 - R7 After every edit: `python -m py_compile` the changed files and run the FULL suite
-  (`python test_light_bounces.py`; baseline "578 passed, 0 failed"; the count grows when tests are added). At the end
+  (`python test_light_bounces.py`; baseline "586 passed, 0 failed, 0 skipped" after step 3; the count grows when tests are added). At the end
   of every step also run `python dev/refactor/project_roundtrip_check.py` (needs a display; must print "all checks
   passed"), and update CLAUDE.md.
-- R8 Line endings: the working files are LF (git autocrlf=true); write files with scripts in binary mode or the Edit
-  tool, and keep `dev/testing/cjxl` (POSIX fake) LF.
+- R8 Line endings. CORRECTED in step 3 (the first wording, "the working files are LF", was an assumption that is false):
+  git stores LF (`core.autocrlf=true`), and the working files are a mix - CRLF: `CLAUDE.md`, `.gitignore`, `test_harness.py`,
+  `dev/debug_dump.py`, `dev/dump_viewer.py`, `dev/testing/cjxl.cmd`; LF: `test_light_bounces.py`, `light_bounces.py`,
+  `lightbounces/*`, `dev/refactor/*`, this file, `dev/testing/cjxl` (must be LF). CLAUDE.md documents "source files use CRLF",
+  so the working tree has drifted from it. Verified in the session transcript: `test_light_bounces.py` was already rewritten
+  with `newline='\n'` by a script on 2026-09-29, i.e. it was LF before this refactor began (git cannot show that: it stores LF
+  either way); the package files are new and written LF by this refactor's tools. Keep each existing file's endings, write new
+  files LF, use the Edit tool or binary mode.
+  OPEN for the user: normalise the LF source files to CRLF (matches CLAUDE.md and what a fresh Windows checkout gives)?
+  If yes it needs its own prompt; `extract_tool.py` writes LF today and would have to learn to keep CRLF first.
 - R9 Dumps (`dev/debug_dump.py`, `dev/dump_viewer.py`, `_load_test_dump`) pickle classes by module path
   (`light_bounces.Shape` becomes `lightbounces.shapes.EllipseShape`...) and map `__main__` to the launcher: update them
   in the step that moves the classes (3, 5, 7) and keep the dump tests green.
@@ -65,7 +75,7 @@ more for the whole app), (3) one area's tests can be run alone, (4) the layering
   1148-1881, settings registry 1882-2182, misc utils 2183-2447, image writers+text 2448-2862, geometry 2863-3371,
   metrics/catalogs 3372-3786, views 3787-3988, projects 3989-4536, self-checks 4537-4686, coloration/info 4687-5006,
   kernels 5007-6230, `App` 6262-10980 (216 methods, 4,719 lines), `main` 10983.
-  (`python dev/refactor/deps_map.py` redraws the dependency picture; its REGIONS go stale after step 1.)
+  (`python dev/refactor/deps_map.py` redraws the dependency picture; it finds its regions by anchor names, so it survives moves.)
 - Kernel facts: 26 @njit functions in 3 call-connected groups (QOI encoder; Buddha blur; the ray kernels), 74 constants
   read by kernels; no @njit function calls a non-njit function.
 - Timing (`python dev/refactor/kernel_cost.py`, run it twice): warm cache ~4.0 s for the first kernel calls; after
@@ -119,32 +129,71 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 
 ## Steps (one prompt each; the effort level is what to set BEFORE telling Claude to continue)
 
-### Step 1 - prepare inside the single file. Recommended effort: HIGH
-- [ ] Fix back-references 1-6 above in light_bounces.py (small moves, full suite after each); 7-8 need no change yet.
-- [ ] Re-point `dev/refactor/deps_map.py` REGIONS at the new line numbers; run it; the only remaining back-references
-      should be 7, 8 (kernels/geometry/shapes ordering) and nothing else.
-- [ ] Add no behaviour; bump FILE_VERSION; CLAUDE.md pointer to this plan (already added when the plan was created).
-- Done when: suite green, roundtrip check passes, progress log updated.
+### Step 1 - prepare inside the single file. Recommended effort: HIGH - DONE (FILE_VERSION 114)
+- [x] Fixed back-references 1-6 above in light_bounces.py as pure moves (full suite after each; verified afterwards that the
+      multiset of non-blank lines is identical before and after). Details: `offset_bound`/`make_bound` now sit right after
+      `SHAPE_CLASSES`; `obstacle_center_from` sits before `emission_rule` (a module-level default calls it at import, so it
+      must come before `EMISSION_DEFAULT`); `resolve_obstacles` follows `resolve_value`; `resolve_obstacle_arrays` STAYS in the
+      shapes region (it needs `build_obstacle_arrays`), so **shapes import settings, never the reverse** (settings is below
+      geometry and shapes in the target order); `OBST_BOUND_LEN` is beside `DEFAULT_SIDES`; `DEFAULT_SETTING_VALUES` follows
+      `SETTING_WIDGET_ATTRS`; `MODES`/`MODE_NAMES` precede the Views section; `default_filename`/`image_filename` follow
+      `preview_placeholder` (after the image writers whose `jxl_quality_tag` they use).
+- [x] `dev/refactor/deps_map.py` now cuts regions at named anchor definitions (not line numbers), so it keeps working after
+      moves. Its output: no region uses a later one except shapes -> geometry/kernels/settings and geometry -> kernels, which
+      are only file-order facts (they point down the target layer order, see "Target modules").
+- [x] Behaviour unchanged: 578 passed; `project_roundtrip_check.py` all 15 checks passed.
+- Note for step 3: the neighbours of `OBST_BOUND_LEN` (`OBST_OBJ_BASE`, ...) and the rest of the 74 kernel constants still
+  have to be gathered into kernels.py.
 
-### Step 2 - package skeleton and leaf modules. Recommended effort: HIGH (MEDIUM would be enough for the pure moves)
-- [ ] Create `lightbounces/` with `version.py`, `paths.py`, `external.py`, `widgets.py`, `image_io.py` (+ FONT_5X7),
-      `__init__.py` re-exporting everything; the launcher `light_bounces.py` keeps `main()` and imports the package.
-- [ ] `test_harness.load_module()` loads the whole package fresh (drop `lightbounces*` from sys.modules, re-import) and
-      returns an object whose attributes include underscore names; `_ModuleRegistered` and `_load_test_dump` adapted (R9).
-- [ ] Re-point the patch sites: EXPORT_DIR/TEMP_DIR -> `m.paths`, ffmpeg -> `m.external`; ImageGrab/DEV_DIR/dump_app_state
-      stay on the monolith until step 7 (still read through the module that owns them).
-- [ ] Add the R2 guard test (no `from ... import` of a patchable name).
-- Done when: suite green, roundtrip check passes, `python light_bounces.py` starts, dumps still load.
+### Step 2 - package skeleton and leaf modules. Recommended effort: HIGH - DONE (FILE_VERSION 115)
+- [x] `lightbounces/`: `version.py`, `paths.py`, `external.py`, `widgets.py`, `image_io.py`, `core.py` (everything else, for now),
+      `__init__.py` (re-exports every name of every module, public and underscore, except the patchable globals).
+      `light_bounces.py` is now the launcher: it imports the package, re-exports its names (so `import light_bounces as lb` still
+      works in scripts), sets `paths.PROGRAM_NAME` from its own file name and runs `main()`. The long feature-description docstring
+      moved to `lightbounces/__init__.py`.
+- [x] `test_harness.load_module()` imports the whole package afresh and returns it (modules kept in `m.__lb_modules__`, removed from
+      sys.modules); `_ModuleRegistered` registers all of a copy's modules; tests read through the package and patch/rebind in the owner.
+- [x] Patch sites re-pointed: `m.paths.*` (EXPORT_DIR 20, TEMP_DIR 6, DEV_DIR), `m.external.*` (ffmpeg 10, ImageGrab),
+      `m.core.dump_app_state` (4, moves with the debug module in step 7), `fresh.core.*` for the 7 rebinds on fresh copies
+      (SETTING_FLOAT_KEYS, POINT_MENU_ORDER, CAT_METRIC, CAT_EFFECT, RAY_CHOICE_CATALOGS) - these move to the owning module in later steps.
+- [x] Guard test for rule R2 (+ re-export, independent copies, launcher, program-folder tests): 5 new tests, 583 in all.
+- [x] Dumps: `dev/dump_viewer.py` APPLICATION_MODULES knows `lightbounces`; `debug_dump.load_dump` defaults to it; a real startup dump
+      reads back with classes `lightbounces.core.*`. `dump_app_state` passes `globals()` (it used `sys.modules[__name__].__dict__`).
+- [x] `python light_bounces.py` starts cleanly (25 s, empty stderr); `project_roundtrip_check.py` 15/15.
+- Learned: `dev/refactor/extract_tool.py` does the moves (cut, compute imports, refuse a cycle, rewrite patchable reads, register in
+  `__init__`); use it for steps 3-7. A heredoc in this environment halves backslashes: write any script containing `\n` or regexes
+  with the Write tool, not a heredoc. The names `i`, `label`, `tab` are false "cycle" reports (module-level loop variables in core);
+  pass them in `allow_core`.
 
-### Step 3 - kernels (the numba-sensitive step). Recommended effort: HIGHEST (max)
-- [ ] Gather every kernel-ABI constant and the rule/array namedtuples from all over the file into `kernels.py` with all
-      @njit functions (R1). Everything else imports them from there.
-- [ ] Add the R1 guard test (AST: every name an @njit function loads is defined in kernels.py or is a builtin/numpy/numba name).
-- [ ] Compare: golden test (in suite) passes; `kernel_cost.py` warm figure unchanged; touching a non-kernel file does NOT
-      make the next run slower (this is the point of the split); `numba_cache_check.py` still prints the staleness (it is a
-      fact about numba, not about this code).
-- [ ] Update `dev/debug_dump.py`/viewer class paths if needed (R9).
-- Done when: suite green, roundtrip check passes, the timing comparison recorded in the progress log.
+### Step 3 - kernels (the numba-sensitive step). Recommended effort: HIGHEST (max) - DONE (FILE_VERSION 116)
+- [x] `lightbounces/kernels.py` (1,390 lines) holds all 25 @njit functions of the ray/render/Buddha-scatter group (one
+      call-connected group), the 74 constants they read plus the rest of each numbered family (TERM_*, SHAPE_* incl.
+      SHAPE_FIRST_ARC_LOOP, EMIT_*, CONFINE_*, EPS family, KIND_*, OBSTACLE_EFFECT_*, ST_*/N_STATS, POINT_*/N_POINTS,
+      RAW_*/N_RAW, OBST_OBJ_BASE, PARITY_DX/DY, ESCAPE_OBJ, SIZE, PIXEL) and the namedtuples FuzzRule, ConfineRule, EmissionRule,
+      ObstacleArrays. It imports only numpy, math, collections and `njit`/`prange` from `external.py` (the numba import and its
+      pure-Python fallback now live in `external.py` only; `image_io.py` shares them). core.py imports the 85 names it still uses.
+      The QOI encoder stays in `image_io.py`: it calls no other kernel and reads only `np`, so R1 holds there too.
+- [x] Guard tests: `test_the_numba_kernels_read_only_names_defined_in_their_own_file` (every file of the package, found by
+      walking the folder, so a future `app/` subpackage is covered), `test_the_kernel_rule_check_catches_each_way_of_breaking_the_rule`
+      (small broken sources: undefined name, constant imported from another module, callee imported, module imported, an unused
+      package import in kernels.py, plus a good source that must pass) and `test_no_name_is_defined_in_two_modules_of_the_package`
+      (a moved definition left behind would silently shadow its twin). Also mutation-checked on scratch copies of the REAL
+      kernels.py (not kept): importing EPS from another module, renaming a callee away and renaming SHAPE_LENS were all reported.
+      Checker: `dev/refactor/kernel_reads.py` (exact, via Python's `symtable`); `python dev/refactor/kernel_reads.py` prints its verdict.
+- [x] Compare (all MEASURED, `python dev/refactor/kernel_cost.py`, time of the first kernel calls): cold after editing kernels.py
+      6.2 s; warm 3.9-4.0 s (baseline before the refactor 4.0 s); after `touch lightbounces/core.py` 3.9 s; after touching
+      `__init__.py`, `widgets.py`, `paths.py`, `external.py` 4.0 s; after `touch lightbounces/kernels.py` 6.3 s (a recompile, once),
+      then 4.1 s. Before the split, touching the one big file cost 6.4 s every time - that cost is gone for every file except
+      kernels.py. `numba_cache_check.py` still prints "STALE (as documented)" twice (a fact about numba, not about this code).
+      Golden-data test passes (it is in the suite). Pure-Python fallback checked by hand with numba blocked: the package imports,
+      prints the warning, kernels run as plain functions.
+- [x] R9: nothing to change. A real startup dump of the new code reads back (`debug_dump.load_dump`): classes `lightbounces.core.App`,
+      `lightbounces.kernels...`, `lightbounces.widgets...`; the viewer accepts any `lightbounces.*` module.
+- [x] Housekeeping: a stray comment ("Hints shown under the shape parameter controls") that sat above the RAW_* constants since before
+      this refactor was dropped; the empty banners left behind in core.py and the unused imports there (atan, floor, struct,
+      subprocess, zlib, njit, prange, JXL_LOSSY_MAX_QUALITY) were removed. CLAUDE.md compile command is now `python -m compileall -q ...`.
+- Learned: R8 (line endings) in this plan was wrong - corrected above, with an open question for the user.
+- Done: suite 586 passed / 0 failed / 0 skipped (13.9 s warm), `project_roundtrip_check.py` all 15 checks passed.
 
 ### Step 4 - constants, settings, records. Recommended effort: HIGH
 - [ ] `constants.py`, `settings.py` (strict_record, records, RAY_SETTING_SPECS, resolve_*, Keyframe).
@@ -176,7 +225,9 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 ## Finishing
 1. Create `dev/finished_plans/` and move this file there (keep the name, add the completion date and the final figures at
    the top). Also move `dev/refactor/deps_map.py` there (its line numbers are history); keep `numba_cache_check.py`,
-   `kernel_cost.py` and `project_roundtrip_check.py` in `dev/refactor/` (still useful) and mention them in CLAUDE.md.
+   `kernel_cost.py`, `project_roundtrip_check.py` and `kernel_reads.py` (the guard test loads it) in `dev/refactor/` (still
+   useful) and mention them in CLAUDE.md. `extract_tool.py` (moves definitions between modules): keep it there too unless the user
+   prefers it archived with this plan.
 2. Remove the pointer to this plan from CLAUDE.md.
 3. Tell the user it is done.
 
@@ -184,9 +235,9 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 | Step | Status | FILE_VERSION | Suite | Notes |
 |---|---|---|---|---|
 | plan | written | 113 | 578 passed | helper scripts in dev/refactor/ verified working |
-| 1 | not started | | | |
-| 2 | not started | | | |
-| 3 | not started | | | |
+| 1 | done | 114 | 578 passed | 6 pure moves; deps_map anchored on names; roundtrip check 15/15 |
+| 2 | done | 115 | 583 passed | package + 5 leaf modules; launcher; harness reloads the package; R2 guard test; extract_tool.py |
+| 3 | done | 116 | 586 passed | kernels.py (25 @njit + 74 constants + families + 4 namedtuples); guard test + checker; touching any other file leaves the warm 4.0 s (was 6.4 s), touching kernels.py 6.3 s; roundtrip 15/15; R8 corrected |
 | 4 | not started | | | |
 | 5 | not started | | | |
 | 6 | not started | | | |
