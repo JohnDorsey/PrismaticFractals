@@ -218,9 +218,6 @@ KIND_COLOR = {KIND_START: (67, 160, 71), KIND_DISTCUT: (67, 160, 71),   # green
 OBST_TERMINATE_RGB = (121, 85, 72)     # brown
 OBST_REFLECT_RGB = (179, 229, 252)     # pale light blue
 OBST_PASS_RGB = (0, 0, 0)              # black
-OBST_TERMINATE_HEX = "#795548"
-OBST_REFLECT_HEX = "#b3e5fc"
-OBST_PASS_HEX = "#000000"
 # An obstacle's outline is two layers, each this many pixels thick: the outer
 # one (just outside its edge) shows its incoming effect, the inner one (just
 # inside) its outgoing effect.

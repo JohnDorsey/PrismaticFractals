@@ -47,7 +47,6 @@ class GenerationMixin:
         self.status[:] = 0
         self.ready = True
         self.update_buttons()
-        self.update_status()
         self.root.after(500, self.take_startup_captures)   # let the UI settle first
 
     def start(self):
@@ -87,7 +86,6 @@ class GenerationMixin:
         self.elapsed = 0.0
         self.next_tick = self.start_time
         self.draw()
-        self.update_status()
         self.update_buttons()
         self.tick()
 
@@ -130,7 +128,6 @@ class GenerationMixin:
         if self.rows_done >= SIZE:
             self.on_finished()
             return
-        self.update_status()
 
         # Keep a steady 10 Hz cadence; idle time lets Tk handle mouse events
         now = time.perf_counter()
@@ -144,7 +141,6 @@ class GenerationMixin:
         self.tick_id = None
         self.running = False
         self.done = True
-        self.update_status()
         self.update_buttons()
         if self.pinned_px is not None:             # refresh the pinned preview
             self.hover_px = None                   # with the settings just used

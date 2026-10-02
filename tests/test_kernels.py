@@ -746,7 +746,7 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
         setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
     app.limit_msg_var, app.confine_msg_var = _StubVar(""), _StubVar("")
     app.emit_msg_var = _StubVar("")
-    app.invalidate_preview = app.update_buttons = app.refresh_state_text = lambda: None
+    app.invalidate_preview = app.update_buttons = lambda: None
     app.refresh_timeline_diffs = lambda: None
     return app
 

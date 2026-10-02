@@ -201,7 +201,6 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.seed_var.trace_add("write", self.on_seed_var_changed)
 
         self.draw()
-        self.update_status()
         self.update_buttons()
         self.start_project_handling()
         root.update()                              # show the window before compiling

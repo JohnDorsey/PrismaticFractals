@@ -213,7 +213,6 @@ class ControlsMixin:
         clamped into range by its FloatEntryHandle)."""
         self.invalidate_preview()
         self.update_buttons()
-        self.refresh_state_text()
         self.refresh_timeline_diffs()
 
     def update_confine_threshold_label(self, *_args):
@@ -484,7 +483,6 @@ class ControlsMixin:
         self.limit_msg_var.set(" ".join(msgs))
         self.invalidate_preview()
         self.update_buttons()
-        self.refresh_state_text()
         self.refresh_timeline_diffs()
 
     def on_limit_commit(self, _event=None):
@@ -507,7 +505,6 @@ class ControlsMixin:
         parsed and clamped into range by its FloatEntryHandle)."""
         self.invalidate_preview()
         self.update_buttons()
-        self.refresh_state_text()
         self.refresh_timeline_diffs()
 
     def on_seed_var_changed(self, *_args):
@@ -531,7 +528,6 @@ class ControlsMixin:
         self.schedule_outline_refresh()           # live outlines before first Start
         self.update_pending_outline()             # dashed outlines afterwards
         self.update_buttons()
-        self.refresh_state_text()
         self.refresh_timeline_diffs()
 
     # ---- fuzzing controls ---------------------------------------------------- #
@@ -564,7 +560,6 @@ class ControlsMixin:
         self.update_fuzz_enabled_state()
         self.invalidate_preview()
         self.update_buttons()
-        self.refresh_state_text()
         self.refresh_timeline_diffs()
 
     def schedule_outline_refresh(self):
@@ -642,15 +637,3 @@ class ControlsMixin:
         self.on_limit_var_changed()
         self.on_shape_param_changed()
         self.on_fuzz_changed()
-
-    def refresh_state_text(self):
-        """No-op: the status panel no longer shows any status text. Kept
-        (rather than removing its several call sites) so nothing else has
-        to change."""
-        pass
-
-    def update_status(self):
-        """No-op: the status panel no longer shows generation progress.
-        Kept (rather than removing its several call sites) so nothing else
-        has to change."""
-        pass

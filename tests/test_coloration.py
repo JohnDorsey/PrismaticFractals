@@ -718,7 +718,6 @@ def test_on_finished_refreshes_the_views_list():
         pass
     app = FakeApp()
     app.tick_id = "irrelevant"
-    app.update_status = lambda: None
     app.update_buttons = lambda: None
     app.pinned_px = None
     rebuild_calls = []
