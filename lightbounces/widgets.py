@@ -28,18 +28,50 @@ def make_scrollable_tab(tab):
 
 MODIFIED_OUTLINE = "#1e88e5"     # blue: a setting changed since the selected keyframe was
 
-MODIFIED_OUTLINE_PX = 2          # loaded / last saved (see App.check_modified)
+MODIFIED_OUTLINE_PX = 4          # loaded / last saved (see App.check_modified)
+
+
+def find_control_label(widget):
+    """The text label that names `widget`, if it has one beside it: the label to its left in the same
+    grid row, or the label packed directly before it. None when there is none (or when the widget is
+    placed some other way)."""
+    def is_label(w):
+        return isinstance(w, (ttk.Label, tk.Label))
+    master = widget.master
+    try:
+        manager = widget.winfo_manager()
+        if manager == "grid":
+            info = widget.grid_info()
+            row, column = int(info["row"]), int(info["column"])
+            found = None
+            for sibling in master.grid_slaves(row=row):
+                sibling_column = int(sibling.grid_info()["column"])
+                if sibling_column < column and is_label(sibling) and (
+                        found is None or sibling_column > int(found.grid_info()["column"])):
+                    found = sibling
+            return found
+        if manager == "pack":
+            slaves = master.pack_slaves()
+            index = slaves.index(widget)
+            if index > 0 and is_label(slaves[index - 1]):
+                return slaves[index - 1]
+    except (tk.TclError, ValueError, KeyError):
+        pass
+    return None
 
 
 class ModifiedOutline:
     """A blue frame drawn just behind, and MODIFIED_OUTLINE_PX around, one
     widget - without touching how that widget is laid out (it is placed in the
-    widget's own parent and follows the widget's geometry). place() measures from
+    widget's own parent and follows the widget's geometry) - and the same blue
+    for the text of the label that names the control (a checkbox or radio button
+    is its own label). place() measures from
     the parent's inner area, which for some parents (a ttk labelframe, say) is
     offset from the origin winfo_x/winfo_y use, so that offset is measured once
     per outline."""
     def __init__(self, widget):
         self.widget = widget
+        self.recolored = None       # (what was recoloured, how to put it back) while shown
         self.frame = tk.Frame(widget.master, background=MODIFIED_OUTLINE)
         self.frame.place(x=0, y=0, width=1, height=1)
         self.frame.update_idletasks()
@@ -56,6 +88,34 @@ class ModifiedOutline:
                          width=w.winfo_width() + 2 * n, height=w.winfo_height() + 2 * n)
         self.frame.lower(w)
 
+    def _recolor(self, on):
+        """Turn the control's label blue (on) or put it back as it was."""
+        if not on:
+            if self.recolored is not None:
+                restore = self.recolored
+                self.recolored = None
+                try:
+                    restore()
+                except tk.TclError:                 # the label has been destroyed meanwhile
+                    pass
+            return
+        w = self.widget
+        try:
+            if w.winfo_class() in ("TCheckbutton", "TRadiobutton"):
+                original = str(w.cget("style"))
+                style = f"Modified.{w.winfo_class()}"
+                ttk.Style(w).configure(style, foreground=MODIFIED_OUTLINE)
+                w.configure(style=style)
+                self.recolored = lambda: w.configure(style=original)
+                return
+            label = find_control_label(w)
+            if label is not None:
+                original = str(label.cget("foreground"))
+                label.configure(foreground=MODIFIED_OUTLINE)
+                self.recolored = lambda: label.configure(foreground=original)
+        except tk.TclError:
+            self.recolored = None
+
     def show(self, on):
         if on == self.shown:
             return
@@ -64,6 +124,7 @@ class ModifiedOutline:
             self._place()
         else:
             self.frame.place_forget()
+        self._recolor(on)
 
 
 def detect_modified_keys(last_seen, current, modified):
@@ -120,9 +181,10 @@ class FloatEntryHandle:
     that keep a slider-like range but as a text field (so typing isn't
     interrupted mid-edit the way a live-validating popup would be)."""
 
-    def __init__(self, var, fmt, default, lo=None, hi=None):
+    def __init__(self, var, fmt, default, lo=None, hi=None, exact=False):
         self.var = var
         self.fmt = fmt
+        self.exact = exact          # show the value as typed (shortest exact text), not through fmt
         self.lo = lo
         self.hi = hi
         self.last_valid = self._clamp(float(default))
@@ -135,6 +197,9 @@ class FloatEntryHandle:
             value = min(self.hi, value)
         return value
 
+    def text(self, value):
+        return repr(float(value)) if self.exact else self.fmt.format(value)
+
     def get(self):
         try:
             self.last_valid = self._clamp(float(self.var.get()))
@@ -144,7 +209,7 @@ class FloatEntryHandle:
 
     def set(self, val):
         self.last_valid = self._clamp(float(val))
-        self.var.set(self.fmt.format(self.last_valid))
+        self.var.set(self.text(self.last_valid))
 
     def commit(self):
         """Called on FocusOut/Return: normalize the text, or revert it if
@@ -153,7 +218,7 @@ class FloatEntryHandle:
             self.last_valid = self._clamp(float(self.var.get()))
         except ValueError:
             pass
-        self.var.set(self.fmt.format(self.last_valid))
+        self.var.set(self.text(self.last_valid))
 
 
 class JxlQualityControls:

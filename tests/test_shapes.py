@@ -57,7 +57,10 @@ def test_every_kind_declares_how_its_bound_array_is_packed():
                 m.MossEggShape: m.LAYOUT_ARCS_EDGES, m.CircularSectorShape: m.LAYOUT_ARCS_EDGES,
                 m.CircularSegmentShape: m.LAYOUT_ARCS_EDGES, m.CapsuleShape: m.LAYOUT_ARCS_EDGES,
                 m.TrefoilShape: m.LAYOUT_ARC_LOOPS, m.QuatrefoilShape: m.LAYOUT_ARC_LOOPS,
-                m.LuneShape: m.LAYOUT_ARC_LOOPS, m.ArbelosShape: m.LAYOUT_ARC_LOOPS}
+                m.LuneShape: m.LAYOUT_ARC_LOOPS, m.ArbelosShape: m.LAYOUT_ARC_LOOPS,
+                m.SuperellipseShape: m.LAYOUT_SQUIRCLE, m.FernandezGuastiShape: m.LAYOUT_SQUIRCLE,
+                m.ArchimedeanSpiralShape: m.LAYOUT_SPIRAL, m.PythagorasSnailShape: m.LAYOUT_SNAIL,
+                m.HugelschafferEggShape: m.LAYOUT_EGG}
     assert {cls: cls.LAYOUT for cls in m.SHAPE_CLASSES} == expected
 
 
@@ -445,7 +448,13 @@ def test_ring_layers_for_every_shape_kind_are_disjoint_outer_outside_inner_insid
              (m.SHAPE_TREFOIL, m.lobed_bound(m.SHAPE_TREFOIL, 3, 0.9, 0.6, 15.0)),
              (m.SHAPE_QUATREFOIL, m.lobed_bound(m.SHAPE_QUATREFOIL, 4, 0.9, 0.6, 15.0)),
              (m.SHAPE_LUNE, m.lune_bound(1.0, 0.8, 0.6, 30.0)),
-             (m.SHAPE_ARBELOS, m.arbelos_bound(1.0, 0.35, 30.0))]
+             (m.SHAPE_ARBELOS, m.arbelos_bound(1.0, 0.35, 30.0)),
+             (m.SHAPE_SUPERELLIPSE, m.superellipse_bound(1.6, 1.0, 4.0, 20.0)),
+             (m.SHAPE_FG_SQUIRCLE, m.fg_squircle_bound(0.9, 0.8, 15.0)),
+             (m.SHAPE_SPIRAL, m.spiral_bound(1.0, 0.25, 0.5, 30.0)),
+             (m.SHAPE_SNAIL, m.snail_bound(17, 20.0)),
+             (m.SHAPE_SNAIL, m.snail_bound(9, 20.0)),
+             (m.SHAPE_EGG, m.egg_bound(1.0, 0.6, 0.5, 25.0))]
     for shape, bound in cases:
         outer, inner = m.ring_layer_masks(shape, bound, gx, gy, layer_px=8.0)
         inside = m.inside_boundary_grid(gx, gy, shape, bound)
@@ -598,7 +607,12 @@ def test_every_shape_kind_has_the_shared_fields_and_only_the_parameters_its_geom
            m.CapsuleShape: {"capsule_length", "capsule_radius"},
            m.TrefoilShape: {"radius", "lobe_size"}, m.QuatrefoilShape: {"radius", "lobe_size"},
            m.LuneShape: {"radius", "cut_radius", "cut_offset"},
-           m.ArbelosShape: {"radius", "split"}}
+           m.ArbelosShape: {"radius", "split"},
+           m.SuperellipseShape: {"width", "height", "exponent"},
+           m.FernandezGuastiShape: {"radius", "squareness"},
+           m.ArchimedeanSpiralShape: {"radius", "spiral_pitch", "spiral_fill"},
+           m.PythagorasSnailShape: {"snail_segments"},
+           m.HugelschafferEggShape: {"egg_a", "egg_b", "egg_shift"}}
     shared = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"}
     assert set(own) == set(m.SHAPE_CLASSES)
     for cls, fields in own.items():
@@ -836,7 +850,9 @@ def test_the_new_menu_lists_every_kind_and_a_new_obstacle_has_that_kind_only():
         assert type(o) is cls and o.NAME == m.SHAPE_NAMES[o.KIND]
     assert m.SHAPE_NAMES == ["Ellipse", "Regular polygon", "Moss's egg", "Circular sector",
                              "Circular segment", "Two-circle lens", "Reuleaux polygon", "Capsule",
-                             "Trefoil", "Quatrefoil", "Lune", "Arbelos"]
+                             "Trefoil", "Quatrefoil", "Lune", "Arbelos", "Superelliptical squircle",
+                             "Fernández-Guasti squircle", "Archimedean spiral", "Snail of Pythagoras",
+                             "Hügelschäffer egg"]
 
 
 
@@ -881,3 +897,173 @@ def test_the_default_outline_layers_measure_their_full_thickness_on_a_circle():
     width = m.OBST_RING_LAYER_PX * m.PIXEL
     assert np.isclose(r[outer].max() - 1.0, width, atol=2 * step)
     assert np.isclose(1.0 - r[inner].min(), width, atol=2 * step)
+
+
+# --------------------------------------------------------------------------- #
+# The two squircles (superelliptical, Fernandez-Guasti) and the Archimedean spiral ribbon
+# --------------------------------------------------------------------------- #
+def test_the_squircles_and_the_spiral_agree_with_independent_formulas_about_what_is_inside():
+    rng = np.random.RandomState(11)
+    pts = rng.uniform(-1.5, 1.5, size=(3000, 2))
+    for o in _new_kind_cases():
+        member = _independent_membership(o)
+        bound = o.bound()
+        got = [bool(m.inside_boundary(x, y, o.KIND, bound)) for x, y in pts]
+        want = [bool(member(x, y)) for x, y in pts]
+        assert got == want, (type(o).__name__, o.state())
+        assert any(want) and not all(want), (type(o).__name__, "the test points must hit both")
+
+
+def test_the_new_kinds_have_the_documented_fields_defaults_and_names():
+    assert [cls.KIND for cls in NEW_CLASSES] == [12, 13, 14, 15, 16]
+    assert [cls.KEY for cls in NEW_CLASSES] == ["superelliptical_squircle",
+                                                "fernandez_guasti_squircle", "archimedean_spiral",
+                                                "snail_of_pythagoras", "hugelschaffer_egg"]
+    assert [cls.NAME for cls in NEW_CLASSES] == ["Superelliptical squircle",
+                                                 "Fernández-Guasti squircle",
+                                                 "Archimedean spiral", "Snail of Pythagoras",
+                                                 "Hügelschäffer egg"]
+    sup, fg, spiral, snail, egg = (cls(0) for cls in NEW_CLASSES)
+    assert (egg.egg_a, egg.egg_b, egg.egg_shift) == (1.0, 0.7, 0.4)
+    assert snail.snail_segments == 17
+    assert (sup.width, sup.height, sup.exponent) == (1.0, 1.0, 4.0)
+    assert (fg.radius, fg.squareness) == (1.0, 0.7)
+    assert (spiral.radius, spiral.spiral_pitch, spiral.spiral_fill) == (1.0, 0.25, 0.5)
+    for o in (sup, fg, spiral, snail, egg):     # every default is inside its own slider range
+        for p in o.NUMERIC_PARAMS:
+            if p.lo is not None:
+                assert p.lo <= getattr(o, p.field) <= p.hi, (type(o).__name__, p.field)
+
+
+def test_the_squircles_reduce_to_the_ellipse_and_the_square_at_their_limits():
+    sup = m.SuperellipseShape(0)
+    sup.width, sup.height, sup.exponent = 1.4, 0.8, 2.0
+    assert np.isclose(sup.bound()[0], np.pi * 0.7 * 0.4, rtol=1e-12)         # n = 2: an ellipse
+    sup.exponent = 1.0
+    assert np.isclose(sup.bound()[0], 2 * 0.7 * 0.4, rtol=1e-12)             # n = 1: a diamond
+    sup.exponent = 16.0
+    assert 0.97 * 4 * 0.7 * 0.4 < sup.bound()[0] < 4 * 0.7 * 0.4             # n large: the box
+    fg = m.FernandezGuastiShape(0)
+    fg.radius = 0.9
+    fg.squareness = 0.0
+    assert np.isclose(fg.bound()[0], np.pi * 0.81, rtol=1e-4)                # s = 0: a circle
+    fg.squareness = 1.0
+    assert np.isclose(fg.bound()[0], 4 * 0.81, rtol=1e-4)                    # s = 1: the square
+
+
+def test_the_spiral_area_matches_a_count_of_independent_inside_points():
+    o = m.ArchimedeanSpiralShape(0)
+    o.radius, o.spiral_pitch, o.spiral_fill = 1.0, 0.25, 0.5
+    member = _independent_membership(o)
+    n = 500
+    xs = (np.arange(n) + 0.5) * (2.2 / n) - 1.1
+    count = sum(member(x, y) for x in xs for y in xs)
+    assert np.isclose(o.bound()[0], count * (2.2 / n) ** 2, rtol=0.03)
+
+
+def test_the_new_kinds_outlines_run_along_the_edge_and_stay_within_their_extent():
+    for o in _new_kind_cases():
+        bound = o.bound()
+        xs, ys = o.boundary_xy()
+        assert len(xs) == len(ys) > 3                # (a one-triangle snail has few corners)
+        assert np.hypot(xs, ys).max() <= o.extent() * 1.001, (type(o).__name__, o.state())
+        step = max(1, len(xs) // 60)
+        for x, y in list(zip(xs, ys))[::step]:
+            if isinstance(o, m.ArchimedeanSpiralShape) and np.hypot(x, y) < 0.02:
+                continue            # the ribbon starts in a wedge too thin for a probe ring to find
+            if isinstance(o, m.PythagorasSnailShape) and np.hypot(x, y) < 1e-3:
+                continue            # the centre: all round it once the turns overlap
+            around = [m.inside_boundary(x + 3e-5 * np.cos(a), y + 3e-5 * np.sin(a), o.KIND, bound)
+                      for a in np.linspace(0.0, 2 * np.pi, 16, endpoint=False)]
+            assert any(around) and not all(around), (type(o).__name__, o.state(), x, y)
+
+
+def test_a_spiral_too_small_to_hold_its_ribbon_is_empty_and_harmless():
+    """The ribbon is `spiral_fill` of a pitch wide, so a maximum radius under that width leaves no
+    room for even a part turn: the shape holds nothing, fires nothing and is never hit."""
+    o = m.ArchimedeanSpiralShape(0)
+    o.radius, o.spiral_pitch, o.spiral_fill = 0.05, 0.25, 0.5
+    bound = o.bound()
+    assert bound[0] == 0.0
+    for x, y in ((0.0, 0.0), (0.02, 0.01), (0.5, 0.5)):
+        assert not m.inside_boundary(x, y, o.KIND, bound)
+    assert m.obstacle_hit(-1.0, 0.0, 1.0, 0.0, o.KIND, bound)[0] < 0.0
+
+
+def test_the_pixel_font_has_a_acute_for_the_fernandez_guasti_name():
+    glyph = m.FONT_5X7["á"]
+    assert len(glyph) == 7 and all(len(row) == 5 for row in glyph)
+    assert glyph[1:] == m.FONT_5X7["a"][1:]                    # an a ...
+    assert glyph[0] != m.FONT_5X7["a"][0] and "1" in glyph[0]  # ... with an accent above it
+    assert m.render_text_line("Fernández", 1).any()
+
+
+def test_the_snail_has_the_construction_s_right_triangles_and_fits_in_the_unit_circle():
+    """Each triangle has its right angle at A_k, legs sqrt(k) and 1 (before scaling), and the farthest
+    corner is one unit from the centre. The 17th triangle is the first to overlap the first turn."""
+    bound = m.snail_bound(17, 0.0)
+    scale = bound[2]
+    corners = bound[3:].reshape(-1, 2) / scale
+    assert len(corners) == 18 and np.allclose(corners[0], (1.0, 0.0))
+    for k in range(1, 18):
+        a, b = corners[k - 1], corners[k]
+        assert np.isclose(np.hypot(*a), np.sqrt(k)) and np.isclose(np.hypot(*(b - a)), 1.0)
+        assert np.isclose(a @ (b - a), 0.0, atol=1e-9)                     # the right angle is at A_k
+    assert np.isclose(np.hypot(*bound[-2:]), 1.0)
+    turned = np.arctan2(corners[16][1], corners[16][0])
+    assert 0.0 > turned > -0.2 or 6.1 < turned + 2 * np.pi < 6.3          # A_17 is almost a whole turn on
+    assert np.hypot(*m.PythagorasSnailShape(0).boundary_xy()).max() <= 1.0 + 1e-9
+
+
+def test_the_snail_segment_count_is_a_whole_number_with_its_own_range():
+    o = m.PythagorasSnailShape(0)
+    assert o.FIELD_TYPES["snail_segments"] is int
+    assert (m.SNAIL_MIN_SEGMENTS, m.SNAIL_MAX_SEGMENTS) == (1, 100)
+    o.snail_segments = m.SNAIL_MAX_SEGMENTS
+    assert len(o.bound()) <= m.OBST_BOUND_LEN
+    assert m.build_obstacle_arrays([o]).bounds.shape == (1, m.OBST_BOUND_LEN)
+
+
+def test_the_egg_is_an_ellipse_with_no_shift_and_its_outline_satisfies_the_pages_equation():
+    egg = m.HugelschafferEggShape(0)
+    egg.egg_a, egg.egg_b, egg.egg_shift = 1.2, 0.5, 0.0
+    assert np.isclose(egg.bound()[0], np.pi * 1.2 * 0.5, rtol=1e-9)             # d = 0: the ellipse a x b
+    for shift in (-0.8, 0.3, 0.9):
+        egg.egg_a, egg.egg_b, egg.egg_shift, egg.rotation = 1.1, 0.6, shift, 0.0
+        a, b, d = 1.1, 0.6, shift * 1.1
+        xs, ys = egg.boundary_xy()
+        x = xs + d                                                              # the page's x
+        residual = (x - d) ** 2 / a ** 2 + ys ** 2 / b ** 2 * (1.0 + (2.0 * d * x - d * d) / a ** 2) - 1.0
+        assert np.abs(residual).max() < 1e-9, shift
+        assert np.isclose(np.abs(ys).max(), b, rtol=1e-6) and np.isclose(xs.min(), -a) and np.isclose(xs.max(), a)
+        # the page's parametrization, x = cos(t) (sqrt(a^2 - d^2 sin^2 t) + d cos t), y = b sin t
+        t = np.linspace(0.0, 2.0 * np.pi, 361)
+        page_x = np.cos(t) * (np.sqrt(a * a - d * d * np.sin(t) ** 2) + d * np.cos(t))
+        assert np.allclose(page_x - d, xs) and np.allclose(b * np.sin(t), ys)
+
+
+def test_a_shift_the_egg_cannot_have_is_clamped_so_the_egg_stays_closed():
+    egg = m.HugelschafferEggShape(0)
+    egg.egg_shift = m.EGG_SHIFT_MAX
+    assert egg.bound()[5] == 0.9 * egg.egg_a
+    assert m.egg_bound(1.0, 0.5, 5.0, 0.0)[5] == 0.9
+
+
+def test_the_eggs_ring_layers_stay_close_to_its_outline_even_at_a_large_shift():
+    """Regression: at a shift near +-0.9 the curve's other branch comes in just past the egg's point, and the
+    first-order distance estimate went to zero along its whole vertical asymptote: the outline layers drew a straight
+    line right across the image. Every ring pixel must lie within a few layer widths of the egg's own outline."""
+    xs = np.linspace(-1.0, 1.0, 400)
+    gx, gy = np.meshgrid(xs, xs[::-1])
+    for a, b, shift, rotation in ((0.46, 0.24, -0.9, 45.0), (0.46, 0.24, 0.9, 45.0), (0.3, 0.5, -0.9, 20.0),
+                                  (1.0, 0.7, 0.4, 0.0), (0.8, 0.2, 0.0, 130.0)):
+        egg = m.HugelschafferEggShape(0)
+        egg.egg_a, egg.egg_b, egg.egg_shift, egg.rotation = a, b, shift, rotation
+        outer, inner = m.ring_layer_masks(m.SHAPE_EGG, egg.bound(), gx, gy)
+        ox, oy = egg.boundary_xy()
+        curve = np.column_stack((np.interp(np.linspace(0, 1, 3000), np.linspace(0, 1, len(ox)), ox),
+                                 np.interp(np.linspace(0, 1, 3000), np.linspace(0, 1, len(oy)), oy)))
+        ring = np.column_stack((gx[outer | inner], gy[outer | inner]))
+        assert len(ring) > 50, (a, b, shift)
+        far = np.sqrt(((ring[:, None, :] - curve[None, ::3, :]) ** 2).sum(-1)).min(axis=1).max()
+        assert far < 3 * m.OBST_RING_LAYER_PX * m.PIXEL + 0.01, (a, b, shift, far)

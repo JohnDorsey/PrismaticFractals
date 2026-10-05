@@ -13,13 +13,28 @@ from .image_io import (
     DOWNSAMPLE_FACTORS, DOWNSAMPLE_FACTOR_VALUES, DOWNSAMPLE_METHODS, convert_apng_to_jxl,
     downsample_image, jxl_quality_tag, read_png, write_png
 )
-from .parsing import parse_positive_int, parse_resolution_dimension
+from .parsing import parse_frame_number, parse_positive_int, parse_resolution_dimension
 from .paths import ensure_export_dir
 from .settings import resolve_frame_settings, resolve_obstacles, snapshot_keyframes
 from .shapes import build_obstacle_arrays
 from .views import resolve_views, snapshot_view
 from .widgets import JxlQualityControls
 from . import external, paths
+
+
+def frames_to_render(keyframe_indices, starting_frame):
+    """(first, last) frame to render: from the starting frame (but never before the first keyframe,
+    since the frames before it would only repeat its values) to the last keyframe. None when the
+    starting frame is past the last keyframe, so there is nothing to render."""
+    first = max(min(keyframe_indices), starting_frame)
+    last = max(keyframe_indices)
+    return (first, last) if first <= last else None
+
+
+def frame_file_offset(first_frame, number_from_start):
+    """The number of the first frame's file: the frame's own number when frame files are numbered from
+    the starting frame, else 0 (ffmpeg reads a sequence from any number: -start_number)."""
+    return first_frame if number_from_start else 0
 
 
 class VideoMixin:
@@ -52,10 +67,16 @@ class VideoMixin:
             for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
                 entry.bind(event, lambda _e, var=var: self.commit_resolution_var(var))
 
-        self.skip_first_frame_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(render_settings_frame, text="Skip first frame",
-                       variable=self.skip_first_frame_var).grid(
-            row=1, column=0, sticky="w", padx=8, pady=(2, 6))
+        start_row = ttk.Frame(render_settings_frame)
+        start_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(2, 2))
+        self.start_frame_var = tk.StringVar(value="0")
+        ttk.Label(start_row, text="Starting frame:").pack(side="left", padx=(0, 4))
+        ttk.Entry(start_row, textvariable=self.start_frame_var, width=7, justify="right",
+                  validate="key", validatecommand=vcmd_wide).pack(side="left")
+        self.number_files_from_start_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(render_settings_frame, text="Number frame files from the starting frame",
+                        variable=self.number_files_from_start_var).grid(
+            row=2, column=0, sticky="w", padx=8, pady=(2, 6))
 
         # ---- Encoding (right): format, bitrate, framerate, downsampling ----
         encoding_frame = ttk.LabelFrame(vp, text="Encoding")
@@ -381,15 +402,20 @@ class VideoMixin:
                                  "the TEMP folder yourself, then try again.")
             return
 
-        frame_lo, frame_hi = min(indices), max(indices)
-        if self.skip_first_frame_var.get():
-            frame_lo += 1
-            if frame_lo > frame_hi:
-                messagebox.showerror("Nothing to render",
-                                     "Skipping the first frame would leave no "
-                                     "frames to render - add another keyframe "
-                                     "or uncheck 'Skip first frame'.")
-                return
+        starting_frame = parse_frame_number(self.start_frame_var.get())
+        if starting_frame is None:
+            messagebox.showerror("Invalid starting frame",
+                                 "Enter a starting frame: a whole number, 0 or more.")
+            return
+        frame_range = frames_to_render(indices, starting_frame)
+        if frame_range is None:
+            messagebox.showerror("Nothing to render",
+                                 f"The starting frame ({starting_frame}) is after the last "
+                                 f"keyframe (frame {max(indices)}), so there is nothing to "
+                                 "render. Lower the starting frame or add a later keyframe.")
+            return
+        frame_lo, frame_hi = frame_range
+        file_offset = frame_file_offset(frame_lo, self.number_files_from_start_var.get())
         kf_snapshot = snapshot_keyframes(self.keyframes)   # independent copies: edits made
                                                    # while rendering must not leak in
         obst_snapshot = [o.snapshot() for o in self.obstacles]
@@ -408,7 +434,7 @@ class VideoMixin:
         self.render_thread = threading.Thread(
             target=self._render_worker,
             args=(kf_snapshot, frame_lo, frame_hi, rs, obst_snapshot, view_snapshot,
-                 color_location, figure_location),
+                 color_location, figure_location, file_offset),
             daemon=True)
         self.render_thread.start()
 
@@ -526,9 +552,10 @@ class VideoMixin:
                     os.remove(jxl_apng_temp)
 
     def _render_worker(self, keyframes, frame_lo, frame_hi, rs, obst_snapshot, view_snapshot,
-                       color_location, figure_location):
+                       color_location, figure_location, file_offset):
         """Runs on a background thread: never touches a Tk widget directly, only
-        via self.root.after(0, ...)."""
+        via self.root.after(0, ...). Frame `fn` is written to the file numbered
+        fn - frame_lo + file_offset (see frame_file_offset)."""
         ext, suffix = self.output_extension_and_suffix(rs)
         out_name = f"{paths.PROGRAM_NAME}-video-{time.strftime('%Y%m%d-%H%M%S')}{suffix}.{ext}"
         out_path = os.path.join(ensure_export_dir(), out_name)
@@ -554,7 +581,7 @@ class VideoMixin:
                 rgb = apply_info_locations(rgb, views, rs["video_w"],
                                            data.ray, obst_values,
                                            color_location, figure_location, mutate_ok=True)
-                path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo:05d}.png")
+                path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo + file_offset:05d}.png")
                 write_png(path, rgb)
                 done = n + 1
                 self.root.after(0, lambda d=done, t=total, im=rgb:
@@ -562,9 +589,10 @@ class VideoMixin:
 
             if rs["downsample_factor"] > 1 and rs["downsample_method"] != "ffmpeg":
                 self.root.after(0, lambda: self.set_video_status("Downsampling frames..."))
-                pattern, start_number, scratch_dir = self.prepare_ffmpeg_source(0, total, rs)
+                pattern, start_number, scratch_dir = self.prepare_ffmpeg_source(
+                    file_offset, total, rs)
             else:
-                start_number = 0
+                start_number = file_offset
             self.root.after(0, lambda: self.set_video_status("Encoding video with ffmpeg..."))
             self.encode_video_output(pattern, start_number, rs, out_path)
             info = self.describe_output_file(out_path, total, rs["fps"])

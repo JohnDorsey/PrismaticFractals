@@ -69,6 +69,13 @@ def parse_seed(text):
     return None
 
 
+def parse_frame_number(text, max_digits=6):
+    """A frame number - a whole number from 0 (up to max_digits digits) - else None."""
+    if re.fullmatch(rf"[0-9]{{1,{max_digits}}}", text):
+        return int(text)
+    return None
+
+
 def parse_positive_int(text, max_digits=6):
     """A whole number of at least 1 (up to max_digits digits), else None."""
     if re.fullmatch(rf"[0-9]{{1,{max_digits}}}", text):

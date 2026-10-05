@@ -423,7 +423,8 @@ class ColorationMixin:
         rf.columnconfigure(1, weight=1)
         self.buddha_blur_radius_scale = self.add_angle_entry(
             rf, 0, "Radius", DEFAULT_BUDDHA_BLUR_RADIUS, on_change=self.on_buddha_blur_changed,
-            lo=BUDDHA_BLUR_RADIUS_MIN, hi=BUDDHA_BLUR_RADIUS_MAX, fmt="{:.2f}")
+            lo=BUDDHA_BLUR_RADIUS_MIN, hi=BUDDHA_BLUR_RADIUS_MAX, fmt="{:.2f}",
+            exact=True)
         ttk.Label(rf, foreground="#666", wraplength=RIGHT_W - 70,
                   text="A multiple of the view's smallest dimension (2 units): 0.1 "
                        "means a blur radius of 0.2 units. 0 means no blur at all - "

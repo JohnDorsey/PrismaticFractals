@@ -54,6 +54,15 @@ def _sample_project(**changes):
     return m.Project(**fields)
 
 
+LEGACY_KIND_COUNT = 12       # the obstacle kinds there were when the format-1 and format-2 reference files were written
+
+
+def _legacy_sample_project():
+    """_sample_project() as it was before the squircles and the spiral existed: the project the format-1
+    and format-2 reference files in dev/testing hold (it has only the first LEGACY_KIND_COUNT kinds)."""
+    return _sample_project(obstacles=_sample_project().obstacles[:LEGACY_KIND_COUNT])
+
+
 def _as_saved(channel, number):
     """A colour channel as it comes back from a file: the settings its source does not use
     are not kept, so they take the channel's defaults."""
@@ -443,7 +452,12 @@ PINNED_SHAPE_KINDS = {"ellipse": "EllipseShape", "regular_polygon": "RegularPoly
                       "circular_segment": "CircularSegmentShape", "two_circle_lens": "LensShape",
                       "reuleaux_polygon": "ReuleauxPolygonShape", "capsule": "CapsuleShape",
                       "trefoil": "TrefoilShape", "quatrefoil": "QuatrefoilShape",
-                      "lune": "LuneShape", "arbelos": "ArbelosShape"}
+                      "lune": "LuneShape", "arbelos": "ArbelosShape",
+                      "superelliptical_squircle": "SuperellipseShape",
+                      "fernandez_guasti_squircle": "FernandezGuastiShape",
+                      "archimedean_spiral": "ArchimedeanSpiralShape",
+                      "snail_of_pythagoras": "PythagorasSnailShape",
+                      "hugelschaffer_egg": "HugelschafferEggShape"}
 PINNED_EXPORT_CHOICES = {             # catalog -> key -> the text the control holds
     "CAT_COLOR_INFO": {"none": "None", "overlay": "Overlay", "bottom_margin": "Bottom margin"},
     "CAT_FIGURE_INFO": {"none": "None", "left_margin": "Left margin"},
@@ -469,7 +483,8 @@ PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_en
 PINNED_EXPORT_KEYS = [
     "include_all_views", "color_info_location", "figure_info_location", "image_source",
     "image_format", "image_jxl_mode", "image_jxl_quality", "image_width", "image_height",
-    "video_fps", "video_width", "video_height", "video_skip_first_frame", "video_format",
+    "video_fps", "video_width", "video_height", "video_start_frame",
+    "video_number_files_from_start", "video_format",
     "video_bitrate_mode", "video_quality", "video_bitrate", "video_vbr_target", "video_vbr_max",
     "video_downsample_factor", "video_downsample_method", "video_jxl_mode", "video_jxl_quality"]
 PINNED_OBSTACLE_FIELDS = {            # kind key -> the fields its project entry has
@@ -480,7 +495,12 @@ PINNED_OBSTACLE_FIELDS = {            # kind key -> the fields its project entry
     "reuleaux_polygon": {"reuleaux_sides", "radius"},
     "capsule": {"capsule_length", "capsule_radius"}, "trefoil": {"radius", "lobe_size"},
     "quatrefoil": {"radius", "lobe_size"}, "lune": {"radius", "cut_radius", "cut_offset"},
-    "arbelos": {"radius", "split"}}
+    "arbelos": {"radius", "split"},
+    "superelliptical_squircle": {"width", "height", "exponent"},
+    "fernandez_guasti_squircle": {"radius", "squareness"},
+    "archimedean_spiral": {"radius", "spiral_pitch", "spiral_fill"},
+    "snail_of_pythagoras": {"snail_segments"},
+    "hugelschaffer_egg": {"egg_a", "egg_b", "egg_shift"}}
 SHARED_OBSTACLE_FIELDS = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
                           "fire_inside"}
 
@@ -592,7 +612,7 @@ def test_a_format_1_project_file_is_converted_when_loaded():
     assert old["format_version"] == 1 and old["obstacles"][0]["kind"] == "EllipseShape"
     assert isinstance(old["simulation"]["emit_mode"], int)
     loaded = m.load_project(V1_PROJECT_FILE)
-    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     assert m.project_text(loaded).count('"format_version": 3') == 1
 
 
@@ -612,7 +632,7 @@ def test_a_format_2_project_file_is_converted_when_loaded():
     loaded = m.load_project(V2_PROJECT_FILE)
     assert loaded.buddha_blur == m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_BOKEH)
     assert loaded.ray == _sample_project().ray
-    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     converted = json.loads(m.project_text(loaded))
     assert converted["format_version"] == 3
     assert converted["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
@@ -767,3 +787,15 @@ def test_a_failed_save_reports_the_problem_and_leaves_the_project_unsaved():
         m.messagebox.showerror = orig
     assert shown and "could not be written" in shown[0][1]
     assert not hasattr(app, "saved_signature")
+
+
+def test_a_project_saved_with_the_old_skip_first_frame_choice_still_loads():
+    """The "skip first frame" checkbox was replaced by a starting frame; its key is retired (no longer
+    written) but a file that has it must still load, the key simply ignored."""
+    import json
+    data = json.loads(m.project_text(_sample_project()))
+    data["export"]["video_skip_first_frame"] = True
+    loaded = m.project_from_dict(data)
+    assert "video_skip_first_frame" not in loaded.export
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert "video_skip_first_frame" not in m.project_text(loaded)

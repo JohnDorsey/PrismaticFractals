@@ -1,5 +1,6 @@
 """Tests: video."""
 import os
+import re
 import shutil
 import tempfile
 import numpy as np
@@ -602,3 +603,53 @@ def test_clear_temp_frames_reports_the_count_deleted():
         app.clear_temp_frames()
         assert os.listdir(ctx.tmpdir) == []
         assert any("3" in msg for msg in app.video_status_calls)
+
+
+# --------------------------------------------------------------------------- #
+# The starting frame and the numbering of frame files
+# --------------------------------------------------------------------------- #
+def test_frames_to_render_runs_from_the_starting_frame_but_never_before_the_first_keyframe():
+    assert m.frames_to_render([0, 30, 10], 0) == (0, 30)
+    assert m.frames_to_render([0, 30, 10], 5) == (5, 30)
+    assert m.frames_to_render([0, 30, 10], 30) == (30, 30)
+    assert m.frames_to_render([8, 30], 0) == (8, 30)          # nothing before the first keyframe
+    assert m.frames_to_render([0, 30], 31) is None            # past the end: nothing to render
+
+
+def test_frame_files_are_numbered_from_the_starting_frame_or_from_zero():
+    assert m.frame_file_offset(12, True) == 12
+    assert m.frame_file_offset(12, False) == 0
+    assert m.frame_file_offset(0, True) == 0
+
+
+def test_a_starting_frame_is_a_whole_number_from_zero():
+    assert [m.parse_frame_number(t) for t in ("0", "7", "012", "999999")] == [0, 7, 12, 999999]
+    assert [m.parse_frame_number(t) for t in ("", "-1", "1.5", "a", "1000000")] == [None] * 5
+
+
+def test_ffmpeg_reads_a_frame_sequence_that_does_not_start_at_zero():
+    """What the "number frame files from the starting frame" choice relies on: -start_number. Frames
+    numbered 7..11 are read as one sequence, in order, when told where it starts."""
+    import shutil
+    import subprocess
+    import tempfile
+    if shutil.which("ffmpeg") is None:
+        raise SkipTest("ffmpeg is not installed")
+    folder = tempfile.mkdtemp(prefix="lb_start_")
+    try:
+        for number in range(7, 12):
+            m.write_png(os.path.join(folder, f"frame_{number:05d}.png"),
+                        np.full((16, 16, 3), 40 * (number - 7), dtype=np.uint8))
+        out = os.path.join(folder, "out.mkv")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "5", "-start_number", "7",
+                        "-i", os.path.join(folder, "frame_%05d.png"), "-c:v", "ffv1", out],
+                       check=True)
+        probe = subprocess.run(["ffmpeg", "-i", out, "-f", "null", "-"], capture_output=True, text=True)
+        counts = re.findall(r"frame=\s*(\d+)", probe.stderr)
+        assert counts and int(counts[-1]) == 5, probe.stderr[-300:]
+        blind = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "5", "-i",
+                                os.path.join(folder, "frame_%05d.png"), os.path.join(folder, "x.mkv")],
+                               capture_output=True)
+        assert blind.returncode != 0        # without -start_number the same files are not found
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)

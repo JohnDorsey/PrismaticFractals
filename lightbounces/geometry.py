@@ -9,15 +9,19 @@ The simulation kernels receive a shape code and a float array `bound`:
              bound[2] = number of sides n,
              bound[3+2k], bound[4+2k] = outward unit normal of edge k
              (a point is inside when normal_k . p < apothem for every k)
-The other layouts are described above ARC_FIELDS. Imports only constants and kernels: shapes.py (the Shape classes) sits above."""
-from math import acos, atan2, cos, pi, radians, sin, sqrt, tan
+The other layouts are described above ARC_FIELDS, and the squircle and spiral ones above superellipse_bound. Imports only constants and
+kernels: shapes.py (the Shape classes) sits above."""
+from math import acos, atan2, cos, gamma, pi, radians, sin, sqrt, tan
 import numpy as np
 from .constants import (
     ARC_SPAN_MAX, ARC_SPAN_MIN, AXIS_MIN, LOBE_SIZE_MAX, MOSS_ANGLE_MAX, MOSS_ANGLE_MIN,
-    SECTOR_SPAN_MAX, SPLIT_MAX, SPLIT_MIN
+    SECTOR_SPAN_MAX, SPIRAL_FILL_MAX, SPIRAL_FILL_MIN, SPIRAL_PITCH_MAX, SPIRAL_PITCH_MIN, SPLIT_MAX,
+    EGG_SHIFT_MAX, EGG_SHIFT_MIN, SNAIL_MAX_SEGMENTS, SNAIL_MIN_SEGMENTS, SPLIT_MIN, SQUARENESS_MAX, SQUARENESS_MIN, SUPER_EXPONENT_MAX,
+    SUPER_EXPONENT_MIN
 )
 from .kernels import (
-    SHAPE_ARBELOS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_REULEAUX, boundary_hit, inside_boundary
+    SHAPE_ARBELOS, SHAPE_FG_SQUIRCLE, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_REULEAUX, SHAPE_SNAIL,
+    SHAPE_SUPERELLIPSE, boundary_hit, inside_boundary
 )
 
 
@@ -394,6 +398,170 @@ def arbelos_bound(radius, split, rotation):
     for cx, r in ((0.0, big), (-big + small_a, small_a), (big - small_b, small_b)):
         arcs.append((cx * cs - shift * sn, cx * sn + shift * cs, r, rot, pi))
     return arc_loop_bound(SHAPE_ARBELOS, arcs, 1.05 * big)
+
+
+# "Squircle" and "spiral" layouts: a convex curve given by an implicit function (the superelliptical and
+# Fernandez-Guasti squircles) and the Archimedean spiral ribbon. Their rays are found by root search in the
+# shape's own frame (see kernels.squircle_f and kernels.spiral_edges_hit), so each is six numbers:
+#   bound[0] = area; bound[1], bound[2] = cos, sin of the rotation;
+#   superelliptical squircle  bound[3], bound[4] = semi-axes a, b; bound[5] = the exponent n
+#                             (inside when |x/a|^n + |y/b|^n < 1)
+#   Fernandez-Guasti squircle bound[3] = bound[4] = the radius r; bound[5] = the squareness s
+#                             (inside when x^2 + y^2 - (s^2/r^2) x^2 y^2 < r^2, within the box |x|, |y| < r)
+#   spiral ribbon             bound[3] = b, bound[4] = w, bound[5] = theta_max: the points (rho, phi) with
+#                             b*theta <= rho < b*theta + w for some theta in [0, theta_max] that is phi plus whole
+#                             turns (theta_max 0: the shape is empty)
+
+
+def superellipse_bound(width, height, exponent, rotation):
+    """A superelliptical squircle |x/a|^n + |y/b|^n < 1 with full extents `width` x `height` (a, b the half
+    of each) and exponent n (2: an ellipse, 1: a diamond, large: a rectangle), turned counterclockwise by
+    `rotation` degrees. Its area is exact: 4ab * gamma(1 + 1/n)^2 / gamma(1 + 2/n)."""
+    a = max(width * 0.5, AXIS_MIN)
+    b = max(height * 0.5, AXIS_MIN)
+    n = min(max(exponent, SUPER_EXPONENT_MIN), SUPER_EXPONENT_MAX)
+    th = radians(rotation)
+    return np.array([4.0 * a * b * gamma(1.0 + 1.0 / n) ** 2 / gamma(1.0 + 2.0 / n),
+                     cos(th), sin(th), a, b, n], dtype=np.float64)
+
+
+def fg_squircle_bound(radius, squareness, rotation):
+    """A Fernandez-Guasti squircle x^2 + y^2 - (s^2/r^2) x^2 y^2 < r^2 of radius r and squareness s (0: the
+    circle of radius r; 1: the square of side 2r), turned counterclockwise by `rotation` degrees. Along the
+    direction at angle phi its edge is at rho^2 = 2 r^2 / (1 + sqrt(1 - s^2 sin^2(2 phi))), and the area is half
+    the integral of rho^2 over the turn (a midpoint sum)."""
+    r = max(radius, AXIS_MIN)
+    s = min(max(squareness, SQUARENESS_MIN), SQUARENESS_MAX)
+    th = radians(rotation)
+    steps = 4096
+    phi = (np.arange(steps) + 0.5) * (2.0 * pi / steps)
+    rho2 = 2.0 * r * r / (1.0 + np.sqrt(1.0 - (s * np.sin(2.0 * phi)) ** 2))
+    return np.array([0.5 * rho2.sum() * (2.0 * pi / steps), cos(th), sin(th), r, r, s], dtype=np.float64)
+
+
+def spiral_bound(radius, pitch, fill, rotation):
+    """An Archimedean spiral ribbon: it winds out from the centre, its inner edge rho = b*theta and its
+    outer edge rho = b*theta + w, `pitch` (= 2 pi b) apart from one turn to the next, `fill` * pitch wide (w), until
+    the outer edge reaches `radius` from the centre (theta_max = (radius - w) / b, never below 0: a radius under
+    the ribbon's width leaves nothing). It starts along +x at rotation 0 and winds counterclockwise; each end is a
+    straight cut across the ribbon. The area is the integral of ((b theta + w)^2 - (b theta)^2) / 2 up to
+    theta_max."""
+    p = min(max(pitch, SPIRAL_PITCH_MIN), SPIRAL_PITCH_MAX)
+    f = min(max(fill, SPIRAL_FILL_MIN), SPIRAL_FILL_MAX)
+    b = p / (2.0 * pi)
+    w = f * p
+    theta_max = (radius - w) / b
+    if theta_max <= 1e-9:
+        theta_max = 0.0
+    th = radians(rotation)
+    return np.array([0.5 * (b * w * theta_max ** 2 + w * w * theta_max), cos(th), sin(th), b, w, theta_max],
+                    dtype=np.float64)
+
+
+def squircle_outline_xy(shape, bound, n=361):
+    """(x, y) arrays tracing a squircle's edge exactly (not by casting rays): the superellipse as
+    x = a sgn(cos t)|cos t|^(2/n), y = b sgn(sin t)|sin t|^(2/n); the Fernandez-Guasti squircle by its edge
+    distance along each direction; each turned by the rotation."""
+    t = np.linspace(0.0, 2.0 * pi, n)
+    if shape == SHAPE_SUPERELLIPSE:
+        ct, st = np.cos(t), np.sin(t)
+        x = bound[3] * np.sign(ct) * np.abs(ct) ** (2.0 / bound[5])
+        y = bound[4] * np.sign(st) * np.abs(st) ** (2.0 / bound[5])
+    else:
+        rho = bound[3] * np.sqrt(2.0 / (1.0 + np.sqrt(1.0 - (bound[5] * np.sin(2.0 * t)) ** 2)))
+        x, y = rho * np.cos(t), rho * np.sin(t)
+    return bound[1] * x - bound[2] * y, bound[2] * x + bound[1] * y
+
+
+def spiral_outline_xy(bound, per_turn=90):
+    """(x, y) arrays tracing the spiral ribbon's edge: out along the inner edge, across the far end, back along
+    the outer edge and across the near end to the start. A shape too small to hold its ribbon is the single point
+    at the centre."""
+    b, w, theta_max = bound[3], bound[4], bound[5]
+    if theta_max <= 0.0:
+        return np.zeros(2), np.zeros(2)
+    theta = np.linspace(0.0, theta_max, 8 + int(per_turn * theta_max / (2.0 * pi)))
+    radius = np.concatenate((b * theta, (b * theta + w)[::-1]))
+    angle = np.concatenate((theta, theta[::-1]))
+    x, y = radius * np.cos(angle), radius * np.sin(angle)
+    x, y = np.append(x, x[0]), np.append(y, y[0])
+    return bound[1] * x - bound[2] * y, bound[2] * x + bound[1] * y
+
+
+# "Snail" layout (the snail of Pythagoras): the union of `n` right triangles O, A_k, A_{k+1} sharing the vertex O at
+# the centre.   bound[0] = area; bound[1] = n; bound[2] = the scale; then the corners A_1 .. A_{n+1} as x, y pairs
+# from bound[3], already turned by the rotation. In the unscaled figure |O A_k| = sqrt(k), the right angle is at
+# A_k and |A_k A_{k+1}| = 1, so A_{k+1} is the direction of A_k turned by atan(1 / sqrt(k)); the scale makes the
+# farthest corner, A_{n+1}, one unit from the centre.
+def snail_bound(segments, rotation):
+    """The snail of Pythagoras made of `segments` triangles, turned counterclockwise by `rotation` degrees (the
+    first corner A_1 is along +x at rotation 0), scaled so that its farthest corner is 1 from the centre."""
+    n = min(max(int(round(segments)), SNAIL_MIN_SEGMENTS), SNAIL_MAX_SEGMENTS)
+    theta = np.concatenate(([0.0], np.cumsum(np.arctan(1.0 / np.sqrt(np.arange(1, n + 1))))))
+    scale = 1.0 / sqrt(n + 1.0)
+    angle = theta + radians(rotation)
+    radius = scale * np.sqrt(np.arange(1, n + 2))
+    bound = np.zeros(3 + 2 * (n + 1), dtype=np.float64)
+    bound[1] = n
+    bound[2] = scale
+    bound[3:] = np.column_stack((radius * np.cos(angle), radius * np.sin(angle))).ravel()
+    bound[0] = estimate_area_numeric(SHAPE_SNAIL, bound, 1.05)
+    return bound
+
+
+def snail_outline_xy(bound):
+    """(x, y) arrays tracing the snail's edge. Seen from the centre the shape is the farthest of its triangles'
+    outer edges in each direction, so the edge is followed by direction: at each corner's direction, just before and
+    just after (where a later turn starts or ends, the edge jumps along a straight line out from the centre), joined by
+    straight pieces. A direction no triangle covers is the centre itself."""
+    n = int(bound[1])
+    corners = bound[3:3 + 2 * (n + 1)].reshape(-1, 2)
+    a, b = corners[:-1], corners[1:]
+    edge = b - a
+    start = np.arctan2(a[:, 1], a[:, 0])
+    span = np.mod(np.arctan2(b[:, 1], b[:, 0]) - start, 2.0 * pi)
+    turns = np.mod(np.append(start, np.arctan2(b[-1, 1], b[-1, 0])), 2.0 * pi)
+    phi = np.sort(np.mod(np.concatenate((turns - 1e-9, turns + 1e-9)), 2.0 * pi))
+    far = np.zeros_like(phi)
+    for k in range(n):
+        covered = np.mod(phi - start[k], 2.0 * pi) <= span[k]
+        ux, uy = np.cos(phi), np.sin(phi)
+        across = ux * edge[k, 1] - uy * edge[k, 0]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = (a[k, 0] * edge[k, 1] - a[k, 1] * edge[k, 0]) / across
+        far = np.where(covered & np.isfinite(t), np.maximum(far, t), far)
+    x, y = far * np.cos(phi), far * np.sin(phi)
+    return np.append(x, x[0]), np.append(y, y[0])
+
+
+# "Egg" layout (the Hugelschaffer egg): bound[0] = area; bound[1], bound[2] = cos, sin of the rotation;
+# bound[3] = a, bound[4] = b, bound[5] = d. With u measured from the middle of its length (so u runs from -a to a) it
+# is y^2 (a^2 + d^2 + 2 d u) = b^2 (a^2 - u^2), with |u| < a inside; the page's form, in x = u + d, is
+# (x - d)^2 / a^2 + y^2 / b^2 (1 + (2 d x - d^2) / a^2) = 1, and b is exactly its half-width.
+def egg_bound(half_length, half_width, shift, rotation):
+    """A Hugelschaffer egg of half-length a, half-width b and shift d = `shift` * a (|shift| below 1; 0 is the
+    ellipse with semi-axes a and b), turned counterclockwise by `rotation` degrees about the middle of its
+    length. Its pointed end is toward +x for a positive shift. The area is the integral of u dy round the
+    parametrization of egg_outline_xy."""
+    a = max(half_length, AXIS_MIN)
+    b = max(half_width, AXIS_MIN)
+    d = min(max(shift, EGG_SHIFT_MIN), EGG_SHIFT_MAX) * a
+    th = radians(rotation)
+    steps = 4096
+    t = (np.arange(steps) + 0.5) * (2.0 * pi / steps)
+    u = -d * np.sin(t) ** 2 + np.cos(t) * np.sqrt(a * a - (d * np.sin(t)) ** 2)
+    area = float(np.sum(u * b * np.cos(t)) * (2.0 * pi / steps))
+    return np.array([area, cos(th), sin(th), a, b, d], dtype=np.float64)
+
+
+def egg_outline_xy(bound, n=361):
+    """(x, y) arrays tracing the egg exactly, by the page's parametrization (in u = x - d, so that the egg is
+    centred on the middle of its length): u = -d sin(t)^2 + cos(t) sqrt(a^2 - d^2 sin(t)^2), y = b sin(t)."""
+    a, b, d = bound[3], bound[4], bound[5]
+    t = np.linspace(0.0, 2.0 * pi, n)
+    u = -d * np.sin(t) ** 2 + np.cos(t) * np.sqrt(a * a - (d * np.sin(t)) ** 2)
+    y = b * np.sin(t)
+    return bound[1] * u - bound[2] * y, bound[2] * u + bound[1] * y
 
 
 def chain_arcs_xy(bound, per_arc=60):

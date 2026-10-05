@@ -42,11 +42,16 @@ SHAPE_SEGMENT = 4
 SHAPE_LENS = 5
 SHAPE_REULEAUX = 6
 SHAPE_CAPSULE = 7
-SHAPE_TREFOIL = 8           # from here on: arc loops, which can be concave (see inside_arcs_parity)
+SHAPE_TREFOIL = 8           # from here to SHAPE_ARBELOS: arc loops, which can be concave (see inside_arcs_parity)
 SHAPE_QUATREFOIL = 9
 SHAPE_LUNE = 10
 SHAPE_ARBELOS = 11
 SHAPE_FIRST_ARC_LOOP = SHAPE_TREFOIL
+SHAPE_SUPERELLIPSE = 12     # the two squircles and the spiral ribbon: found by root search, not arcs; they are
+SHAPE_FG_SQUIRCLE = 13      # tested in the dispatchers before the arc loops' range check, which would take them
+SHAPE_SPIRAL = 14
+SHAPE_SNAIL = 15            # the snail of Pythagoras: a union of triangles
+SHAPE_EGG = 16              # the Hugelschaffer egg: a cubic
 
 # Ray emission direction (a figure-defining setting, not part of fuzzing): each
 # ray's base direction is either straight up (90 degrees) or from its start
@@ -427,6 +432,689 @@ def circles_entry_hit(px, py, dx, dy, bound):
     return t_enter, enter_nx, enter_ny
 
 
+# --------------------------------------------------------------------------- #
+# The squircles and the Archimedean spiral ribbon. Their ray hits are found by root search along the ray,
+# not in closed form. Both are worked out in the shape's own frame: bound[1], bound[2] are the cosine and sine
+# of its rotation (a point or direction is turned by minus the rotation, a normal turned back), then
+#   superelliptical squircle  bound[3], bound[4] = the semi-axes a, b;  bound[5] = the exponent n
+#   Fernandez-Guasti squircle bound[3] = bound[4] = the radius r;       bound[5] = the squareness s
+#   spiral ribbon             bound[3] = b (radius gained per radian),  bound[4] = the ribbon's width w,
+#                             bound[5] = theta_max, the angle the ribbon runs to (0: an empty shape)
+# --------------------------------------------------------------------------- #
+@njit(cache=True)
+def squircle_f(lx, ly, shape, bound):
+    """For the two squircles: F(lx, ly) and its gradient, in the shape's own frame. F < 0 inside the shape, > 0
+    outside, and F is convex along every straight line (the shapes are convex, and F is their gauge or a sum of
+    convex terms), so along a ray F(t) has at most two roots, and Newton's method started from the left of the
+    first (or the right of the last) one creeps up on it without ever jumping past it."""
+    if shape == SHAPE_SUPERELLIPSE:
+        a = bound[3]
+        b = bound[4]
+        n = bound[5]
+        u = abs(lx) / a
+        v = abs(ly) / b
+        gx = n * u ** (n - 1.0) / a
+        gy = n * v ** (n - 1.0) / b
+        if lx < 0.0:
+            gx = -gx
+        elif lx == 0.0:
+            gx = 0.0
+        if ly < 0.0:
+            gy = -gy
+        elif ly == 0.0:
+            gy = 0.0
+        return u ** n + v ** n - 1.0, gx, gy
+    # Fernandez-Guasti: with q = x^2 + y^2, F = (q + sqrt(q^2 - 4 s^2 x^2 y^2)) / (2 r^2) - 1, which is (the
+    # gauge of the shape)^2 - 1 (see squircle_hit: it is where x^2 + y^2 - s^2 x^2 y^2 / r^2 = r^2 along the
+    # radial line through the point, taking the nearer of the two roots)
+    r2 = bound[3] * bound[3]
+    s2 = bound[5] * bound[5]
+    x2 = lx * lx
+    y2 = ly * ly
+    q = x2 + y2
+    root = sqrt(max(q * q - 4.0 * s2 * x2 * y2, 0.0))
+    if root > 1e-12:
+        drx = 2.0 * lx * (q - 2.0 * s2 * y2) / root
+        dry = 2.0 * ly * (q - 2.0 * s2 * x2) / root
+    else:
+        drx = 0.0       # the corner of the s = 1 square: any subgradient will do for Newton's method
+        dry = 0.0
+    return (q + root) / (2.0 * r2) - 1.0, (2.0 * lx + drx) / (2.0 * r2), (2.0 * ly + dry) / (2.0 * r2)
+
+
+@njit(cache=True)
+def _slab(p, d, half):
+    """Where the line p + t d lies between the planes at -half and +half: (t_near, t_far), or (1e30, -1e30)
+    if it never does."""
+    if abs(d) < 1e-15:
+        if abs(p) > half:
+            return 1e30, -1e30
+        return -1e30, 1e30
+    t1 = (-half - p) / d
+    t2 = (half - p) / d
+    if t1 > t2:
+        return t2, t1
+    return t1, t2
+
+
+@njit(cache=True)
+def squircle_hit(px, py, dx, dy, shape, bound, entering):
+    """boundary_hit (entering False: the ray starts inside, this is where it leaves) and obstacle_hit (entering
+    True: it starts outside, this is where it enters, or t < 0 if it misses) for the two squircles. The shape
+    lies inside the box of its semi-axes, so the ray is first clipped to that box, and Newton's method starts
+    at the box's end of the ray (see squircle_f for why it cannot overshoot)."""
+    c = bound[1]
+    s = bound[2]
+    lx = c * px + s * py
+    ly = -s * px + c * py
+    ldx = c * dx + s * dy
+    ldy = -s * dx + c * dy
+    a_near, a_far = _slab(lx, ldx, bound[3] * (1.0 + 1e-12) + 1e-12)
+    b_near, b_far = _slab(ly, ldy, bound[4] * (1.0 + 1e-12) + 1e-12)
+    t_near = max(a_near, b_near)
+    t_far = min(a_far, b_far)
+    if t_near > t_far or t_far <= 0.0:
+        if entering:
+            return -1.0, 0.0, 0.0
+        return 1e30, 0.0, 0.0
+    if entering:
+        t = max(t_near, 0.0)
+        for _i in range(60):
+            f, gx, gy = squircle_f(lx + t * ldx, ly + t * ldy, shape, bound)
+            if f <= 1e-14:
+                break
+            slope = gx * ldx + gy * ldy
+            if slope >= -1e-300:                 # F is above 0 and not falling: the ray never gets there
+                return -1.0, 0.0, 0.0
+            t -= f / slope
+            if t > t_far:
+                return -1.0, 0.0, 0.0
+        f, gx, gy = squircle_f(lx + t * ldx, ly + t * ldy, shape, bound)
+        if f > 1e-9 or t <= EPS:                 # a graze that never quite arrived, or the ray's own start
+            return -1.0, 0.0, 0.0
+    else:
+        t = t_far
+        for _i in range(60):
+            f, gx, gy = squircle_f(lx + t * ldx, ly + t * ldy, shape, bound)
+            if f <= 1e-14:
+                break
+            slope = gx * ldx + gy * ldy
+            if slope <= 1e-300:
+                break
+            t -= f / slope
+            if t < 0.0:
+                t = 0.0
+                break
+        if t < 0.0:
+            t = 0.0
+        f, gx, gy = squircle_f(lx + t * ldx, ly + t * ldy, shape, bound)
+    return t, c * gx - s * gy, s * gx + c * gy
+
+
+@njit(cache=True)
+def inside_squircle(x, y, shape, bound):
+    c = bound[1]
+    s = bound[2]
+    f, _gx, _gy = squircle_f(c * x + s * y, -s * x + c * y, shape, bound)
+    return f < 0.0
+
+
+@njit(cache=True)
+def inside_spiral(x, y, bound):
+    """Is (x, y) inside the spiral ribbon: the points (rho, phi) with  b*theta <= rho < b*theta + w  for some
+    theta between 0 and theta_max that is phi plus a whole number of turns? Of the thetas that differ from phi
+    by whole turns only the largest one with b*theta <= rho can work (the ribbon is under a turn wide)."""
+    theta_max = bound[5]
+    if theta_max <= 1e-9:
+        return False
+    c = bound[1]
+    s = bound[2]
+    lx = c * x + s * y
+    ly = -s * x + c * y
+    b = bound[3]
+    w = bound[4]
+    rho = sqrt(lx * lx + ly * ly)
+    if rho >= b * theta_max + w:
+        return False
+    two_pi = 2.0 * pi
+    phi = atan2(ly, lx)
+    theta = phi + two_pi * floor((rho / b - phi) / two_pi)
+    if theta < 0.0 or theta > theta_max:
+        return False
+    return rho - b * theta < w
+
+
+@njit(cache=True)
+def spiral_d(t, m, c, pp, phi0, inv_b):
+    """D(t) = rho(t)/b - phi(t) along a ray, where phi is the polar angle followed continuously (a straight line
+    not through the centre sweeps under a half turn in all). The ray is on the inner edge of the ribbon where D is
+    a whole number of turns (2 pi k) and on the outer edge where D is k turns plus 2 pi * fill."""
+    s = t + m
+    return sqrt(s * s + c * c) * inv_b - (phi0 + atan2(t * c, pp + t * m))
+
+
+@njit(cache=True)
+def spiral_slope(t, m, c, inv_b):
+    s = t + m
+    rr = s * s + c * c
+    if rr < 1e-24:
+        return 0.0
+    return s * inv_b / sqrt(rr) - c / rr
+
+
+@njit(cache=True)
+def spiral_solve(level, lo, hi, d_lo, d_hi, m, c, pp, phi0, inv_b):
+    """The t in [lo, hi] where D(t) = level, D being monotone there and d_lo, d_hi (D less the level at each end)
+    of opposite sign: Newton's method kept inside the shrinking bracket, falling back to bisection."""
+    if d_lo == 0.0:
+        return lo
+    if d_hi == 0.0:
+        return hi
+    t = 0.5 * (lo + hi)
+    for _i in range(100):
+        f = spiral_d(t, m, c, pp, phi0, inv_b) - level
+        if f == 0.0:
+            return t
+        if (f > 0.0) == (d_lo > 0.0):
+            lo = t
+            d_lo = f
+        else:
+            hi = t
+            d_hi = f
+        slope = spiral_slope(t, m, c, inv_b)
+        t_new = t - f / slope if slope != 0.0 else 0.5 * (lo + hi)
+        if t_new <= lo or t_new >= hi:
+            t_new = 0.5 * (lo + hi)
+        if abs(t_new - t) <= 1e-15 * (1.0 + abs(t)):
+            return t_new
+        t = t_new
+    return t
+
+
+@njit(cache=True)
+def spiral_edges_hit(lx, ly, ldx, ldy, b, w, theta_max):
+    """The nearest t > EPS where a ray, in the ribbon's own frame, meets one of its two curved edges
+    (rho = b*theta and rho = b*theta + w, theta from 0 to theta_max), with the normal there; 1e30 if it never does.
+
+    D(t) of spiral_d has exactly one turning point, found in closed form (a quartic in s that is quadratic in s^2),
+    so the ray splits into a stretch where D falls and a stretch where it rises, and on each of those the edges are
+    the levels D = 2 pi k and D = 2 pi (k + fill) crossed in order. Each level is solved by spiral_solve and is
+    accepted if its theta is within the ribbon's range; the first accepted one is the answer."""
+    two_pi = 2.0 * pi
+    r_out = b * theta_max + w
+    t_in, t_out = _circle_roots(lx, ly, ldx, ldy, 0.0, 0.0, r_out * (1.0 + 1e-9))
+    t0 = max(t_in, 0.0)
+    t1 = t_out
+    if t1 <= t0:
+        return 1e30, 0.0, 0.0
+    inv_b = 1.0 / b
+    fill_turn = w * inv_b                       # 2 pi * fill: the ribbon's width, in radians of D
+    pp = lx * lx + ly * ly
+    m = lx * ldx + ly * ldy
+    c = lx * ldy - ly * ldx
+    phi0 = atan2(ly, lx) if pp > 1e-18 else atan2(ldy, ldx)
+    hh = c * c
+    s_turn = sqrt(0.5 * (-hh + sqrt(hh * hh + 4.0 * b * b * hh)))
+    t_min = (s_turn if c >= 0.0 else -s_turn) - m       # where D stops falling and starts rising
+    mid = min(max(t_min, t0), t1)
+    for piece in range(2):
+        falling = piece == 0
+        u0 = t0 if falling else mid
+        u1 = mid if falling else t1
+        if u1 <= u0:
+            continue
+        d0 = spiral_d(u0, m, c, pp, phi0, inv_b)
+        d1 = spiral_d(u1, m, c, pp, phi0, inv_b)
+        k = floor(d0 / two_pi)
+        rem = d0 - two_pi * k
+        if falling:                             # the highest level at or below D(u0), then downwards
+            n = int(2 * k) + (1 if rem >= fill_turn else 0)
+        elif rem <= 0.0:                        # the lowest level at or above D(u0), then upwards
+            n = int(2 * k)
+        elif rem <= fill_turn:
+            n = int(2 * k) + 1
+        else:
+            n = int(2 * k) + 2
+        for _i in range(20000):
+            level = two_pi * (n // 2) + (fill_turn if n % 2 == 1 else 0.0)
+            if falling:
+                if level < d1 - 1e-12:
+                    break
+            elif level > d1 + 1e-12:
+                break
+            t = spiral_solve(level, u0, u1, d0 - level, d1 - level, m, c, pp, phi0, inv_b)
+            n_hit = n
+            n += -1 if falling else 1
+            if t <= EPS:
+                continue
+            x = lx + t * ldx
+            y = ly + t * ldy
+            rho = sqrt(x * x + y * y)
+            if n_hit % 2 == 0:                              # an inner edge: rho = b * theta
+                ok = rho <= b * theta_max * (1.0 + 1e-12) + 1e-12
+            else:                                           # an outer edge: rho = b * theta + w
+                ok = rho >= w * (1.0 - 1e-12) - 1e-12 and rho <= r_out * (1.0 + 1e-12)
+            if ok:
+                rho = max(rho, 1e-12)
+                return t, x + b * y / rho, y - b * x / rho
+    return 1e30, 0.0, 0.0
+
+
+@njit(cache=True)
+def spiral_hit(px, py, dx, dy, bound):
+    """The nearest t > EPS where a ray touches the spiral ribbon's edge (its two curved edges and the two straight
+    ends), from inside or outside alike, with the normal there; 1e30 if it never does."""
+    theta_max = bound[5]
+    if theta_max <= 1e-9:
+        return 1e30, 0.0, 0.0
+    c = bound[1]
+    s = bound[2]
+    b = bound[3]
+    w = bound[4]
+    lx = c * px + s * py
+    ly = -s * px + c * py
+    ldx = c * dx + s * dy
+    ldy = -s * dx + c * dy
+    best_t, nx, ny = spiral_edges_hit(lx, ly, ldx, ldy, b, w, theta_max)
+    t = edge_exit_hit(lx, ly, ldx, ldy, 0.0, 0.0, w, 0.0)             # the end the ribbon starts from
+    if t < best_t:
+        best_t = t
+        nx = 0.0
+        ny = -w
+    cos_t = cos(theta_max)
+    sin_t = sin(theta_max)
+    ax = b * theta_max * cos_t
+    ay = b * theta_max * sin_t
+    bx = (b * theta_max + w) * cos_t
+    by = (b * theta_max + w) * sin_t
+    t = edge_exit_hit(lx, ly, ldx, ldy, ax, ay, bx, by)               # the end it runs out at
+    if t < best_t:
+        best_t = t
+        nx = by - ay
+        ny = -(bx - ax)
+    return best_t, c * nx - s * ny, s * nx + c * ny
+
+
+@njit(cache=True)
+def squircle_distance_grid(gx, gy, shape, bound):
+    """Over a whole grid: the first-order distance |F| / |grad F| from each point to a squircle's edge (for the
+    outline and the two ring layers; accurate close to the edge, which is all they need)."""
+    c = bound[1]
+    s = bound[2]
+    h, w = gx.shape
+    out = np.empty((h, w), dtype=np.float64)
+    for j in range(h):
+        for i in range(w):
+            f, fx, fy = squircle_f(c * gx[j, i] + s * gy[j, i], -s * gx[j, i] + c * gy[j, i],
+                                   shape, bound)
+            out[j, i] = abs(f) / max(sqrt(fx * fx + fy * fy), 1e-9)
+    return out
+
+
+@njit(cache=True)
+def _segment_distance(x, y, ax, ay, bx, by):
+    ex = bx - ax
+    ey = by - ay
+    along = ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey)
+    along = min(max(along, 0.0), 1.0)
+    return sqrt((x - ax - along * ex) ** 2 + (y - ay - along * ey) ** 2)
+
+
+@njit(cache=True)
+def spiral_distance_grid(gx, gy, bound):
+    """Over a whole grid: the distance from each point to the spiral ribbon's edge - first order for the two
+    curved edges (the offset in rho from the nearest turn, over the size of rho - b*phi's gradient), exact for the
+    two straight ends - for the outline's two ring layers."""
+    h, w_px = gx.shape
+    out = np.full((h, w_px), 1e30)
+    theta_max = bound[5]
+    if theta_max <= 1e-9:
+        return out
+    c = bound[1]
+    s = bound[2]
+    b = bound[3]
+    w = bound[4]
+    two_pi = 2.0 * pi
+    ax = b * theta_max * cos(theta_max)
+    ay = b * theta_max * sin(theta_max)
+    bx = (b * theta_max + w) * cos(theta_max)
+    by = (b * theta_max + w) * sin(theta_max)
+    for j in range(h):
+        for i in range(w_px):
+            lx = c * gx[j, i] + s * gy[j, i]
+            ly = -s * gx[j, i] + c * gy[j, i]
+            best = min(_segment_distance(lx, ly, 0.0, 0.0, w, 0.0),
+                       _segment_distance(lx, ly, ax, ay, bx, by))
+            rho = sqrt(lx * lx + ly * ly)
+            if rho > 1e-12:
+                phi = atan2(ly, lx)
+                base = phi + two_pi * floor((rho / b - phi) / two_pi)
+                slope = sqrt(1.0 + (b / rho) ** 2)
+                for k in range(-1, 2):
+                    theta = base + two_pi * k
+                    if theta < 0.0 or theta > theta_max:
+                        continue
+                    best = min(best, abs(rho - b * theta) / slope, abs(rho - b * theta - w) / slope)
+            out[j, i] = best
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# The snail of Pythagoras (the spiral of Theodorus): the union of n right triangles that share the vertex O at the
+# centre; triangle k has the corners O, A_k, A_{k+1}, with the right angle at A_k, |O A_k| = sqrt(k) and
+# |A_k A_{k+1}| = 1 (both scaled). Its bound is [area, n, the scale, then the n + 1 corners A_1 .. A_{n+1} as x, y
+# pairs, already turned by the rotation]. Each triangle is convex, so a ray meets it in one interval of t; the
+# shape is the union of those intervals' triangles, which is star-shaped about O but not convex, so the ray's way
+# out is found by chaining the intervals that touch, and its way in is the earliest interval start.
+# --------------------------------------------------------------------------- #
+@njit(cache=True)
+def _snail_clip(px, py, dx, dy, ax, ay, bx, by):
+    """The ray p + t d against the triangle O, A, B (counter-clockwise): (ok, t_in, t_out, the normal where it
+    enters, the normal where it leaves). Inside is where all three of cross(A, p), cross(p, B) and
+    cross(B - A, p - A) are positive; each is a linear function of t. The two straight edges out from O count as
+    inside (a point on one shared by two triangles is in both), so the shape has no hairline hole along them."""
+    lo = -1e30
+    hi = 1e30
+    lnx = 0.0
+    lny = 0.0
+    hnx = 0.0
+    hny = 0.0
+    ok = True
+    for edge in range(3):
+        if edge == 0:
+            f0 = ax * py - ay * px
+            slope = ax * dy - ay * dx
+            gx = -ay
+            gy = ax
+        elif edge == 1:
+            f0 = px * by - py * bx
+            slope = dx * by - dy * bx
+            gx = by
+            gy = -bx
+        else:
+            f0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+            slope = (bx - ax) * dy - (by - ay) * dx
+            gx = -(by - ay)
+            gy = bx - ax
+        if abs(slope) < 1e-14:
+            if f0 < -1e-12 if edge < 2 else f0 <= 0.0:       # (a ray along an edge out from O is inside)
+                ok = False
+            continue
+        t = -f0 / slope
+        if slope > 0.0:
+            if t > lo:
+                lo = t
+                lnx = gx
+                lny = gy
+        elif t < hi:
+            hi = t
+            hnx = gx
+            hny = gy
+    return ok and lo < hi, lo, hi, lnx, lny, hnx, hny
+
+
+@njit(cache=True)
+def inside_snail(x, y, bound):
+    n = int(bound[1])
+    for k in range(n):
+        ax = bound[3 + 2 * k]
+        ay = bound[4 + 2 * k]
+        bx = bound[5 + 2 * k]
+        by = bound[6 + 2 * k]
+        if (ax * y - ay * x >= 0.0 and x * by - y * bx >= 0.0
+                and (bx - ax) * (y - ay) - (by - ay) * (x - ax) > 0.0):
+            return True
+    return False
+
+
+SNAIL_JOIN = 1e-9        # two triangles' intervals that meet within this are one stretch of the ray
+
+
+@njit(cache=True)
+def snail_hit(px, py, dx, dy, bound, entering):
+    """boundary_hit (entering False: the ray starts inside) and obstacle_hit (entering True: it starts outside, t < 0
+    if it never enters) for the snail of Pythagoras, with the normal there."""
+    n = int(bound[1])
+    if entering:
+        best_t = 1e30
+        best_nx = 0.0
+        best_ny = 0.0
+        for k in range(n):
+            ok, lo, hi, lnx, lny, _hnx, _hny = _snail_clip(
+                px, py, dx, dy, bound[3 + 2 * k], bound[4 + 2 * k], bound[5 + 2 * k], bound[6 + 2 * k])
+            if ok and lo > EPS and lo < best_t:
+                best_t = lo
+                best_nx = lnx
+                best_ny = lny
+        if best_t > 1e29:
+            return -1.0, 0.0, 0.0
+        return best_t, best_nx, best_ny
+    reach = 0.0              # how far along the ray the inside has been followed
+    nx = 0.0
+    ny = 0.0
+    found = False
+    for _pass in range(n + 1):
+        grew = False
+        for k in range(n):
+            ok, lo, hi, _lnx, _lny, hnx, hny = _snail_clip(
+                px, py, dx, dy, bound[3 + 2 * k], bound[4 + 2 * k], bound[5 + 2 * k], bound[6 + 2 * k])
+            if ok and lo <= reach + SNAIL_JOIN and hi > reach + 1e-12 and hi > EPS:
+                reach = hi
+                nx = hnx
+                ny = hny
+                found = True
+                grew = True
+        if not grew:
+            break
+    if not found:
+        return 1e30, 0.0, 0.0
+    return reach, nx, ny
+
+
+@njit(cache=True)
+def snail_near_grid(gx, gy, bound, w):
+    """Over a whole grid: is each point within `w` of the shape's edge? The edges are those of the triangles, but a
+    piece of one that has the shape on both sides of it (the edges two triangles share, and the parts covered by a
+    later turn) is not an edge of the shape; the nearest point on each close edge is probed just either side."""
+    n = int(bound[1])
+    h, wd = gx.shape
+    out = np.zeros((h, wd), dtype=np.bool_)
+    w2 = w * w
+    for j in range(h):
+        for i in range(wd):
+            x = gx[j, i]
+            y = gy[j, i]
+            for k in range(n):
+                for edge in range(3):
+                    if edge == 0:
+                        ax = 0.0
+                        ay = 0.0
+                        bx = bound[3 + 2 * k]
+                        by = bound[4 + 2 * k]
+                    elif edge == 1:
+                        ax = bound[3 + 2 * k]
+                        ay = bound[4 + 2 * k]
+                        bx = bound[5 + 2 * k]
+                        by = bound[6 + 2 * k]
+                    else:
+                        ax = bound[5 + 2 * k]
+                        ay = bound[6 + 2 * k]
+                        bx = 0.0
+                        by = 0.0
+                    ex = bx - ax
+                    ey = by - ay
+                    length2 = ex * ex + ey * ey
+                    u = min(max(((x - ax) * ex + (y - ay) * ey) / length2, 0.0), 1.0)
+                    qx = ax + u * ex
+                    qy = ay + u * ey
+                    if (x - qx) ** 2 + (y - qy) ** 2 < w2:
+                        length = sqrt(length2)
+                        sx = -ey / length * 1e-7
+                        sy = ex / length * 1e-7
+                        if inside_snail(qx + sx, qy + sy, bound) != inside_snail(qx - sx, qy - sy, bound):
+                            out[j, i] = True
+                            break
+                if out[j, i]:
+                    break
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# The Hugelschaffer egg: with u measured from the middle of its length, a ray's points satisfy
+#   y^2 (a^2 + d^2 + 2 d u) = b^2 (a^2 - u^2)        (|u| < a: inside where "<")
+# (the Newton transform of two circles; (x - d)^2/a^2 + y^2/b^2 (1 + (2dx - d^2)/a^2) = 1 with x = u + d). Its bound
+# is [area, cos, sin, a, b, d] and it is worked out in its own frame like the squircles. Along a ray the equation is
+# a cubic in t, so the hit is the first root of that cubic in the ray's stretch inside the box |u| <= a, |y| <= b
+# (the curve's other branch, which runs off to infinity, is outside it).
+# --------------------------------------------------------------------------- #
+@njit(cache=True)
+def _cubic_root_in(c0, c1, c2, c3, lo, hi, f_lo):
+    """The root in [lo, hi] of c3 t^3 + c2 t^2 + c1 t + c0, which changes sign there (f_lo is its value at lo) and
+    is monotone: Newton's method kept inside the shrinking bracket, falling back to bisection."""
+    if f_lo == 0.0:
+        return lo
+    t = 0.5 * (lo + hi)
+    for _i in range(100):
+        f = ((c3 * t + c2) * t + c1) * t + c0
+        if f == 0.0:
+            return t
+        if (f > 0.0) == (f_lo > 0.0):
+            lo = t
+            f_lo = f
+        else:
+            hi = t
+        slope = (3.0 * c3 * t + 2.0 * c2) * t + c1
+        t_new = t - f / slope if slope != 0.0 else 0.5 * (lo + hi)
+        if t_new <= lo or t_new >= hi:
+            t_new = 0.5 * (lo + hi)
+        if abs(t_new - t) <= 1e-15 * (1.0 + abs(t)):
+            return t_new
+        t = t_new
+    return t
+
+
+@njit(cache=True)
+def inside_egg(x, y, bound):
+    c = bound[1]
+    s = bound[2]
+    a = bound[3]
+    b = bound[4]
+    d = bound[5]
+    u = c * x + s * y
+    v = -s * x + c * y
+    if abs(u) >= a:
+        return False
+    return v * v * (a * a + d * d + 2.0 * d * u) < b * b * (a * a - u * u)
+
+
+@njit(cache=True)
+def egg_hit(px, py, dx, dy, bound):
+    """The nearest t > EPS where a ray meets the egg's edge, from inside or outside alike, with the normal there;
+    1e30 if it never does. The ray is clipped to the egg's box, its equation becomes the cubic c3 t^3 + c2 t^2 +
+    c1 t + c0 from there, and the cubic's roots are found piece by piece between its turning points (where it is
+    monotone, so each piece has at most one)."""
+    c = bound[1]
+    s = bound[2]
+    a = bound[3]
+    b = bound[4]
+    d = bound[5]
+    lx = c * px + s * py
+    ly = -s * px + c * py
+    p = c * dx + s * dy
+    q = -s * dx + c * dy
+    a_near, a_far = _slab(lx, p, a * (1.0 + 1e-12) + 1e-12)
+    b_near, b_far = _slab(ly, q, b * (1.0 + 1e-12) + 1e-12)
+    t_near = max(a_near, b_near)
+    t_far = min(a_far, b_far)
+    if t_near > t_far or t_far <= EPS:
+        return 1e30, 0.0, 0.0
+    t_start = max(t_near, 0.0)
+    length = t_far - t_start
+    u0 = lx + t_start * p
+    y0 = ly + t_start * q
+    k = a * a + d * d
+    d0 = k + 2.0 * d * u0
+    e = 2.0 * d * p
+    c0 = y0 * y0 * d0 - b * b * (a * a - u0 * u0)
+    c1 = y0 * y0 * e + 2.0 * y0 * q * d0 + 2.0 * b * b * u0 * p
+    c2 = 2.0 * y0 * q * e + q * q * d0 + b * b * p * p
+    c3 = q * q * e
+    # the turning points: the roots of the derivative 3 c3 t^2 + 2 c2 t + c1, in order
+    n_turn = 0
+    turn_a = 0.0
+    turn_b = 0.0
+    qa = 3.0 * c3
+    qb = 2.0 * c2
+    if abs(qa) > 1e-13 * (abs(qb) + abs(c1)) + 1e-300:
+        disc = qb * qb - 4.0 * qa * c1
+        if disc > 0.0:
+            root = sqrt(disc)
+            r1 = (-qb - root) / (2.0 * qa)
+            r2 = (-qb + root) / (2.0 * qa)
+            turn_a = min(r1, r2)
+            turn_b = max(r1, r2)
+            n_turn = 2
+    elif qb != 0.0:
+        turn_a = -c1 / qb
+        n_turn = 1
+    prev = 0.0
+    f_prev = c0
+    for step in range(3):
+        if step == 0:
+            if n_turn < 1:
+                continue
+            nxt = turn_a
+        elif step == 1:
+            if n_turn < 2:
+                continue
+            nxt = turn_b
+        else:
+            nxt = length
+        if step < 2 and not prev < nxt < length:
+            continue
+        f_nxt = ((c3 * nxt + c2) * nxt + c1) * nxt + c0
+        if (f_prev < 0.0) != (f_nxt < 0.0):
+            r = _cubic_root_in(c0, c1, c2, c3, prev, nxt, f_prev)
+            t = t_start + r
+            if t > EPS:
+                u = u0 + r * p
+                y = y0 + r * q
+                gu = 2.0 * d * y * y + 2.0 * b * b * u
+                gv = 2.0 * y * (k + 2.0 * d * u)
+                return t, c * gu - s * gv, s * gu + c * gv
+        prev = nxt
+        f_prev = f_nxt
+    return 1e30, 0.0, 0.0
+
+
+@njit(cache=True)
+def egg_distance_grid(gx, gy, bound, w):
+    """Over a whole grid: the first-order distance |F| / |grad F| from each point to the egg's edge, for the points
+    within `w` of the egg's box (F is the equation above); every other point is reported as far away. The estimate
+    is only good near the egg: far out it goes to zero along the vertical line where the curve's other branch
+    comes in from infinity (where 2 d u + a^2 + d^2 is 0), which at a large shift is only just past the egg's point
+    and drew a straight line right across the image."""
+    c = bound[1]
+    s = bound[2]
+    a = bound[3]
+    b = bound[4]
+    d = bound[5]
+    k = a * a + d * d
+    h, width = gx.shape
+    out = np.full((h, width), 1e30)
+    for j in range(h):
+        for i in range(width):
+            u = c * gx[j, i] + s * gy[j, i]
+            y = -s * gx[j, i] + c * gy[j, i]
+            den = k + 2.0 * d * u
+            if den > 0.0 and abs(u) <= a + w and abs(y) <= b + w:
+                f = y * y * den - b * b * (a * a - u * u)
+                gu = 2.0 * d * y * y + 2.0 * b * b * u
+                gv = 2.0 * y * den
+                out[j, i] = abs(f) / max(sqrt(gu * gu + gv * gv), 1e-9)
+    return out
+
+
 @njit(cache=True)
 def inside_boundary(x, y, shape, bound):
     """Is the point (x, y) strictly inside the shape (whose geometry is `bound`)?"""
@@ -443,6 +1131,14 @@ def inside_boundary(x, y, shape, bound):
         return inside_circles(x, y, bound)
     if shape == SHAPE_SECTOR or shape == SHAPE_SEGMENT:
         return inside_arcs_edges_and(x, y, bound)
+    if shape == SHAPE_SUPERELLIPSE or shape == SHAPE_FG_SQUIRCLE:
+        return inside_squircle(x, y, shape, bound)
+    if shape == SHAPE_SPIRAL:
+        return inside_spiral(x, y, bound)
+    if shape == SHAPE_SNAIL:
+        return inside_snail(x, y, bound)
+    if shape == SHAPE_EGG:
+        return inside_egg(x, y, bound)
     if shape >= SHAPE_FIRST_ARC_LOOP:
         return inside_arcs_parity(x, y, bound)
     return inside_arcs_edges_star(x, y, bound)   # MOSS_EGG, CAPSULE
@@ -519,7 +1215,15 @@ def boundary_hit(px, py, dx, dy, shape, bound):
         return best, bnx, bny
     if shape == SHAPE_LENS or shape == SHAPE_REULEAUX:
         return circles_exit_hit(px, py, dx, dy, bound)
-    return arcs_edges_hit(px, py, dx, dy, bound)   # MOSS_EGG, SECTOR, SEGMENT, CAPSULE
+    if shape == SHAPE_SUPERELLIPSE or shape == SHAPE_FG_SQUIRCLE:
+        return squircle_hit(px, py, dx, dy, shape, bound, False)
+    if shape == SHAPE_SPIRAL:
+        return spiral_hit(px, py, dx, dy, bound)
+    if shape == SHAPE_SNAIL:
+        return snail_hit(px, py, dx, dy, bound, False)
+    if shape == SHAPE_EGG:
+        return egg_hit(px, py, dx, dy, bound)
+    return arcs_edges_hit(px, py, dx, dy, bound)   # MOSS_EGG, SECTOR, SEGMENT, CAPSULE, the arc loops
 
 
 @njit(cache=True)
@@ -583,7 +1287,21 @@ def obstacle_hit(px, py, dx, dy, shape, bound):
         return t_enter, enter_nx, enter_ny
     if shape == SHAPE_LENS or shape == SHAPE_REULEAUX:
         return circles_entry_hit(px, py, dx, dy, bound)
-    t, nx, ny = arcs_edges_hit(px, py, dx, dy, bound)   # MOSS_EGG, SECTOR, SEGMENT, CAPSULE
+    if shape == SHAPE_SUPERELLIPSE or shape == SHAPE_FG_SQUIRCLE:
+        return squircle_hit(px, py, dx, dy, shape, bound, True)
+    if shape == SHAPE_SPIRAL:
+        t, nx, ny = spiral_hit(px, py, dx, dy, bound)
+        if t > 1e29:
+            return -1.0, 0.0, 0.0
+        return t, nx, ny
+    if shape == SHAPE_SNAIL:
+        return snail_hit(px, py, dx, dy, bound, True)
+    if shape == SHAPE_EGG:
+        t, nx, ny = egg_hit(px, py, dx, dy, bound)
+        if t > 1e29:
+            return -1.0, 0.0, 0.0
+        return t, nx, ny
+    t, nx, ny = arcs_edges_hit(px, py, dx, dy, bound)   # MOSS_EGG, SECTOR, SEGMENT, CAPSULE, the arc loops
     if t > 1e29:
         return -1.0, 0.0, 0.0
     return t, nx, ny

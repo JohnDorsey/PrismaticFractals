@@ -510,4 +510,104 @@ def _raises(exc, fn):
     raise AssertionError(f"expected {exc}, nothing was raised")
 
 
+
+
+# --------------------------------------------------------------------------- #
+# The squircles and the Archimedean spiral (used by the shapes and the kernels tests)
+# --------------------------------------------------------------------------- #
+NEW_CLASSES = [m.SuperellipseShape, m.FernandezGuastiShape, m.ArchimedeanSpiralShape,
+               m.PythagorasSnailShape, m.HugelschafferEggShape]
+
+
+def _new_kind_cases():
+    """Several settings of each new kind, rotated and not."""
+    cases = []
+    for width, height, exponent, rotation in ((1.6, 1.0, 4.0, 0.0), (1.2, 1.2, 2.0, 37.0),
+                                              (1.8, 0.7, 1.3, 120.0), (1.5, 1.1, 12.0, -20.0)):
+        o = m.SuperellipseShape(0)
+        o.width, o.height, o.exponent, o.rotation = width, height, exponent, rotation
+        cases.append(o)
+    for radius, squareness, rotation in ((1.0, 0.0, 0.0), (0.9, 0.5, 30.0), (1.1, 0.95, 70.0),
+                                         (0.8, 1.0, 15.0)):
+        o = m.FernandezGuastiShape(0)
+        o.radius, o.squareness, o.rotation = radius, squareness, rotation
+        cases.append(o)
+    for radius, pitch, fill, rotation in ((1.0, 0.25, 0.5, 0.0), (1.3, 0.1, 0.7, 40.0),
+                                          (0.9, 0.5, 0.2, -75.0), (1.0, 0.3, 0.94, 10.0)):
+        o = m.ArchimedeanSpiralShape(0)
+        o.radius, o.spiral_pitch, o.spiral_fill, o.rotation = radius, pitch, fill, rotation
+        cases.append(o)
+    for segments, rotation in ((17, 0.0), (5, 35.0), (12, -110.0), (30, 20.0), (1, 0.0)):
+        o = m.PythagorasSnailShape(0)
+        o.snail_segments, o.rotation = segments, rotation
+        cases.append(o)
+    for a, b, shift, rotation in ((1.0, 0.7, 0.4, 0.0), (1.2, 0.5, -0.8, 50.0), (0.9, 1.1, 0.0, 15.0),
+                                  (1.0, 0.3, 0.9, -70.0), (0.6, 0.6, 0.6, 200.0)):
+        o = m.HugelschafferEggShape(0)
+        o.egg_a, o.egg_b, o.egg_shift, o.rotation = a, b, shift, rotation
+        cases.append(o)
+    return cases
+
+
+def _independent_membership(o):
+    """The shape as a formula written straight from its definition (not from the packed bound):
+    point -> inside?"""
+    t = np.radians(o.rotation)
+    cs, sn = np.cos(t), np.sin(t)
+    if isinstance(o, m.SuperellipseShape):
+        def member(x, y):
+            u, v = x * cs + y * sn, -x * sn + y * cs
+            return abs(u / (o.width / 2)) ** o.exponent + abs(v / (o.height / 2)) ** o.exponent < 1.0
+        return member
+    if isinstance(o, m.FernandezGuastiShape):
+        r, k = o.radius, o.squareness ** 2 / o.radius ** 2
+
+        def member(x, y):
+            u, v = x * cs + y * sn, -x * sn + y * cs
+            return abs(u) < r and abs(v) < r and u * u + v * v - k * u * u * v * v < r * r
+        return member
+    if isinstance(o, m.HugelschafferEggShape):
+        # the equation as the page gives it, in its own x (the middle of the egg's length is at x = d)
+        a, b, d = o.egg_a, o.egg_b, o.egg_shift * o.egg_a
+
+        def member(x, y):
+            u, v = x * cs + y * sn, -x * sn + y * cs
+            px = u + d
+            return (abs(u) < a and (px - d) ** 2 / a ** 2
+                    + v * v / b ** 2 * (1.0 + (2.0 * d * px - d * d) / a ** 2) < 1.0)
+        return member
+    if isinstance(o, m.PythagorasSnailShape):
+        # the construction itself: A_1 = (1, 0), and A_{k+1} is A_k plus a unit step turned a quarter turn left
+        # of the direction O -> A_k; triangle k is O, A_k, A_{k+1}
+        corners = [np.array([1.0, 0.0])]
+        for _k in range(o.snail_segments):
+            a = corners[-1]
+            corners.append(a + np.array([-a[1], a[0]]) / np.hypot(*a))
+        scale = 1.0 / np.hypot(*corners[-1])
+
+        def member(x, y):
+            u, v = (x * cs + y * sn) / scale, (-x * sn + y * cs) / scale
+            for a, b in zip(corners[:-1], corners[1:]):
+                d1 = a[0] * v - a[1] * u
+                d2 = u * b[1] - v * b[0]
+                d3 = (b[0] - a[0]) * (v - a[1]) - (b[1] - a[1]) * (u - a[0])
+                if d1 > 0 and d2 > 0 and d3 > 0:
+                    return True
+            return False
+        return member
+    pitch, fill = o.spiral_pitch, o.spiral_fill
+    b, w = pitch / (2 * np.pi), fill * pitch
+    theta_max = (o.radius - w) / b
+
+    def member(x, y):
+        u, v = x * cs + y * sn, -x * sn + y * cs
+        rho, phi = np.hypot(u, v), np.arctan2(v, u)
+        for k in range(-1, 400):                       # every turn the point could lie on
+            theta = phi + 2 * np.pi * k
+            if 0.0 <= theta <= theta_max and b * theta <= rho < b * theta + w:
+                return True
+        return False
+    return member
+
+
 __all__ = [n for n in dir() if not n.startswith("__")]

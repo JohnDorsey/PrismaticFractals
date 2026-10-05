@@ -266,7 +266,7 @@ class ControlsMixin:
         return scale_a, scale_b
 
     def add_angle_entry(self, parent, row, label, default, on_change=None,
-                        lo=None, hi=None, fmt="{:.2f}"):
+                        lo=None, hi=None, fmt="{:.2f}", exact=False):
         """A label and a text entry on one snug row - a drop-in .get()/.set()
         replacement for a tk.Scale. With no bounds (the default), accepts any
         float, so many-revolution angles can be typed or animated; pass lo/hi
@@ -276,8 +276,9 @@ class ControlsMixin:
         row_frame = ttk.Frame(parent)
         row_frame.grid(row=row, column=0, columnspan=3, sticky="w", pady=1)
         ttk.Label(row_frame, text=label).pack(side="left", padx=(8, 6))
-        var = tk.StringVar(value=fmt.format(default))
-        handle = FloatEntryHandle(var, fmt, default, lo=lo, hi=hi)
+        handle = FloatEntryHandle(None, fmt, default, lo=lo, hi=hi, exact=exact)
+        var = tk.StringVar(value=handle.text(handle.last_valid))
+        handle.var = var
         vcmd = (self.root.register(self.validate_float_free), "%P")
         entry = ttk.Entry(row_frame, textvariable=var, width=9, justify="right",
                           validate="key", validatecommand=vcmd)

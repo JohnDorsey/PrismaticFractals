@@ -20,7 +20,7 @@ The figure
   process or decorate the data generated from it.
 
 Obstacles
-  Any number of shapes, each one of twelve kinds with its own size/angle
+  Any number of shapes, each one of seventeen kinds with its own size/angle
   parameters and rotation:
 
   * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
@@ -30,7 +30,17 @@ Obstacles
     a Reuleaux polygon (odd number of sides), or a capsule,
   * and four concave shapes made of circular arcs: a trefoil and a quatrefoil
     (three and four overlapping lobes), a lune (a disc with a bite taken out
-    by a second disc) and an arbelos (a half-disc minus two smaller ones).
+    by a second disc) and an arbelos (a half-disc minus two smaller ones),
+  * two squircles: the superelliptical one (|x/a|^n + |y/b|^n < 1, exponent
+    n from 1 to 16) and the Fernández-Guasti one (a squareness from a circle
+    to a square),
+  * and an Archimedean spiral: a ribbon winding out from the centre to an
+    adjustable maximum radius, with an adjustable pitch (gap between turns)
+    and ribbon width (a fraction of the pitch),
+  * and the snail of Pythagoras (the spiral of Theodorus): a chosen number of
+    right triangles, with legs 1 and sqrt(k), laid round a common corner,
+  * and the Hügelschäffer egg (half-length, half-width and a shift that
+    makes one end more pointed).
 
   Each is placed by a polar position (r, theta) from the origin plus an x/y
   offset, and has its own incoming and outgoing ray effects and its own "Fire
@@ -222,7 +232,7 @@ Window layout (six panels, in three columns)
                  keyframe's settings, and the selected keyframe's controls
   bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
   bottom middle  the Export designer, and Export
-  bottom right   Video: render settings (size, skip first frame), encoding
+  bottom right   Video: render settings (size, starting frame), encoding
                  settings (fps, format, bitrate, downsampling), a preview of
                  the latest frame, and Start Render / Re-encode / Clear
 

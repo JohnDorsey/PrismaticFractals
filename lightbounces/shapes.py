@@ -11,24 +11,35 @@ from .constants import (
     DEFAULT_CAPSULE_LENGTH, DEFAULT_CAPSULE_RADIUS, DEFAULT_CUT_OFFSET, DEFAULT_CUT_RADIUS,
     DEFAULT_LENS_RADIUS, DEFAULT_LENS_SEP, DEFAULT_LOBE_SIZE, DEFAULT_MOSS_ANGLE,
     DEFAULT_MOSS_SIZE, DEFAULT_RADIUS, DEFAULT_REULEAUX_SIDES, DEFAULT_ROTATION,
-    DEFAULT_SECTOR_SPAN, DEFAULT_SEGMENT_SPAN, DEFAULT_SIDES, DEFAULT_SPLIT, DEFAULT_WIDTH,
-    ELLIPSE_MAX, ELLIPSE_MIN, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS, LAYOUT_CIRCLES,
-    LAYOUT_ELLIPSE, LAYOUT_POLYGON, LENS_RADIUS_MAX, LENS_RADIUS_MIN, LENS_SEP_MAX, LENS_SEP_MIN,
+    DEFAULT_EGG_A, DEFAULT_EGG_B, DEFAULT_EGG_SHIFT, DEFAULT_SECTOR_SPAN, DEFAULT_SEGMENT_SPAN,
+    DEFAULT_SIDES, DEFAULT_SNAIL_SEGMENTS, DEFAULT_SPIRAL_FILL,
+    DEFAULT_SPIRAL_PITCH, DEFAULT_SPLIT, DEFAULT_SQUARENESS, DEFAULT_SUPER_EXPONENT, DEFAULT_WIDTH,
+    EGG_AXIS_MAX, EGG_SHIFT_MAX, EGG_SHIFT_MIN, ELLIPSE_MAX, ELLIPSE_MIN, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS, LAYOUT_CIRCLES,
+    LAYOUT_EGG, LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_SNAIL, LAYOUT_SPIRAL, LAYOUT_SQUIRCLE, LENS_RADIUS_MAX,
+    LENS_RADIUS_MIN,
+    LENS_SEP_MAX, LENS_SEP_MIN,
     LOBE_SIZE_MAX, LOBE_SIZE_MIN, MOSS_ANGLE_MAX, MOSS_ANGLE_MIN, MOSS_SIZE_MAX, MOSS_SIZE_MIN,
     OBSTACLE_EFFECT_NAMES, OBST_BOUND_LEN, OBST_EFFECT_RGB, OBST_POS_MAX, OBST_POS_MIN,
     OBST_RADIUS_MAX, OBST_RADIUS_MIN, OBST_RING_LAYER_PX, POLY_MAX_SIDES, POLY_MIN_SIDES,
-    REULEAUX_MAX_SIDES, REULEAUX_MIN_SIDES, SECTOR_SPAN_MAX, SPLIT_MAX, SPLIT_MIN,
-    THUMB_BACKGROUND, THUMB_FILL
+    REULEAUX_MAX_SIDES, REULEAUX_MIN_SIDES, SECTOR_SPAN_MAX, SNAIL_MAX_SEGMENTS, SNAIL_MIN_SEGMENTS,
+    SPIRAL_FILL_MAX, SPIRAL_FILL_MIN,
+    SPIRAL_PITCH_MAX, SPIRAL_PITCH_MIN, SPLIT_MAX, SPLIT_MIN, SQUARENESS_MAX, SQUARENESS_MIN,
+    SUPER_EXPONENT_MAX, SUPER_EXPONENT_MIN, THUMB_BACKGROUND, THUMB_FILL
 )
 from .geometry import (
-    ARC_FIELDS, arbelos_bound, capsule_bound, chain_arcs_xy, ellipse_bound, lens_bound,
-    lobed_bound, lune_bound, moss_egg_bound, polygon_bound, reuleaux_bound, sample_boundary_xy,
-    sector_bound, segment_bound
+    ARC_FIELDS, arbelos_bound, capsule_bound, chain_arcs_xy, egg_bound, egg_outline_xy, ellipse_bound,
+    fg_squircle_bound,
+    lens_bound, lobed_bound, lune_bound, moss_egg_bound, polygon_bound, reuleaux_bound,
+    sample_boundary_xy, sector_bound, segment_bound, snail_bound, snail_outline_xy, spiral_bound,
+    spiral_outline_xy,
+    squircle_outline_xy, superellipse_bound
 )
 from .kernels import (
     OBSTACLE_EFFECT_REFLECT, ObstacleArrays, PIXEL, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
-    SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL, SHAPE_REULEAUX,
-    SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_TREFOIL, SIZE, inside_boundary_grid
+    SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
+    SHAPE_REULEAUX, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_SNAIL, SHAPE_SPIRAL, SHAPE_SUPERELLIPSE,
+    SHAPE_TREFOIL, SIZE, egg_distance_grid, inside_boundary_grid, snail_near_grid, spiral_distance_grid,
+    squircle_distance_grid
 )
 from .settings import resolve_obstacles, strict_record
 
@@ -96,6 +107,7 @@ class Shape:
     KEY = None              # the permanent name a project file calls this kind by
     LAYOUT = None           # the LAYOUT_* its bound array is packed as
     NAME = None             # shown to the user
+    SHORT_NAME = None       # what the figure-settings margin calls it, where NAME would not fit a column
     PARAMS = ()             # this kind's own ShapeParam rows
     __slots__ = ("id", "rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
                  "fire_inside", "_frozen")
@@ -201,7 +213,7 @@ class Shape:
         """Every setting that defines the obstacle (`index` is its number in the
         list), as text lines no longer than FIGURE_INFO_COLUMN_CHARS, using only
         glyphs the pixel font has."""
-        return [f"Obstacle #{index}: {self.NAME}", self.info_param_line(),
+        return [f"Obstacle #{index}: {self.SHORT_NAME or self.NAME}", self.info_param_line(),
                 f"  rot {self.rotation:.1f}°",
                 f"  pos r{self.r:.2f} θ{self.theta:.1f}°",
                 f"  offset {self.cx:+.2f} {self.cy:+.2f}",
@@ -581,10 +593,183 @@ class ArbelosShape(ArcLoopShape):
         return f"  r{self.radius:.2f} split {self.split:.2f}"
 
 
+class SuperellipseShape(Shape):
+    KIND = SHAPE_SUPERELLIPSE
+    LAYOUT = LAYOUT_SQUIRCLE
+    KEY = "superelliptical_squircle"
+    NAME = "Superelliptical squircle"
+    SHORT_NAME = "Superellipse"
+    PARAMS = (_slider("width", "Width", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
+              _slider("height", "Height", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
+              _slider("exponent", "Exponent", DEFAULT_SUPER_EXPONENT, SUPER_EXPONENT_MIN,
+                      SUPER_EXPONENT_MAX, 0.05))
+    __slots__ = ("width", "height", "exponent")
+
+    def params(self):
+        return (self.width, self.height, self.exponent, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return superellipse_bound(*params)
+
+    def shape_text(self):
+        return (f"Squircle {self.width:.2f}\u00d7{self.height:.2f} n{self.exponent:.2f}, "
+                f"rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        a, b = self.width / 2.0, self.height / 2.0
+        return max(a, b) if self.exponent < 2.0 else sqrt(a * a + b * b)
+
+    def info_param_line(self):
+        return f"  w{self.width:.2f} h{self.height:.2f} n{self.exponent:.2f}"
+
+    def boundary_xy(self):
+        return squircle_outline_xy(self.KIND, self.bound())
+
+
+class FernandezGuastiShape(Shape):
+    KIND = SHAPE_FG_SQUIRCLE
+    LAYOUT = LAYOUT_SQUIRCLE
+    KEY = "fernandez_guasti_squircle"
+    NAME = "Fern\u00e1ndez-Guasti squircle"
+    SHORT_NAME = "FG squircle"
+    PARAMS = (RADIUS_PARAM,
+              _slider("squareness", "Squareness", DEFAULT_SQUARENESS, SQUARENESS_MIN,
+                      SQUARENESS_MAX))
+    __slots__ = ("radius", "squareness")
+
+    def params(self):
+        return (self.radius, self.squareness, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return fg_squircle_bound(*params)
+
+    def shape_text(self):
+        return (f"Fern\u00e1ndez-Guasti r{self.radius:.2f} s{self.squareness:.2f}, "
+                f"rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        # its corners are the farthest points, on the diagonals
+        return self.radius * sqrt(2.0 / (1.0 + sqrt(1.0 - self.squareness ** 2)))
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} sq {self.squareness:.2f}"
+
+    def boundary_xy(self):
+        return squircle_outline_xy(self.KIND, self.bound())
+
+
+class ArchimedeanSpiralShape(Shape):
+    """A ribbon winding out from the centre as an Archimedean spiral; `radius` is how far out the ribbon's
+    outer edge reaches, `spiral_pitch` the gap from one turn to the next, `spiral_fill` how much of that gap
+    the ribbon takes up (see spiral_bound)."""
+    KIND = SHAPE_SPIRAL
+    LAYOUT = LAYOUT_SPIRAL
+    KEY = "archimedean_spiral"
+    NAME = "Archimedean spiral"
+    SHORT_NAME = "Spiral"
+    PARAMS = (RADIUS_PARAM,
+              _slider("spiral_pitch", "Pitch", DEFAULT_SPIRAL_PITCH, SPIRAL_PITCH_MIN,
+                      SPIRAL_PITCH_MAX),
+              _slider("spiral_fill", "Ribbon fill", DEFAULT_SPIRAL_FILL, SPIRAL_FILL_MIN,
+                      SPIRAL_FILL_MAX))
+    __slots__ = ("radius", "spiral_pitch", "spiral_fill")
+
+    def params(self):
+        return (self.radius, self.spiral_pitch, self.spiral_fill, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return spiral_bound(*params)
+
+    def shape_text(self):
+        return (f"Spiral r{self.radius:.2f} pitch {self.spiral_pitch:.2f} "
+                f"fill {self.spiral_fill:.2f}, rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        return self.radius
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} p{self.spiral_pitch:.2f} fill {self.spiral_fill:.2f}"
+
+    def boundary_xy(self):
+        return spiral_outline_xy(self.bound())
+
+
+class PythagorasSnailShape(Shape):
+    """The snail of Pythagoras (the spiral of Theodorus): right triangles with legs 1 and sqrt(k), laid round a common
+    vertex, `snail_segments` of them (see snail_bound). Scaled so that its farthest corner is 1 from the centre."""
+    KIND = SHAPE_SNAIL
+    LAYOUT = LAYOUT_SNAIL
+    KEY = "snail_of_pythagoras"
+    NAME = "Snail of Pythagoras"
+    SHORT_NAME = "Snail"
+    PARAMS = (_count("snail_segments", "Segments", DEFAULT_SNAIL_SEGMENTS, SNAIL_MIN_SEGMENTS,
+                     SNAIL_MAX_SEGMENTS),)
+    __slots__ = ("snail_segments",)
+
+    def params(self):
+        return (self.snail_segments, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return snail_bound(*params)
+
+    def shape_text(self):
+        return f"Snail {self.snail_segments} segments, rot {self.rotation:.1f}\u00b0"
+
+    def extent(self):
+        return 1.0
+
+    def info_param_line(self):
+        return f"  segments {int(round(self.snail_segments))}"
+
+    def boundary_xy(self):
+        return snail_outline_xy(self.bound())
+
+
+class HugelschafferEggShape(Shape):
+    """A Hugelschaffer egg (the Newton transform of two circles): `egg_a` half its length, `egg_b` its half-width,
+    `egg_shift` how far off the middle the second circle's centre is, as a fraction of `egg_a` (0 is an ellipse; the
+    pointed end of the egg is at +x for a positive shift at rotation 0). See egg_bound."""
+    KIND = SHAPE_EGG
+    LAYOUT = LAYOUT_EGG
+    KEY = "hugelschaffer_egg"
+    NAME = "H\u00fcgelsch\u00e4ffer egg"
+    SHORT_NAME = "Egg"
+    PARAMS = (_slider("egg_a", "Half-length (a)", DEFAULT_EGG_A, 0.0, EGG_AXIS_MAX),
+              _slider("egg_b", "Half-width (b)", DEFAULT_EGG_B, 0.0, EGG_AXIS_MAX),
+              _slider("egg_shift", "Shift (d / a)", DEFAULT_EGG_SHIFT, EGG_SHIFT_MIN, EGG_SHIFT_MAX))
+    __slots__ = ("egg_a", "egg_b", "egg_shift")
+
+    def params(self):
+        return (self.egg_a, self.egg_b, self.egg_shift, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return egg_bound(*params)
+
+    def shape_text(self):
+        return (f"H\u00fcgelsch\u00e4ffer egg a{self.egg_a:.2f} b{self.egg_b:.2f} "
+                f"d/a {self.egg_shift:+.2f}, rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        return sqrt(self.egg_a ** 2 + self.egg_b ** 2)
+
+    def info_param_line(self):
+        return f"  a{self.egg_a:.2f} b{self.egg_b:.2f} d/a {self.egg_shift:+.2f}"
+
+    def boundary_xy(self):
+        return egg_outline_xy(self.bound())
+
+
 # Every kind, indexed by its SHAPE_* code (the order of the "new..." menu).
 SHAPE_CLASSES = [EllipseShape, RegularPolygonShape, MossEggShape, CircularSectorShape,
                  CircularSegmentShape, LensShape, ReuleauxPolygonShape, CapsuleShape,
-                 TrefoilShape, QuatrefoilShape, LuneShape, ArbelosShape]
+                 TrefoilShape, QuatrefoilShape, LuneShape, ArbelosShape,
+                 SuperellipseShape, FernandezGuastiShape, ArchimedeanSpiralShape, PythagorasSnailShape,
+                 HugelschafferEggShape]
 SHAPE_NAMES = [cls.NAME for cls in SHAPE_CLASSES]
 
 # What a keyframe key's field name says about the field, whichever kind it is on
@@ -707,6 +892,18 @@ def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
     if layout == LAYOUT_ARC_LOOPS:
         near = arc_loop_distance(bound, x, y) < w       # (offsetting an arc outward would move a
         return near & ~inside, near & inside            # concave arc into the shape)
+    if layout == LAYOUT_SQUIRCLE:
+        near = squircle_distance_grid(x, y, shape, bound) < w
+        return near & ~inside, near & inside
+    if layout == LAYOUT_EGG:
+        near = egg_distance_grid(x, y, bound, w) < w
+        return near & ~inside, near & inside
+    if layout == LAYOUT_SNAIL:                          # (its edge is only part of its triangles' edges)
+        near = snail_near_grid(x, y, bound, w)
+        return near & ~inside, near & inside
+    if layout == LAYOUT_SPIRAL:                         # (offsetting a ribbon's edges would run them into its neighbours')
+        near = spiral_distance_grid(x, y, bound) < w
+        return near & ~inside, near & inside
     bigger = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, w))
     smaller = inside_boundary_grid(x, y, shape, offset_bound(shape, bound, -w))
     return bigger & ~inside, inside & ~smaller

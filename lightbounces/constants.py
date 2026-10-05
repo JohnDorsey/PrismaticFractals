@@ -84,7 +84,12 @@ LAYOUT_POLYGON = 1          # half-planes
 LAYOUT_CIRCLES = 2          # circles (the shape is their intersection)
 LAYOUT_ARCS_EDGES = 3       # circular arcs and straight edges
 LAYOUT_ARC_LOOPS = 4        # circular arcs forming a closed loop that may be concave; inside by even-odd
-LAYOUTS = (LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_CIRCLES, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS)
+LAYOUT_SQUIRCLE = 5         # a convex curve given by an implicit function (the two squircles), found by root search
+LAYOUT_SPIRAL = 6           # the Archimedean spiral ribbon, found by root search
+LAYOUT_SNAIL = 7            # the snail of Pythagoras: the corners of a union of triangles
+LAYOUT_EGG = 8              # the Hugelschaffer egg: a cubic, found by root search
+LAYOUTS = (LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_CIRCLES, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS,
+           LAYOUT_SQUIRCLE, LAYOUT_SPIRAL, LAYOUT_SNAIL, LAYOUT_EGG)
 
 # Ellipse controls: full width / height (0..2), rotation in degrees
 ELLIPSE_MIN = 0.0
@@ -104,9 +109,23 @@ POLY_MIN_SIDES = 3
 POLY_MAX_SIDES = 64
 DEFAULT_SIDES = 5
 
+# Hugelschaffer egg: half its length a, half its width b, and the shift d of its second circle's centre as a
+# fraction of a (the egg is closed for |d| < a; near that it comes to a needle point)
+EGG_AXIS_MAX = 2.0
+DEFAULT_EGG_A = 1.0
+DEFAULT_EGG_B = 0.7
+EGG_SHIFT_MIN = -0.9
+EGG_SHIFT_MAX = 0.9
+DEFAULT_EGG_SHIFT = 0.4
+
+# Snail of Pythagoras: how many right triangles it is made of
+SNAIL_MIN_SEGMENTS = 1
+SNAIL_MAX_SEGMENTS = 100
+DEFAULT_SNAIL_SEGMENTS = 17     # the first count whose last triangle overlaps the first
+
 # Obstacles: a fixed-width row per obstacle (padded with zeros) so their bounds
-# can live in one ordinary numpy array for the njit kernels.
-OBST_BOUND_LEN = 3 + 2 * POLY_MAX_SIDES
+# can live in one ordinary numpy array for the njit kernels (the longest is the snail's: its n + 1 corners).
+OBST_BOUND_LEN = max(3 + 2 * POLY_MAX_SIDES, 3 + 2 * (SNAIL_MAX_SEGMENTS + 1))
 
 # Moss's egg: apex angle ACB (the isosceles triangle's apex angle), size
 MOSS_ANGLE_MIN = 60.0      # below this the construction degenerates further
@@ -165,6 +184,28 @@ DEFAULT_CUT_OFFSET = 0.6
 SPLIT_MIN = 0.05
 SPLIT_MAX = 0.95
 DEFAULT_SPLIT = 0.35
+
+# Superelliptical squircle |x/a|^n + |y/b|^n = 1: the exponent n (2 is an ellipse, 1 a diamond, large n a
+# rectangle; below 1 the shape would stop being convex, which its root finder relies on)
+SUPER_EXPONENT_MIN = 1.0
+SUPER_EXPONENT_MAX = 16.0
+DEFAULT_SUPER_EXPONENT = 4.0
+
+# Fernández-Guasti squircle x^2 + y^2 - (s^2/r^2) x^2 y^2 = r^2: the squareness s (0 is a circle of radius r, 1 the
+# square of side 2r; the radius is the shared one)
+SQUARENESS_MIN = 0.0
+SQUARENESS_MAX = 1.0
+DEFAULT_SQUARENESS = 0.7
+
+# Archimedean spiral ribbon: the radial distance between successive turns (the pitch), and how much of it
+# the ribbon fills (the shared radius is the outer edge's greatest distance from the centre; 1 would fill the
+# whole disc and leave no edge between turns)
+SPIRAL_PITCH_MIN = 0.04
+SPIRAL_PITCH_MAX = 1.0
+DEFAULT_SPIRAL_PITCH = 0.25
+SPIRAL_FILL_MIN = 0.05
+SPIRAL_FILL_MAX = 0.95
+DEFAULT_SPIRAL_FILL = 0.5
 
 # Fuzzing controls
 FUZZ_JITTER_MIN = 0.0      # jitter range (+/-), degrees

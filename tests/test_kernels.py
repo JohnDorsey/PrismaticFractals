@@ -1277,3 +1277,160 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
             assert quadrant.sum() > 0.15 * counts.sum(), "rays fired from the whole world"
     assert 3.7 < totals[128] / totals[64] < 4.3 and 3.7 < totals[256] / totals[128] < 4.3
     assert max(densities.values()) / min(densities.values()) < 1.1, densities
+
+
+# --------------------------------------------------------------------------- #
+# The squircles and the Archimedean spiral ribbon in the kernels
+# --------------------------------------------------------------------------- #
+def _inside_along(o, px, py, dx, dy, t_max=4.0, steps=8001):
+    """(ts, inside) sampled along a ray by the compiled point test alone - an independent way to
+    find where the ray crosses the edge, to compare with boundary_hit / obstacle_hit."""
+    ts = np.linspace(0.0, t_max, steps)
+    gx = (px + ts * dx)[None, :]
+    gy = (py + ts * dy)[None, :]
+    return ts, m.inside_boundary_grid(gx, gy, o.KIND, o.bound())[0]
+
+
+def _random_rays(o, want_inside, count, seed):
+    """`count` (px, py, dx, dy) rays starting inside (or outside) shape `o`, which sits at the origin."""
+    rng = np.random.RandomState(seed)
+    bound = o.bound()
+    rays = []
+    while len(rays) < count:
+        px, py = rng.uniform(-1.3, 1.3, 2)
+        if bool(m.inside_boundary(px, py, o.KIND, bound)) != want_inside:
+            continue
+        ang = rng.uniform(0.0, 2.0 * np.pi)
+        rays.append((px, py, np.cos(ang), np.sin(ang)))
+    return rays
+
+
+def test_rays_leave_the_squircles_and_the_spiral_exactly_where_marching_along_them_sees_the_edge():
+    step = 4.0 / 8000
+    for o in _new_kind_cases():
+        bound = o.bound()
+        for px, py, dx, dy in _random_rays(o, True, 120, 3):
+            t, _nx, _ny = m.boundary_hit(px, py, dx, dy, o.KIND, bound)
+            ts, inside = _inside_along(o, px, py, dx, dy)
+            flips = np.nonzero(inside[1:] != inside[:-1])[0]
+            assert len(flips), (type(o).__name__, o.state(), px, py, dx, dy)
+            assert ts[flips[0]] - 1e-9 <= t <= ts[flips[0] + 1] + 1e-9, \
+                (type(o).__name__, o.state(), (px, py, dx, dy), t, ts[flips[0]], step)
+
+
+def test_rays_enter_the_squircles_and_the_spiral_exactly_where_marching_along_them_sees_the_edge():
+    step = 4.0 / 8000
+    for o in _new_kind_cases():
+        bound = o.bound()
+        for px, py, dx, dy in _random_rays(o, False, 120, 4):
+            t, _nx, _ny = m.obstacle_hit(px, py, dx, dy, o.KIND, bound)
+            ts, inside = _inside_along(o, px, py, dx, dy)
+            flips = np.nonzero(inside[1:] != inside[:-1])[0]
+            if t < 0.0:
+                assert not len(flips), (type(o).__name__, o.state(), (px, py, dx, dy), ts[flips[:1]])
+            else:
+                assert len(flips), (type(o).__name__, o.state(), (px, py, dx, dy), t)
+                assert ts[flips[0]] - 1e-9 <= t <= ts[flips[0] + 1] + 1e-9, \
+                    (type(o).__name__, o.state(), (px, py, dx, dy), t, ts[flips[0]], step)
+
+
+def test_the_normal_at_a_squircle_or_spiral_hit_stands_across_the_edge():
+    """Just either side of the hit point along its normal is outside on one side, inside on the other."""
+    for o in _new_kind_cases():
+        bound = o.bound()
+        for want_inside, entry in ((True, False), (False, True)):
+            for px, py, dx, dy in _random_rays(o, want_inside, 60, 5):
+                hit = m.obstacle_hit if entry else m.boundary_hit
+                t, nx, ny = hit(px, py, dx, dy, o.KIND, bound)
+                if t < 0.0:
+                    continue
+                length = np.hypot(nx, ny)
+                assert length > 1e-9, (type(o).__name__, o.state())
+                hx, hy = px + t * dx, py + t * dy
+                a = m.inside_boundary(hx + 2e-6 * nx / length, hy + 2e-6 * ny / length, o.KIND, bound)
+                b = m.inside_boundary(hx - 2e-6 * nx / length, hy - 2e-6 * ny / length, o.KIND, bound)
+                assert a != b, (type(o).__name__, o.state(), (px, py, dx, dy), t)
+
+
+def _fired_from_the_pixel_grid(shape, n=24, max_iter=12):
+    """(stats, points, status) of an n x n render with `shape` (an obstacle) as the only obstacle."""
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    shape.in_effect = shape.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    shape.fire_inside = True
+    arrays = m.build_obstacle_arrays([shape])
+    m.render_rows_wh(stats, points, status, 0, n, n, n, max_iter, m.effective_dist(0.0), 1.0,
+                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, 0)
+    return stats, points, status
+
+
+def test_a_superellipse_with_exponent_2_and_a_squircle_with_squareness_0_trace_like_the_exact_shapes():
+    """The root finder against the closed-form ellipse and circle: the same rays bounce the same way."""
+    ellipse = m.EllipseShape(0)
+    ellipse.width, ellipse.height, ellipse.rotation = 1.7, 1.1, 25.0
+    sup = m.SuperellipseShape(0)
+    sup.width, sup.height, sup.exponent, sup.rotation = 1.7, 1.1, 2.0, 25.0
+    circle = m.EllipseShape(0)
+    circle.width = circle.height = 1.8
+    fg = m.FernandezGuastiShape(0)
+    fg.radius, fg.squareness = 0.9, 0.0
+    for exact, general in ((ellipse, sup), (circle, fg)):
+        want, got = _fired_from_the_pixel_grid(exact), _fired_from_the_pixel_grid(general)
+        assert np.array_equal(want[2], got[2])
+        assert np.allclose(want[0], got[0], atol=1e-4)
+        assert np.allclose(want[1], got[1], atol=1e-4)
+
+
+def test_rays_fired_inside_a_container_squircle_or_spiral_stay_inside_and_land_on_its_edge():
+    for o in _new_kind_cases():
+        o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_REFLECT
+        o.fire_inside = True
+        bound = o.bound()
+        hits = 0
+        for px, py, dx, dy in _random_rays(o, True, 25, 6):
+            pts, kinds, _term, _raw = _kernel_trace(px, py, np.degrees(np.arctan2(dy, dx)), [o],
+                                                    circle=None, max_iter=40)
+            for k in range(1, len(pts)):
+                if kinds[k] == m.KIND_BOUNDARY:             # a bounce off the edge lies on the edge
+                    x, y = pts[k]
+                    around = [m.inside_boundary(x + 4e-6 * np.cos(a), y + 4e-6 * np.sin(a), o.KIND,
+                                                bound)
+                              for a in np.linspace(0.0, 2 * np.pi, 16, endpoint=False)]
+                    assert any(around) and not all(around), (type(o).__name__, o.state(), k, x, y)
+                mid = 0.5 * (pts[k - 1] + pts[k])           # and every segment runs through the inside
+                assert m.inside_boundary(mid[0], mid[1], o.KIND, bound), (type(o).__name__, o.state(), k)
+            hits += len(pts) - 1
+        assert hits > 100, (type(o).__name__, "the rays must actually bounce")
+
+
+def test_a_spiral_ray_that_starts_on_an_edge_does_not_hit_that_same_edge_again():
+    """Regression guard for the self-hit: after a bounce the next hit is a different point
+    (t > EPS), whichever way the ray points."""
+    o = m.ArchimedeanSpiralShape(0)
+    bound = o.bound()
+    for px, py, dx, dy in _random_rays(o, True, 40, 8):
+        t, nx, ny = m.boundary_hit(px, py, dx, dy, o.KIND, bound)
+        hx, hy = px + t * dx, py + t * dy
+        length = np.hypot(nx, ny)
+        nx, ny = nx / length, ny / length
+        dot = dx * nx + dy * ny
+        rx, ry = dx - 2 * dot * nx, dy - 2 * dot * ny          # the mirror direction
+        t2, _a, _b = m.boundary_hit(hx, hy, rx, ry, o.KIND, bound)
+        assert t2 > 1e-6, (px, py, dx, dy, t, t2)
+
+
+def test_a_snail_has_no_hairline_hole_along_the_edge_two_of_its_triangles_share():
+    """Regression: the test for a point inside a triangle was strict, so a point exactly on the edge out from
+    the centre that two triangles share was in neither: a one-pixel line along the 45 degree diagonal of the image
+    (where the second corner is) fired no rays, and a ray running along it found nothing to hit."""
+    o = m.PythagorasSnailShape(0)                          # corner 2 of the 17-triangle snail is at 45 degrees
+    bound = o.bound()
+    for r in (0.05, 0.1, 0.2):                              # (the edge is 0.33 long, out to (0.236, 0.236))
+        assert m.inside_boundary(r, r, o.KIND, bound), r
+    t, _nx, _ny = m.boundary_hit(0.1, 0.1, np.sqrt(0.5), np.sqrt(0.5), o.KIND, bound)
+    ts = np.linspace(0.0, 2.0, 4001)
+    inside = m.inside_boundary_grid((0.1 + ts * np.sqrt(0.5))[None, :], (0.1 + ts * np.sqrt(0.5))[None, :],
+                                    o.KIND, bound)[0]
+    first_outside = ts[np.argmin(inside)]
+    assert 0.0 < t < 2.0 and abs(t - first_outside) < 1e-3, (t, first_outside)
