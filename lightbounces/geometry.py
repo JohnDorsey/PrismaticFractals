@@ -16,7 +16,8 @@ import numpy as np
 from .constants import (
     ARC_SPAN_MAX, ARC_SPAN_MIN, AXIS_MIN, LOBE_SIZE_MAX, MOSS_ANGLE_MAX, MOSS_ANGLE_MIN,
     SECTOR_SPAN_MAX, SPIRAL_FILL_MAX, SPIRAL_FILL_MIN, SPIRAL_PITCH_MAX, SPIRAL_PITCH_MIN, SPLIT_MAX,
-    EGG_SHIFT_MAX, EGG_SHIFT_MIN, SNAIL_MAX_SEGMENTS, SNAIL_MIN_SEGMENTS, SPLIT_MIN, SQUARENESS_MAX, SQUARENESS_MIN, SUPER_EXPONENT_MAX,
+    EGG_SHIFT_MAX, EGG_SHIFT_MIN, FLOWER_AMPLITUDE_MAX, FLOWER_AMPLITUDE_MIN, FLOWER_MAX_PETALS,
+    FLOWER_MIN_PETALS, SNAIL_MAX_SEGMENTS, SNAIL_MIN_SEGMENTS, SPLIT_MIN, SQUARENESS_MAX, SQUARENESS_MIN, SUPER_EXPONENT_MAX,
     SUPER_EXPONENT_MIN
 )
 from .kernels import (
@@ -562,6 +563,28 @@ def egg_outline_xy(bound, n=361):
     u = -d * np.sin(t) ** 2 + np.cos(t) * np.sqrt(a * a - (d * np.sin(t)) ** 2)
     y = b * np.sin(t)
     return bound[1] * u - bound[2] * y, bound[2] * u + bound[1] * y
+
+
+# "Flower" layout (the sine flower): bound[0] = area; bound[1], bound[2] = cos, sin of the rotation; bound[3] = R,
+# bound[4] = A, bound[5] = k. In the shape's own frame it is rho < R (1 + A sin(k phi)).
+def flower_bound(radius, petals, amplitude, rotation):
+    """A sine flower of radius R, `petals` petals (k, a whole number) and amplitude A (clamped below 1), turned
+    counterclockwise by `rotation` degrees: the points within R (1 + A sin(k phi)) of the centre at angle phi. The
+    area is exactly pi R^2 (1 + A^2 / 2)."""
+    r = max(radius, 1e-6)
+    k = min(max(int(round(petals)), FLOWER_MIN_PETALS), FLOWER_MAX_PETALS)
+    a = min(max(amplitude, FLOWER_AMPLITUDE_MIN), FLOWER_AMPLITUDE_MAX)
+    th = radians(rotation)
+    return np.array([pi * r * r * (1.0 + 0.5 * a * a), cos(th), sin(th), r, a, k], dtype=np.float64)
+
+
+def flower_outline_xy(bound):
+    """(x, y) arrays tracing the sine flower's edge exactly, from its formula, turned by the rotation."""
+    k = int(bound[5])
+    phi = np.linspace(0.0, 2.0 * pi, max(361, 48 * k + 1))
+    rho = bound[3] * (1.0 + bound[4] * np.sin(k * phi))
+    x, y = rho * np.cos(phi), rho * np.sin(phi)
+    return bound[1] * x - bound[2] * y, bound[2] * x + bound[1] * y
 
 
 def chain_arcs_xy(bound, per_arc=60):

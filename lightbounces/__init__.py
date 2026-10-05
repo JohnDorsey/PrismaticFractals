@@ -20,7 +20,7 @@ The figure
   process or decorate the data generated from it.
 
 Obstacles
-  Any number of shapes, each one of seventeen kinds with its own size/angle
+  Any number of shapes, each one of eighteen kinds with its own size/angle
   parameters and rotation:
 
   * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
@@ -40,7 +40,9 @@ Obstacles
   * and the snail of Pythagoras (the spiral of Theodorus): a chosen number of
     right triangles, with legs 1 and sqrt(k), laid round a common corner,
   * and the Hügelschäffer egg (half-length, half-width and a shift that
-    makes one end more pointed).
+    makes one end more pointed),
+  * and the sine flower (a circle whose radius is raised by a sine of the
+    angle round the centre: a whole number of petals and an amplitude).
 
   Each is placed by a polar position (r, theta) from the origin plus an x/y
   offset, and has its own incoming and outgoing ray effects and its own "Fire

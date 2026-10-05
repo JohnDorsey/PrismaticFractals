@@ -52,6 +52,7 @@ SHAPE_FG_SQUIRCLE = 13      # tested in the dispatchers before the arc loops' ra
 SHAPE_SPIRAL = 14
 SHAPE_SNAIL = 15            # the snail of Pythagoras: a union of triangles
 SHAPE_EGG = 16              # the Hugelschaffer egg: a cubic
+SHAPE_FLOWER = 17           # the sine flower: rho < R (1 + A sin(k phi))
 
 # Ray emission direction (a figure-defining setting, not part of fuzzing): each
 # ray's base direction is either straight up (90 degrees) or from its start
@@ -1115,6 +1116,224 @@ def egg_distance_grid(gx, gy, bound, w):
     return out
 
 
+# --------------------------------------------------------------------------- #
+# The sine flower: the points (rho, phi), in the shape's own frame, with rho < r(phi) = R (1 + A sin(k phi)); its bound
+# is [area, cos, sin, R, A, k] (A below 1, so r stays positive; k a whole number of petals). It is star-shaped about
+# the centre but not convex. A straight line at distance h from the centre has rho = h / cos(phi - phi0) (phi0 the
+# direction of its nearest point), so it meets the edge where  g(phi) = h - r(phi) cos(phi - phi0)  is 0, and
+# g < 0 means inside. g has no division in it and a known bound on its second derivative, so it is searched
+# along the stretch of the line that lies between the inner and outer circles of the flower (the edge is nowhere
+# else), skipping only intervals proved to hold no root, and every sign change is solved by bracketed Newton.
+# --------------------------------------------------------------------------- #
+@njit(cache=True)
+def inside_flower(x, y, bound):
+    c = bound[1]
+    s = bound[2]
+    u = c * x + s * y
+    v = -s * x + c * y
+    return sqrt(u * u + v * v) < bound[3] * (1.0 + bound[4] * sin(bound[5] * atan2(v, u)))
+
+
+@njit(cache=True)
+def _flower_root(lo, hi, g_lo, phi0, h, radius, amp, petals):
+    """The phi in [lo, hi] where g(phi) = h - r(phi) cos(phi - phi0) is 0, g changing sign there (g_lo is its value
+    at lo): Newton's method kept inside the shrinking bracket, falling back to bisection."""
+    if g_lo == 0.0:
+        return lo
+    phi = 0.5 * (lo + hi)
+    for _i in range(100):
+        r = radius * (1.0 + amp * sin(petals * phi))
+        g = h - r * cos(phi - phi0)
+        if g == 0.0:
+            return phi
+        if (g > 0.0) == (g_lo > 0.0):
+            lo = phi
+            g_lo = g
+        else:
+            hi = phi
+        dr = radius * amp * petals * cos(petals * phi)
+        slope = -dr * cos(phi - phi0) + r * sin(phi - phi0)
+        phi_new = phi - g / slope if slope != 0.0 else 0.5 * (lo + hi)
+        if phi_new <= lo or phi_new >= hi:
+            phi_new = 0.5 * (lo + hi)
+        if abs(phi_new - phi) <= 1e-15 * (1.0 + abs(phi)):
+            return phi_new
+        phi = phi_new
+    return phi
+
+
+@njit(cache=True)
+def _flower_window(phi_from, phi_to, phi0, h, radius, amp, petals, lx, ly, ldx, ldy):
+    """Walk phi from `phi_from` to `phi_to` (either way round) looking for the first sign change of g whose point on
+    the ray is further along than EPS: (found, t, the edge's normal there, in the shape's frame).
+
+    The walk starts from steps of a quarter of g's shortest period, and an interval is only passed over once it is
+    PROVEN to hold no root, using a bound M on |g''| (g is below its tangent at either end by at most M d^2 / 2, so g
+    cannot reach 0 if that bound stays on one side of it) - a shallow dip, like a petal's tip grazed by the line, is
+    therefore found however narrow it is. An interval with a sign change is solved once g is known to be monotone
+    across it (|g'| at an end beats M times the interval's length); otherwise it is halved, the half met first
+    being looked at first."""
+    span = abs(phi_to - phi_from)
+    if span <= 0.0:
+        return False, 0.0, 0.0, 0.0
+    bound2 = radius * (amp * petals * petals + 2.0 * amp * petals + 1.0 + amp)     # |g''| <= this
+    n0 = max(1, int(span * (petals + 1.0) * 4.0 / (2.0 * pi)) + 1)
+    step = (phi_to - phi_from) / n0
+    stack_a = np.empty(64)
+    stack_b = np.empty(64)
+    for i in range(n0):
+        stack_a[0] = phi_from + step * i
+        stack_b[0] = phi_from + step * (i + 1)
+        top = 1
+        while top > 0:
+            top -= 1
+            a = stack_a[top]
+            b = stack_b[top]
+            ra = radius * (1.0 + amp * sin(petals * a))
+            rb = radius * (1.0 + amp * sin(petals * b))
+            ga = h - ra * cos(a - phi0)
+            gb = h - rb * cos(b - phi0)
+            da = -radius * amp * petals * cos(petals * a) * cos(a - phi0) + ra * sin(a - phi0)
+            db = -radius * amp * petals * cos(petals * b) * cos(b - phi0) + rb * sin(b - phi0)
+            length = abs(b - a)
+            slack = 0.5 * bound2 * length * length
+            if (ga < 0.0) != (gb < 0.0):
+                done = abs(da) > bound2 * length or abs(db) > bound2 * length or length < 1e-9
+                if done:
+                    if a < b:
+                        phi = _flower_root(a, b, ga, phi0, h, radius, amp, petals)
+                    else:
+                        phi = _flower_root(b, a, gb, phi0, h, radius, amp, petals)
+                    r = radius * (1.0 + amp * sin(petals * phi))
+                    t = (r * cos(phi) - lx) * ldx + (r * sin(phi) - ly) * ldy
+                    if t > EPS:
+                        slope = radius * amp * petals * cos(petals * phi) / r
+                        return True, t, cos(phi) + slope * sin(phi), sin(phi) - slope * cos(phi)
+            elif ga >= 0.0:
+                done = ga + da * (b - a) - slack > 0.0 or gb - db * (b - a) - slack > 0.0 or length < 1e-9
+            else:
+                done = ga + da * (b - a) + slack < 0.0 or gb - db * (b - a) + slack < 0.0 or length < 1e-9
+            if not done and top < 62:
+                mid = 0.5 * (a + b)
+                stack_a[top] = mid
+                stack_b[top] = b
+                stack_a[top + 1] = a
+                stack_b[top + 1] = mid
+                top += 2
+    return False, 0.0, 0.0, 0.0
+
+
+@njit(cache=True)
+def flower_hit(px, py, dx, dy, bound):
+    """The nearest t > EPS where a ray meets the sine flower's edge, from inside or outside alike, with the normal
+    there; 1e30 if it never does. The line's stretch between the flower's inner and outer circles is one or two
+    windows of phi (one if the line is nearer the centre than the inner circle is, so that it runs through it),
+    taken in the order the ray reaches them."""
+    c = bound[1]
+    s = bound[2]
+    radius = bound[3]
+    amp = bound[4]
+    petals = bound[5]
+    lx = c * px + s * py
+    ly = -s * px + c * py
+    ldx = c * dx + s * dy
+    ldy = -s * dx + c * dy
+    cross = lx * ldy - ly * ldx
+    h = abs(cross)
+    r_out = radius * (1.0 + amp) * (1.0 + 1e-7)         # (a hair wider each way, so that a circle - amplitude 0 -
+    r_in = radius * (1.0 - amp) * (1.0 - 1e-7)          # still has a window to look in)
+    if h >= r_out:
+        return 1e30, 0.0, 0.0
+    if h < 1e-9:
+        # through the centre: the line leaves it along phi_d (to one side) and phi_d + pi (to the other), at distances
+        # r(phi) from it, and g has no roots to find (rho = h / cos is 0 / 0 there)
+        phi_d = atan2(ldy, ldx)
+        t_centre = -(lx * ldx + ly * ldy)
+        t1 = t_centre + radius * (1.0 + amp * sin(petals * phi_d))
+        t2 = t_centre - radius * (1.0 + amp * sin(petals * (phi_d + pi)))
+        phi = phi_d
+        t = t1
+        if not t1 > EPS or (t2 > EPS and t2 < t1):
+            phi = phi_d + pi
+            t = t2
+        if not t > EPS:
+            return 1e30, 0.0, 0.0
+        slope = radius * amp * petals * cos(petals * phi) / (radius * (1.0 + amp * sin(petals * phi)))
+        nx = cos(phi) + slope * sin(phi)
+        ny = sin(phi) - slope * cos(phi)
+        return t, c * nx - s * ny, s * nx + c * ny
+    phi0 = atan2(-ldx, ldy) if cross >= 0.0 else atan2(ldx, -ldy)       # the direction of the line's nearest point
+    alpha_out = acos(h / r_out)
+    alpha_in = acos(h / r_in) if h < r_in else 0.0
+    forward = cross >= 0.0          # phi grows the way the ray goes
+    found = False
+    t = 0.0
+    nx = 0.0
+    ny = 0.0
+    if alpha_in == 0.0:
+        if forward:
+            found, t, nx, ny = _flower_window(phi0 - alpha_out, phi0 + alpha_out, phi0, h, radius, amp, petals,
+                                              lx, ly, ldx, ldy)
+        else:
+            found, t, nx, ny = _flower_window(phi0 + alpha_out, phi0 - alpha_out, phi0, h, radius, amp, petals,
+                                              lx, ly, ldx, ldy)
+    elif forward:
+        found, t, nx, ny = _flower_window(phi0 - alpha_out, phi0 - alpha_in, phi0, h, radius, amp, petals,
+                                          lx, ly, ldx, ldy)
+        if not found:
+            found, t, nx, ny = _flower_window(phi0 + alpha_in, phi0 + alpha_out, phi0, h, radius, amp, petals,
+                                              lx, ly, ldx, ldy)
+    else:
+        found, t, nx, ny = _flower_window(phi0 + alpha_out, phi0 + alpha_in, phi0, h, radius, amp, petals,
+                                          lx, ly, ldx, ldy)
+        if not found:
+            found, t, nx, ny = _flower_window(phi0 - alpha_in, phi0 - alpha_out, phi0, h, radius, amp, petals,
+                                              lx, ly, ldx, ldy)
+    if not found:
+        return 1e30, 0.0, 0.0
+    return t, c * nx - s * ny, s * nx + c * ny
+
+
+@njit(cache=True)
+def flower_distance_grid(gx, gy, bound):
+    """Over a whole grid: the distance from each point to the sine flower's edge, for the outline's two ring layers.
+    F = rho - r(phi) is 0 on the edge, and each point is slid along F's gradient to where F is 0 (Newton's method on
+    the point itself, four steps); the distance is how far it moved. A point that does not arrive (too near the centre,
+    where the petals are steep) is reported as far away."""
+    c = bound[1]
+    s = bound[2]
+    radius = bound[3]
+    amp = bound[4]
+    petals = bound[5]
+    h, width = gx.shape
+    out = np.full((h, width), 1e30)
+    for j in range(h):
+        for i in range(width):
+            x0 = c * gx[j, i] + s * gy[j, i]
+            y0 = -s * gx[j, i] + c * gy[j, i]
+            x = x0
+            y = y0
+            f = 1e30
+            for _step in range(4):
+                rho = sqrt(x * x + y * y)
+                if rho < 1e-12:
+                    f = 1e30
+                    break
+                phi = atan2(y, x)
+                r = radius * (1.0 + amp * sin(petals * phi))
+                slope = radius * amp * petals * cos(petals * phi) / rho
+                gxx = cos(phi) + slope * sin(phi)
+                gyy = sin(phi) - slope * cos(phi)
+                f = rho - r
+                norm2 = gxx * gxx + gyy * gyy
+                x -= f * gxx / norm2
+                y -= f * gyy / norm2
+            rho = sqrt(x * x + y * y)
+            if rho > 1e-12 and abs(rho - radius * (1.0 + amp * sin(petals * atan2(y, x)))) < 1e-4 * radius:
+                out[j, i] = sqrt((x - x0) ** 2 + (y - y0) ** 2)
+    return out
+
+
 @njit(cache=True)
 def inside_boundary(x, y, shape, bound):
     """Is the point (x, y) strictly inside the shape (whose geometry is `bound`)?"""
@@ -1139,6 +1358,8 @@ def inside_boundary(x, y, shape, bound):
         return inside_snail(x, y, bound)
     if shape == SHAPE_EGG:
         return inside_egg(x, y, bound)
+    if shape == SHAPE_FLOWER:
+        return inside_flower(x, y, bound)
     if shape >= SHAPE_FIRST_ARC_LOOP:
         return inside_arcs_parity(x, y, bound)
     return inside_arcs_edges_star(x, y, bound)   # MOSS_EGG, CAPSULE
@@ -1223,6 +1444,8 @@ def boundary_hit(px, py, dx, dy, shape, bound):
         return snail_hit(px, py, dx, dy, bound, False)
     if shape == SHAPE_EGG:
         return egg_hit(px, py, dx, dy, bound)
+    if shape == SHAPE_FLOWER:
+        return flower_hit(px, py, dx, dy, bound)
     return arcs_edges_hit(px, py, dx, dy, bound)   # MOSS_EGG, SECTOR, SEGMENT, CAPSULE, the arc loops
 
 
@@ -1298,6 +1521,11 @@ def obstacle_hit(px, py, dx, dy, shape, bound):
         return snail_hit(px, py, dx, dy, bound, True)
     if shape == SHAPE_EGG:
         t, nx, ny = egg_hit(px, py, dx, dy, bound)
+        if t > 1e29:
+            return -1.0, 0.0, 0.0
+        return t, nx, ny
+    if shape == SHAPE_FLOWER:
+        t, nx, ny = flower_hit(px, py, dx, dy, bound)
         if t > 1e29:
             return -1.0, 0.0, 0.0
         return t, nx, ny

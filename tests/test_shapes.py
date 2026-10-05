@@ -60,7 +60,7 @@ def test_every_kind_declares_how_its_bound_array_is_packed():
                 m.LuneShape: m.LAYOUT_ARC_LOOPS, m.ArbelosShape: m.LAYOUT_ARC_LOOPS,
                 m.SuperellipseShape: m.LAYOUT_SQUIRCLE, m.FernandezGuastiShape: m.LAYOUT_SQUIRCLE,
                 m.ArchimedeanSpiralShape: m.LAYOUT_SPIRAL, m.PythagorasSnailShape: m.LAYOUT_SNAIL,
-                m.HugelschafferEggShape: m.LAYOUT_EGG}
+                m.HugelschafferEggShape: m.LAYOUT_EGG, m.SineFlowerShape: m.LAYOUT_FLOWER}
     assert {cls: cls.LAYOUT for cls in m.SHAPE_CLASSES} == expected
 
 
@@ -454,7 +454,8 @@ def test_ring_layers_for_every_shape_kind_are_disjoint_outer_outside_inner_insid
              (m.SHAPE_SPIRAL, m.spiral_bound(1.0, 0.25, 0.5, 30.0)),
              (m.SHAPE_SNAIL, m.snail_bound(17, 20.0)),
              (m.SHAPE_SNAIL, m.snail_bound(9, 20.0)),
-             (m.SHAPE_EGG, m.egg_bound(1.0, 0.6, 0.5, 25.0))]
+             (m.SHAPE_EGG, m.egg_bound(1.0, 0.6, 0.5, 25.0)),
+             (m.SHAPE_FLOWER, m.flower_bound(0.8, 7, 0.4, 25.0))]
     for shape, bound in cases:
         outer, inner = m.ring_layer_masks(shape, bound, gx, gy, layer_px=8.0)
         inside = m.inside_boundary_grid(gx, gy, shape, bound)
@@ -612,7 +613,8 @@ def test_every_shape_kind_has_the_shared_fields_and_only_the_parameters_its_geom
            m.FernandezGuastiShape: {"radius", "squareness"},
            m.ArchimedeanSpiralShape: {"radius", "spiral_pitch", "spiral_fill"},
            m.PythagorasSnailShape: {"snail_segments"},
-           m.HugelschafferEggShape: {"egg_a", "egg_b", "egg_shift"}}
+           m.HugelschafferEggShape: {"egg_a", "egg_b", "egg_shift"},
+           m.SineFlowerShape: {"radius", "flower_petals", "flower_amplitude"}}
     shared = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"}
     assert set(own) == set(m.SHAPE_CLASSES)
     for cls, fields in own.items():
@@ -852,7 +854,7 @@ def test_the_new_menu_lists_every_kind_and_a_new_obstacle_has_that_kind_only():
                              "Circular segment", "Two-circle lens", "Reuleaux polygon", "Capsule",
                              "Trefoil", "Quatrefoil", "Lune", "Arbelos", "Superelliptical squircle",
                              "Fernández-Guasti squircle", "Archimedean spiral", "Snail of Pythagoras",
-                             "Hügelschäffer egg"]
+                             "Hügelschäffer egg", "Sine flower"]
 
 
 
@@ -915,21 +917,22 @@ def test_the_squircles_and_the_spiral_agree_with_independent_formulas_about_what
 
 
 def test_the_new_kinds_have_the_documented_fields_defaults_and_names():
-    assert [cls.KIND for cls in NEW_CLASSES] == [12, 13, 14, 15, 16]
+    assert [cls.KIND for cls in NEW_CLASSES] == [12, 13, 14, 15, 16, 17]
     assert [cls.KEY for cls in NEW_CLASSES] == ["superelliptical_squircle",
                                                 "fernandez_guasti_squircle", "archimedean_spiral",
-                                                "snail_of_pythagoras", "hugelschaffer_egg"]
+                                                "snail_of_pythagoras", "hugelschaffer_egg", "sine_flower"]
     assert [cls.NAME for cls in NEW_CLASSES] == ["Superelliptical squircle",
                                                  "Fernández-Guasti squircle",
                                                  "Archimedean spiral", "Snail of Pythagoras",
-                                                 "Hügelschäffer egg"]
-    sup, fg, spiral, snail, egg = (cls(0) for cls in NEW_CLASSES)
+                                                 "Hügelschäffer egg", "Sine flower"]
+    sup, fg, spiral, snail, egg, flower = (cls(0) for cls in NEW_CLASSES)
+    assert (flower.radius, flower.flower_petals, flower.flower_amplitude) == (1.0, 6, 0.3)
     assert (egg.egg_a, egg.egg_b, egg.egg_shift) == (1.0, 0.7, 0.4)
     assert snail.snail_segments == 17
     assert (sup.width, sup.height, sup.exponent) == (1.0, 1.0, 4.0)
     assert (fg.radius, fg.squareness) == (1.0, 0.7)
     assert (spiral.radius, spiral.spiral_pitch, spiral.spiral_fill) == (1.0, 0.25, 0.5)
-    for o in (sup, fg, spiral, snail, egg):     # every default is inside its own slider range
+    for o in (sup, fg, spiral, snail, egg, flower):   # every default is inside its own slider range
         for p in o.NUMERIC_PARAMS:
             if p.lo is not None:
                 assert p.lo <= getattr(o, p.field) <= p.hi, (type(o).__name__, p.field)
@@ -1067,3 +1070,37 @@ def test_the_eggs_ring_layers_stay_close_to_its_outline_even_at_a_large_shift():
         assert len(ring) > 50, (a, b, shift)
         far = np.sqrt(((ring[:, None, :] - curve[None, ::3, :]) ** 2).sum(-1)).min(axis=1).max()
         assert far < 3 * m.OBST_RING_LAYER_PX * m.PIXEL + 0.01, (a, b, shift, far)
+
+
+def test_the_sine_flower_has_the_exact_area_a_whole_number_of_petals_and_a_limited_amplitude():
+    flower = m.SineFlowerShape(0)
+    flower.radius, flower.flower_petals, flower.flower_amplitude = 0.9, 5, 0.4
+    member = _independent_membership(flower)
+    n = 700
+    xs = (np.arange(n) + 0.5) * (2.6 / n) - 1.3
+    count = sum(member(x, y) for x in xs for y in xs)
+    assert np.isclose(flower.bound()[0], np.pi * 0.81 * (1 + 0.08), rtol=1e-12)
+    assert np.isclose(flower.bound()[0], count * (2.6 / n) ** 2, rtol=0.01)
+    assert flower.FIELD_TYPES["flower_petals"] is int
+    assert m.flower_bound(1.0, 3, 5.0, 0.0)[4] == 0.95 and m.flower_bound(1.0, 999, 0.2, 0.0)[5] == 30
+    xs, ys = flower.boundary_xy()
+    assert np.hypot(xs, ys).max() <= flower.extent() + 1e-9
+    assert np.isclose(np.hypot(xs, ys).max(), flower.extent(), rtol=1e-3)
+
+
+def test_the_sine_flowers_ring_layers_stay_close_to_its_outline():
+    xs = np.linspace(-2.0, 2.0, 500)
+    gx, gy = np.meshgrid(xs, xs[::-1])
+    for radius, petals, amplitude, rotation in ((1.0, 6, 0.3, 0.0), (0.8, 12, 0.9, 20.0), (1.0, 1, 0.95, 70.0)):
+        flower = m.SineFlowerShape(0)
+        flower.radius, flower.flower_petals, flower.flower_amplitude = radius, petals, amplitude
+        flower.rotation = rotation
+        outer, inner = m.ring_layer_masks(m.SHAPE_FLOWER, flower.bound(), gx, gy)
+        ox, oy = flower.boundary_xy()
+        along = np.linspace(0, 1, len(ox))
+        dense = np.linspace(0, 1, 6000)
+        curve = np.column_stack((np.interp(dense, along, ox), np.interp(dense, along, oy)))
+        ring = np.column_stack((gx[outer | inner], gy[outer | inner]))
+        assert len(ring) > 50 and outer.any() and inner.any(), (radius, petals, amplitude)
+        far = np.sqrt(((ring[:, None, :] - curve[None, ::3, :]) ** 2).sum(-1)).min(axis=1).max()
+        assert far < 0.02, (radius, petals, amplitude, far)

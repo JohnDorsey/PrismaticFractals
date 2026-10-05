@@ -1434,3 +1434,43 @@ def test_a_snail_has_no_hairline_hole_along_the_edge_two_of_its_triangles_share(
                                     o.KIND, bound)[0]
     first_outside = ts[np.argmin(inside)]
     assert 0.0 < t < 2.0 and abs(t - first_outside) < 1e-3, (t, first_outside)
+
+
+def test_a_ray_through_the_exact_centre_of_a_sine_flower_finds_its_edge():
+    """Regression: a line through the centre has rho = h / cos(phi - phi0) with h = 0, which is 0 / 0, so the
+    search along phi found nothing and every ray along the 45 degree diagonal of the image (the default emission
+    direction, from the diagonal pixels) escaped from a closed flower."""
+    ts = np.linspace(0.0, 3.0, 6001)
+    for petals, amplitude, rotation in ((6, 0.3, 0.0), (1, 0.8, 30.0), (13, 0.5, 5.0), (4, 0.0, 0.0)):
+        o = m.SineFlowerShape(0)
+        o.radius, o.flower_petals, o.flower_amplitude, o.rotation = 0.75, petals, amplitude, rotation
+        bound = o.bound()
+        for px, py, ang in ((0.2, 0.2, 45.0), (-0.3, -0.3, 45.0), (0.1, 0.0, 0.0), (0.0, -0.2, 90.0),
+                            (1.4, 1.4, 225.0), (-1.2, 0.0, 0.0), (0.4, 0.4, 225.0)):
+            dx, dy = np.cos(np.radians(ang)), np.sin(np.radians(ang))
+            if abs(px * dy - py * dx) > 1e-12:
+                continue                                       # (only lines through the centre)
+            inside = m.inside_boundary_grid((px + ts * dx)[None, :], (py + ts * dy)[None, :], o.KIND, bound)[0]
+            flips = np.nonzero(inside[1:] != inside[:-1])[0]
+            hit = m.boundary_hit if inside[0] else m.obstacle_hit
+            t, nx, ny = hit(px, py, dx, dy, o.KIND, bound)
+            assert len(flips) and ts[flips[0]] - 1e-9 <= t <= ts[flips[0] + 1] + 1e-9, \
+                (petals, amplitude, (px, py, ang), t, ts[flips[:1]])
+            assert np.hypot(nx, ny) > 0.5
+
+
+def test_rays_fired_inside_a_closed_sine_flower_never_escape_it():
+    o = m.SineFlowerShape(0)
+    o.radius, o.flower_petals, o.flower_amplitude = 0.75, 6, 0.3
+    o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    o.fire_inside = True
+    n = 96
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, 60, m.effective_dist(0.0), 1.0,
+                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT,
+                     m.build_obstacle_arrays([o]), 0)
+    fired = status > 0
+    assert fired.sum() > 1000
+    assert not (stats[:, :, m.ST_TERMINATION][fired] == m.TERM_STAT_VALUE[m.TERM_ESCAPED]).any()

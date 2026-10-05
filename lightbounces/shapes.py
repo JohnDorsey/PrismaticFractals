@@ -11,11 +11,13 @@ from .constants import (
     DEFAULT_CAPSULE_LENGTH, DEFAULT_CAPSULE_RADIUS, DEFAULT_CUT_OFFSET, DEFAULT_CUT_RADIUS,
     DEFAULT_LENS_RADIUS, DEFAULT_LENS_SEP, DEFAULT_LOBE_SIZE, DEFAULT_MOSS_ANGLE,
     DEFAULT_MOSS_SIZE, DEFAULT_RADIUS, DEFAULT_REULEAUX_SIDES, DEFAULT_ROTATION,
-    DEFAULT_EGG_A, DEFAULT_EGG_B, DEFAULT_EGG_SHIFT, DEFAULT_SECTOR_SPAN, DEFAULT_SEGMENT_SPAN,
+    DEFAULT_EGG_A, DEFAULT_EGG_B, DEFAULT_EGG_SHIFT, DEFAULT_FLOWER_AMPLITUDE, DEFAULT_FLOWER_PETALS,
+    DEFAULT_SECTOR_SPAN, DEFAULT_SEGMENT_SPAN,
     DEFAULT_SIDES, DEFAULT_SNAIL_SEGMENTS, DEFAULT_SPIRAL_FILL,
     DEFAULT_SPIRAL_PITCH, DEFAULT_SPLIT, DEFAULT_SQUARENESS, DEFAULT_SUPER_EXPONENT, DEFAULT_WIDTH,
-    EGG_AXIS_MAX, EGG_SHIFT_MAX, EGG_SHIFT_MIN, ELLIPSE_MAX, ELLIPSE_MIN, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS, LAYOUT_CIRCLES,
-    LAYOUT_EGG, LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_SNAIL, LAYOUT_SPIRAL, LAYOUT_SQUIRCLE, LENS_RADIUS_MAX,
+    EGG_AXIS_MAX, EGG_SHIFT_MAX, EGG_SHIFT_MIN, ELLIPSE_MAX, ELLIPSE_MIN, FLOWER_AMPLITUDE_MAX,
+    FLOWER_AMPLITUDE_MIN, FLOWER_MAX_PETALS, FLOWER_MIN_PETALS, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS, LAYOUT_CIRCLES,
+    LAYOUT_EGG, LAYOUT_ELLIPSE, LAYOUT_FLOWER, LAYOUT_POLYGON, LAYOUT_SNAIL, LAYOUT_SPIRAL, LAYOUT_SQUIRCLE, LENS_RADIUS_MAX,
     LENS_RADIUS_MIN,
     LENS_SEP_MAX, LENS_SEP_MIN,
     LOBE_SIZE_MAX, LOBE_SIZE_MIN, MOSS_ANGLE_MAX, MOSS_ANGLE_MIN, MOSS_SIZE_MAX, MOSS_SIZE_MIN,
@@ -28,7 +30,7 @@ from .constants import (
 )
 from .geometry import (
     ARC_FIELDS, arbelos_bound, capsule_bound, chain_arcs_xy, egg_bound, egg_outline_xy, ellipse_bound,
-    fg_squircle_bound,
+    fg_squircle_bound, flower_bound, flower_outline_xy,
     lens_bound, lobed_bound, lune_bound, moss_egg_bound, polygon_bound, reuleaux_bound,
     sample_boundary_xy, sector_bound, segment_bound, snail_bound, snail_outline_xy, spiral_bound,
     spiral_outline_xy,
@@ -36,9 +38,9 @@ from .geometry import (
 )
 from .kernels import (
     OBSTACLE_EFFECT_REFLECT, ObstacleArrays, PIXEL, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
-    SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
+    SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_FLOWER, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
     SHAPE_REULEAUX, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_SNAIL, SHAPE_SPIRAL, SHAPE_SUPERELLIPSE,
-    SHAPE_TREFOIL, SIZE, egg_distance_grid, inside_boundary_grid, snail_near_grid, spiral_distance_grid,
+    SHAPE_TREFOIL, SIZE, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid, spiral_distance_grid,
     squircle_distance_grid
 )
 from .settings import resolve_obstacles, strict_record
@@ -764,12 +766,47 @@ class HugelschafferEggShape(Shape):
         return egg_outline_xy(self.bound())
 
 
+class SineFlowerShape(Shape):
+    """A circle whose radius is raised by a sine of the angle round its centre: rho = R (1 + A sin(k phi)), with
+    `radius` R, `flower_petals` k (a whole number: the number of petals) and `flower_amplitude` A. See flower_bound."""
+    KIND = SHAPE_FLOWER
+    LAYOUT = LAYOUT_FLOWER
+    KEY = "sine_flower"
+    NAME = "Sine flower"
+    PARAMS = (RADIUS_PARAM,
+              _count("flower_petals", "Petals", DEFAULT_FLOWER_PETALS, FLOWER_MIN_PETALS,
+                     FLOWER_MAX_PETALS),
+              _slider("flower_amplitude", "Amplitude", DEFAULT_FLOWER_AMPLITUDE, FLOWER_AMPLITUDE_MIN,
+                      FLOWER_AMPLITUDE_MAX))
+    __slots__ = ("radius", "flower_petals", "flower_amplitude")
+
+    def params(self):
+        return (self.radius, self.flower_petals, self.flower_amplitude, self.rotation)
+
+    @classmethod
+    def bound_from_params(cls, params):
+        return flower_bound(*params)
+
+    def shape_text(self):
+        return (f"Flower r{self.radius:.2f} {self.flower_petals} petals amp {self.flower_amplitude:.2f}, "
+                f"rot {self.rotation:.1f}\u00b0")
+
+    def extent(self):
+        return self.radius * (1.0 + self.flower_amplitude)
+
+    def info_param_line(self):
+        return f"  r{self.radius:.2f} petals {int(round(self.flower_petals))} amp {self.flower_amplitude:.2f}"
+
+    def boundary_xy(self):
+        return flower_outline_xy(self.bound())
+
+
 # Every kind, indexed by its SHAPE_* code (the order of the "new..." menu).
 SHAPE_CLASSES = [EllipseShape, RegularPolygonShape, MossEggShape, CircularSectorShape,
                  CircularSegmentShape, LensShape, ReuleauxPolygonShape, CapsuleShape,
                  TrefoilShape, QuatrefoilShape, LuneShape, ArbelosShape,
                  SuperellipseShape, FernandezGuastiShape, ArchimedeanSpiralShape, PythagorasSnailShape,
-                 HugelschafferEggShape]
+                 HugelschafferEggShape, SineFlowerShape]
 SHAPE_NAMES = [cls.NAME for cls in SHAPE_CLASSES]
 
 # What a keyframe key's field name says about the field, whichever kind it is on
@@ -894,6 +931,9 @@ def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
         return near & ~inside, near & inside            # concave arc into the shape)
     if layout == LAYOUT_SQUIRCLE:
         near = squircle_distance_grid(x, y, shape, bound) < w
+        return near & ~inside, near & inside
+    if layout == LAYOUT_FLOWER:
+        near = flower_distance_grid(x, y, bound) < w
         return near & ~inside, near & inside
     if layout == LAYOUT_EGG:
         near = egg_distance_grid(x, y, bound, w) < w

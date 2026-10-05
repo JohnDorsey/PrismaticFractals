@@ -88,8 +88,9 @@ LAYOUT_SQUIRCLE = 5         # a convex curve given by an implicit function (the 
 LAYOUT_SPIRAL = 6           # the Archimedean spiral ribbon, found by root search
 LAYOUT_SNAIL = 7            # the snail of Pythagoras: the corners of a union of triangles
 LAYOUT_EGG = 8              # the Hugelschaffer egg: a cubic, found by root search
+LAYOUT_FLOWER = 9           # the sine flower: a polar curve, found by root search
 LAYOUTS = (LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_CIRCLES, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS,
-           LAYOUT_SQUIRCLE, LAYOUT_SPIRAL, LAYOUT_SNAIL, LAYOUT_EGG)
+           LAYOUT_SQUIRCLE, LAYOUT_SPIRAL, LAYOUT_SNAIL, LAYOUT_EGG, LAYOUT_FLOWER)
 
 # Ellipse controls: full width / height (0..2), rotation in degrees
 ELLIPSE_MIN = 0.0
@@ -117,6 +118,15 @@ DEFAULT_EGG_B = 0.7
 EGG_SHIFT_MIN = -0.9
 EGG_SHIFT_MAX = 0.9
 DEFAULT_EGG_SHIFT = 0.4
+
+# Sine flower rho = R (1 + A sin(k phi)): the number of petals k and the amplitude A (below 1, or the petals would
+# pinch off at the centre); the radius is the shared one
+FLOWER_MIN_PETALS = 1
+FLOWER_MAX_PETALS = 30
+DEFAULT_FLOWER_PETALS = 6
+FLOWER_AMPLITUDE_MIN = 0.0
+FLOWER_AMPLITUDE_MAX = 0.95
+DEFAULT_FLOWER_AMPLITUDE = 0.3
 
 # Snail of Pythagoras: how many right triangles it is made of
 SNAIL_MIN_SEGMENTS = 1

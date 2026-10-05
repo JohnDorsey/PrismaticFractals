@@ -457,7 +457,8 @@ PINNED_SHAPE_KINDS = {"ellipse": "EllipseShape", "regular_polygon": "RegularPoly
                       "fernandez_guasti_squircle": "FernandezGuastiShape",
                       "archimedean_spiral": "ArchimedeanSpiralShape",
                       "snail_of_pythagoras": "PythagorasSnailShape",
-                      "hugelschaffer_egg": "HugelschafferEggShape"}
+                      "hugelschaffer_egg": "HugelschafferEggShape",
+                      "sine_flower": "SineFlowerShape"}
 PINNED_EXPORT_CHOICES = {             # catalog -> key -> the text the control holds
     "CAT_COLOR_INFO": {"none": "None", "overlay": "Overlay", "bottom_margin": "Bottom margin"},
     "CAT_FIGURE_INFO": {"none": "None", "left_margin": "Left margin"},
@@ -500,7 +501,8 @@ PINNED_OBSTACLE_FIELDS = {            # kind key -> the fields its project entry
     "fernandez_guasti_squircle": {"radius", "squareness"},
     "archimedean_spiral": {"radius", "spiral_pitch", "spiral_fill"},
     "snail_of_pythagoras": {"snail_segments"},
-    "hugelschaffer_egg": {"egg_a", "egg_b", "egg_shift"}}
+    "hugelschaffer_egg": {"egg_a", "egg_b", "egg_shift"},
+    "sine_flower": {"radius", "flower_petals", "flower_amplitude"}}
 SHARED_OBSTACLE_FIELDS = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
                           "fire_inside"}
 

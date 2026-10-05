@@ -516,7 +516,7 @@ def _raises(exc, fn):
 # The squircles and the Archimedean spiral (used by the shapes and the kernels tests)
 # --------------------------------------------------------------------------- #
 NEW_CLASSES = [m.SuperellipseShape, m.FernandezGuastiShape, m.ArchimedeanSpiralShape,
-               m.PythagorasSnailShape, m.HugelschafferEggShape]
+               m.PythagorasSnailShape, m.HugelschafferEggShape, m.SineFlowerShape]
 
 
 def _new_kind_cases():
@@ -546,6 +546,11 @@ def _new_kind_cases():
         o = m.HugelschafferEggShape(0)
         o.egg_a, o.egg_b, o.egg_shift, o.rotation = a, b, shift, rotation
         cases.append(o)
+    for radius, petals, amplitude, rotation in ((1.0, 6, 0.3, 0.0), (0.8, 1, 0.5, 40.0), (1.1, 3, 0.9, -25.0),
+                                                (0.9, 12, 0.6, 10.0), (1.0, 25, 0.2, 77.0), (0.7, 5, 0.0, 0.0)):
+        o = m.SineFlowerShape(0)
+        o.radius, o.flower_petals, o.flower_amplitude, o.rotation = radius, petals, amplitude, rotation
+        cases.append(o)
     return cases
 
 
@@ -565,6 +570,11 @@ def _independent_membership(o):
         def member(x, y):
             u, v = x * cs + y * sn, -x * sn + y * cs
             return abs(u) < r and abs(v) < r and u * u + v * v - k * u * u * v * v < r * r
+        return member
+    if isinstance(o, m.SineFlowerShape):
+        def member(x, y):
+            u, v = x * cs + y * sn, -x * sn + y * cs
+            return np.hypot(u, v) < o.radius * (1.0 + o.flower_amplitude * np.sin(o.flower_petals * np.arctan2(v, u)))
         return member
     if isinstance(o, m.HugelschafferEggShape):
         # the equation as the page gives it, in its own x (the middle of the egg's length is at x = d)
