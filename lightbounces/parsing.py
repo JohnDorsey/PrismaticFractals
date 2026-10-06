@@ -50,6 +50,15 @@ def parse_confine_threshold(text):
     return value if math.isfinite(value) and value > 0.0 else None
 
 
+def parse_escape_radius(text):
+    """The escape radius from entry text: any finite number strictly greater than zero (plain or
+    scientific notation), else None. Not rounded or clamped."""
+    if not re.fullmatch(r"(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?", text):
+        return None
+    value = float(text)
+    return value if math.isfinite(value) and value > 0.0 else None
+
+
 def parse_target_coordinate(text):
     """A coordinate of the emission target point from entry text: any finite
     number, negative or positive, however large or small (plain or scientific

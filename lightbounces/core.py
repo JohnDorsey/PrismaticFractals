@@ -17,12 +17,14 @@ from .image_io import make_grid
 from .kernels import N_POINTS, N_RAW, N_STATS, ObstacleArrays, SIZE
 from .constants import (
     BACKGROUND, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
+    DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
     ITER_LIMIT_MAX, OBST_BOUND_LEN, REFRESH_HZ
 )
 from .settings import (
-    CONFINE_DEFAULT, DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, fuzz_rule
+    DEFAULT_FUZZ, DEFAULT_NATURAL_STOP_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_STOP_DEFAULT,
+    fuzz_rule, ray_args
 )
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
@@ -75,16 +77,18 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.running = False              # generation in progress?
         self.done = False                 # image fully generated?
         self.generated_settings = None    # ray settings the current image was started with
+        self.generated_natural_stop = None    # ...and its natural stopping settings (None together)
         self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
-        # What the current image was generated with is generated_settings (see
-        # settings_of_current_image); these are only the kernel-ready arrays made from it.
+        self.baseline_natural_stop = DEFAULT_NATURAL_STOP_SETTINGS
+        # What the current image was generated with is generated_settings and
+        # generated_natural_stop (see settings_of_current_image); gen_stop and gen_ray are only
+        # the kernel-ready tuples made from them (and from the obstacles, see below).
         # The Buddha blur is not part of that: it is applied whenever Buddha channels are
         # colored, so the image always uses the blur controls' current values.
-        self.gen_fuzz = fuzz_rule(DEFAULT_FUZZ)
-        self.gen_confine = CONFINE_DEFAULT
-        self.gen_emission = EMISSION_DEFAULT
+        self.gen_stop = NATURAL_STOP_DEFAULT
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
+        self.last_escape_radius = DEFAULT_ESCAPE_RADIUS
         self.last_emit_target_r = DEFAULT_EMIT_TARGET_R
         self.last_emit_target_theta = DEFAULT_EMIT_TARGET_THETA
         self.last_emit_target_cx = DEFAULT_EMIT_TARGET_CX
@@ -153,9 +157,10 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
         empty_f64 = np.empty(0, dtype=np.float64)
         empty_bool = np.empty(0, dtype=np.bool_)
-        self.gen_obstacles = ObstacleArrays(      # the obstacles as generated (see start)
-            shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
-            effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
+        self.gen_ray = ray_args(              # the ray engine's arguments as generated (see start), with the
+            DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,   # obstacles as generated
+            ObstacleArrays(shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
+                           effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))
         self.gen_obstacles_sig = ()
         self.gen_obstacle_snapshots = []   # frozen copies of the obstacles as generated,
                                            # for the export's figure settings text
@@ -191,6 +196,7 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         # Watch the number entries (registered last, once everything exists)
         self.iter_var.trace_add("write", self.on_limit_var_changed)
         self.dist_var.trace_add("write", self.on_limit_var_changed)
+        self.escape_radius_var.trace_add("write", self.on_limit_var_changed)
         self.confine_window_var.trace_add("write", self.on_limit_var_changed)
         self.confine_threshold_var.trace_add("write", self.on_limit_var_changed)
         self.confine_method_var.trace_add("write", self.on_confine_method_changed)

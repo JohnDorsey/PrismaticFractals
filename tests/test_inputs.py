@@ -25,8 +25,8 @@ def test_dist_is_not_rounded_during_keyframe_resolution():
     keyframe would silently become an unlimited-distance one."""
     kf = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.4})
     data = m.resolve_frame_settings([kf], 0)
-    assert data.ray.max_dist == 0.4
-    assert m.effective_dist(data.ray.max_dist) == 0.4
+    assert data.natural_stop.max_dist == 0.4
+    assert m.effective_dist(data.natural_stop.max_dist) == 0.4
 
 
 def test_dist_animates_smoothly_between_keyframes():
@@ -36,7 +36,7 @@ def test_dist_animates_smoothly_between_keyframes():
     until the very last frame" of a video animating the distance limit."""
     kf0 = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.01})
     kf1 = m.Keyframe(2, 59, {**m.DEFAULT_SETTING_VALUES, "dist": 16})
-    dists = [m.resolve_frame_settings([kf0, kf1], fn).ray.max_dist for fn in range(60)]
+    dists = [m.resolve_frame_settings([kf0, kf1], fn).natural_stop.max_dist for fn in range(60)]
     assert dists[0] == 0.01 and dists[59] == 16
     assert all(dists[i] < dists[i + 1] for i in range(59)), \
         "dist should increase strictly monotonically across every frame"
@@ -142,3 +142,10 @@ def test_read_render_settings_rounds_a_non_multiple_of_4_resolution():
     assert rs is not None
     assert rs["video_w"] == 1080
     assert rs["video_h"] == 1080
+
+
+def test_parse_escape_radius_accepts_any_number_above_zero():
+    assert [m.parse_escape_radius(t) for t in ("2", "2.0", "0.001", "1e-30", "1.5E3", ".5", "7.")] == \
+        [2.0, 2.0, 0.001, 1e-30, 1500.0, 0.5, 7.0]
+    assert [m.parse_escape_radius(t) for t in ("0", "0.0", "-1", "", "abc", "1e999", "1e", "--1", "1 2")] == [None] * 9
+    assert m.DEFAULT_ESCAPE_RADIUS == 2.0

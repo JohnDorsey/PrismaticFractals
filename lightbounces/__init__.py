@@ -86,7 +86,8 @@ Rays
   * it strikes a reflective surface at exactly perpendicular incidence (which
     side it would retrace along is undefined, so it stops there), or
   * it escapes: nothing is left ahead for it to hit, so its last point is
-    where it leaves the [-1, 1] image square.
+    where it is the escape radius (a setting; default 2) from the origin -
+    or the last edge it passed through, if that is further out.
 
   Emission direction: each ray starts out pointing either straight up (90
   degrees) or from its own start pixel towards a target point, which can be

@@ -71,7 +71,7 @@ def short_value_text(key, val):
         return str(val)
     if key == "confine_method":
         return CONFINE_METHOD_NAMES[val]
-    if key == "confine_threshold":
+    if key in ("confine_threshold", "escape_radius"):
         return f"{val:.6g}"
     if key == "emit_offset":
         return f"{val:+.1f}\u00b0"

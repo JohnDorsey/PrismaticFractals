@@ -168,16 +168,17 @@ def test_the_quality_tag_in_a_jxl_file_name_says_lossless_or_the_lossy_quality()
 
 
 def test_default_filename_puts_the_quality_tag_just_before_the_extension():
-    name = m.default_filename(m.DEFAULT_RAY_SETTINGS, "jxl", "q90")
+    ray, stop = m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS
+    name = m.default_filename(ray, stop, "jxl", "q90")
     assert name.endswith(".q90.jxl") and name.count(".q90") == 1
-    assert m.default_filename(None, "jxl", "q100").endswith(".q100.jxl")
-    assert m.default_filename(None, "png").endswith(".png")
-    assert ".q" not in m.default_filename(None, "png")
-    assert m.image_filename(m.DEFAULT_RAY_SETTINGS, "jxl", False, 85).endswith(".q85.jxl")
-    assert m.image_filename(m.DEFAULT_RAY_SETTINGS, "jxl", True, 85).endswith(".q100.jxl")
+    assert m.default_filename(None, None, "jxl", "q100").endswith(".q100.jxl")
+    assert m.default_filename(None, None, "png").endswith(".png")
+    assert ".q" not in m.default_filename(None, None, "png")
+    assert m.image_filename(ray, stop, "jxl", False, 85).endswith(".q85.jxl")
+    assert m.image_filename(ray, stop, "jxl", True, 85).endswith(".q100.jxl")
     import re
     for fmt in ("png", "qoi"):                            # only JPEG XL files carry a quality
-        assert not re.search(r"\.q\d+\.", m.image_filename(m.DEFAULT_RAY_SETTINGS, fmt, False, 85))
+        assert not re.search(r"\.q\d+\.", m.image_filename(ray, stop, fmt, False, 85))
 
 
 def test_still_images_default_to_jxl():
@@ -193,6 +194,7 @@ def _fake_save_app(fmt, lossless, quality):
     app.save_jxl_mode_var = _StubVar("Lossless" if lossless else "Lossy")
     app.save_jxl_quality_scale = _StubVar(quality)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.written = []
     app._write = lambda path: app.written.append(os.path.basename(path))
     app.save = m.App.save.__get__(app)

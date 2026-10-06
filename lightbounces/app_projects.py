@@ -9,8 +9,8 @@ from .projects import (
     load_project, project_signature, save_project, view_config_from_snapshot
 )
 from .settings import (
-    CONFINE_DEFAULT, DEFAULT_FUZZ, EMISSION_DEFAULT, fuzz_rule, settings_to_dict,
-    snapshot_keyframes
+    DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_STOP_DEFAULT, fuzz_rule, ray_args,
+    settings_to_dict, snapshot_keyframes
 )
 from .shapes import build_obstacle_arrays
 from .views import snapshot_view
@@ -75,14 +75,15 @@ class ProjectsMixin:
     def capture_project(self, show_error=True):
         """A Project holding everything now set up (None, after telling the user unless
         `show_error` is False, while an entry holds an invalid value)."""
-        ray = self.current_ray_settings()
-        if ray is None:
+        current = self.current_generation_settings()
+        if current is None:
             if show_error:
                 messagebox.showerror("Invalid settings", "Fix the highlighted entries first.")
             return None
+        ray, natural_stop = current
         selected = self.selected_obstacle
         return Project(
-            ray=ray, buddha_blur=self.current_blur_settings(),
+            ray=ray, natural_stop=natural_stop, buddha_blur=self.current_blur_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
             views=tuple(snapshot_view(v) for v in self.views),
@@ -100,10 +101,10 @@ class ProjectsMixin:
         self.running = False
         self.done = False
         self.generated_settings = None
-        self.gen_fuzz = fuzz_rule(DEFAULT_FUZZ)
-        self.gen_confine = CONFINE_DEFAULT
-        self.gen_emission = EMISSION_DEFAULT
-        self.gen_obstacles = build_obstacle_arrays([])
+        self.generated_natural_stop = None
+        self.gen_stop = NATURAL_STOP_DEFAULT
+        self.gen_ray = ray_args(DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,
+                                build_obstacle_arrays([]))
         self.gen_obstacles_sig = ()
         self.gen_obstacle_snapshots = []
         self.gen_obstacles_by_id = {}
@@ -125,9 +126,11 @@ class ProjectsMixin:
         self.discard_generated_image()
         self.kf_applying = True
         try:
-            for key, value in settings_to_dict(project.ray, project.buddha_blur).items():
+            for key, value in settings_to_dict(project.ray, project.natural_stop,
+                                               project.buddha_blur).items():
                 self.set_setting_control(key, value)
             self.baseline = project.ray
+            self.baseline_natural_stop = project.natural_stop
             for key, value in project.decorations.items():
                 if key in self.deco:
                     self.deco[key].set(value)

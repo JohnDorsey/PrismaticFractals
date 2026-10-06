@@ -15,12 +15,12 @@ from .views import MODES
 from . import paths
 
 
-def settings_suffix(settings):
-    """Simulation settings as a filename fragment: plain characters, no spaces,
-    e.g. 'iter32-distNONE'."""
-    parts = [f"iter{settings.max_iter}",
-             "distNONE" if settings.max_dist == 0 else f"dist{settings.max_dist}"]
-    f = settings.fuzz
+def settings_suffix(ray, natural_stop):
+    """Simulation settings (a RaySettings and a NaturalStopSettings) as a filename fragment: plain
+    characters, no spaces, e.g. 'iter32-distNONE'."""
+    parts = [f"iter{natural_stop.max_iter}",
+             "distNONE" if natural_stop.max_dist == 0 else f"dist{natural_stop.max_dist}"]
+    f = ray.fuzz
     if f.enabled:
         parts += ["fuzz",
                   f"ej{f.emit_jitter:.1f}",
@@ -42,22 +42,22 @@ COLOR_INFO_LOCATIONS = ["None", "Overlay", "Bottom margin"]
 FIGURE_INFO_LOCATIONS = ["None", "Left margin"]
 
 
-def default_filename(settings=None, ext="png", quality_tag=None):
+def default_filename(ray=None, natural_stop=None, ext="png", quality_tag=None):
     """programname-YYYYMMDD-hhmmss-<settings>[.<quality_tag>].<ext>, stamped with the
-    current time."""
+    current time (no <settings> part without both records)."""
     name = f"{paths.PROGRAM_NAME}-{time.strftime('%Y%m%d-%H%M%S')}"
-    if settings is not None:
-        name += "-" + settings_suffix(settings)
+    if ray is not None and natural_stop is not None:
+        name += "-" + settings_suffix(ray, natural_stop)
     if quality_tag:
         name += "." + quality_tag
     return f"{name}.{ext}"
 
 
-def image_filename(settings, fmt, jxl_lossless, jxl_quality):
+def image_filename(ray, natural_stop, fmt, jxl_lossless, jxl_quality):
     """The default name of a saved still image: a JPEG XL file also says its quality
     right before the extension (name.q90.jxl; q100 for lossless)."""
     tag = jxl_quality_tag(jxl_lossless, jxl_quality) if fmt == "jxl" else None
-    return default_filename(settings, fmt, tag)
+    return default_filename(ray, natural_stop, fmt, tag)
 
 
 # The "Include coloration info" export overlay: pure black background (per
@@ -112,7 +112,7 @@ def coloration_info_lines(view):
 FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines up to this long
 
 
-def figure_info_blocks(settings, obstacles):
+def figure_info_blocks(ray, natural_stop, obstacles):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
     view - as a list of blocks of text lines: the stopping limits and segment
@@ -122,22 +122,23 @@ def figure_info_blocks(settings, obstacles):
     part of it.) The blocks' sizes depend only on how many obstacles there
     are, never on the settings' values - so a video's frames, whose settings
     may be animated, all lay out identically."""
-    limits = [f"Iter limit:{settings.max_iter}",
-              "Dist limit:" + ("none" if settings.max_dist == 0
-                               else f"{settings.max_dist:.2f}"),
-              f"Segment:x{settings.seg_mult:.2f}"]
-    toward = settings.emit_mode == EMIT_TOWARDS
-    emission = [f"Emit:{EMIT_MODE_NAMES[settings.emit_mode]}",
-                f"  target r {settings.emit_target_r:.9g}" if toward else " ",
-                f"  target angle {settings.emit_target_theta:.9g}" if toward else " ",
-                f"  offset x {settings.emit_target_cx:.9g}" if toward else " ",
-                f"  offset y {settings.emit_target_cy:.9g}" if toward else " ",
-                f"  angle offset {settings.emit_offset:+.2f}\u00b0"]
-    confinement = [f"Confine:{CONFINE_METHOD_NAMES[settings.confine_method]}",
-                   f"  window {settings.confine_window}",
-                   ("  box size " if settings.confine_method == CONFINE_BOX
-                    else "  path length ") + f"{settings.confine_threshold:.9g}"]
-    f = settings.fuzz
+    limits = [f"Iter limit:{natural_stop.max_iter}",
+              "Dist limit:" + ("none" if natural_stop.max_dist == 0
+                               else f"{natural_stop.max_dist:.2f}"),
+              f"Escape r:{natural_stop.escape_radius:.9g}",
+              f"Segment:x{ray.seg_mult:.2f}"]
+    toward = ray.emit_mode == EMIT_TOWARDS
+    emission = [f"Emit:{EMIT_MODE_NAMES[ray.emit_mode]}",
+                f"  target r {ray.emit_target_r:.9g}" if toward else " ",
+                f"  target angle {ray.emit_target_theta:.9g}" if toward else " ",
+                f"  offset x {ray.emit_target_cx:.9g}" if toward else " ",
+                f"  offset y {ray.emit_target_cy:.9g}" if toward else " ",
+                f"  angle offset {ray.emit_offset:+.2f}\u00b0"]
+    confinement = [f"Confine:{CONFINE_METHOD_NAMES[natural_stop.confine_method]}",
+                   f"  window {natural_stop.confine_window}",
+                   ("  box size " if natural_stop.confine_method == CONFINE_BOX
+                    else "  path length ") + f"{natural_stop.confine_threshold:.9g}"]
+    f = ray.fuzz
     if not f.enabled:
         fuzz = ["Fuzz:Off"] + [" "] * 4
     else:
@@ -156,9 +157,9 @@ def figure_info_blocks(settings, obstacles):
     return blocks
 
 
-def figure_info_lines(settings, obstacles):
+def figure_info_lines(ray, natural_stop, obstacles):
     """figure_info_blocks(), flattened into one list of lines."""
-    return [line for block in figure_info_blocks(settings, obstacles) for line in block]
+    return [line for block in figure_info_blocks(ray, natural_stop, obstacles) for line in block]
 
 
 def layout_info_columns(blocks, lines_per_column):
@@ -260,7 +261,7 @@ def add_bottom_color_margin(img, views, view_width):
     return out
 
 
-def add_left_figure_margin(img, settings, obstacles):
+def add_left_figure_margin(img, ray, natural_stop, obstacles):
     """Returns a new, wider copy of `img`: a solid black strip added to its
     left edge, as tall as `img` itself, holding every setting that defines
     the figure (see figure_info_blocks). The strip is half as wide as `img`
@@ -273,7 +274,7 @@ def add_left_figure_margin(img, settings, obstacles):
                                   # add_bottom_color_margin's identical fix)
     m = COLORATION_INFO_MARGIN * scale
     line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
-    columns = layout_info_columns(figure_info_blocks(settings, obstacles),
+    columns = layout_info_columns(figure_info_blocks(ray, natural_stop, obstacles),
                                   max(1, (h - 2 * m) // line_h))
     col_w = 6 * FIGURE_INFO_COLUMN_CHARS * scale
     col_gap = 12 * scale
@@ -287,14 +288,14 @@ def add_left_figure_margin(img, settings, obstacles):
     return out
 
 
-def apply_info_locations(rgb, views, view_width, settings, obstacles, color_location,
+def apply_info_locations(rgb, views, view_width, ray, natural_stop, obstacles, color_location,
                          figure_location, mutate_ok):
     """Applies the Export designer's Color info location and Figure settings
     location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
     module-level function, safe to call from a background thread, since it
     never reads a Tk variable directly (callers capture color_location/
-    figure_location on the main thread first). `settings` and `obstacles` are
+    figure_location on the main thread first). `ray`, `natural_stop` and `obstacles` are
     what defines the figure being exported (see figure_info_blocks). mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
     first instead) - needed when `rgb` might be a shared, reused buffer
@@ -306,5 +307,5 @@ def apply_info_locations(rgb, views, view_width, settings, obstacles, color_loca
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, views, view_width)
     if figure_location == "Left margin":
-        rgb = add_left_figure_margin(rgb, settings, obstacles)
+        rgb = add_left_figure_margin(rgb, ray, natural_stop, obstacles)
     return rgb

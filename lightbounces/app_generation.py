@@ -3,7 +3,7 @@ import time
 import numpy as np
 from .constants import (
     BACKGROUND, COMPUTE_FRACTION, DEFAULT_HEIGHT, DEFAULT_ROTATION, DEFAULT_SEGMENT_MULT,
-    DEFAULT_WIDTH, DIST_LIMIT_MAX, OBST_BOUND_LEN, WARM_ITER
+    DEFAULT_ESCAPE_RADIUS, DEFAULT_WIDTH, DIST_LIMIT_MAX, OBST_BOUND_LEN, WARM_ITER
 )
 from .geometry import ellipse_bound
 from .kernels import (
@@ -12,8 +12,8 @@ from .kernels import (
 )
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
-    CONFINE_DEFAULT, DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, effective_dist,
-    fuzz_rule, settings_confine, settings_emission
+    CONFINE_DEFAULT, DEFAULT_FUZZ, DEFAULT_NATURAL_STOP_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT,
+    fuzz_rule, natural_stop_rule, ray_args, settings_natural_stop, settings_ray_args
 )
 from .shapes import build_obstacle_arrays, obstacles_signature
 
@@ -34,14 +34,13 @@ class GenerationMixin:
             shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
             effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
         emits_ray(0.0, 0.0, no_obstacles)
-        trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, WARM_ITER, big,
-                   DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, no_obstacles,
-                   self.hover_raw)
+        stop = natural_stop_rule(WARM_ITER, big, DEFAULT_ESCAPE_RADIUS, CONFINE_DEFAULT)
+        ray = ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT, no_obstacles)
+        trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, stop, ray, self.hover_raw)
         compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER,
                       DEFAULT_SEGMENT_MULT, self.hover_vec)
         compute_points(self.hover_pts, 4, self.hover_raw, self.hover_kinds, self.hover_sp)
-        render_rows(self.stats, self.points, self.status, 0, 1, WARM_ITER, big,
-                    DEFAULT_SEGMENT_MULT, fz, CONFINE_DEFAULT, EMISSION_DEFAULT, no_obstacles, 0)
+        render_rows(self.stats, self.points, self.status, 0, 1, stop, ray, 0)
         self.stats[:] = 0
         self.points[:] = 0
         self.status[:] = 0
@@ -51,20 +50,20 @@ class GenerationMixin:
 
     def start(self):
         """(Re)start generation using the current settings."""
-        snap = self.current_ray_settings()
+        snap = self.current_generation_settings()
         if snap is None:
             return
         if self.tick_id is not None:
             self.root.after_cancel(self.tick_id)
             self.tick_id = None
 
-        settings = snap
+        settings, natural_stop = snap
         self.generated_settings = settings
+        self.generated_natural_stop = natural_stop
         self.baseline = settings                   # Revert now returns to these values
-        self.gen_fuzz = fuzz_rule(settings.fuzz)
-        self.gen_confine = settings_confine(settings)
-        self.gen_emission = settings_emission(settings)
-        self.gen_obstacles = build_obstacle_arrays(self.obstacles)
+        self.baseline_natural_stop = natural_stop
+        self.gen_stop = settings_natural_stop(natural_stop)
+        self.gen_ray = settings_ray_args(settings, build_obstacle_arrays(self.obstacles))
         self.gen_obstacles_sig = obstacles_signature(self.obstacles)
         self.gen_obstacles_by_id = {o.id: o.state() for o in self.obstacles}
         self.gen_obstacle_snapshots = [o.snapshot() for o in self.obstacles]
@@ -96,15 +95,12 @@ class GenerationMixin:
         target = budget / 3.0                      # aim for ~3 batches per tick
         rows_before = self.rows_done
         g = self.settings_of_current_image()
-        max_dist = effective_dist(g.max_dist)
 
         while self.rows_done < SIZE:
             t0 = time.perf_counter()
             row1 = min(self.rows_done + self.batch_rows, SIZE)
             render_rows(self.stats, self.points, self.status, self.rows_done, row1,
-                        g.max_iter, max_dist, g.seg_mult, self.gen_fuzz,
-                        self.gen_confine, self.gen_emission, self.gen_obstacles,
-                        g.fuzz.seed)
+                        self.gen_stop, self.gen_ray, g.fuzz.seed)
             self.rows_done = row1
             now = time.perf_counter()
 
@@ -153,7 +149,14 @@ class GenerationMixin:
         """The RaySettings the current image was generated with (the defaults, for
         the placeholder image before the first Start). Coloring a view from the
         stored data needs all of them, not just the limits: Buddha coloration
-        re-traces rays with the generated confinement and emission rules."""
+        re-traces rays with the generated emission rule and fuzzing."""
         if self.generated_settings is not None:
             return self.generated_settings
         return DEFAULT_RAY_SETTINGS
+
+    def natural_stop_of_current_image(self):
+        """The NaturalStopSettings the current image was generated with (the defaults, for
+        the placeholder image before the first Start)."""
+        if self.generated_natural_stop is not None:
+            return self.generated_natural_stop
+        return DEFAULT_NATURAL_STOP_SETTINGS

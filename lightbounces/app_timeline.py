@@ -156,13 +156,13 @@ class TimelineMixin:
         callers like refresh_timeline_diffs, which already show their own
         gentle inline message and run on every keystroke, where a popup
         would be disruptive) if the limit fields are currently invalid."""
-        snap = self.current_ray_settings()
+        snap = self.current_generation_settings()
         if snap is None:
             if show_error:
                 messagebox.showerror("Invalid settings",
                                      "Fix the iteration/distance limit fields first.")
             return None
-        d = settings_to_dict(snap, self.current_blur_settings())
+        d = settings_to_dict(*snap, self.current_blur_settings())
         d["outline"] = self.deco["outline"].get()
         for o in self.obstacles:
             for field in o.FIELD_NAMES:

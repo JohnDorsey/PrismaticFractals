@@ -13,7 +13,6 @@ from .metrics import (
     make_mapping, other_label_to_stat, other_stat_to_label, point_comparison_metric,
     resolve_point_xy, scatter_points_raw, world_radius_to_pixels
 )
-from .settings import effective_dist
 from .ui_text import default_map_help
 from .views import MODES, channels_to_rgb
 
@@ -287,8 +286,7 @@ class RecolorMixin:
             if any(want_multi.values()):
                 g = self.settings_of_current_image()
                 scatter_multi_buddha(
-                    r0, r1, g.max_iter, effective_dist(g.max_dist), g.seg_mult, self.gen_fuzz,
-                    self.gen_confine, self.gen_emission, self.gen_obstacles, g.fuzz.seed,
+                    r0, r1, self.gen_stop, self.gen_ray, g.fuzz.seed,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                     want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
                     self.buddha_counts[c])

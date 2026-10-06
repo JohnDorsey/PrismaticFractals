@@ -1,19 +1,20 @@
 """The settings and their keyframes: the strict record types (`strict_record`); the records of settings - `RaySettings`
-(the ray simulation's) and `BuddhaBlurSettings` (coloration's), side by side, neither inside the other; one table with
-a row per setting for each record (`RAY_SETTING_SPECS`, `BLUR_SETTING_SPECS`, listed in `SETTING_TABLES`) and
-everything derived from them; the kernel rule tuples built from the ray settings (`fuzz_rule`, `confine_rule`,
-`emission_rule`); and the interpolation between keyframes (`resolve_value`, `resolve_frame_settings`)."""
+(the ray-bouncing engine's), `NaturalStopSettings` (the limits that end any sequence of points, whichever engine makes
+it) and `BuddhaBlurSettings` (coloration's), side by side, none inside another; one table with a row per setting for
+each record (`RAY_SETTING_SPECS`, `NATURAL_STOP_SETTING_SPECS`, `BLUR_SETTING_SPECS`, listed in `SETTING_TABLES`) and
+everything derived from them; the kernel argument tuples built from them (`fuzz_rule`, `confine_rule`, `emission_rule`,
+`natural_stop_rule`, `ray_args`); and the interpolation between keyframes (`resolve_value`, `resolve_frame_settings`)."""
 import dataclasses
 from math import cos, radians, sin
 from .constants import (
     BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS,
     DEFAULT_BUDDHA_BLUR_TYPE, DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD,
-    DEFAULT_CONFINE_WINDOW, DEFAULT_DIST, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
+    DEFAULT_CONFINE_WINDOW, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
     EMIT_MODE_NAMES
 )
-from .kernels import ConfineRule, EmissionRule, FuzzRule
+from .kernels import ConfineRule, EmissionRule, FuzzRule, NaturalStopRule, RayArgs
 
 
 def strict_record(cls):
@@ -106,19 +107,36 @@ DEFAULT_BUDDHA_BLUR = BuddhaBlurSettings(radius=DEFAULT_BUDDHA_BLUR_RADIUS,
 
 
 @strict_record
-class RaySettings:
-    """Every value of every ray-simulation control - what determines the generated image,
-    together with the obstacles (the scene, the obstacles and the views, is tracked
-    separately). Start compares these, "Revert" restores them, and a keyframe resolves
-    to one for each video frame. The Buddha blur is NOT in here: it is a BuddhaBlurSettings
-    of its own, used side by side with this."""
+class NaturalStopSettings:
+    """What brings a sequence of points to its natural end, whichever engine makes the sequence (the ray-bouncing
+    engine today; an escape-time iteration could take the same limits): how many points (`max_iter`), how long a path
+    (`max_dist`), how far from the origin (`escape_radius`), and when it has stopped getting anywhere (the three
+    confinement settings). It is a record of its own, held beside a RaySettings and a BuddhaBlurSettings (never inside
+    either) by everything that holds them - the controls, a keyframe's data, a project - and what the Simulation
+    tab's "Stopping limits" and "Confinement" sections show."""
     max_iter: int
     max_dist: float                                  # 0 = no limit; see effective_dist
-    seg_mult: float
-    fuzz: FuzzParams
+    escape_radius: float                             # a sequence ends this far from the origin
     confine_window: int
     confine_method: int
     confine_threshold: float
+
+
+DEFAULT_NATURAL_STOP_SETTINGS = NaturalStopSettings(
+    max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, escape_radius=DEFAULT_ESCAPE_RADIUS,
+    confine_window=DEFAULT_CONFINE_WINDOW, confine_method=DEFAULT_CONFINE_METHOD,
+    confine_threshold=DEFAULT_CONFINE_THRESHOLD)
+
+
+@strict_record
+class RaySettings:
+    """Every value of every control of the ray-bouncing engine itself (not the natural stopping limits, which are a
+    NaturalStopSettings of their own) - what determines the generated image, together with the natural stop settings and
+    the obstacles (the scene, the obstacles and the views, is tracked separately). Start compares these, "Revert"
+    restores them, and a keyframe resolves to one for each video frame. The Buddha blur is NOT in here either: it is a
+    BuddhaBlurSettings of its own, used side by side with this."""
+    seg_mult: float
+    fuzz: FuzzParams
     emit_mode: int
     emit_target_r: float
     emit_target_theta: float
@@ -128,9 +146,7 @@ class RaySettings:
 
 
 DEFAULT_RAY_SETTINGS = RaySettings(
-    max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, seg_mult=DEFAULT_SEGMENT_MULT,
-    fuzz=DEFAULT_FUZZ, confine_window=DEFAULT_CONFINE_WINDOW,
-    confine_method=DEFAULT_CONFINE_METHOD, confine_threshold=DEFAULT_CONFINE_THRESHOLD,
+    seg_mult=DEFAULT_SEGMENT_MULT, fuzz=DEFAULT_FUZZ,
     emit_mode=DEFAULT_EMIT_MODE, emit_target_r=DEFAULT_EMIT_TARGET_R,
     emit_target_theta=DEFAULT_EMIT_TARGET_THETA, emit_target_cx=DEFAULT_EMIT_TARGET_CX,
     emit_target_cy=DEFAULT_EMIT_TARGET_CY, emit_offset=DEFAULT_EMIT_OFFSET)
@@ -140,11 +156,12 @@ DEFAULT_RAY_SETTINGS = RaySettings(
 # views and obstacles - each resolved separately, the same way: a fixed set
 # established when the render starts, each one's own fields independently
 # held/animated from the keyframes). Built by resolve_frame_settings() from whichever
-# keyframes define each setting. The ray simulation's settings and the Buddha blur sit
-# side by side, each its own record.
+# keyframes define each setting. The ray engine's settings, the natural stopping limits and the
+# Buddha blur sit side by side, each its own record.
 @strict_record
 class KeyframeData:
     ray: RaySettings
+    natural_stop: NaturalStopSettings
     buddha_blur: BuddhaBlurSettings
     outline: bool
 
@@ -216,14 +233,26 @@ def _spec(path, control, widget, kind, tab, label, names=()):
                        tab=tab, label=label)
 
 
-# Every ray-simulation setting, in the order the keyframe settings list shows them within
-# each tab. run_self_checks() makes sure these rows and the RaySettings fields are the
-# same set.
-RAY_SETTING_SPECS = {
+# Every natural-stopping setting (a NaturalStopSettings), in the order the keyframe settings list shows
+# them within each tab. run_self_checks() makes sure these rows and the record's fields are the same set.
+NATURAL_STOP_SETTING_SPECS = {
     "iter": _spec(("max_iter",), "iter_var", "iter_entry", "text",
                   "Simulation", "Iteration limit"),
     "dist": _spec(("max_dist",), "dist_var", "dist_entry", "text",
                   "Simulation", "Distance limit"),
+    "escape_radius": _spec(("escape_radius",), "escape_radius_var", "escape_radius_entry",
+                           "float_text", "Simulation", "Escape radius"),
+    "confine_window": _spec(("confine_window",), "confine_window_var", "confine_window_entry",
+                            "int_text", "Simulation", "Confinement window"),
+    "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
+                            "choice", "Simulation", "Confinement method", CONFINE_METHOD_NAMES),
+    "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
+                               "confine_threshold_entry", "float_text", "Simulation",
+                               "Confinement threshold"),
+}
+
+# Every setting of the ray-bouncing engine itself (a RaySettings), the same way.
+RAY_SETTING_SPECS = {
     "seg_mult": _spec(("seg_mult",), "seg_mult_scale", "seg_mult_scale", "number",
                       "Simulation", "Segment length multiplier"),
     "emit_mode": _spec(("emit_mode",), "emit_mode_var", "emit_mode_combo", "choice",
@@ -239,13 +268,6 @@ RAY_SETTING_SPECS = {
                             "float_text", "Simulation", "Emission target offset Y"),
     "emit_offset": _spec(("emit_offset",), "emit_offset_scale", "emit_offset_scale", "number",
                          "Simulation", "Emission angle offset"),
-    "confine_window": _spec(("confine_window",), "confine_window_var", "confine_window_entry",
-                            "int_text", "Simulation", "Confinement window"),
-    "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
-                            "choice", "Simulation", "Confinement method", CONFINE_METHOD_NAMES),
-    "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
-                               "confine_threshold_entry", "float_text", "Simulation",
-                               "Confinement threshold"),
     "fuzz_on": _spec(("fuzz", "enabled"), "fuzz_enabled_var", "fuzz_enable_check", "bool",
                      "Fuzzing", "Enabled"),
     "emit_jitter": _spec(("fuzz", "emit_jitter"), "emit_jitter_scale", "emit_jitter_scale",
@@ -276,11 +298,13 @@ BLUR_SETTING_SPECS = {
 
 # Every record of settings and the table of its rows. This is the one place that says
 # which records there are: a new kind of settings (say, those of another way to generate
-# bounces) is a record class, a table like the two above, and an entry here. Setting keys
+# bounces) is a record class, a table like those above, and an entry here. Setting keys
 # are unique across all the tables (they are what keyframes and project files call a
 # setting), and run_self_checks() checks each table against its record's fields.
-SETTING_TABLES = {RaySettings: RAY_SETTING_SPECS, BuddhaBlurSettings: BLUR_SETTING_SPECS}
-DEFAULT_SETTINGS = {RaySettings: DEFAULT_RAY_SETTINGS, BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR}
+SETTING_TABLES = {NaturalStopSettings: NATURAL_STOP_SETTING_SPECS, RaySettings: RAY_SETTING_SPECS,
+                  BuddhaBlurSettings: BLUR_SETTING_SPECS}
+DEFAULT_SETTINGS = {NaturalStopSettings: DEFAULT_NATURAL_STOP_SETTINGS, RaySettings: DEFAULT_RAY_SETTINGS,
+                    BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR}
 
 # Every static setting a keyframe can define, from all the tables, in table order.
 SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
@@ -300,7 +324,7 @@ def _field_types(record_class):
 
 
 def record_leaf_paths(record_class, prefix=()):
-    """Every value a settings record holds, as a path: for RaySettings ("max_iter",),
+    """Every value a settings record holds, as a path: for RaySettings ("seg_mult",),
     ("fuzz", "seed"), ...; for BuddhaBlurSettings ("radius",), ("type",)."""
     paths = []
     for f in dataclasses.fields(record_class):
@@ -313,7 +337,7 @@ def record_leaf_paths(record_class, prefix=()):
 
 def settings_to_dict(*records):
     """{setting key: value} for every row of the table of each record given (a RaySettings,
-    a BuddhaBlurSettings, ...), read from the records themselves."""
+    a NaturalStopSettings, a BuddhaBlurSettings, ...), read from the records themselves."""
     values = {}
     for record in records:
         for key, spec in SETTING_TABLES[type(record)].items():
@@ -325,7 +349,7 @@ def settings_to_dict(*records):
 
 
 def settings_from_dict(record_class, values):
-    """A record of `record_class` (RaySettings, BuddhaBlurSettings...) from {setting key:
+    """A record of `record_class` (RaySettings, NaturalStopSettings...) from {setting key:
     value} (for example the values resolved from keyframes, where an int setting may arrive
     as a float; keys of other records are ignored): each value is converted to its field's
     type - int fields rounded, bool fields made bool, anything else kept as it is (the
@@ -412,9 +436,43 @@ def settings_emission(settings):
 
 
 def settings_confine(settings):
-    """confine_rule() for a RaySettings."""
+    """confine_rule() for a NaturalStopSettings."""
     return confine_rule(settings.confine_window, settings.confine_method,
                         settings.confine_threshold)
+
+
+def effective_dist(max_dist):
+    """The distance limit passed to the simulation: infinite when 0 (no limit)."""
+    return float("inf") if max_dist == 0 else float(max_dist)
+
+
+def natural_stop_rule(max_iter, max_dist, escape_radius, confine):
+    """The natural stop rule in the form the simulation kernels expect: `max_dist` as the kernels read it
+    (infinite for no limit - see effective_dist) and `confine` a confine_rule."""
+    return NaturalStopRule(max_iter=int(max_iter), max_dist=float(max_dist),
+                           escape_radius=float(escape_radius), confine=confine)
+
+
+def settings_natural_stop(settings):
+    """natural_stop_rule() for a NaturalStopSettings."""
+    return natural_stop_rule(settings.max_iter, effective_dist(settings.max_dist),
+                             settings.escape_radius, settings_confine(settings))
+
+
+# What was always hard-wired, plus the defaults of the other limits.
+NATURAL_STOP_DEFAULT = settings_natural_stop(DEFAULT_NATURAL_STOP_SETTINGS)
+
+
+def ray_args(seg_mult, fuzz, emission, obstacles):
+    """The ray-bouncing engine's own arguments in the form the simulation kernels expect: `fuzz` a fuzz_rule,
+    `emission` an emission_rule and `obstacles` an ObstacleArrays (see build_obstacle_arrays)."""
+    return RayArgs(seg_mult=float(seg_mult), fuzz=fuzz, emission=emission, obstacles=obstacles)
+
+
+def settings_ray_args(settings, obstacles):
+    """ray_args() for a RaySettings and the obstacles' ObstacleArrays. (The fuzzing seed is not part of
+    it: callers pass `settings.fuzz.seed` to the kernels themselves.)"""
+    return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings), obstacles)
 
 
 def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):
@@ -472,21 +530,17 @@ def resolve_setting(key, keyframes_sorted, frame_number):
 
 
 def resolve_frame_settings(keyframes_sorted, frame_number):
-    """A full KeyframeData for one video frame - the ray simulation's settings and the
-    Buddha blur, side by side - with every setting resolved independently via
+    """A full KeyframeData for one video frame - the ray engine's settings, the natural stopping
+    limits and the Buddha blur, side by side - with every setting resolved independently via
     resolve_setting(). The views' coloration isn't part of this - see resolve_views(),
     called separately (mirroring resolve_obstacle_arrays), since views are a dynamic list
     like obstacles, not a fixed set of settings."""
     v = {key: resolve_setting(key, keyframes_sorted, frame_number)
         for key, _tab, _label in SETTING_INFO}
     return KeyframeData(ray=settings_from_dict(RaySettings, v),
+                        natural_stop=settings_from_dict(NaturalStopSettings, v),
                         buddha_blur=settings_from_dict(BuddhaBlurSettings, v),
                         outline=bool(v["outline"]))
-
-
-def effective_dist(max_dist):
-    """The distance limit passed to the simulation: infinite when 0 (no limit)."""
-    return float("inf") if max_dist == 0 else float(max_dist)
 
 
 def fuzz_rule(f):

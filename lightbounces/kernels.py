@@ -31,7 +31,7 @@ TERM_PERPENDICULAR = 4   # hit a reflective surface at exactly perpendicular
                          # incidence (which side it would retrace along is
                          # undefined - see trace_path)
 TERM_ESCAPED = 5         # nothing left ahead to hit: the ray leaves for good (its
-                         # last point is where it leaves the [-1, 1] image square)
+                         # last point is where it reaches the escape radius)
 
 # Shapes
 SHAPE_ELLIPSE = 0
@@ -92,7 +92,7 @@ KIND_BOUNDARY = 1.0
 KIND_SELF = 2.0
 KIND_DISTCUT = 3.0
 KIND_OBSTACLE_TERM = 4.0   # the point where a "terminate" obstacle ended the ray
-KIND_ESCAPED = 5.0         # the point where an escaping ray leaves the image square
+KIND_ESCAPED = 5.0         # the point where an escaping ray reaches the escape radius
 
 # What happens to a ray as it crosses an obstacle's edge - chosen separately for
 # a ray coming in from outside ("incoming") and one going out from inside
@@ -124,6 +124,26 @@ EmissionRule = namedtuple("EmissionRule", [
     "mode",                                          # EMIT_UP / EMIT_TOWARDS (int)
     "target_x", "target_y",                          # the point rays are fired towards
     "offset"])                                       # degrees, positive = counterclockwise
+
+# What brings ANY sequence of points to its natural end - not something in the sequence's own rules (a terminating
+# obstacle, a hit at exactly perpendicular incidence) but that it has gone on long enough, gone far enough, got far
+# enough from the origin or stopped getting anywhere: the limits every engine that produces sequences of points
+# shares (the ray-bouncing engine, and any other, such as an escape-time iteration). The four limits are exactly
+# the termination reasons TERM_ITER, TERM_DIST, TERM_ESCAPED and TERM_CONFINED. Build it only with
+# natural_stop_rule / settings_natural_stop; read it in the kernels only by field name.
+NaturalStopRule = namedtuple("NaturalStopRule", [
+    "max_iter",                                      # the most points after the first (int)
+    "max_dist",                                      # the longest path, in world units (inf: no limit)
+    "escape_radius",                                 # how far from the origin a sequence ends, in world units
+    "confine"])                                      # a ConfineRule: stopped getting anywhere
+
+# Everything the ray-bouncing engine takes besides the natural stop rule: the part of its arguments that another
+# engine would replace with its own. Build it only with ray_args.
+RayArgs = namedtuple("RayArgs", [
+    "seg_mult",                                      # how much of each bounce's segment is travelled (0..1)
+    "fuzz",                                          # a FuzzRule
+    "emission",                                      # an EmissionRule
+    "obstacles"])                                    # an ObstacleArrays
 
 ST_HDIST = 0        # horizontal distance |x1-x2| between two points  [comparison]
 ST_VDIST = 1        # vertical distance |y1-y2| between two points    [comparison]
@@ -1536,20 +1556,50 @@ def obstacle_hit(px, py, dx, dy, shape, bound):
 
 
 @njit(cache=True)
-def square_exit_t(px, py, dx, dy):
+def beyond_escape_radius(x, y, escape_radius):
+    """Is the point (x, y) `escape_radius` or further from the origin? The escape test of every engine: an orbit
+    ends at the first point for which it is true; a ray ends where it first becomes true (escape_exit_t)."""
+    return x * x + y * y - escape_radius * escape_radius >= 0.0
+
+
+@njit(cache=True)
+def escape_exit_t(px, py, dx, dy, escape_radius):
     """Distance along the unit direction (dx, dy) from (px, py) to where the
-    ray leaves the [-1, 1] image square (0 if it is already outside it and
-    heading away)."""
-    t = 1e30
-    if dx > 1e-15:
-        t = min(t, (1.0 - px) / dx)
-    elif dx < -1e-15:
-        t = min(t, (-1.0 - px) / dx)
-    if dy > 1e-15:
-        t = min(t, (1.0 - py) / dy)
-    elif dy < -1e-15:
-        t = min(t, (-1.0 - py) / dy)
-    return max(t, 0.0)
+    ray reaches `escape_radius` from the origin (0 if it is already that far
+    out or further)."""
+    if beyond_escape_radius(px, py, escape_radius):
+        return 0.0
+    b = px * dx + py * dy
+    c = px * px + py * py - escape_radius * escape_radius
+    return -b + sqrt(b * b - c)
+
+
+@njit(cache=True)
+def is_confined(pts, npts, confine):
+    """Has the sequence stopped getting anywhere? Judges the last `confine.window` of its first `npts` points: they
+    are confined when they lie inside a box smaller than `confine.threshold` both ways (CONFINE_BOX), or when the
+    segments joining them add up to less than it (CONFINE_PATH). False while there are fewer points than the
+    window. The confinement test of every engine (for an orbit it is a convergence test)."""
+    window = confine.window
+    if npts < window:
+        return False
+    threshold = confine.threshold
+    if confine.method == CONFINE_BOX:
+        minx = 1e30
+        maxx = -1e30
+        miny = 1e30
+        maxy = -1e30
+        for k in range(npts - window, npts):
+            minx = min(minx, pts[k, 0])
+            maxx = max(maxx, pts[k, 0])
+            miny = min(miny, pts[k, 1])
+            maxy = max(maxy, pts[k, 1])
+        return (maxx - minx) < threshold and (maxy - miny) < threshold
+    length = 0.0                                   # CONFINE_PATH
+    for k in range(npts - window, npts - 1):
+        length += sqrt((pts[k + 1, 0] - pts[k, 0]) ** 2
+                       + (pts[k + 1, 1] - pts[k, 1]) ** 2)
+    return length < threshold
 
 
 ESCAPE_OBJ = -3      # trace_path's "what did the ray hit": nothing, it escaped
@@ -1584,11 +1634,10 @@ def unit_direction(deg):
 
 
 @njit(nogil=True, cache=True)
-def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-               obstacles, raw):
+def trace_path(x0, y0, pts, kinds, stop, ray, raw):
     """
     Trace one ray, storing the start point and every
-    bounce point in pts (needs at least max_iter + 2 rows, 2 columns), the
+    bounce point in pts (needs at least stop.max_iter + 2 rows, 2 columns), the
     "kind" of each of those points in kinds (KIND_START / KIND_BOUNDARY /
     KIND_SELF / KIND_DISTCUT / KIND_OBSTACLE_TERM / KIND_ESCAPED, same length
     as pts), and
@@ -1596,7 +1645,12 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     reached part-way along a segment, the ray's end point (on that segment) is
     appended to pts (kind KIND_DISTCUT) too.
 
-    `seg_mult` (0 < seg_mult <= 1) shortens every ordinary bounce's recorded
+    `stop` is a NaturalStopRule (see natural_stop_rule): what ends the ray without anything in the scene ending it -
+    the iteration limit `max_iter` (TERM_ITER), the distance limit `max_dist` (TERM_DIST), the `escape_radius` an
+    escaping ray ends at (TERM_ESCAPED) and the `confine` rule (TERM_CONFINED, below). `ray` is a RayArgs (see
+    ray_args): `seg_mult`, `fuzz`, `emission` and `obstacles`, described below.
+
+    `ray.seg_mult` (0 < seg_mult <= 1) shortens every ordinary bounce's recorded
     segment to that fraction of its true length - the endpoint moves back
     towards the segment's start - while the ray still continues on from there
     in the direction the bounce actually calculated (from the true, full-length
@@ -1607,7 +1661,7 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     still reaches its true, unshortened endpoint, since there's no next
     segment to continue into.
 
-    `obstacles` is an ObstacleArrays describing every obstacle (parallel
+    `ray.obstacles` is an ObstacleArrays describing every obstacle (parallel
     arrays; each obstacle's own bound is centred on (cx[i], cy[i]); `effects`
     is an (n, 2) array of
     OBSTACLE_EFFECT_* codes: column 0 for rays coming in from outside, column
@@ -1619,20 +1673,20 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     shape) without a bounce or a recorded point. A ray starts inside every
     shape that contains its start point. A shape that passes rays through in
     both directions is ignored. If a ray has nothing left ahead to hit, it
-    escapes (TERM_ESCAPED): its last point is where it leaves the [-1, 1]
-    image square.
+    escapes (TERM_ESCAPED): its last point is where it is `escape_radius` from
+    the origin (never before the last edge it passed through).
 
-    `confine` is a ConfineRule (see confine_rule): the ray is confined
+    `stop.confine` is a ConfineRule (see confine_rule): the ray is confined
     (TERM_CONFINED) when the last `window` points of its path are inside a box
     smaller than the threshold both ways (CONFINE_BOX), or their segments add up
-    to less than it (CONFINE_PATH).
+    to less than it (CONFINE_PATH) - see is_confined.
 
-    `emission` is an EmissionRule (see emission_rule): the ray's direction is its
+    `ray.emission` is an EmissionRule (see emission_rule): the ray's direction is its
     base direction - straight up (EMIT_UP), or from its start point towards the
     target (EMIT_TOWARDS) - plus the offset in degrees, positive meaning more
     counterclockwise.
 
-    `fuzz` is a FuzzRule (see fuzz_rule; angles in degrees, emit_jitter is added
+    `ray.fuzz` is a FuzzRule (see fuzz_rule; angles in degrees, emit_jitter is added
     to the emission direction). When enabled, the RNG is used for the jitter
     terms, so the caller must have seeded it beforehand for reproducibility.
 
@@ -1641,6 +1695,14 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
             TERM_OBSTACLE, TERM_PERPENDICULAR or TERM_ESCAPED
       npts  number of valid points in pts (the last is the final location)
     """
+    max_iter = stop.max_iter
+    max_dist = stop.max_dist
+    escape_radius = stop.escape_radius
+    confine = stop.confine
+    seg_mult = ray.seg_mult
+    fuzz = ray.fuzz
+    emission = ray.emission
+    obstacles = ray.obstacles
     obst_shapes = obstacles.shapes
     obst_bounds = obstacles.bounds
     obst_cx = obstacles.cx
@@ -1648,9 +1710,6 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
     obst_effects = obstacles.effects
     fuzzing = fuzz.enabled
     n_obst = len(obst_shapes)
-    confine_window = confine.window
-    confine_method = confine.method
-    confine_threshold = confine.threshold
 
     pts[0, 0] = x0
     pts[0, 1] = y0
@@ -1766,10 +1825,10 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
 
             if best_t >= 1e29:
                 # Nothing at all ahead: the ray escapes. Its segment ends where
-                # it leaves the image square (never before the last edge it
+                # is escape_radius from the origin (never before the last edge it
                 # passed through).
                 best_obj = ESCAPE_OBJ
-                best_t = max(square_exit_t(px, py, dx, dy), t_off) - t_off
+                best_t = max(escape_exit_t(px, py, dx, dy, escape_radius), t_off) - t_off
 
             if best_obj <= OBST_OBJ_BASE and hit_eff == OBSTACLE_EFFECT_PASS:
                 # Through an edge: flip inside/outside for that shape, carry on
@@ -1930,29 +1989,10 @@ def trace_path(x0, y0, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine, 
                 inside[oi] = inside_boundary(ex - obst_cx[oi], ey - obst_cy[oi],
                                              obst_shapes[oi], obst_bounds[oi])
 
-        # Confined? Judge the last `confine_window` points of the path.
-        if npts >= confine_window:
-            if confine_method == CONFINE_BOX:
-                minx = 1e30
-                maxx = -1e30
-                miny = 1e30
-                maxy = -1e30
-                for k in range(npts - confine_window, npts):
-                    minx = min(minx, pts[k, 0])
-                    maxx = max(maxx, pts[k, 0])
-                    miny = min(miny, pts[k, 1])
-                    maxy = max(maxy, pts[k, 1])
-                if (maxx - minx) < confine_threshold and (maxy - miny) < confine_threshold:
-                    term = TERM_CONFINED
-                    break
-            else:                                  # CONFINE_PATH
-                length = 0.0
-                for k in range(npts - confine_window, npts - 1):
-                    length += sqrt((pts[k + 1, 0] - pts[k, 0]) ** 2
-                                   + (pts[k + 1, 1] - pts[k, 1]) ** 2)
-                if length < confine_threshold:
-                    term = TERM_CONFINED
-                    break
+        # Confined? Judge the last `confine.window` points of the path.
+        if is_confined(pts, npts, confine):
+            term = TERM_CONFINED
+            break
 
     raw[RAW_BOUNDARY] = n_boundary
     raw[RAW_SELF_K] = self_k
@@ -2179,14 +2219,30 @@ def compute_points(pts, npts, raw, kinds, sp):
                 sp[p, 1] = ey
 
 
-@njit(nogil=True, parallel=True, cache=True)
-def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult, fuzz, confine,
-                emission, obstacles, seed_base):
+# A numba limitation shapes the two parallel drivers below: a parallel function cannot take a tuple that contains
+# other tuples (a NaturalStopRule holds a ConfineRule, a RayArgs holds a FuzzRule, an EmissionRule and an
+# ObstacleArrays) and use it inside its prange loop - compiling fails with "'str' object has no attribute 'loc'" (or
+# "scalar type ... given for non scalar argument") - but a parallel function that is given their one-level pieces
+# can put the whole tuples together again INSIDE its loop (verified). So render_rows / render_rows_wh take the
+# rules whole, like trace_path, and hand their pieces to _render_rows_parallel / _render_rows_wh_parallel, which
+# rebuild them for each pixel's trace_path. Any other engine's driver has the same constraint.
+@njit(nogil=True, cache=True)
+def render_rows(stats, points, status, row0, row1, stop, ray, seed_base):
     """
     Simulate rows [row0, row1). For each pixel that actually fires a ray, fill
     in stats[j, i, :] and points[j, i, :, :] and set status[j, i] = 1. When
     fuzzing is enabled, each pixel's ray gets its own reproducible seed.
+    `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
     """
+    _render_rows_parallel(stats, points, status, row0, row1, stop.max_iter, stop.max_dist,
+                          stop.escape_radius, stop.confine, ray.seg_mult, ray.fuzz, ray.emission,
+                          ray.obstacles, seed_base)
+
+
+@njit(nogil=True, parallel=True, cache=True)
+def _render_rows_parallel(stats, points, status, row0, row1, max_iter, max_dist, escape_radius,
+                          confine, seg_mult, fuzz, emission, obstacles, seed_base):
+    """render_rows with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
     n = (row1 - row0) * SIZE
     for idx in prange(n):
@@ -2203,8 +2259,9 @@ def render_rows(stats, points, status, row0, row1, max_iter, max_dist, seg_mult,
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine,
-                                emission, obstacles, raw)
+        term, npts = trace_path(x, y, pts, kinds,
+                                NaturalStopRule(max_iter, max_dist, escape_radius, confine),
+                                RayArgs(seg_mult, fuzz, emission, obstacles), raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):
@@ -2229,8 +2286,7 @@ def scatter_one_buddha_point(counts, x, y, w, h):
 
 
 @njit(cache=True)
-def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine, emission,
-                         obstacles, seed_base, want_all_self, want_all_mid,
+def scatter_multi_buddha(row0, row1, stop, ray, seed_base, want_all_self, want_all_mid,
                          want_prog_bounce, want_prog_mid, counts):
     """
     For rows [row0, row1), re-trace every ray that actually fires (starting at the
@@ -2242,9 +2298,12 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
     is applied once, afterward, to the whole accumulated counts array.
     Deliberately single-threaded (no prange): a scattered point can land on
     any pixel, not just ones in this row range, so a parallel version would
-    risk concurrent writes to the same pixel.
+    risk concurrent writes to the same pixel. `stop` is a NaturalStopRule and `ray` a RayArgs
+    (see trace_path).
     """
-    fuzzing = fuzz.enabled
+    max_iter = stop.max_iter
+    obstacles = ray.obstacles
+    fuzzing = ray.fuzz.enabled
     h, w = counts.shape
     step_x = 2.0 / w                         # the grid of `counts` covers [-1, 1] on both axes
     step_y = 2.0 / h                         # (exactly render_rows_wh's rays, at any resolution)
@@ -2259,8 +2318,7 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
                 continue
             if fuzzing:
                 np.random.seed(seed_base + i * 1000003 + j * 97)
-            _term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz,
-                                     confine, emission, obstacles, raw)
+            _term, npts = trace_path(x, y, pts, kinds, stop, ray, raw)
             nb = int(raw[RAW_BOUNCES])
 
             if want_all_self:
@@ -2295,9 +2353,8 @@ def scatter_multi_buddha(row0, row1, max_iter, max_dist, seg_mult, fuzz, confine
                     scatter_one_buddha_point(counts, sx / cnt, sy / cnt, w, h)
 
 
-@njit(nogil=True, parallel=True, cache=True)
-def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, max_dist,
-                   seg_mult, fuzz, confine, emission, obstacles, seed_base):
+@njit(nogil=True, cache=True)
+def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, stop, ray, seed_base):
     """
     Like render_rows, but for an arbitrary out_w x out_h output grid (used for
     video frames) instead of the fixed SIZE x SIZE main image. The grid still
@@ -2305,7 +2362,18 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
     stretches the shape to fit; the "confined to less than a pixel" physics
     stays tied to the main image's fixed PIXEL size, not to out_w/out_h, so a
     ray behaves identically regardless of the resolution it's sampled at.
+    `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
     """
+    _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, stop.max_iter,
+                             stop.max_dist, stop.escape_radius, stop.confine, ray.seg_mult,
+                             ray.fuzz, ray.emission, ray.obstacles, seed_base)
+
+
+@njit(nogil=True, parallel=True, cache=True)
+def _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, max_iter, max_dist,
+                             escape_radius, confine, seg_mult, fuzz, emission, obstacles,
+                             seed_base):
+    """render_rows_wh with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
     step_x = 2.0 / out_w
     step_y = 2.0 / out_h
@@ -2324,8 +2392,9 @@ def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, max_iter, ma
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds, max_iter, max_dist, seg_mult, fuzz, confine,
-                                emission, obstacles, raw)
+        term, npts = trace_path(x, y, pts, kinds,
+                                NaturalStopRule(max_iter, max_dist, escape_radius, confine),
+                                RayArgs(seg_mult, fuzz, emission, obstacles), raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
         compute_points(pts, npts, raw, kinds, sp)
         for s in range(N_STATS):

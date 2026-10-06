@@ -24,12 +24,11 @@ n = 16
 stats = np.zeros((n, n, m.N_STATS), np.float32)
 points = np.zeros((n, n, m.N_POINTS, 2), np.float32)
 status = np.zeros((n, n), np.uint8)
-fuzz = m.fuzz_rule(m.DEFAULT_FUZZ)
+stop = m.natural_stop_rule(16, m.effective_dist(0.0), m.DEFAULT_ESCAPE_RADIUS, m.CONFINE_DEFAULT)
+ray = m.ray_args(1.0, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, arrays)
 first_call = time.perf_counter()
-m.render_rows_wh(stats, points, status, 0, n, n, n, 16, m.effective_dist(0.0), 1.0, fuzz,
-                 m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, 0)
+m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
 counts = np.zeros((n, n))
-m.scatter_multi_buddha(0, n, 16, m.effective_dist(0.0), 1.0, fuzz, m.CONFINE_DEFAULT,
-                       m.EMISSION_DEFAULT, arrays, 0, False, True, False, False, counts)
+m.scatter_multi_buddha(0, n, stop, ray, 0, False, True, False, False, counts)
 done = time.perf_counter()
 print(f"import {imported - started:.1f}s | first kernel calls {done - first_call:.1f}s")

@@ -230,8 +230,10 @@ def test_select_view_invalidates_the_incoming_views_stale_cache():
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     app.points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
-    app.gen_fuzz = m.fuzz_rule(m.DEFAULT_FUZZ)
+    app.gen_stop = m.NATURAL_STOP_DEFAULT
+    app.gen_ray = _ray(m.build_obstacle_arrays([]))
     app.generated_settings = None                     # the placeholder image: default settings
+    app.generated_natural_stop = None
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
@@ -318,40 +320,40 @@ def _every_kind_of_obstacle():
 
 
 def test_figure_info_lines_shows_limits_and_segment_length_always():
-    lines = m.figure_info_lines(_settings(max_iter=42, max_dist=5.0, seg_mult=0.5),
+    lines = m.figure_info_lines(*_generation(max_iter=42, max_dist=5.0, seg_mult=0.5),
                                 _start_scene())
     assert "Iter limit:42" in lines
     assert "Dist limit:5.00" in lines
     assert "Segment:x0.50" in lines
-    assert "Segment:x1.00" in m.figure_info_lines(_settings(), _start_scene()), \
+    assert "Segment:x1.00" in m.figure_info_lines(*_generation(), _start_scene()), \
         "shown even at the default, so the layout never depends on the values"
 
 
 def test_figure_info_lines_shows_none_for_unlimited_distance():
-    assert "Dist limit:none" in m.figure_info_lines(_settings(max_dist=0.0), _start_scene())
+    assert "Dist limit:none" in m.figure_info_lines(*_generation(max_dist=0.0), _start_scene())
 
 
 def test_figure_info_lines_shows_fuzz_details_when_enabled_and_just_off_otherwise():
-    off = m.figure_info_lines(_settings(), _start_scene())
+    off = m.figure_info_lines(*_generation(), _start_scene())
     assert "Fuzz:Off" in off and not any("Seed" in l for l in off)
     fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=5.0, seed=12345)
-    on = m.figure_info_lines(_settings(fuzz=fuzz), _start_scene())
+    on = m.figure_info_lines(*_generation(fuzz=fuzz), _start_scene())
     assert "Fuzz:On" in on
     assert any("Emit" in l and "5.0" in l for l in on)
     assert "  Seed 12345" in on
 
 
 def test_figure_info_lines_no_longer_describes_a_bounding_shape():
-    lines = m.figure_info_lines(_settings(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _start_scene())
     assert not any("Shape" in l for l in lines)
 
 
 def test_figure_info_lines_says_so_when_there_are_no_obstacles():
-    assert "no obstacles" in m.figure_info_lines(_settings(), [])
+    assert "no obstacles" in m.figure_info_lines(*_generation(), [])
 
 
 def test_figure_info_lines_lists_every_setting_of_the_starting_obstacle():
-    lines = m.figure_info_lines(_settings(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _start_scene())
     assert "Obstacle #1: Ellipse" in lines
     for expected in ("  w2.00 h2.00", "  rot 0.0\u00b0", "  pos r0.00 \u03b80.0\u00b0",
                      "  offset +0.00 +0.00", "  in:Reflect", "  out:Reflect", "  fire:On"):
@@ -397,8 +399,8 @@ def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
                                    bnd_offset=-179.9, bnd_jitter=179.9, bnd_mult=2.99,
                                    self_offset=-179.9, self_jitter=179.9, self_mult=2.99,
                                    seed=999999999)
-    settings = _settings(max_iter=9999, max_dist=9999.0, seg_mult=0.01, fuzz=fuzz)
-    for line in m.figure_info_lines(settings, scene):
+    settings = _generation(max_iter=9999, max_dist=9999.0, seg_mult=0.01, fuzz=fuzz)
+    for line in m.figure_info_lines(*settings, scene):
         assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
         missing = [c for c in line if c not in m.FONT_5X7]
         assert not missing, (line, missing)
@@ -414,9 +416,9 @@ def test_figure_info_layout_depends_only_on_how_many_obstacles_there_are():
         o.rotation, o.r, o.theta, o.fire_inside = 5.0, 0.0, 12.5, not o.fire_inside
     fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
     shapes = []
-    for settings, scene in [(_settings(), scene_a), (_settings(max_dist=3.0, seg_mult=0.5,
+    for settings, scene in [(_generation(), scene_a), (_generation(max_dist=3.0, seg_mult=0.5,
                             fuzz=fuzz_on), scene_b)]:
-        shapes.append([len(block) for block in m.figure_info_blocks(settings, scene)])
+        shapes.append([len(block) for block in m.figure_info_blocks(*settings, scene)])
     assert shapes[0] == shapes[1]
 
 
@@ -431,7 +433,7 @@ def test_layout_info_columns_keeps_blocks_together_and_splits_only_oversized_one
 
 def test_left_margin_is_half_the_image_width_for_an_ordinary_scene():
     img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out = m.add_left_figure_margin(img, _settings(), _start_scene())
+    out = m.add_left_figure_margin(img, *_generation(), _start_scene())
     assert out.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
     assert np.array_equal(out[:, m.SIZE // 2:], img), "the image itself is untouched"
     assert (out[:, :m.SIZE // 2] != m.COLORATION_INFO_BG).any(), "and the text is drawn"
@@ -444,7 +446,7 @@ def test_left_margin_grows_extra_columns_when_the_settings_need_the_room():
         o = m.default_starting_obstacle(i)
         o.r = 0.1 * i
         scene.append(o)
-    out = m.add_left_figure_margin(img, _settings(), scene)
+    out = m.add_left_figure_margin(img, *_generation(), scene)
     margin_w = out.shape[1] - m.SIZE
     assert margin_w > m.SIZE // 2
     assert margin_w % 2 == 0, "video encoders want even widths"
@@ -460,8 +462,8 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
     for o in moved:
         o.r, o.rotation = 0.25, 5.0
     fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
-    a = m.add_left_figure_margin(img, _settings(), scene)
-    b = m.add_left_figure_margin(img, _settings(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
+    a = m.add_left_figure_margin(img, *_generation(), scene)
+    b = m.add_left_figure_margin(img, *_generation(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
                                  moved)
     assert a.shape == b.shape
     assert not np.array_equal(a, b), "but they do show the different values"
@@ -470,7 +472,7 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
 def test_add_left_figure_margin_does_not_mutate_input():
     img = np.full((40, 60, 3), 33, dtype=np.uint8)
     original = img.copy()
-    m.add_left_figure_margin(img, m.DEFAULT_RAY_SETTINGS, _start_scene())
+    m.add_left_figure_margin(img, m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS, _start_scene())
     assert np.array_equal(img, original)
 
 
@@ -479,9 +481,9 @@ def test_add_left_figure_margin_does_not_crash_for_any_setting_combination():
     for fuzz_on in (False, True):
         for seg_mult in (1.0, 0.5):
             for scene in ([], _start_scene(), _every_kind_of_obstacle()):
-                settings = _settings(seg_mult=seg_mult,
-                                     fuzz=m.DEFAULT_FUZZ.replace(enabled=fuzz_on))
-                m.add_left_figure_margin(img, settings, scene)   # must not raise
+                settings = _generation(seg_mult=seg_mult,
+                                       fuzz=m.DEFAULT_FUZZ.replace(enabled=fuzz_on))
+                m.add_left_figure_margin(img, *settings, scene)   # must not raise
 
 
 def test_export_designer_calls_them_figure_settings_not_simulation_info():
@@ -530,9 +532,9 @@ def test_left_margin_of_a_video_frame_shows_that_frames_animated_values():
     snaps = [o.snapshot()]
     kfs = [m.Keyframe(0, 0, {"obst:1:theta": 0.0}),
            m.Keyframe(1, 10, {"obst:1:theta": 90.0})]
-    settings = _settings()
-    text0 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 0))
-    text5 = m.figure_info_lines(settings, m.resolve_obstacles(snaps, kfs, 5))
+    settings = _generation()
+    text0 = m.figure_info_lines(*settings, m.resolve_obstacles(snaps, kfs, 0))
+    text5 = m.figure_info_lines(*settings, m.resolve_obstacles(snaps, kfs, 5))
     assert "  pos r0.00 \u03b80.0\u00b0" in text0
     assert "  pos r0.00 \u03b845.0\u00b0" in text5
 
@@ -572,6 +574,7 @@ def test_export_writes_the_current_image_into_the_export_dir():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     written = []
     app._write = lambda path: written.append(path)
     app.save = m.App.save.__get__(app)
@@ -599,6 +602,7 @@ def test_export_as_dialog_opens_in_the_export_dir():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app._write = lambda path: None
     app.save_as = m.App.save_as.__get__(app)
     seen = {}
@@ -661,11 +665,13 @@ def _fake_button_gating_app():
         pass
     app = FakeApp()
     app.ready = True
-    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.generated_settings = None
+    app.generated_natural_stop = None
     app.gen_obstacles_sig = None
     app.obstacles = []
     app.baseline = m.DEFAULT_RAY_SETTINGS
+    app.baseline_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.running = False
     app.rows_done = 0
     app.start_btn = _RecordingButton()
@@ -689,12 +695,21 @@ def test_start_and_revert_follow_the_ray_settings_and_never_look_at_the_buddha_b
     app = _fake_button_gating_app()
     assert not hasattr(app, "current_blur_settings")
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.gen_obstacles_sig = m.obstacles_signature([])
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, False)      # nothing changed
-    app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS.replace(max_iter=99)
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS.replace(seg_mult=0.5),
+                                               m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)        # a ray setting changed
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS,
+                                               m.DEFAULT_NATURAL_STOP_SETTINGS.replace(max_iter=99))
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)        # so did a stopping limit
+    app.current_generation_settings = lambda: None
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, True)       # an entry is invalid
 
 
 def test_export_disabled_before_any_generation():
@@ -706,6 +721,7 @@ def test_export_disabled_before_any_generation():
 def test_export_enabled_after_generation_finishes():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.rows_done = m.SIZE
     app.running = False
     app.update_buttons()
@@ -715,6 +731,7 @@ def test_export_enabled_after_generation_finishes():
 def test_export_disabled_while_still_generating():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
+    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.rows_done = m.SIZE // 2
     app.running = True
     app.update_buttons()

@@ -322,6 +322,7 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.deco = {"outline": _StubVar(True)}
     app.views = [m.ViewConfig(0)]
@@ -551,16 +552,18 @@ def test_the_old_bounding_shape_system_is_gone():
 
 def test_snapshot_and_settings_hold_only_the_simulation_controls():
     assert [f.name for f in dataclasses.fields(m.RaySettings)] == [
-        "max_iter", "max_dist", "seg_mult", "fuzz",
-        "confine_window", "confine_method", "confine_threshold",
+        "seg_mult", "fuzz",
         "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy",
         "emit_offset"]
+    assert [f.name for f in dataclasses.fields(m.NaturalStopSettings)] == [
+        "max_iter", "max_dist", "escape_radius",
+        "confine_window", "confine_method", "confine_threshold"]
     assert [f.name for f in dataclasses.fields(m.BuddhaBlurSettings)] == ["radius", "type"]
 
 
 def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
     keys = {k for k, _tab, _label in m.SETTING_INFO}
-    assert keys == {"iter", "dist", "seg_mult", "fuzz_on", "emit_jitter",
+    assert keys == {"iter", "dist", "escape_radius", "seg_mult", "fuzz_on", "emit_jitter",
                     "bnd_offset", "bnd_jitter", "bnd_mult", "self_offset", "self_jitter",
                     "self_mult", "seed", "buddha_blur_radius", "buddha_blur_type", "outline",
                     "confine_window", "confine_method", "confine_threshold",
@@ -579,11 +582,11 @@ def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():
 
 
 def test_settings_suffix_is_only_the_limits_and_fuzzing():
-    assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS) == "iter256-distNONE"
-    limited = _settings(max_iter=10, max_dist=2.5)
-    assert m.settings_suffix(limited) == "iter10-dist2.5"
-    fuzzed = _settings(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, seed=9))
-    suffix = m.settings_suffix(fuzzed)
+    assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS) == "iter256-distNONE"
+    limited = _generation(max_iter=10, max_dist=2.5)
+    assert m.settings_suffix(*limited) == "iter10-dist2.5"
+    fuzzed = _generation(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, seed=9))
+    suffix = m.settings_suffix(*fuzzed)
     assert suffix.startswith("iter64-distNONE-fuzz-") and suffix.endswith("-seed9")
     for word in ("ellipse", "polygon", "moss", "sector", "segment", "lens", "reuleaux",
                  "capsule"):
@@ -746,9 +749,7 @@ def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_e
             x, y = rng.uniform(-1, 1, 2)
             if not m.inside_boundary(x, y, cls.KIND, bound):
                 continue
-            term, npts = m.trace_path(x, y, pts, kinds, 30, m.effective_dist(0.0), 1.0,
-                                      m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT,
-                                      m.EMISSION_DEFAULT, arrays, raw)
+            term, npts = m.trace_path(x, y, pts, kinds, _stop(30), _ray(arrays), raw)
             for k in range(1, npts):
                 if kinds[k] != m.KIND_BOUNDARY:                # (a bounce off the ray's own path
                     continue                                   # is not on the shape's edge)

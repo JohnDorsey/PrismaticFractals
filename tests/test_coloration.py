@@ -52,11 +52,8 @@ def test_colorize_view_produces_uniform_color_for_two_constant_points():
     v.point1_choice[0] = m.POINT_ORIGIN
     v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
-    mini_settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
-    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
-    obst_arrays = m.build_obstacle_arrays([])
     img = app.colorize_view(_view_settings_from_config(v), stats, points, status, 4, 4,
-                            m.DEFAULT_BUDDHA_BLUR, mini_settings, fz, obst_arrays)
+                            m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == img[0, 0, 0]).all()
     assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
 
@@ -143,11 +140,8 @@ def test_colorize_view_renders_constant_channels_correctly():
     v.constant_choice[0] = m.NONE_ONE
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ZERO
-    mini_settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
-    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
-    obst_arrays = m.build_obstacle_arrays([])
     img = app.colorize_view(_view_settings_from_config(v), stats, points, status, 4, 4,
-                            m.DEFAULT_BUDDHA_BLUR, mini_settings, fz, obst_arrays)
+                            m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == 255).all()
     assert (img[..., 1] == 0).all()
 
@@ -386,16 +380,14 @@ def test_colorize_view_spreads_a_buddha_point_with_blur_enabled():
     # index 0 in BUDDHA_POINT_CATALOG is "All bounces mean" -> POINT_ALL_MEAN
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
 
-    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
-    obst_arrays = m.build_obstacle_arrays([])
+    stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
 
-    settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
     no_blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    img_no_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, no_blur, settings, fz, obst_arrays)
+    img_no_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, no_blur, stop, ray, 0)
     lit_no_blur = (img_no_blur[8:13, 8:13, 0] > 0).sum()
 
     blur = m.BuddhaBlurSettings(radius=0.1, type=m.BUDDHA_BLUR_BOKEH)
-    img_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, blur, settings, fz, obst_arrays)
+    img_blur = app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, blur, stop, ray, 0)
     lit_blur = (img_blur[8:13, 8:13, 0] > 0).sum()
 
     assert lit_no_blur == 1, f"with no blur, exactly one pixel should be nonzero, got {lit_no_blur}"
@@ -537,12 +529,10 @@ def test_large_blur_radius_completes_quickly():
     v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
-    fz = m.fuzz_rule(m.DEFAULT_FUZZ)
-    obst_arrays = m.build_obstacle_arrays([])
-    settings = _settings(max_iter=30, max_dist=m.effective_dist(0.0))
+    stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
     blur = m.BuddhaBlurSettings(radius=0.15, type=m.BUDDHA_BLUR_GAUSSIAN)     # a large, expensive-looking radius
     t0 = time.time()
-    app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, blur, settings, fz, obst_arrays)
+    app.colorize_view(_view_settings_from_config(v), stats, points, status, size, size, blur, stop, ray, 0)
     elapsed = time.time() - t0
     assert elapsed < 3.0, f"large-radius blur took {elapsed:.2f}s - performance regression?"
 

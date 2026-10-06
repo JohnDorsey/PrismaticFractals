@@ -13,7 +13,7 @@ from .kernels import (
     trace_path
 )
 from .metrics import POINT_STATS, resolve_point_xy
-from .settings import RaySettings, effective_dist, fuzz_rule, settings_confine, settings_emission
+from .settings import NaturalStopSettings, RaySettings, settings_natural_stop, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .views import MODES
 
@@ -36,7 +36,7 @@ class PreviewMixin:
         the frozen set if an image has been generated (matching what was actually
         simulated/saved), else the live (current) set."""
         if self.generated_settings is not None:
-            g = self.gen_obstacles
+            g = self.gen_ray.obstacles
             return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
                                  cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
                                  out_effect=int(g.effects[i, 1]))
@@ -94,18 +94,24 @@ class PreviewMixin:
         current entries/controls (last valid values) if nothing has been started."""
         if self.generated_settings is not None:
             return self.generated_settings
-        return RaySettings(max_iter=self.last_iter, max_dist=self.last_dist,
-                        seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
-                        confine_window=self.last_confine_window,
-                        confine_method=CONFINE_METHOD_NAMES.index(
-                            self.confine_method_var.get()),
-                        confine_threshold=self.last_confine_threshold,
+        return RaySettings(seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
                         emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
                         emit_target_r=self.last_emit_target_r,
                         emit_target_theta=self.last_emit_target_theta,
                         emit_target_cx=self.last_emit_target_cx,
                         emit_target_cy=self.last_emit_target_cy,
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
+
+    def preview_natural_stop_settings(self):
+        """The natural stopping settings for previews, chosen the same way as preview_settings():
+        those of the image being generated, or the controls' last valid values."""
+        if self.generated_natural_stop is not None:
+            return self.generated_natural_stop
+        return NaturalStopSettings(
+            max_iter=self.last_iter, max_dist=self.last_dist, escape_radius=self.last_escape_radius,
+            confine_window=self.last_confine_window,
+            confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
+            confine_threshold=self.last_confine_threshold)
 
     def invalidate_preview(self):
         """Called whenever a control that feeds preview_settings() changes,
@@ -163,15 +169,14 @@ class PreviewMixin:
             return
 
         self.hover_px = (i, j)
-        iters, dist = ps.max_iter, effective_dist(ps.max_dist)
-        fz = fuzz_rule(ps.fuzz)
+        pn = self.preview_natural_stop_settings()
         if ps.fuzz.enabled:
             np.random.seed(ps.fuzz.seed + i * 1000003 + j * 97)
         pts, kinds = self.hover_pts, self.hover_kinds
         raw, vec, sp = self.hover_raw, self.hover_vec, self.hover_sp
-        term, n = trace_path(x, y, pts, kinds, iters, dist, ps.seg_mult, fz, settings_confine(ps),
-                             settings_emission(ps), obstacles, raw)
-        compute_stats(pts, n, raw, iters, ps.seg_mult, vec)
+        term, n = trace_path(x, y, pts, kinds, settings_natural_stop(pn),
+                             settings_ray_args(ps, obstacles), raw)
+        compute_stats(pts, n, raw, pn.max_iter, ps.seg_mult, vec)
         compute_points(pts, n, raw, kinds, sp)
         vals = self.component_values(vec, sp, x, y)
         self.draw_segments(pts, kinds, n)

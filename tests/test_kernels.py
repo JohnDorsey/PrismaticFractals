@@ -18,8 +18,8 @@ def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(0.0), seg_mult,
-                              fz, m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, raw)
+    term, npts = m.trace_path(x0, y0, pts, kinds, _stop(max_iter),
+                              m.ray_args(seg_mult, fz, m.EMISSION_DEFAULT, arrays), raw)
     return pts[:npts], kinds[:npts], term, raw, bound
 
 
@@ -130,7 +130,7 @@ def test_obstacle_with_fire_on_can_fire_outside_the_circle():
 
 
 def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, max_dist=0.0,
-                  seg_mult=1.0, confine=None):
+                  seg_mult=1.0, confine=None, escape_radius=None):
     """One ray through the real trace_path, heading `angle_deg` (fuzzing is
     switched on with all jitter zero purely to set the direction, and is
     otherwise the identity). `circle` is (incoming effect, outgoing effect[,
@@ -138,6 +138,7 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     None for no circle. `confine` is a confine_rule (default: the standard rule).
     Returns (points, kinds, term, raw)."""
     confine = m.CONFINE_DEFAULT if confine is None else confine
+    escape_radius = m.DEFAULT_ESCAPE_RADIUS if escape_radius is None else escape_radius
     scene = list(obstacles)
     if circle is not None:
         fire = circle[2] if len(circle) > 2 else True
@@ -148,8 +149,8 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, pts, kinds, max_iter, m.effective_dist(max_dist), seg_mult,
-                              fz, confine, emission, arrays, raw)
+    term, npts = m.trace_path(x0, y0, pts, kinds, _stop(max_iter, max_dist, escape_radius, confine),
+                              m.ray_args(seg_mult, fz, emission, arrays), raw)
     return pts[:npts].copy(), kinds[:npts].copy(), term, raw
 
 
@@ -206,12 +207,37 @@ def test_outgoing_pass_through_lets_a_ray_fired_inside_carry_on_to_the_bounding_
     assert np.isclose(np.hypot(*pts[1]), 1.0), "first bounce is on the bounding shape"
 
 
-def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_image_edge():
+def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_escape_radius():
     pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert len(pts) == 2 and int(raw[m.RAW_BOUNCES]) == 0
-    assert np.allclose(pts[-1], (1.0, -0.5)), "ends where it leaves the [-1, 1] square"
+    assert np.allclose(pts[-1], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5)), \
+        "ends where it is the escape radius from the origin"
     assert kinds[-1] == m.KIND_ESCAPED
+
+
+def test_the_escape_radius_decides_where_an_escaping_ray_ends():
+    for radius in (1.5, 3.0, 40.0):
+        pts, _kinds, term, _raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P), escape_radius=radius)
+        assert term == m.TERM_ESCAPED
+        want_x = np.sqrt(radius ** 2 - 0.25)
+        assert np.allclose(pts[-1], (want_x, -0.5)), radius
+        assert np.isclose(np.hypot(*pts[-1]), radius)
+
+
+def test_an_escaping_ray_never_ends_before_the_last_edge_it_passed_through():
+    """The unit circle passes the ray out at x = 0.866, further out than a 0.8 escape radius."""
+    pts, _kinds, term, _raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P), escape_radius=0.8)
+    assert term == m.TERM_ESCAPED and np.allclose(pts[-1], (np.sqrt(0.75), -0.5))
+
+
+def test_a_ray_that_starts_at_or_beyond_the_escape_radius_ends_at_its_last_edge():
+    far = _circle_obstacle(1.3, 0.3, 0.2, R, P, fire=True)
+    pts, _kinds, term, _raw = _kernel_trace(1.3, 0.3, 0.0, [far], circle=None, escape_radius=1.0)
+    assert term == m.TERM_ESCAPED
+    assert np.allclose(pts[-1], (1.5, 0.3)), "it ends at the last edge it passed through (its own)"
+    pts, _kinds, term, _raw = _kernel_trace(1.3, 0.3, 0.0, [far], circle=None, escape_radius=5.0)
+    assert np.allclose(pts[-1], (np.sqrt(25.0 - 0.09), 0.3)), "...unless the radius is further out"
 
 
 def test_a_ray_escapes_after_bouncing_when_it_finally_meets_nothing():
@@ -220,7 +246,7 @@ def test_a_ray_escapes_after_bouncing_when_it_finally_meets_nothing():
     pts, _k, term, raw = _kernel_trace(-0.9, 0.2, 0.0, [wall], circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert int(raw[m.RAW_BOUNCES]) == 1
-    assert abs(pts[-1, 0]) == 1.0 or abs(pts[-1, 1]) == 1.0
+    assert np.isclose(np.hypot(*pts[-1]), m.DEFAULT_ESCAPE_RADIUS)
 
 
 def test_an_obstacle_outside_the_bounding_shape_can_fire_rays_that_meet_it_from_outside():
@@ -237,11 +263,12 @@ def test_a_ray_can_pass_into_the_bounding_shape_from_outside_and_cross_it():
     assert np.allclose(pts[1], (-np.sqrt(1.0 - 0.09), 0.3)), "reflects off the FAR inner wall"
 
 
-def test_a_distance_limit_cuts_an_escaping_ray_before_the_image_edge():
+def test_a_distance_limit_cuts_an_escaping_ray_before_the_escape_radius():
     pts, kinds, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P), max_dist=0.4)
     assert term == m.TERM_DIST
     assert np.allclose(pts[-1], (0.4, -0.5))
-    assert np.isclose(raw[m.RAW_LAST_FULL], 1.0), "the uncut segment reached the image edge"
+    assert np.isclose(raw[m.RAW_LAST_FULL], np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25)), \
+        "the uncut segment reached the escape radius"
 
 
 def test_the_segment_multiplier_treats_pass_through_crossings_as_part_of_one_segment():
@@ -286,7 +313,8 @@ def test_stats_and_points_are_sane_for_an_escaped_ray():
     m.compute_points(pts, len(pts), raw, kinds, sp)
     assert out[m.ST_TERMINATION] == 1.0
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
-    assert np.allclose(sp[m.POINT_END], (1.0, -0.5)) and np.allclose(sp[m.POINT_START], (0.0, -0.5))
+    assert np.allclose(sp[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
+    assert np.allclose(sp[m.POINT_START], (0.0, -0.5))
     assert out[m.ST_BOUNCES] == 0.0
 
 
@@ -312,8 +340,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
-    m.render_rows(stats, points, status, 0, m.SIZE, 8, m.effective_dist(0.0), 1.0,
-                  m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, 0)
+    m.render_rows(stats, points, status, 0, m.SIZE, _stop(8), _ray(arrays), 0)
     ys, xs = np.nonzero(status)
     wx = (xs + 0.5) * m.PIXEL - 1.0
     wy = 1.0 - (ys + 0.5) * m.PIXEL
@@ -328,15 +355,19 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
 def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.SIZE, m.SIZE))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
-    m.scatter_multi_buddha(250, 252, 8, m.effective_dist(0.0), 1.0,
-                           m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT,
-                           m.build_obstacle_arrays([circle]), 0, False, True, False, False,
-                           counts)
+    m.scatter_multi_buddha(250, 252, _stop(8), _ray(m.build_obstacle_arrays([circle])), 0,
+                           False, True, False, False, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
-    # the image edge) with exactly one midpoint: the total is the firing pixels.
+    # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
     xs = (np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0
     gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * m.PIXEL)
-    assert counts.sum() == int((np.hypot(gx, gy) < 1.0).sum())
+    firing = np.hypot(gx, gy) < 1.0
+    dx = dy = np.sqrt(0.5)                                    # the default emission direction
+    b = gx * dx + gy * dy
+    end = -b + np.sqrt(b * b - (gx * gx + gy * gy - m.DEFAULT_ESCAPE_RADIUS ** 2))
+    mx, my = gx + 0.5 * end * dx, gy + 0.5 * end * dy
+    in_image = (np.abs(mx) < 1.0) & (np.abs(my) < 1.0)
+    assert counts.sum() == int((firing & in_image).sum()) and counts.sum() > 100
 
 
 def test_obstacle_effect_dropdowns_write_both_effects_to_the_selected_obstacle():
@@ -500,9 +531,9 @@ def _render_scene(scene, n):
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
     arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
-    m.render_rows_wh(stats, points, status, 0, n, n, n, scene["iters"],
-                     m.effective_dist(scene.get("dist", 0.0)), scene.get("seg_mult", 1.0),
-                     m.fuzz_rule(fuzz), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, fuzz.seed)
+    m.render_rows_wh(stats, points, status, 0, n, n, n,
+                     _stop(scene["iters"], scene.get("dist", 0.0)),
+                     _ray(arrays, scene.get("seg_mult", 1.0), fuzz), fuzz.seed)
     return stats, points, status
 
 
@@ -540,7 +571,7 @@ def test_the_default_confinement_rule_is_the_one_that_was_built_in():
     assert m.DEFAULT_CONFINE_THRESHOLD == m.PIXEL == 2.0 / 512
     assert m.CONFINE_METHOD_NAMES == ["Box", "Path length"]
     assert m.CONFINE_DEFAULT == m.ConfineRule(window=4, method=0, threshold=2.0 / 512)
-    s = m.DEFAULT_RAY_SETTINGS
+    s = m.DEFAULT_NATURAL_STOP_SETTINGS
     assert (s.confine_window, s.confine_method, s.confine_threshold) == (4, BOX, 2.0 / 512)
     assert m.settings_confine(s) == m.CONFINE_DEFAULT
 
@@ -684,7 +715,7 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert data["confine_window"] == 9 and data["confine_method"] == PATH
     assert data["confine_threshold"] == 1e-12
-    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).ray
+    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).natural_stop
     assert (resolved.confine_window, resolved.confine_method, resolved.confine_threshold) \
         == (9, PATH, 1e-12)
 
@@ -694,10 +725,10 @@ def test_confinement_threshold_interpolates_but_window_and_method_hold():
                             "confine_threshold": 0.0})
     kf1 = m.Keyframe(1, 10, {"confine_window": 20, "confine_method": PATH,
                              "confine_threshold": 1.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).ray
+    mid = m.resolve_frame_settings([kf0, kf1], 5).natural_stop
     assert mid.confine_window == 4 and mid.confine_method == BOX
     assert np.isclose(mid.confine_threshold, 0.5)
-    end = m.resolve_frame_settings([kf0, kf1], 10).ray
+    end = m.resolve_frame_settings([kf0, kf1], 10).natural_stop
     assert end.confine_window == 20 and end.confine_method == PATH
 
 
@@ -709,10 +740,10 @@ def test_short_value_text_for_the_confinement_settings():
 
 
 def test_a_changed_confinement_rule_makes_the_settings_differ():
-    a = m.DEFAULT_RAY_SETTINGS
+    a = m.DEFAULT_NATURAL_STOP_SETTINGS
     for change in (dict(confine_window=5), dict(confine_method=PATH),
                    dict(confine_threshold=0.5)):
-        assert m.DEFAULT_RAY_SETTINGS.replace(**change) != a
+        assert m.DEFAULT_NATURAL_STOP_SETTINGS.replace(**change) != a
 
 
 # ---- the entry handlers ---------------------------------------------------------------------
@@ -723,6 +754,7 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
     app.on_limit_var_changed = m.App.on_limit_var_changed.__get__(app)
     app.on_limit_commit = m.App.on_limit_commit.__get__(app)
     app.iter_var, app.dist_var = _StubVar("256"), _StubVar("0")
+    app.escape_radius_var, app.last_escape_radius = _StubVar("2.0"), 2.0
     app.confine_window_var = _StubVar(window)
     app.confine_method_var = _StubVar(method)
     app.confine_threshold_var = _StubVar(threshold)
@@ -741,6 +773,7 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
         def configure(self, style=None, **_k):
             app.styles[self.name] = style
     app.iter_entry, app.dist_entry = Entry("iter"), Entry("dist")
+    app.escape_radius_entry = Entry("escape_radius")
     app.confine_window_entry, app.confine_threshold_entry = Entry("window"), Entry("threshold")
     for field in m.EMIT_TARGET_FIELDS:
         setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
@@ -787,19 +820,21 @@ def test_committing_tidies_a_valid_threshold_without_changing_its_value():
     assert float(app.confine_threshold_var.get()) == 0.004
 
 
-def test_current_ray_settings_is_none_while_a_confinement_entry_is_invalid():
+def test_the_natural_stop_settings_are_none_while_a_confinement_entry_is_invalid():
     for field, bad in (("confine_window_var", "1"), ("confine_threshold_var", "0")):
         app = _make_fake_app_for_snapshot()
         setattr(app, field, _StubVar(bad))
-        assert app.current_ray_settings() is None, field
+        assert app.current_natural_stop_settings() is None, field
+        assert app.current_generation_settings() is None, field
+        assert app.current_ray_settings() is not None, "the ray engine's own settings are unaffected"
 
 
-def test_current_ray_settings_reads_the_confinement_controls():
+def test_the_natural_stop_settings_read_the_confinement_controls():
     app = _make_fake_app_for_snapshot()
     app.confine_window_var = _StubVar("7")
     app.confine_method_var = _StubVar("Path length")
     app.confine_threshold_var = _StubVar("2.5e-9")
-    snap = app.current_ray_settings()
+    snap = app.current_natural_stop_settings()
     assert (snap.confine_window, snap.confine_method, snap.confine_threshold) == (7, PATH, 2.5e-9)
 
 
@@ -829,10 +864,10 @@ def test_the_simulation_tab_has_a_confinement_section_with_all_three_controls():
 
 # ---- the figure settings margin ------------------------------------------------------------
 def test_figure_info_lists_the_confinement_rule():
-    lines = m.figure_info_lines(_settings(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _start_scene())
     assert "Confine:Box" in lines and "  window 4" in lines
     assert "  box size 0.00390625" in lines
-    lines = m.figure_info_lines(_settings(confine_window=9, confine_method=PATH,
+    lines = m.figure_info_lines(*_generation(confine_window=9, confine_method=PATH,
                                           confine_threshold=1.5e-9), _start_scene())
     assert "Confine:Path length" in lines and "  window 9" in lines
     assert "  path length 1.5e-09" in lines
@@ -841,7 +876,7 @@ def test_figure_info_lists_the_confinement_rule():
 def test_confinement_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
     for method in (BOX, PATH):
         for threshold in (5e-324, 1.7976931348623157e308, 0.1234567891234):
-            lines = m.figure_info_lines(_settings(confine_window=999, confine_method=method,
+            lines = m.figure_info_lines(*_generation(confine_window=999, confine_method=method,
                                                   confine_threshold=threshold), _start_scene())
             for line in lines:
                 assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
@@ -849,8 +884,8 @@ def test_confinement_lines_fit_a_column_for_extreme_values_and_use_known_glyphs(
 
 
 def test_the_confinement_block_has_the_same_size_whatever_its_values():
-    a = m.figure_info_blocks(_settings(), _start_scene())
-    b = m.figure_info_blocks(_settings(confine_window=500, confine_method=PATH,
+    a = m.figure_info_blocks(*_generation(), _start_scene())
+    b = m.figure_info_blocks(*_generation(confine_window=500, confine_method=PATH,
                                        confine_threshold=1e-300), _start_scene())
     assert [len(x) for x in a] == [len(x) for x in b]
 
@@ -971,8 +1006,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
     up = _emission(UP, offset=0.0)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, 1, m.effective_dist(0.0), 1.0,
-                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, up, arrays, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(1), _ray(arrays, emission=up), 0)
     fired = status == 1
     xs = ((np.arange(n) + 0.5) * (2.0 / n) - 1.0)[None, :].repeat(n, axis=0)
     ys = (1.0 - (np.arange(n) + 0.5) * (2.0 / n))[:, None].repeat(n, axis=1)
@@ -981,8 +1015,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert np.allclose(ends[..., 0][fired], xs[fired], atol=1e-6), "straight up keeps x"
     assert (ends[..., 1][fired] > ys[fired]).all(), "and goes up"
     toward = _emission(TOWARDS, 0.0, 0.0, 0.0)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, 1, m.effective_dist(0.0), 1.0,
-                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, toward, arrays, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(1), _ray(arrays, emission=toward), 0)
     ends = points[..., m.POINT_END, :]
     fired = status == 1
     start_r = np.hypot(xs, ys)[fired]
@@ -1187,9 +1220,9 @@ def test_the_target_entries_are_only_enabled_when_firing_towards_a_point():
 
 # ---- the figure settings margin --------------------------------------------------------------
 def test_figure_info_lists_the_emission_direction():
-    lines = m.figure_info_lines(_settings(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _start_scene())
     assert "Emit:Up" in lines and "  angle offset -45.00\u00b0" in lines
-    lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_r=-0.5,
+    lines = m.figure_info_lines(*_generation(emit_mode=TOWARDS, emit_target_r=-0.5,
                                           emit_target_theta=30.0, emit_target_cx=1.25,
                                           emit_target_cy=-2.0, emit_offset=10.0),
                                 _start_scene())
@@ -1201,7 +1234,7 @@ def test_figure_info_lists_the_emission_direction():
 
 def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
     for big, small in ((-1.7976931348623157e308, 1.7976931348623157e308), (5e-324, -5e-324)):
-        lines = m.figure_info_lines(_settings(emit_mode=TOWARDS, emit_target_r=big,
+        lines = m.figure_info_lines(*_generation(emit_mode=TOWARDS, emit_target_r=big,
                                               emit_target_theta=small, emit_target_cx=big,
                                               emit_target_cy=small, emit_offset=-179.99),
                                     _start_scene())
@@ -1211,8 +1244,8 @@ def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
 
 
 def test_the_emission_block_has_the_same_size_whatever_its_values():
-    a = m.figure_info_blocks(_settings(), _start_scene())
-    b = m.figure_info_blocks(_settings(emit_mode=TOWARDS, emit_target_r=3.0,
+    a = m.figure_info_blocks(*_generation(), _start_scene())
+    b = m.figure_info_blocks(*_generation(emit_mode=TOWARDS, emit_target_r=3.0,
                                        emit_target_theta=-20.0, emit_target_cx=3.0,
                                        emit_target_cy=-2.0, emit_offset=120.0), _start_scene())
     assert [len(x) for x in a] == [len(x) for x in b]
@@ -1231,10 +1264,10 @@ def test_the_rule_builders_give_named_typed_fields():
     e = m.emission_rule(1, 2, 3, 4)
     assert e == m.EmissionRule(mode=1, target_x=2.0, target_y=3.0, offset=4.0)
     assert all(type(v) is float for v in (e.target_x, e.target_y, e.offset))
-    settings = _settings(emit_mode=m.EMIT_TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
-                         emit_offset=7.0, confine_window=6, confine_threshold=0.5)
-    assert m.settings_confine(settings) == m.ConfineRule(window=6, method=settings.confine_method,
-                                                         threshold=0.5)
+    settings, stop = _generation(emit_mode=m.EMIT_TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
+                                 emit_offset=7.0, confine_window=6, confine_threshold=0.5)
+    assert m.settings_confine(stop) == m.ConfineRule(window=6, method=stop.confine_method,
+                                                     threshold=0.5)
     rule = m.settings_emission(settings)
     assert (rule.mode, rule.offset) == (m.EMIT_TOWARDS, 7.0) and abs(rule.target_y - 2.0) < 1e-9
 
@@ -1266,8 +1299,7 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
     totals, densities = {}, {}
     for w in (64, 128, 256):
         counts = np.zeros((w, w))
-        m.scatter_multi_buddha(0, w, 40, m.effective_dist(0.0), 1.0, fz, m.CONFINE_DEFAULT,
-                               m.EMISSION_DEFAULT, arrays, 0, False, True, False, False, counts)
+        m.scatter_multi_buddha(0, w, _stop(40), _ray(arrays), 0, False, True, False, False, counts)
         gx, gy = m.make_grid(w, w)
         inside = int((np.hypot(gx, gy) < 1.0).sum())
         totals[w], densities[w] = counts.sum(), counts.sum() / inside
@@ -1360,8 +1392,7 @@ def _fired_from_the_pixel_grid(shape, n=24, max_iter=12):
     shape.in_effect = shape.out_effect = m.OBSTACLE_EFFECT_REFLECT
     shape.fire_inside = True
     arrays = m.build_obstacle_arrays([shape])
-    m.render_rows_wh(stats, points, status, 0, n, n, n, max_iter, m.effective_dist(0.0), 1.0,
-                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT, arrays, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(max_iter), _ray(arrays), 0)
     return stats, points, status
 
 
@@ -1468,9 +1499,99 @@ def test_rays_fired_inside_a_closed_sine_flower_never_escape_it():
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, 60, m.effective_dist(0.0), 1.0,
-                     m.fuzz_rule(m.DEFAULT_FUZZ), m.CONFINE_DEFAULT, m.EMISSION_DEFAULT,
-                     m.build_obstacle_arrays([o]), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(60), _ray(m.build_obstacle_arrays([o])), 0)
     fired = status > 0
     assert fired.sum() > 1000
     assert not (stats[:, :, m.ST_TERMINATION][fired] == m.TERM_STAT_VALUE[m.TERM_ESCAPED]).any()
+
+
+def test_an_invalid_escape_radius_is_flagged_and_the_last_good_value_restored_on_commit():
+    app = _fake_limits_app()
+    app.escape_radius_var.set("1.5e3")
+    app.on_limit_var_changed()
+    assert app.last_escape_radius == 1500.0 and app.styles["escape_radius"] == "TEntry"
+    for bad in ("0", "", "-1", "1e999", "abc"):
+        app.escape_radius_var.set(bad)
+        app.on_limit_var_changed()
+        assert app.styles["escape_radius"] == "Invalid.TEntry", bad
+        assert "Escape radius" in app.limit_msg_var.get()
+        assert app.last_escape_radius == 1500.0
+    app.on_limit_commit()
+    assert app.escape_radius_var.get() == "1500.0"
+
+
+# --------------------------------------------------------------------------- #
+# The natural stop rule and its shared checks: what any engine that makes sequences of points can use
+# --------------------------------------------------------------------------- #
+def test_is_confined_judges_the_last_window_of_the_points_by_box_or_by_path_length():
+    pts = np.array([[5.0, 5.0], [9.0, 9.0], [0.0, 0.0], [0.001, 0.0], [0.0, 0.001], [0.001, 0.001]])
+    box, path = m.ConfineRule(window=4, method=m.CONFINE_BOX, threshold=0.01), \
+        m.ConfineRule(window=4, method=m.CONFINE_PATH, threshold=0.01)
+    assert m.is_confined(pts, 6, box) and m.is_confined(pts, 6, path)        # the last four are within 0.001
+    assert not m.is_confined(pts, 5, box)                                    # [9,9] is in that window
+    assert not m.is_confined(pts, 3, box), "fewer points than the window: not confined"
+    assert m.is_confined(pts, 4, m.ConfineRule(window=2, method=m.CONFINE_BOX, threshold=1.0))
+    long_way_round = np.array([[0.0, 0.0], [0.4, 0.0], [0.0, 0.0], [0.4, 0.0]])
+    # a point that goes back and forth over 0.4 three times: a small box, but a long way round
+    assert m.is_confined(long_way_round, 4, m.ConfineRule(window=4, method=m.CONFINE_BOX, threshold=0.5))
+    assert not m.is_confined(long_way_round, 4, m.ConfineRule(window=4, method=m.CONFINE_BOX, threshold=0.3))
+    assert not m.is_confined(long_way_round, 4, m.ConfineRule(window=4, method=m.CONFINE_PATH, threshold=1.0))
+    assert m.is_confined(long_way_round, 4, m.ConfineRule(window=4, method=m.CONFINE_PATH, threshold=1.3))
+
+
+def test_beyond_escape_radius_is_at_or_past_the_radius():
+    assert m.beyond_escape_radius(2.0, 0.0, 2.0) and m.beyond_escape_radius(0.0, -3.0, 2.0)
+    assert m.beyond_escape_radius(1.5, 1.5, 2.0) and not m.beyond_escape_radius(1.0, 1.0, 2.0)
+    assert not m.beyond_escape_radius(0.0, 0.0, 1e-3) and m.beyond_escape_radius(0.0, 0.0, 0.0)
+
+
+_beyond_escape_radius = m.beyond_escape_radius
+_is_confined = m.is_confined
+_TERM_ESCAPED, _TERM_CONFINED, _TERM_ITER = m.TERM_ESCAPED, m.TERM_CONFINED, m.TERM_ITER
+
+
+@m.njit
+def _escape_time_orbit(c_re, c_im, pts, stop):
+    """A different kind of sequence engine, as small as can be - the orbit of 0 under z -> z^2 + c - that ends
+    by the shared NaturalStopRule and the shared checks alone. Returns (why it ended, number of points)."""
+    x = 0.0
+    y = 0.0
+    pts[0, 0] = x
+    pts[0, 1] = y
+    n = 1
+    for _ in range(stop.max_iter):
+        x, y = x * x - y * y + c_re, 2.0 * x * y + c_im
+        pts[n, 0] = x
+        pts[n, 1] = y
+        n += 1
+        if _beyond_escape_radius(x, y, stop.escape_radius):
+            return _TERM_ESCAPED, n
+        if _is_confined(pts, n, stop.confine):
+            return _TERM_CONFINED, n
+    return _TERM_ITER, n
+
+
+def test_another_engine_can_be_ended_by_the_same_natural_stop_rule_and_checks():
+    pts = np.empty((300, 2))
+    stop = _stop(256)
+    term, n = _escape_time_orbit(1.0, 0.0, pts, stop)                    # 0, 1, 2: out at the third point
+    assert (term, n) == (m.TERM_ESCAPED, 3) and np.allclose(pts[:3, 0], [0.0, 1.0, 2.0])
+    term, n = _escape_time_orbit(-0.1, 0.0, pts, stop)                   # settles on a fixed point
+    assert term == m.TERM_CONFINED and 4 < n < 100
+    term, n = _escape_time_orbit(-1.0, 0.0, pts, _stop(20))              # a cycle of 0 and -1: it never settles
+    assert (term, n) == (m.TERM_ITER, 21)
+    term, n = _escape_time_orbit(1.0, 0.0, pts, _stop(256, escape_radius=100.0))   # a larger radius: later
+    assert term == m.TERM_ESCAPED and n == 6 and pts[5, 0] == 677.0      # 0, 1, 2, 5, 26, 677
+    assert _escape_time_orbit(1.0, 0.0, pts, _stop(256, escape_radius=1.5))[1] == 3
+
+
+def test_the_ray_engine_still_ends_by_the_same_shared_checks_as_its_own_inline_ones_did():
+    """trace_path now asks is_confined where it used to judge the window inline: a confined ray ends by
+    TERM_CONFINED exactly when the shared check says its last window is confined."""
+    rule = m.confine_rule(4, m.CONFINE_BOX, 3.0)                 # wider than the unit circle: 4 points confine
+    pts, kinds, term, raw = _kernel_trace(0.1, 0.2, 30.0, [], circle=(R, R), max_iter=400, confine=rule)
+    assert term == m.TERM_CONFINED and len(pts) == 4
+    assert m.is_confined(pts, len(pts), rule) and not m.is_confined(pts, len(pts) - 1, rule)
+    path_rule = m.confine_rule(3, m.CONFINE_PATH, 2.5)           # two segments in the window, each under a diameter
+    pts, kinds, term, raw = _kernel_trace(0.1, 0.2, 30.0, [], circle=(R, R), max_iter=400, confine=path_rule)
+    assert m.is_confined(pts, len(pts), path_rule) == (term == m.TERM_CONFINED)

@@ -10,7 +10,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # --------------------------------------------------------------------------- #
 def test_the_default_iteration_limit_is_256():
     assert m.DEFAULT_ITER == 256
-    assert m.DEFAULT_RAY_SETTINGS.max_iter == 256
+    assert m.DEFAULT_NATURAL_STOP_SETTINGS.max_iter == 256
     assert m.DEFAULT_SETTING_VALUES["iter"] == 256
     assert m.ITER_LIMIT_MIN <= m.DEFAULT_ITER <= m.ITER_LIMIT_MAX
 
@@ -41,8 +41,10 @@ def test_strict_records_cannot_be_indexed_iterated_unpacked_or_changed():
     assert _raises(TypeError, lambda: list(s))
     assert _raises(TypeError, lambda: tuple(m.DEFAULT_FUZZ))
     assert _raises(TypeError, lambda: len(s))
-    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(s, "max_iter", 5))
-    assert _raises(AttributeError, lambda: s.max_itre)
+    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(s, "seg_mult", 5))
+    assert _raises(dataclasses.FrozenInstanceError,
+                   lambda: setattr(m.DEFAULT_NATURAL_STOP_SETTINGS, "max_iter", 5))
+    assert _raises(AttributeError, lambda: s.seg_mlt)
     # (Python 3.11 raises TypeError here, later versions AttributeError; both forbid it)
     assert _raises((AttributeError, TypeError, dataclasses.FrozenInstanceError),
                    lambda: setattr(s, "not_a_field", 1))
@@ -58,13 +60,16 @@ def test_strict_records_check_every_value_against_its_annotation():
     m.FuzzParams(**{**f, "bnd_mult": 2})                                          # an int is a fine float
     s = m.DEFAULT_RAY_SETTINGS.as_dict()
     assert _raises(TypeError, lambda: m.RaySettings(**{**s, "fuzz": (False, 0.0)}))
-    assert _raises(TypeError, lambda: m.KeyframeData(ray=m.DEFAULT_RAY_SETTINGS, buddha_blur=0.0,
-                                                     outline=True))
+    assert _raises(TypeError, lambda: m.KeyframeData(ray=m.DEFAULT_RAY_SETTINGS,
+                                                     natural_stop=m.DEFAULT_NATURAL_STOP_SETTINGS,
+                                                     buddha_blur=0.0, outline=True))
+    n = m.DEFAULT_NATURAL_STOP_SETTINGS.as_dict()
     try:
-        m.RaySettings(**{**s, "max_iter": "9"})
+        m.NaturalStopSettings(**{**n, "max_iter": "9"})
         raise AssertionError("expected TypeError")
     except TypeError as e:
-        assert "RaySettings.max_iter must be int, got str" in str(e)
+        assert "NaturalStopSettings.max_iter must be int, got str" in str(e)
+    assert _raises(TypeError, lambda: m.RaySettings(**{**s, "max_iter": 9}))      # (not a ray setting any more)
 
 
 def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
@@ -79,13 +84,20 @@ def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
 def test_replace_makes_a_modified_copy_and_equality_hash_and_pickle_work():
     import pickle
     a = m.DEFAULT_RAY_SETTINGS
-    b = a.replace(max_iter=7, fuzz=a.fuzz.replace(seed=3))
-    assert (b.max_iter, b.fuzz.seed, a.max_iter, a.fuzz.seed) == (7, 3, 256, 0)
+    b = a.replace(seg_mult=0.5, fuzz=a.fuzz.replace(seed=3))
+    assert (b.seg_mult, b.fuzz.seed, a.seg_mult, a.fuzz.seed) == (0.5, 3, 1.0, 0)
     assert b != a and a == a.replace() and hash(a) == hash(a.replace())
-    assert _raises(TypeError, lambda: a.replace(max_iter="x"))
+    assert _raises(TypeError, lambda: a.replace(seg_mult="x"))
     with _ModuleRegistered():
         again = pickle.loads(pickle.dumps(b))
     assert again == b and isinstance(again.fuzz, m.FuzzParams)
+    n = m.DEFAULT_NATURAL_STOP_SETTINGS
+    stop = n.replace(max_iter=7, escape_radius=1.5)
+    assert (stop.max_iter, stop.escape_radius, n.max_iter, n.escape_radius) == (7, 1.5, 256, 2.0)
+    assert stop != n and n == n.replace() and hash(n) == hash(n.replace())
+    assert _raises(TypeError, lambda: n.replace(max_iter="x"))
+    with _ModuleRegistered():
+        assert pickle.loads(pickle.dumps(stop)) == stop
 
 
 def test_records_pickle_by_field_name_not_position():
@@ -102,10 +114,13 @@ def test_records_pickle_by_field_name_not_position():
         assert pickle.loads(pickle.dumps(m.DEFAULT_FUZZ)) == m.DEFAULT_FUZZ
 
 
-def test_a_keyframes_data_holds_the_ray_settings_and_the_buddha_blur_side_by_side():
+def test_a_keyframes_data_holds_the_ray_settings_the_natural_stop_and_the_buddha_blur_side_by_side():
     data = m.resolve_frame_settings([], 0)
-    assert [f.name for f in dataclasses.fields(m.KeyframeData)] == ["ray", "buddha_blur", "outline"]
+    assert [f.name for f in dataclasses.fields(m.KeyframeData)] == [
+        "ray", "natural_stop", "buddha_blur", "outline"]
     assert isinstance(data.ray, m.RaySettings) and isinstance(data.buddha_blur, m.BuddhaBlurSettings)
+    assert isinstance(data.natural_stop, m.NaturalStopSettings)
+    assert data.natural_stop == m.DEFAULT_NATURAL_STOP_SETTINGS and data.ray == m.DEFAULT_RAY_SETTINGS
     assert (data.buddha_blur.radius, data.buddha_blur.type) == (m.DEFAULT_BUDDHA_BLUR_RADIUS,
                                                                 m.DEFAULT_BUDDHA_BLUR_TYPE)
     louder = data.replace(buddha_blur=data.buddha_blur.replace(radius=0.2))
@@ -146,36 +161,43 @@ def test_views_colored_from_the_stored_data_use_the_settings_the_image_was_gener
     silently fell back to their defaults - and Buddha coloration re-traces rays
     with both. Every RaySettings argument is required now, and they pass the
     settings of the generated image."""
-    generated = _settings(confine_window=9, confine_method=m.CONFINE_PATH,
-                          confine_threshold=0.123, emit_mode=m.EMIT_TOWARDS,
-                          emit_target_r=0.5, emit_target_theta=30.0, emit_offset=12.0)
+    generated, generated_stop = _generation(
+        confine_window=9, confine_method=m.CONFINE_PATH, confine_threshold=0.123,
+        emit_mode=m.EMIT_TOWARDS, emit_target_r=0.5, emit_target_theta=30.0, emit_offset=12.0)
     blur = m.BuddhaBlurSettings(radius=0.2, type=m.BUDDHA_BLUR_TRIANGULAR)
     app = _fake_current_image_app()
     app.generated_settings = generated
+    app.generated_natural_stop = generated_stop
+    app.gen_stop = m.settings_natural_stop(generated_stop)
+    app.gen_ray = m.settings_ray_args(generated, app.gen_ray.obstacles)
     app.current_blur_settings = lambda: blur
     seen = []
 
-    def fake_colorize(view, stats, points, status, w, h, blur, settings, fz, obst_arrays):
-        seen.append((blur, settings))
+    def fake_colorize(view, stats, points, status, w, h, blur, stop, ray, seed_base):
+        seen.append((blur, stop, ray, seed_base))
         return np.zeros((h, w, 3), dtype=np.uint8)
     app.colorize_view = fake_colorize
     app.render_current_image([m.ViewConfig(0), m.ViewConfig(1)])
-    assert seen == [(blur, generated)] * 2
-    assert m.settings_confine(seen[0][1]) == m.ConfineRule(window=9, method=m.CONFINE_PATH, threshold=0.123)
-    assert m.settings_emission(seen[0][1]).offset == 12.0
+    expected = (blur, app.gen_stop, app.gen_ray, generated.fuzz.seed)
+    assert seen == [expected] * 2
+    assert seen[0][1].confine == m.ConfineRule(window=9, method=m.CONFINE_PATH, threshold=0.123)
+    assert seen[0][2].emission.offset == 12.0
     seen.clear()
     app.view_thumb_cache = {}
     app.rows_done = 0
     app.live_view = lambda: app.views[0]
     app.render_view_thumbnail(m.ViewConfig(1), m.THUMB_SIZE)
-    assert seen == [(blur, generated)]
+    assert seen == [expected]
     blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_GAUSSIAN)   # the blur controls move on:
+    expected = (blur,) + expected[1:]
     seen.clear()
     app.view_thumb_cache = {}
     app.render_current_image([m.ViewConfig(0), m.ViewConfig(1)])
-    assert seen == [(blur, generated)] * 2                       # the same generated image, the new blur
+    assert seen == [expected] * 2                                # the same generated image, the new blur
     app.generated_settings = None                                # before the first Start
+    app.generated_natural_stop = None
     assert app.settings_of_current_image() is m.DEFAULT_RAY_SETTINGS
+    assert app.natural_stop_of_current_image() is m.DEFAULT_NATURAL_STOP_SETTINGS
 
 
 # --------------------------------------------------------------------------- #
@@ -189,17 +211,23 @@ def _varied_blur_settings():
 
 def _varied_ray_settings():
     return m.RaySettings(
-        max_iter=77, max_dist=3.5, seg_mult=0.8,
+        seg_mult=0.8,
         fuzz=m.FuzzParams(enabled=True, emit_jitter=4.0, bnd_offset=1.5, bnd_jitter=2.5,
                           bnd_mult=1.25, self_offset=-3.0, self_jitter=6.0, self_mult=0.5,
                           seed=424242),
-        confine_window=9, confine_method=m.CONFINE_PATH, confine_threshold=0.03,
         emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
         emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
 
 
+def _varied_natural_stop_settings():
+    return m.NaturalStopSettings(
+        max_iter=77, max_dist=3.5, escape_radius=3.25, confine_window=9,
+        confine_method=m.CONFINE_PATH, confine_threshold=0.03)
+
+
 def test_each_settings_table_and_its_record_fields_are_the_same_set():
-    assert set(m.SETTING_TABLES) == {m.RaySettings, m.BuddhaBlurSettings}
+    assert set(m.SETTING_TABLES) == {m.NaturalStopSettings, m.RaySettings, m.BuddhaBlurSettings}
+    assert m.SETTING_TABLES[m.NaturalStopSettings] is m.NATURAL_STOP_SETTING_SPECS
     assert m.SETTING_TABLES[m.RaySettings] is m.RAY_SETTING_SPECS
     assert m.SETTING_TABLES[m.BuddhaBlurSettings] is m.BLUR_SETTING_SPECS
     seen = set()
@@ -210,7 +238,10 @@ def test_each_settings_table_and_its_record_fields_are_the_same_set():
         assert not (seen & set(table)), "a setting key is in two tables"
         seen |= set(table)
     assert seen == {k for k, _t, _l in m.SETTING_INFO} - {"outline"}
-    assert list(m.SETTING_SPECS) == list(m.RAY_SETTING_SPECS) + list(m.BLUR_SETTING_SPECS)
+    assert list(m.SETTING_SPECS) == (list(m.NATURAL_STOP_SETTING_SPECS) + list(m.RAY_SETTING_SPECS)
+                                     + list(m.BLUR_SETTING_SPECS))
+    assert set(m.NATURAL_STOP_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_window",
+                                                "confine_method", "confine_threshold"}
     assert set(m.BLUR_SETTING_SPECS) == {"buddha_blur_radius", "buddha_blur_type"}
 
 
@@ -271,14 +302,19 @@ def test_settings_records_round_trip_through_the_key_dictionary():
         values = m.settings_to_dict(settings)
         assert set(values) == set(m.RAY_SETTING_SPECS)
         assert m.settings_from_dict(m.RaySettings, values) == settings
+    for stop in (m.DEFAULT_NATURAL_STOP_SETTINGS, _varied_natural_stop_settings()):
+        values = m.settings_to_dict(stop)
+        assert set(values) == set(m.NATURAL_STOP_SETTING_SPECS)
+        assert m.settings_from_dict(m.NaturalStopSettings, values) == stop
     for blur in (m.DEFAULT_BUDDHA_BLUR, _varied_blur_settings()):
         values = m.settings_to_dict(blur)
         assert set(values) == set(m.BLUR_SETTING_SPECS)
         assert m.settings_from_dict(m.BuddhaBlurSettings, values) == blur
-    ray, blur = _varied_ray_settings(), _varied_blur_settings()
-    values = m.settings_to_dict(ray, blur)                    # side by side in one dictionary...
+    ray, stop, blur = _varied_ray_settings(), _varied_natural_stop_settings(), _varied_blur_settings()
+    values = m.settings_to_dict(ray, stop, blur)              # side by side in one dictionary...
     assert set(values) == set(m.SETTING_SPECS)
     assert m.settings_from_dict(m.RaySettings, values) == ray          # ...each record picks out its own
+    assert m.settings_from_dict(m.NaturalStopSettings, values) == stop
     assert m.settings_from_dict(m.BuddhaBlurSettings, values) == blur
     assert values["seed"] == 424242 and values["emit_jitter"] == 4.0 and values["iter"] == 77
     assert values["buddha_blur_type"] == m.BUDDHA_BLUR_BOKEH and values["fuzz_on"] is True
@@ -287,25 +323,28 @@ def test_settings_records_round_trip_through_the_key_dictionary():
 def test_values_resolved_from_keyframes_are_converted_to_their_fields_types():
     """A keyframe can hand an int setting over as a float (or a bool as 1): int fields
     are rounded and bool fields made bool; float fields are kept as given."""
-    values = dict(m.settings_to_dict(_varied_ray_settings(), _varied_blur_settings()))
+    values = dict(m.settings_to_dict(_varied_ray_settings(), _varied_natural_stop_settings(),
+                                     _varied_blur_settings()))
     values.update({"iter": 77.4, "seed": 9.0, "confine_window": 8.6, "emit_mode": 1.0,
                    "fuzz_on": 1, "buddha_blur_type": 2.0, "dist": 2})
     got = m.settings_from_dict(m.RaySettings, values)
-    assert (got.max_iter, got.fuzz.seed, got.confine_window, got.emit_mode) == (77, 9, 9, 1)
-    assert got.fuzz.enabled is True and got.max_dist == 2
-    assert all(type(v) is int for v in (got.max_iter, got.fuzz.seed, got.confine_window))
+    stop = m.settings_from_dict(m.NaturalStopSettings, values)
+    assert (stop.max_iter, got.fuzz.seed, stop.confine_window, got.emit_mode) == (77, 9, 9, 1)
+    assert got.fuzz.enabled is True and stop.max_dist == 2
+    assert all(type(v) is int for v in (stop.max_iter, got.fuzz.seed, stop.confine_window))
     blur = m.settings_from_dict(m.BuddhaBlurSettings, values)
     assert blur.type == 2 and type(blur.type) is int
 
 
 def test_the_derived_setting_tables_follow_the_settings_field_types():
     floats = m.SETTING_FLOAT_KEYS
-    assert {"dist", "seg_mult", "confine_threshold", "emit_offset", "emit_target_r",
+    assert {"dist", "escape_radius", "seg_mult", "confine_threshold", "emit_offset", "emit_target_r",
             "emit_jitter", "bnd_mult", "self_offset", "buddha_blur_radius"} <= floats
     assert not ({"iter", "seed", "confine_window", "confine_method", "emit_mode", "fuzz_on",
                  "buddha_blur_type", "outline"} & floats)
     assert m.DEFAULT_SETTING_VALUES == {
-        **m.settings_to_dict(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_BUDDHA_BLUR), "outline": True}
+        **m.settings_to_dict(m.DEFAULT_NATURAL_STOP_SETTINGS, m.DEFAULT_RAY_SETTINGS,
+                             m.DEFAULT_BUDDHA_BLUR), "outline": True}
     assert m.SETTING_WIDGET_ATTRS["seed"] == "seed_entry"
     assert m.SETTING_WIDGET_ATTRS["outline"] == "deco_outline_check"
 
@@ -337,7 +376,8 @@ def _expected_control_value(spec, value):
 
 def test_each_kind_of_control_is_written_the_way_its_kind_needs():
     app = _fake_controls_app()
-    values = m.settings_to_dict(_varied_ray_settings(), _varied_blur_settings())
+    values = m.settings_to_dict(_varied_ray_settings(), _varied_natural_stop_settings(),
+                                _varied_blur_settings())
     for key, value in values.items():
         app.set_setting_control(key, value)
         spec = m.SETTING_SPECS[key]
@@ -360,8 +400,9 @@ def test_a_value_an_interpolating_keyframe_made_fractional_still_reaches_an_int_
 def test_revert_writes_every_control_from_the_baseline_through_the_same_table():
     app = _fake_controls_app()
     app.baseline = _varied_ray_settings()
+    app.baseline_natural_stop = _varied_natural_stop_settings()
     app.revert_settings()
-    for key, value in m.settings_to_dict(app.baseline).items():
+    for key, value in m.settings_to_dict(app.baseline, app.baseline_natural_stop).items():
         spec = m.SETTING_SPECS[key]
         assert getattr(app, spec.control).get() == _expected_control_value(spec, value), key
 
@@ -430,7 +471,7 @@ def _ring_app(generated):
     o2.r, o2.theta, o2.cx, o2.in_effect, o2.out_effect = 0.5, 90.0, 0.25, m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS
     app.obstacles = [o, o2]
     arrays = m.build_obstacle_arrays(app.obstacles)
-    app.gen_obstacles = arrays
+    app.gen_ray = _ray(arrays)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
     return app
 
@@ -445,3 +486,55 @@ def test_obstacle_rings_are_strict_records_for_both_the_live_and_the_generated_s
         assert (second.in_effect, second.out_effect) == (m.OBSTACLE_EFFECT_TERMINATE,
                                                          m.OBSTACLE_EFFECT_PASS)
         assert abs(second.cx - 0.25) < 1e-9 and abs(second.cy - 0.5) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# NaturalStopSettings: the limits that end any sequence of points, a record beside RaySettings
+# --------------------------------------------------------------------------- #
+def test_self_checks_catch_a_natural_stop_field_without_a_row_and_a_row_with_a_bad_path():
+    fresh = load_module()
+    del fresh.NATURAL_STOP_SETTING_SPECS["escape_radius"]
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "SETTING_TABLES" in str(e) and "escape_radius" in str(e)
+    fresh = load_module()
+    fresh.NATURAL_STOP_SETTING_SPECS["iter"] = fresh.NATURAL_STOP_SETTING_SPECS["iter"].replace(path=("max_itr",))
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "the NaturalStopSettings fields and the rows of its settings table disagree" in str(e)
+
+
+def test_the_natural_stop_and_ray_settings_hold_disjoint_settings_that_together_were_the_old_simulation_set():
+    ray = {f.name for f in dataclasses.fields(m.RaySettings)}
+    stop = {f.name for f in dataclasses.fields(m.NaturalStopSettings)}
+    assert not (ray & stop)
+    assert stop == {"max_iter", "max_dist", "escape_radius", "confine_window", "confine_method",
+                    "confine_threshold"}
+    assert set(m.NATURAL_STOP_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_window",
+                                                "confine_method", "confine_threshold"}
+    assert not (set(m.NATURAL_STOP_SETTING_SPECS) & set(m.RAY_SETTING_SPECS))
+    assert all(spec.tab == "Simulation" for spec in m.NATURAL_STOP_SETTING_SPECS.values())
+
+
+def test_the_kernel_tuples_are_built_from_the_records():
+    stop = m.settings_natural_stop(m.DEFAULT_NATURAL_STOP_SETTINGS)
+    assert isinstance(stop, m.NaturalStopRule) and stop == m.NATURAL_STOP_DEFAULT
+    assert stop._fields == ("max_iter", "max_dist", "escape_radius", "confine")
+    assert stop.max_iter == 256 and stop.max_dist == float("inf") and stop.escape_radius == 2.0
+    assert stop.confine == m.CONFINE_DEFAULT
+    assert (type(stop.max_iter), type(stop.max_dist), type(stop.escape_radius)) == (int, float, float)
+    limited = m.settings_natural_stop(m.DEFAULT_NATURAL_STOP_SETTINGS.replace(
+        max_iter=9, max_dist=2.5, escape_radius=7, confine_window=6, confine_method=m.CONFINE_PATH,
+        confine_threshold=0.1))
+    assert limited == m.NaturalStopRule(max_iter=9, max_dist=2.5, escape_radius=7.0,
+                                        confine=m.ConfineRule(window=6, method=m.CONFINE_PATH, threshold=0.1))
+    assert type(limited.escape_radius) is float                     # an int is made the float the kernels need
+    arrays = _starting_obst_arrays()
+    ray = m.settings_ray_args(_varied_ray_settings(), arrays)
+    assert isinstance(ray, m.RayArgs) and ray._fields == ("seg_mult", "fuzz", "emission", "obstacles")
+    assert ray.seg_mult == 0.8 and ray.fuzz == m.fuzz_rule(_varied_ray_settings().fuzz)
+    assert ray.emission == m.settings_emission(_varied_ray_settings()) and ray.obstacles is arrays

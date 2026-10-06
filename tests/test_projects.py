@@ -37,15 +37,17 @@ def _sample_project(**changes):
                                    "obst:1:rotation": 15.0, "view:5:mode": "HSV",
                                    "view:5:chan1": channel, "view:0:chan0": m.view_channel_value(v0, 0)}),
                  m.Keyframe(7, 30, {"obst:3:r": 0.5, "emit_mode": m.EMIT_TOWARDS}))
-    ray = _settings(max_iter=77, max_dist=3.5, seg_mult=0.8, emit_mode=m.EMIT_TOWARDS,
-                    emit_target_r=0.3, emit_offset=12.5, confine_window=6,
-                    fuzz=m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=2.0, seed=99))
+    ray, natural_stop = _generation(
+        max_iter=77, max_dist=3.5, seg_mult=0.8, emit_mode=m.EMIT_TOWARDS, emit_target_r=0.3,
+        emit_offset=12.5, confine_window=6,
+        fuzz=m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=2.0, seed=99))
     blur = m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_BOKEH)
     export = {"include_all_views": False, "color_info_location": m.COLOR_INFO_LOCATIONS[1],
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
-    fields = dict(ray=ray, buddha_blur=blur, decorations={"outline": False, "pending": True},
+    fields = dict(ray=ray, natural_stop=natural_stop, buddha_blur=blur,
+                  decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
                   views=(m.snapshot_view(v0), m.snapshot_view(v1)), keyframes=keyframes,
                   export=export, obstacle_counter=40, view_counter=9, keyframe_counter=12,
@@ -205,11 +207,11 @@ def test_a_project_that_cannot_be_saved_counts_as_having_unsaved_changes():
 def test_a_project_file_is_pretty_printed_versioned_json():
     import json
     text = m.project_text(_sample_project())
-    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 3,')
+    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 4,')
     assert text.endswith("}\n") and "\r" not in text
     assert all(len(line) < 120 for line in text.split("\n"))            # one value per line
     data = json.loads(text)
-    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 3
+    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 4
     assert data["program_version"] == m.FILE_VERSION
     assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
     assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "view": 5}
@@ -299,7 +301,7 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d12["keyframes"][0]["settings"]["iter"] = [1, 2]
     _refused(d12, "iter")
     d13 = _dict_of()
-    d13["simulation"]["iter"] = "many"
+    d13["natural_stop"]["iter"] = "many"
     _refused(d13, "damaged")
     d14 = _dict_of()
     d14["views"][0]["channels"][0].pop("metric")
@@ -354,7 +356,7 @@ def test_a_project_that_cannot_be_written_as_json_says_so_and_writes_nothing():
 
 def test_a_file_from_another_version_is_read_leniently():
     d = _dict_of()
-    del d["simulation"]["iter"]                      # a setting this file lacks: its default
+    del d["natural_stop"]["iter"]                    # a setting this file lacks: its default
     d["simulation"]["a_setting_from_the_future"] = 5
     d["future_section"] = {"anything": 1}
     d["export"]["a_future_choice"] = "x"
@@ -363,7 +365,7 @@ def test_a_file_from_another_version_is_read_leniently():
     d["views"][1]["channels"][1]["buddha_points"] = ["all_bounces_mean"]
     loaded = m.project_from_dict(d)
     assert "video_format" not in loaded.export
-    assert loaded.ray.max_iter == m.DEFAULT_RAY_SETTINGS.max_iter
+    assert loaded.natural_stop.max_iter == m.DEFAULT_NATURAL_STOP_SETTINGS.max_iter
     assert loaded.obstacle_counter == max(o.id for o in loaded.obstacles) + 1
     chosen = m.view_channel_value(loaded.views[1], 1).buddha_points
     assert chosen == (True,) + (False,) * (m.N_BUDDHA_POINTS - 1)
@@ -383,7 +385,8 @@ def test_the_project_signature_sees_content_but_not_selection_or_counters():
     moved = base.obstacles[0].with_values(r=0.75)
     assert m.project_signature(_sample_project(obstacles=(moved,) + base.obstacles[1:])) != sig
     assert m.project_signature(_sample_project(obstacles=base.obstacles[:-1])) != sig
-    assert m.project_signature(base.replace(ray=base.ray.replace(max_iter=78))) != sig
+    assert m.project_signature(base.replace(natural_stop=base.natural_stop.replace(max_iter=78))) != sig
+    assert m.project_signature(base.replace(ray=base.ray.replace(seg_mult=0.9))) != sig
     assert m.project_signature(base.replace(export={**base.export, "video_fps": "25"})) != sig
     assert m.project_signature(base.replace(decorations={"outline": True, "pending": True})) != sig
     edited = (m.Keyframe(2, 0, {**base.keyframes[0].data, "iter": 41}), base.keyframes[1])
@@ -473,11 +476,12 @@ PINNED_EXPORT_CHOICES = {             # catalog -> key -> the text the control h
     "CAT_DOWNSAMPLE_METHOD": {"mean": "Mean", "median": "Median", "sum": "Sum", "max": "Max",
                               "ffmpeg": "ffmpeg"},
 }
-PINNED_SIMULATION_KEYS = [
-    "iter", "dist", "seg_mult", "emit_mode", "emit_target_r", "emit_target_theta",
-    "emit_target_cx", "emit_target_cy", "emit_offset", "confine_window", "confine_method",
-    "confine_threshold", "fuzz_on", "emit_jitter", "bnd_offset", "bnd_jitter", "bnd_mult",
-    "self_offset", "self_jitter", "self_mult", "seed"]
+PINNED_SIMULATION_KEYS = [        # the ray engine's own settings (the "simulation" section)
+    "seg_mult", "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
+    "emit_target_cy", "emit_offset", "fuzz_on", "emit_jitter", "bnd_offset", "bnd_jitter",
+    "bnd_mult", "self_offset", "self_jitter", "self_mult", "seed"]
+PINNED_NATURAL_STOP_KEYS = [      # a section of their own since format 4 (they were in "simulation")
+    "iter", "dist", "escape_radius", "confine_window", "confine_method", "confine_threshold"]
 PINNED_BUDDHA_BLUR_KEYS = ["buddha_blur_radius", "buddha_blur_type"]   # a section of their own since format 3
 PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_end", "guides",
                           "samples"]
@@ -525,6 +529,7 @@ def test_the_keys_in_project_files_never_change():
     for index, key in enumerate(("1x", "2x", "4x", "8x", "16x")):
         assert m.CAT_BUDDHA_BRIGHTNESS.by_key[key] == index == m.BUDDHA_BRIGHTNESS_OPTIONS.index(key)
     assert set(PINNED_SIMULATION_KEYS) <= set(m.RAY_SETTING_SPECS)
+    assert set(PINNED_NATURAL_STOP_KEYS) <= set(m.NATURAL_STOP_SETTING_SPECS)
     assert set(PINNED_BUDDHA_BLUR_KEYS) <= set(m.BLUR_SETTING_SPECS)
     assert set(PINNED_EXPORT_KEYS) <= {row[0] for row in m.EXPORT_OPTIONS}
     assert set(PINNED_DECORATION_KEYS) <= {key for key, _label, _default in
@@ -557,9 +562,10 @@ def test_a_catalog_translates_between_keys_and_codes_and_refuses_what_it_does_no
 def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     data = _dict_of()
     assert data["simulation"]["emit_mode"] == "towards_point"
-    assert data["simulation"]["confine_method"] in ("box", "path_length")
+    assert data["natural_stop"]["confine_method"] in ("box", "path_length")
     assert data["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
     assert set(data["simulation"]) == set(m.RAY_SETTING_SPECS)
+    assert set(data["natural_stop"]) == set(m.NATURAL_STOP_SETTING_SPECS)
     assert {o["fields"]["in_effect"] for o in data["obstacles"]} <= set(m.CAT_EFFECT.by_key)
     assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
     channel = data["views"][1]["channels"][1]
@@ -615,7 +621,7 @@ def test_a_format_1_project_file_is_converted_when_loaded():
     assert isinstance(old["simulation"]["emit_mode"], int)
     loaded = m.load_project(V1_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
-    assert m.project_text(loaded).count('"format_version": 3') == 1
+    assert m.project_text(loaded).count('"format_version": 4') == 1
 
 
 V2_PROJECT_FILE = os.path.join(ROOT, "dev", "testing",
@@ -636,10 +642,10 @@ def test_a_format_2_project_file_is_converted_when_loaded():
     assert loaded.ray == _sample_project().ray
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 3
+    assert converted["format_version"] == 4
     assert converted["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)      # the two moved, none was copied
-    assert old["simulation"]["iter"] == converted["simulation"]["iter"] == 77
+    assert old["simulation"]["iter"] == converted["natural_stop"]["iter"] == 77
 
 
 def test_a_format_2_file_without_blur_settings_loads_the_default_blur():
@@ -801,3 +807,44 @@ def test_a_project_saved_with_the_old_skip_first_frame_choice_still_loads():
     assert "video_skip_first_frame" not in loaded.export
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     assert "video_skip_first_frame" not in m.project_text(loaded)
+
+
+V3_PROJECT_FILE = os.path.join(ROOT, "dev", "testing", "project_v3.lightbounce")
+
+
+def test_a_format_3_project_file_is_converted_when_loaded():
+    """dev/testing/project_v3.lightbounce is a real file written by format 3 from _sample_project() (program
+    version 131): every ray-simulation setting, the stopping limits and the confinement among them, is in its
+    "simulation" section. Format 4 gives the natural-stopping settings a section of their own, and the file must
+    keep loading, to exactly that project."""
+    import json
+    with open(V3_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    assert old["format_version"] == 3 and "natural_stop" not in old
+    assert {"iter", "dist", "escape_radius", "confine_window", "confine_method",
+            "confine_threshold", "seg_mult"} <= set(old["simulation"])
+    loaded = m.load_project(V3_PROJECT_FILE)
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert loaded.obstacles and len(loaded.obstacles) == len(m.SHAPE_CLASSES)
+    assert loaded.natural_stop.max_iter == 77 and loaded.natural_stop.confine_window == 6
+    converted = json.loads(m.project_text(loaded))
+    assert converted["format_version"] == 4
+    assert set(converted["natural_stop"]) == set(m.NATURAL_STOP_SETTING_SPECS)      # the six moved ...
+    assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)                 # ... and none stayed
+    assert converted["natural_stop"]["iter"] == old["simulation"]["iter"] == 77
+
+
+def test_the_format_3_to_4_migration_moves_only_the_natural_stopping_settings_it_finds():
+    """The six settings that were in "simulation" move, unchanged, to "natural_stop"; one the file lacks stays
+    lacking (its default is applied on loading), and the ray engine's own settings are left alone."""
+    import json
+    with open(V3_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    del old["simulation"]["escape_radius"]
+    new = m._migrate_project_3_to_4(old)
+    assert new["format_version"] == 4 and "escape_radius" not in new["natural_stop"]
+    assert set(new["natural_stop"]) == {"iter", "dist", "confine_window", "confine_method", "confine_threshold"}
+    assert "seg_mult" in new["simulation"] and "iter" not in new["simulation"]
+    assert "natural_stop" not in old and "iter" in old["simulation"]          # the file's data is not modified
+    assert m.project_from_dict(old).natural_stop.escape_radius == m.DEFAULT_ESCAPE_RADIUS
+    assert m._migrate_project_3_to_4({"format_version": 3})["natural_stop"] == {}

@@ -20,6 +20,7 @@ def _fake_preview_app(pinned):
     app.hover_px = None
     app.obstacles = []                              # nothing at all fires a ray
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
+    app.preview_natural_stop_settings = lambda: m.DEFAULT_NATURAL_STOP_SETTINGS
     app.hover_pts = np.empty((m.ITER_LIMIT_MAX + 2, 2))
     app.hover_kinds = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
@@ -65,6 +66,7 @@ def _fake_click_app(pinned, obstacles):
     app.hover_px = "stale"
     app.obstacles = obstacles
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
+    app.preview_natural_stop_settings = lambda: m.DEFAULT_NATURAL_STOP_SETTINGS
     app.canvas = _StubWidget()
     app.previews = []
     app.update_preview = lambda i, j: app.previews.append((i, j))
@@ -292,14 +294,14 @@ def test_left_margin_text_scales_with_the_views_own_size_not_the_margin():
     """Measures vertical extent (line height/spacing), not horizontal -
     horizontal extent can be legitimately clipped once text no longer fits
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
-    settings = m.DEFAULT_RAY_SETTINGS
+    settings = _generation()
     img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out_512 = m.add_left_figure_margin(img_512, settings, _start_scene())
+    out_512 = m.add_left_figure_margin(img_512, *settings, _start_scene())
     margin_w_512 = m.SIZE // 2
     h1 = (out_512[:, :margin_w_512] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
     img_1080 = np.full((1080, 1080, 3), 128, dtype=np.uint8)
-    out_1080 = m.add_left_figure_margin(img_1080, settings, _start_scene())
+    out_1080 = m.add_left_figure_margin(img_1080, *settings, _start_scene())
     margin_w_1080 = 1080 // 2
     h2 = (out_1080[:, :margin_w_1080] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
@@ -366,7 +368,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     views = m.resolve_views(view_snapshot, keyframes, 0)
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
-    rgb = m.apply_info_locations(rgb, views, 40, data.ray, [],
+    rgb = m.apply_info_locations(rgb, views, 40, data.ray, data.natural_stop, [],
                                  "Overlay", "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
@@ -383,7 +385,7 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
     original_width = rgb.shape[1]
-    rgb = m.apply_info_locations(rgb, views, 40, data.ray,
+    rgb = m.apply_info_locations(rgb, views, 40, data.ray, data.natural_stop,
                                  _start_scene(), "None", "Left margin", mutate_ok=True)
     assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
@@ -396,10 +398,10 @@ def test_color_info_and_figure_settings_locations_default_to_none():
 
 
 def test_apply_info_locations_none_leaves_the_image_unchanged():
-    settings = m.DEFAULT_RAY_SETTINGS
+    settings = _generation()
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
-    out = m.apply_info_locations(img, [v], 40, settings, [], "None", "None", mutate_ok=True)
+    out = m.apply_info_locations(img, [v], 40, *settings, [], "None", "None", mutate_ok=True)
     assert out.shape == img.shape
     assert (out == 77).all()
 
@@ -409,11 +411,11 @@ def test_apply_info_locations_margin_cases_never_mutate_when_not_ok():
     mutate in place - the image gets bigger), but this locks in that
     mutate_ok=False is honored for "Overlay" specifically, which otherwise
     would draw straight into the caller's array."""
-    settings = m.DEFAULT_RAY_SETTINGS
+    settings = _generation()
     v = m.ViewConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     original = img.copy()
-    m.apply_info_locations(img, [v], 40, settings, [], "Overlay", "None", mutate_ok=False)
+    m.apply_info_locations(img, [v], 40, *settings, [], "Overlay", "None", mutate_ok=False)
     assert np.array_equal(img, original), "mutate_ok=False must not draw into the input array"
 
 

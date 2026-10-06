@@ -10,7 +10,7 @@ from .metrics import (
     build_buddha_blur_kernel, extract_point_xy, make_mapping, point_comparison_metric,
     scatter_points_raw, world_radius_to_pixels
 )
-from .settings import effective_dist, fuzz_rule, settings_confine, settings_emission
+from .settings import settings_natural_stop, settings_ray_args
 from .shapes import build_obstacle_arrays, draw_obstacle_outline, ring_layer_masks
 from .views import channels_to_rgb
 
@@ -24,13 +24,12 @@ class RenderMixin:
         the outline decoration drawn in if enabled, exactly like
         self.frame/draw(). Only called for more than one view - the
         single-view case is just self.frame, already rendered."""
-        mini_settings = self.settings_of_current_image()
-        obst_arrays = self.gen_obstacles
         images = []
         for v in views:
             images.append(self.colorize_view(v.settings(), self.stats, self.points, self.status,
                                              SIZE, SIZE, self.current_blur_settings(),
-                                             mini_settings, self.gen_fuzz, obst_arrays))
+                                             self.gen_stop, self.gen_ray,
+                                             self.settings_of_current_image().fuzz.seed))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
@@ -54,18 +53,16 @@ class RenderMixin:
         is (out_h, out_w * len(views), 3). With a single view (the ordinary
         case before this feature existed), this is exactly the one image
         it's always been."""
-        settings = data.ray
-        fz = fuzz_rule(settings.fuzz)
+        stop = settings_natural_stop(data.natural_stop)
+        ray = settings_ray_args(data.ray, obst_arrays)
+        seed = data.ray.fuzz.seed
         stats = np.zeros((out_h, out_w, N_STATS), dtype=np.float32)
         points = np.zeros((out_h, out_w, N_POINTS, 2), dtype=np.float32)
         status = np.zeros((out_h, out_w), dtype=np.uint8)
-        render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, settings.max_iter,
-                       effective_dist(settings.max_dist), settings.seg_mult, fz,
-                       settings_confine(settings), settings_emission(settings), obst_arrays,
-                       settings.fuzz.seed)
+        render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, stop, ray, seed)
 
         images = [self.colorize_view(v, stats, points, status, out_w, out_h, data.buddha_blur,
-                                     settings, fz, obst_arrays)
+                                     stop, ray, seed)
                  for v in views]
 
         if data.outline:
@@ -82,15 +79,14 @@ class RenderMixin:
 
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def colorize_view(self, v, stats, points, status, out_w, out_h, blur, settings, fz,
-                      obst_arrays):
+    def colorize_view(self, v, stats, points, status, out_w, out_h, blur, stop, ray, seed_base):
         """One view's (out_h, out_w, 3) uint8 image (background color where no
         ray was computed, no outline - that's applied uniformly afterwards)
         from already-traced stats/points/status. `v` is a ViewSettings: this
         is the same coloring computation every view goes through, whichever
         one it is. `blur` (a BuddhaBlurSettings) is how Buddha channels are blurred;
-        `settings`, `fz` and `obst_arrays` (the ray simulation's) are used only to
-        re-trace the rays for the "multi" Buddha point options."""
+        `stop` (a NaturalStopRule), `ray` (a RayArgs) and `seed_base` (the fuzzing seed) are the
+        simulation's own, used only to re-trace the rays for the "multi" Buddha point options."""
         mapping = make_mapping(v.kinds, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
@@ -129,9 +125,7 @@ class RenderMixin:
                         scatter_points_raw(counts, row, col, valid)
                     if any(want_multi.values()):
                         scatter_multi_buddha(
-                            0, out_h, settings.max_iter, effective_dist(settings.max_dist),
-                            settings.seg_mult, fz, settings_confine(settings),
-                            settings_emission(settings), obst_arrays, settings.fuzz.seed,
+                            0, out_h, stop, ray, seed_base,
                             want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                             want_multi[BUDDHA_MULTI_PROG_BOUNCE],
                             want_multi[BUDDHA_MULTI_PROG_MID], counts)
@@ -180,11 +174,9 @@ class RenderMixin:
         if cached is not None and cached[0] == (self.rows_done, size):
             return cached[1]
         v = view_obj.settings()
-        mini_settings = self.settings_of_current_image()
-        obst_arrays = build_obstacle_arrays(self.obstacles)
         full = self.colorize_view(v, self.stats, self.points, self.status, SIZE, SIZE,
-                                  self.current_blur_settings(), mini_settings, self.gen_fuzz,
-                                  obst_arrays)
+                                  self.current_blur_settings(), self.gen_stop, self.gen_ray,
+                                  self.settings_of_current_image().fuzz.seed)
         ys = (np.arange(size) * SIZE / size).astype(np.int64)
         xs = (np.arange(size) * SIZE / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]

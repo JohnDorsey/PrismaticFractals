@@ -1,6 +1,6 @@
 """Projects: saving and loading everything the user has set up.
 
-A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the controls' simulation settings, the Buddha blur, the
+A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the controls' simulation settings (the ray engine's and the natural stopping limits, each its own section), the Buddha blur, the
 decorations, every obstacle, view and keyframe, and the Export designer and video panel choices - not the generated image, which Start
 makes again (fuzzing is seeded, so the same settings give the same image).
 
@@ -33,7 +33,7 @@ from .metrics import (
     POINT_ORIGIN, POINT_STATS, POINT_TOP_LEFT_CORNER
 )
 from .settings import (
-    BuddhaBlurSettings, DEFAULT_SETTING_VALUES, Keyframe, RaySettings, SETTING_TABLES,
+    BuddhaBlurSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalStopSettings, RaySettings, SETTING_TABLES,
     settings_from_dict, settings_to_dict, strict_record
 )
 from .shapes import SHAPE_CLASSES
@@ -43,7 +43,7 @@ from .views import ChannelSettings, MODES, ViewConfig, snapshot_view, view_chann
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 3
+PROJECT_FORMAT_VERSION = 4
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
 
@@ -186,7 +186,8 @@ EXPORT_OPTIONS = [
 class Project:
     """Everything a project file holds, as plain values (the obstacles, views and keyframes
     are independent frozen copies). Made by App.capture_project or project_from_dict."""
-    ray: RaySettings                    # the ray simulation's controls
+    ray: RaySettings                    # the ray-bouncing engine's controls
+    natural_stop: NaturalStopSettings   # the limits that end a sequence of points, beside them
     buddha_blur: BuddhaBlurSettings     # the Buddha blur's, beside them (not inside)
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
@@ -265,7 +266,7 @@ def _setting_to_json(key, value):
 
 
 def _settings_to_json(record):
-    """A settings record (a RaySettings, a BuddhaBlurSettings...) as the file's section for it:
+    """A settings record (a RaySettings, a NaturalStopSettings...) as the file's section for it:
     {setting key: value}, choices as their keys."""
     return {key: _setting_to_json(key, value) for key, value in settings_to_dict(record).items()}
 
@@ -291,6 +292,7 @@ def project_to_dict(project):
         "format_version": PROJECT_FORMAT_VERSION,
         "program_version": FILE_VERSION,
         "simulation": _settings_to_json(project.ray),
+        "natural_stop": _settings_to_json(project.natural_stop),
         "buddha_blur": _settings_to_json(project.buddha_blur),
         "decorations": dict(project.decorations),
         "obstacles": [{"kind": type(o).KEY, "id": o.id,
@@ -538,8 +540,28 @@ def _migrate_project_2_to_3(data):
     return data
 
 
+def _migrate_project_3_to_4(data):
+    """Format 3 kept the natural stopping settings (the iteration, distance and escape-radius limits and the
+    three confinement settings) in the "simulation" section; format 4 has a section of their own for them (they are
+    not specific to the ray-bouncing engine). Converts a parsed format-3 file: the settings that are there move,
+    unchanged, to the new "natural_stop" section."""
+    import copy
+    data = copy.deepcopy(data)
+    simulation = data.get("simulation")
+    moved = {}
+    if isinstance(simulation, dict):
+        for key in ("iter", "dist", "escape_radius", "confine_window", "confine_method",      # (the format-3
+                    "confine_threshold"):                                                     # keys, spelt out)
+            if key in simulation:
+                moved[key] = simulation.pop(key)
+    data["natural_stop"] = moved
+    data["format_version"] = 4
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
-                      2: _migrate_project_2_to_3}
+                      2: _migrate_project_2_to_3,
+                      3: _migrate_project_3_to_4}
 
 
 def project_from_dict(data):
@@ -570,6 +592,8 @@ def _project_from_dict(data):
         version += 1
 
     ray = _settings_from_section(data, "simulation", RaySettings, "the simulation settings")
+    natural_stop = _settings_from_section(data, "natural_stop", NaturalStopSettings,
+                                          "the natural stopping settings")
     buddha_blur = _settings_from_section(data, "buddha_blur", BuddhaBlurSettings,
                                          "the Buddha blur settings")
 
@@ -595,7 +619,7 @@ def _project_from_dict(data):
     selected_obstacle = selected.get("obstacle")
     selected_view = selected.get("view")
     return Project(
-        ray=ray, buddha_blur=buddha_blur, decorations=decorations, obstacles=obstacles, views=views,
+        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, decorations=decorations, obstacles=obstacles, views=views,
         keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
         view_counter=max(counters.get("view", 0), max(view_ids) + 1),

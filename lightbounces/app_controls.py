@@ -6,6 +6,7 @@ from tkinter import ttk
 from .constants import (
     BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, CONFINE_WINDOW_MAX, CONFINE_WINDOW_MIN,
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
+    DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER,
     DEFAULT_SEGMENT_MULT, DIST_LIMIT_MAX, DIST_LIMIT_MIN, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
@@ -14,27 +15,34 @@ from .constants import (
 )
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, PIXEL, SIZE
 from .parsing import (
-    parse_confine_threshold, parse_confine_window, parse_dist_limit, parse_iter_limit,
+    parse_confine_threshold, parse_confine_window, parse_dist_limit, parse_escape_radius,
+    parse_iter_limit,
     parse_resolution_dimension, parse_seed, parse_target_coordinate
 )
-from .settings import BuddhaBlurSettings, DEFAULT_FUZZ, FuzzParams, RaySettings, settings_to_dict
+from .settings import (
+    BuddhaBlurSettings, DEFAULT_FUZZ, FuzzParams, NaturalStopSettings, RaySettings, settings_to_dict
+)
 from .shapes import obstacles_signature
 from .widgets import FloatEntryHandle
 
 
 class ControlsMixin:
     def build_limits_controls(self, parent):
-        """Two validated number-entry fields: iteration and distance limits."""
+        """Three validated number-entry fields: iteration limit, distance limit and escape radius."""
         lim = ttk.LabelFrame(parent, text="Stopping limits")
         lim.grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 6))
         lim.columnconfigure(0, weight=1)
         iter_vcmd = (self.root.register(self.validate_digits), "%P")
         dist_vcmd = (self.root.register(self.validate_dist_digits), "%P")
+        escape_vcmd = (self.root.register(self.validate_positive_float), "%P")
 
         self.iter_var = tk.StringVar(value=str(DEFAULT_ITER))
         self.dist_var = tk.StringVar(value=str(DEFAULT_DIST))
+        self.escape_radius_var = tk.StringVar(value=str(DEFAULT_ESCAPE_RADIUS))
         rows = [("Iteration limit (bounces):", self.iter_var, "iter_entry", iter_vcmd),
-                ("Distance limit (units, 0 = none):", self.dist_var, "dist_entry", dist_vcmd)]
+                ("Distance limit (units, 0 = none):", self.dist_var, "dist_entry", dist_vcmd),
+                ("Escape radius (units):", self.escape_radius_var, "escape_radius_entry",
+                 escape_vcmd)]
         for r, (text, var, attr, vcmd) in enumerate(rows):
             ttk.Label(lim, text=text).grid(
                 row=r, column=0, sticky="w", padx=(8, 6), pady=(6 if r == 0 else 2, 2))
@@ -49,15 +57,17 @@ class ControlsMixin:
         self.limit_msg_var = tk.StringVar()
         ttk.Label(lim, textvariable=self.limit_msg_var, foreground=ERROR_RED,
                   wraplength=RIGHT_W - 70).grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=8)
+            row=3, column=0, columnspan=2, sticky="w", padx=8)
         ttk.Label(lim, foreground="#666", wraplength=RIGHT_W - 70,
                   text="A ray also stops when it is confined (see Confinement below), "
-                       "or when it escapes (has nothing left to hit). "
+                       "or when it escapes (has nothing left to hit): an escaping ray "
+                       "stops where it is that escape radius from the origin (the "
+                       "image's edge is 1 unit from the origin along each axis). "
                        "One unit is half the image width; a segment that would pass "
                        "the distance limit is cut off where it is reached. A "
                        "distance limit of 0 means no distance limit. Large limits "
                        "(or fuzzing) can take a very long time."
-                  ).grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+                  ).grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
 
     def build_segment_mult_controls(self, parent):
         """A single bounded entry: how much of each bounce's true segment
@@ -439,18 +449,22 @@ class ControlsMixin:
         """Either entry's text changed: flag bad values, track the last good ones."""
         it = parse_iter_limit(self.iter_var.get())
         ds = parse_dist_limit(self.dist_var.get())
+        er = parse_escape_radius(self.escape_radius_var.get())
         cw = parse_confine_window(self.confine_window_var.get())
         ct = parse_confine_threshold(self.confine_threshold_var.get())
         if it is not None:
             self.last_iter = it
         if ds is not None:
             self.last_dist = ds
+        if er is not None:
+            self.last_escape_radius = er
         if cw is not None:
             self.last_confine_window = cw
         if ct is not None:
             self.last_confine_threshold = ct
         self.iter_entry.configure(style="TEntry" if it is not None else "Invalid.TEntry")
         self.dist_entry.configure(style="TEntry" if ds is not None else "Invalid.TEntry")
+        self.escape_radius_entry.configure(style="TEntry" if er is not None else "Invalid.TEntry")
         self.confine_window_entry.configure(
             style="TEntry" if cw is not None else "Invalid.TEntry")
         self.confine_threshold_entry.configure(
@@ -481,6 +495,8 @@ class ControlsMixin:
         if ds is None:
             msgs.append(f"Distance limit must be a whole number from "
                         f"{DIST_LIMIT_MIN} to {DIST_LIMIT_MAX} (0 = no limit).")
+        if er is None:
+            msgs.append("Escape radius must be a number greater than 0 (e.g. 2 or 1.5e3).")
         self.limit_msg_var.set(" ".join(msgs))
         self.invalidate_preview()
         self.update_buttons()
@@ -492,6 +508,7 @@ class ControlsMixin:
         for var, last, parser in (
                 (self.iter_var, self.last_iter, parse_iter_limit),
                 (self.dist_var, self.last_dist, parse_dist_limit),
+                (self.escape_radius_var, self.last_escape_radius, parse_escape_radius),
                 (self.confine_window_var, self.last_confine_window, parse_confine_window),
                 (self.confine_threshold_var, self.last_confine_threshold,
                  parse_confine_threshold),
@@ -575,29 +592,45 @@ class ControlsMixin:
 
     # ---- settings, Start and Revert ---------------------------------------- #
     def current_ray_settings(self):
-        """Every simulation control's value, or None if a limit entry is invalid."""
-        it = parse_iter_limit(self.iter_var.get())
-        ds = parse_dist_limit(self.dist_var.get())
-        cw = parse_confine_window(self.confine_window_var.get())
-        ct = parse_confine_threshold(self.confine_threshold_var.get())
+        """The ray-bouncing engine's control values (segment length, fuzzing, emission), or None
+        if an emission target entry is invalid."""
         target = [parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
                   for field in EMIT_TARGET_FIELDS]
-        if it is None or ds is None or cw is None or ct is None or None in target:
+        if None in target:
             return None
-        sm = self.seg_mult_scale.get()
-        return RaySettings(max_iter=it, max_dist=ds, seg_mult=sm, fuzz=self.read_fuzz_controls(),
-                        confine_window=cw,
-                        confine_method=CONFINE_METHOD_NAMES.index(
-                            self.confine_method_var.get()),
-                        confine_threshold=ct,
-                        emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
-                        emit_target_r=target[0], emit_target_theta=target[1],
-                        emit_target_cx=target[2], emit_target_cy=target[3],
-                        emit_offset=round(float(self.emit_offset_scale.get()), 2))
+        return RaySettings(seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
+                           emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
+                           emit_target_r=target[0], emit_target_theta=target[1],
+                           emit_target_cx=target[2], emit_target_cy=target[3],
+                           emit_offset=round(float(self.emit_offset_scale.get()), 2))
+
+    def current_natural_stop_settings(self):
+        """The stopping limits' and confinement controls' values (a NaturalStopSettings), or
+        None if one of their entries is invalid."""
+        it = parse_iter_limit(self.iter_var.get())
+        ds = parse_dist_limit(self.dist_var.get())
+        er = parse_escape_radius(self.escape_radius_var.get())
+        cw = parse_confine_window(self.confine_window_var.get())
+        ct = parse_confine_threshold(self.confine_threshold_var.get())
+        if it is None or ds is None or er is None or cw is None or ct is None:
+            return None
+        return NaturalStopSettings(
+            max_iter=it, max_dist=ds, escape_radius=er, confine_window=cw,
+            confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
+            confine_threshold=ct)
+
+    def current_generation_settings(self):
+        """(RaySettings, NaturalStopSettings) - everything that, with the obstacles, determines
+        the generated image - or None if any entry of either is invalid."""
+        ray = self.current_ray_settings()
+        natural_stop = self.current_natural_stop_settings()
+        if ray is None or natural_stop is None:
+            return None
+        return ray, natural_stop
 
     def current_blur_settings(self):
         """The Buddha blur controls' values (a BuddhaBlurSettings; a slider and a list of
-        choices can never hold an invalid value, so unlike current_ray_settings this is
+        choices can never hold an invalid value, so unlike current_generation_settings this is
         never None). Always what Buddha channels are colored with: the blur is not baked
         into a generated image, so there is no "generated" blur to remember."""
         return BuddhaBlurSettings(radius=self.buddha_blur_radius_scale.get(),
@@ -612,12 +645,12 @@ class ControlsMixin:
         finished generating (started, not currently running, all rows done) -
         exporting before that would just export the blank background, which
         is never useful, so the button explains what to do instead."""
-        cur = self.current_ray_settings()
+        cur = self.current_generation_settings()
         start_ok = (self.ready and cur is not None
                     and (self.generated_settings is None
-                         or cur != self.generated_settings
+                         or cur != (self.generated_settings, self.generated_natural_stop)
                          or obstacles_signature(self.obstacles) != self.gen_obstacles_sig))
-        revert_ok = cur is None or cur != self.baseline
+        revert_ok = cur is None or cur != (self.baseline, self.baseline_natural_stop)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
@@ -633,7 +666,7 @@ class ControlsMixin:
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
         program started, or when the last generation was started."""
-        for key, value in settings_to_dict(self.baseline).items():
+        for key, value in settings_to_dict(self.baseline, self.baseline_natural_stop).items():
             self.set_setting_control(key, value)
         self.on_limit_var_changed()
         self.on_shape_param_changed()

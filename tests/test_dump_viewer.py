@@ -46,8 +46,8 @@ def test_the_viewer_reads_application_classes_back_as_placeholders_without_impor
     snap = data["snap"]                          # a slotted dataclass: placeholder with named attributes
     assert isinstance(snap, viewer.Placeholder)
     attrs = dict(viewer.object_attributes(snap))
-    assert attrs["max_iter"] == m.DEFAULT_RAY_SETTINGS.max_iter
-    assert attrs["max_dist"] == m.DEFAULT_RAY_SETTINGS.max_dist
+    assert attrs["seg_mult"] == m.DEFAULT_RAY_SETTINGS.seg_mult
+    assert attrs["emit_offset"] == m.DEFAULT_RAY_SETTINGS.emit_offset
 
 
 def test_the_viewer_tolerates_classes_that_cannot_be_found():
