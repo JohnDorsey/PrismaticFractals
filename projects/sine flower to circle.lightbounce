@@ -1,0 +1,144 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 3,
+  "program_version": 130,
+  "simulation": {
+    "iter": 256,
+    "dist": 0,
+    "seg_mult": 1.0,
+    "emit_mode": "up",
+    "emit_target_r": 0.0,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": -45.0,
+    "confine_window": 4,
+    "confine_method": "box",
+    "confine_threshold": 0.00390625,
+    "fuzz_on": false,
+    "emit_jitter": 0.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 0
+  },
+  "buddha_blur": {
+    "buddha_blur_radius": 0.0,
+    "buddha_blur_type": "gaussian"
+  },
+  "decorations": {
+    "outline": true,
+    "pending": true,
+    "ray_path": true,
+    "ray_start": true,
+    "ray_end": true,
+    "guides": true,
+    "samples": false
+  },
+  "obstacles": [
+    {
+      "kind": "sine_flower",
+      "id": 1,
+      "fields": {
+        "rotation": 0.0,
+        "radius": 1.0,
+        "flower_petals": 14,
+        "flower_amplitude": 0.0,
+        "r": 0.0,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    }
+  ],
+  "views": [
+    {
+      "id": 0,
+      "mode": "RGB",
+      "channels": [
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "horizontal_distance",
+          "point1": "start_point",
+          "point2": "end_point"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_segment_midpoints"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_self_bounces"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        }
+      ]
+    }
+  ],
+  "keyframes": [
+    {
+      "id": 0,
+      "frame_index": 0,
+      "settings": {
+        "obst:1:flower_amplitude": 0.95,
+        "obst:1:radius": 0.51
+      }
+    },
+    {
+      "id": 1,
+      "frame_index": 1439,
+      "settings": {
+        "obst:1:flower_amplitude": 0.0,
+        "obst:1:radius": 1.0
+      }
+    }
+  ],
+  "export": {
+    "include_all_views": true,
+    "color_info_location": "bottom_margin",
+    "figure_info_location": "none",
+    "image_source": "current_image",
+    "image_format": "jxl",
+    "image_jxl_mode": "lossless",
+    "image_jxl_quality": 90,
+    "image_width": "1080",
+    "image_height": "1080",
+    "video_fps": "60",
+    "video_width": "1080",
+    "video_height": "1080",
+    "video_start_frame": "0",
+    "video_number_files_from_start": true,
+    "video_format": "jxl",
+    "video_bitrate_mode": "variable_bitrate",
+    "video_quality": 75,
+    "video_bitrate": "1920",
+    "video_vbr_target": "4096",
+    "video_vbr_max": "8192",
+    "video_downsample_factor": "none",
+    "video_downsample_method": "mean",
+    "video_jxl_mode": "lossless",
+    "video_jxl_quality": 90
+  },
+  "counters": {
+    "obstacle": 2,
+    "view": 1,
+    "keyframe": 2
+  },
+  "selected": {
+    "obstacle": 1,
+    "view": 0
+  }
+}

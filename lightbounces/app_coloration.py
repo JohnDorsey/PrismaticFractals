@@ -7,10 +7,11 @@ from .constants import (
     SELECTED_OUTLINE_PX, THUMB_SIZE
 )
 from .image_io import encode_png_bytes
+from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
-    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS,
-    CHAN_CONSTANT_LABELS, CHAN_SRC_BUDDHA, CHAN_SRC_LABELS, KIND_LABELS, POINT_LABELS,
-    POINT_MENU_LABELS, constant_stat_to_label, make_mapping
+    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_CONSTANT_LABELS,
+    CHAN_SRC_BUDDHA, CHAN_SRC_LABELS, KIND_LABELS, N_BUDDHA_POINTS, POINT_LABELS, POINT_MENU_LABELS,
+    POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_stat_to_label, make_mapping
 )
 from .ui_text import default_map_help
 from .views import MODES, MODE_NAMES, ViewConfig
@@ -324,14 +325,14 @@ class ColorationMixin:
             p1var = tk.StringVar(value=POINT_LABELS[view.point1_choice[c]])
             p1combo = ttk.Combobox(qf, textvariable=p1var, values=POINT_MENU_LABELS,
                                    state="readonly", width=14)
-            p1combo.grid(row=1, column=1, sticky="ew", padx=(4, 6), pady=2)
+            p1combo.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(4, 0), pady=2)
             p1combo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_point_selected(c))
 
-            ttk.Label(qf, text="Point 2:").grid(row=1, column=2, sticky="w", pady=2)
+            ttk.Label(qf, text="Point 2:").grid(row=2, column=0, sticky="w", pady=2)
             p2var = tk.StringVar(value=POINT_LABELS[view.point2_choice[c]])
             p2combo = ttk.Combobox(qf, textvariable=p2var, values=POINT_MENU_LABELS,
                                    state="readonly", width=14)
-            p2combo.grid(row=1, column=3, sticky="ew", padx=(4, 0), pady=2)
+            p2combo.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(4, 0), pady=2)
             p2combo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_point_selected(c))
 
             # ---- Buddha sub-controls: Points (multi-select), Compression,
@@ -341,13 +342,27 @@ class ColorationMixin:
             ttk.Label(bf, text="Points:").grid(row=0, column=0, sticky="nw", pady=2)
             pts_grid = ttk.Frame(bf)
             pts_grid.grid(row=0, column=1, sticky="w", padx=(4, 0), pady=2)
+            # every stored point is one reduction (a column) of one sequence (a row); the points of the
+            # rays a limit ended, and the options that scatter many points per ray, are listed below
+            for red in range(N_PRED):
+                ttk.Label(pts_grid, text=POINT_REDUCTION_SHORT[red], font=self.small_font).grid(
+                    row=0, column=1 + red, padx=2)
+            for seq in range(N_SEQS):
+                ttk.Label(pts_grid, text=SEQUENCE_SHORT[seq], font=self.small_font).grid(
+                    row=1 + seq, column=0, sticky="w", padx=(0, 8))
             bvars = []
             bchecks = []
-            for i, label in enumerate(BUDDHA_POINT_LABELS):
+            for i in range(N_BUDDHA_POINTS):
                 bvar = tk.BooleanVar(value=view.buddha_points[c][i])
-                chk = ttk.Checkbutton(pts_grid, text=label, variable=bvar,
-                                      command=lambda c=c: self.on_buddha_points_changed(c))
-                chk.grid(row=i, column=0, sticky="w", padx=(0, 10))
+                if i < N_POINTS:
+                    seq, red = POINT_OF_SLOT[i]
+                    chk = ttk.Checkbutton(pts_grid, variable=bvar,
+                                          command=lambda c=c: self.on_buddha_points_changed(c))
+                    chk.grid(row=1 + seq, column=1 + red)
+                else:
+                    chk = ttk.Checkbutton(pts_grid, text=BUDDHA_POINT_LABELS[i], variable=bvar,
+                                          command=lambda c=c: self.on_buddha_points_changed(c))
+                    chk.grid(row=N_SEQS + 1 + i - N_POINTS, column=0, columnspan=N_PRED + 1, sticky="w")
                 bvars.append(bvar)
                 bchecks.append(chk)
             settings_row = ttk.Frame(bf)

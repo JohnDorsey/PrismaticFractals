@@ -37,7 +37,7 @@ def test_point_lists_include_the_two_new_fixed_points():
     assert m.POINT_LABELS[m.POINT_ORIGIN] == "Origin"
     assert m.POINT_LABELS[m.POINT_TOP_LEFT_CORNER] == "Top left corner"
     assert len(m.POINT_LABELS) == len(m.POINT_SHORT) == len(m.POINT_DESCRIPTIONS)
-    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_LEGACY_POINTS + 2
+    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 2
 
 
 def test_colorize_view_produces_uniform_color_for_two_constant_points():
@@ -377,8 +377,8 @@ def test_colorize_view_spreads_a_buddha_point_with_blur_enabled():
 
     v = m.ViewConfig(0)                  # mutable; converted for colorize_view below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
-    # index 0 in BUDDHA_POINT_CATALOG is "All bounces mean" -> POINT_ALL_MEAN
-    v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
+    # the entry of BUDDHA_POINT_CATALOG that is a stored point has that point's own number
+    v.buddha_points[0] = _buddha_choice(m.POINT_ALL_MEAN)
 
     stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
 
@@ -583,9 +583,9 @@ def test_the_point_dropdowns_still_list_every_choice_exactly_once():
 def test_choosing_from_the_reordered_dropdown_still_gives_the_same_point_ids():
     """Only the display order changed: a label maps back to its unchanged id, so
     the ids stored in views, keyframes and the sample arrays are untouched."""
-    assert m.POINT_LABELS.index("Origin") == m.POINT_ORIGIN == 13
-    assert m.POINT_LABELS.index("Top left corner") == m.POINT_TOP_LEFT_CORNER == 14
-    assert m.POINT_LABELS.index("Start point") == m.POINT_START == 0
+    assert m.POINT_LABELS.index("Origin") == m.POINT_ORIGIN == m.N_POINTS
+    assert m.POINT_LABELS.index("Top left corner") == m.POINT_TOP_LEFT_CORNER == m.N_POINTS + 1
+    assert m.POINT_LABELS.index("Path: First point") == m.POINT_START == 0
     for point_id in range(m.N_POINT_CHOICES):
         label = m.POINT_LABELS[point_id]
         assert m.POINT_LABELS.index(label) == point_id
@@ -726,3 +726,36 @@ def test_buddha_catalog_lengths_agree():
 
 def test_buddha_confined_channel_present():
     assert any("confined" in label.lower() for label in m.BUDDHA_POINT_LABELS)
+
+
+def test_every_metric_and_point_a_dropdown_can_choose_is_a_plain_int():
+    """Regression: OTHER_STATS was built from the numpy slot table, so choosing a sequence's metric from the
+    dropdown stored a numpy integer, which the strict ChannelSettings record (and so saving a project) refuses."""
+    for table in (m.OTHER_STATS, m.POINT_STATS, m.POINT_MENU_ORDER):
+        assert all(type(value) is int for value in table), table
+    for label in m.OTHER_LABELS:
+        assert type(m.other_label_to_stat(label)) is int, label
+    v = m.ViewConfig(0)
+    v.kinds[1] = m.KIND_OTHER
+    v.other_metric[1] = m.other_label_to_stat("Boundary bounces: Length (arctan)")
+    v.point1_choice[0] = m.POINT_LABELS.index("Self bounces: Last point")
+    channels = [m.view_channel_value(v, c) for c in range(3)]
+    assert channels[1].stat == m.stat_slot(m.SEQ_BOUNDARY, m.SRED_LENGTH)
+    assert m._channel_to_json(channels[1]) == {"source": "query", "kind": "other_metric", "metric": "boundary_bounces_length"}
+    assert m._channel_to_json(channels[0])["point1"] == "self_bounces_last"
+
+
+def test_every_choice_a_view_can_make_has_its_own_label_and_a_working_key():
+    assert len(set(m.STAT_LABELS)) == m.N_STATS and len(set(m.POINT_LABELS)) == m.N_POINT_CHOICES
+    assert len(set(m.BUDDHA_POINT_LABELS)) == m.N_BUDDHA_POINTS and len(set(m.STAT_SHORT)) == m.N_STATS
+    for stat in range(m.N_STATS):
+        assert m.CAT_METRIC.by_key[m.CAT_METRIC.key(stat)] == stat
+    for point in range(m.N_POINT_CHOICES):
+        assert m.CAT_POINT.by_key[m.CAT_POINT.key(point)] == point
+    for index in range(m.N_BUDDHA_POINTS):
+        assert m.CAT_BUDDHA_POINT.by_key[m.CAT_BUDDHA_POINT.key(index)] == index
+    assert m.POINT_LABELS[m.point_slot(m.SEQ_SELF, m.PRED_TOP)] == "Self bounces: Uppermost point"
+    assert m.STAT_LABELS[m.stat_slot(m.SEQ_BOUNDARY, m.SRED_SHARE)] == "Boundary bounces: Share of the bounces"
+    assert m.STAT_LABELS[m.ST_TERMINATION] == "Termination reason"          # a measurement of the run, written out by hand
+    slot = m.point_slot(m.SEQ_SELF, m.PRED_LAST)
+    assert m.BUDDHA_POINT_CATALOG[slot][1:] == (m.BUDDHA_SIMPLE, slot, None)

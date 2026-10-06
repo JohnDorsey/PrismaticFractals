@@ -30,7 +30,7 @@ def _sample_project(**changes):
     v1.mode = "HSV"
     v1.set_channel(1, m.ChannelSettings(
         chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=0, point2=1,
-        buddha_points=(False, True, True) + (False,) * (m.N_BUDDHA_POINTS - 3),
+        buddha_points=_buddha_choice(m.POINT_SELF_MEAN, m.POINT_BOUNDARY_MEAN),
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ONE))
     channel = m.view_channel_value(v1, 1)
     keyframes = (m.Keyframe(2, 0, {"iter": 40, "dist": 2.5, "outline": False,
@@ -107,7 +107,7 @@ def test_a_project_survives_being_saved_and_loaded():
 def _channel(source, **changes):
     fields = dict(chan_src=source, kind=m.KIND_POINT, stat=m.ST_EUCLIDEAN, point1=m.POINT_TOP,
                   point2=m.POINT_ORIGIN,
-                  buddha_points=(False, True) + (False,) * (m.N_BUDDHA_POINTS - 2),
+                  buddha_points=_buddha_choice(m.POINT_SELF_MEAN),
                   buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3,
                   constant=m.NONE_ONE)
     fields.update(changes)
@@ -117,9 +117,9 @@ def _channel(source, **changes):
 def test_a_channel_in_a_file_has_only_the_settings_its_source_uses():
     query_points = m._channel_to_json(_channel(m.CHAN_SRC_QUERY))
     assert query_points == {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
-                            "point1": "uppermost_bounce", "point2": "origin"}
+                            "point1": "bounces_uppermost", "point2": "origin"}
     query_other = m._channel_to_json(_channel(m.CHAN_SRC_QUERY, kind=m.KIND_OTHER, stat=m.ST_BOUNCES))
-    assert query_other == {"source": "query", "kind": "other_metric", "metric": "bounces"}
+    assert query_other == {"source": "query", "kind": "other_metric", "metric": "bounces_count"}
     assert m._channel_to_json(_channel(m.CHAN_SRC_BUDDHA)) == {
         "source": "buddha", "buddha_points": ["self_bounces_mean"],
         "buddha_compression": "modulus", "buddha_brightness": "8x"}
@@ -157,7 +157,7 @@ def test_a_channel_missing_a_setting_its_source_uses_is_refused_and_unused_ones_
     just_constant = m._channel_from_json({"source": "constant", "constant": "one"}, "test", 2)
     default = m.view_channel_value(m.ViewConfig(0), 2)
     assert just_constant == default.replace(chan_src=m.CHAN_SRC_CONSTANT, constant=m.NONE_ONE)
-    assert m._channel_from_json({"source": "query", "kind": "other_metric", "metric": "bounces"},
+    assert m._channel_from_json({"source": "query", "kind": "other_metric", "metric": "bounces_count"},
                                 "test", 1).point1 == m.view_channel_value(m.ViewConfig(0), 1).point1
 
 
@@ -165,12 +165,12 @@ def test_a_file_that_keeps_unused_channel_settings_still_loads_with_them():
     """The first files of format 2 held every setting of every channel; they must keep loading,
     and what they kept is kept."""
     everything = {"source": "query", "kind": "point_metric", "metric": "manhattan_distance",
-                  "point1": "origin", "point2": "end_point", "buddha_points": ["termination_point"],
+                  "point1": "origin", "point2": "path_last", "buddha_points": ["path_last"],
                   "buddha_compression": "modulus", "buddha_brightness": "16x", "constant": "one"}
     channel = m._channel_from_json(everything, "test", 0)
     assert channel.chan_src == m.CHAN_SRC_QUERY and channel.stat == m.ST_MANHATTAN
     assert channel.buddha_compression == m.BUDDHA_COMPRESS_MODULUS and channel.buddha_brightness == 4
-    assert channel.constant == m.NONE_ONE and channel.buddha_points[3] is True
+    assert channel.constant == m.NONE_ONE and channel.buddha_points[m.POINT_END] is True
 
 
 def test_unused_channel_settings_do_not_count_as_a_change_to_the_project():
@@ -207,11 +207,11 @@ def test_a_project_that_cannot_be_saved_counts_as_having_unsaved_changes():
 def test_a_project_file_is_pretty_printed_versioned_json():
     import json
     text = m.project_text(_sample_project())
-    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 4,')
+    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 5,')
     assert text.endswith("}\n") and "\r" not in text
     assert all(len(line) < 120 for line in text.split("\n"))            # one value per line
     data = json.loads(text)
-    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 4
+    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 5
     assert data["program_version"] == m.FILE_VERSION
     assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
     assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "view": 5}
@@ -280,10 +280,10 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d10["views"][0]["channels"][0]["metric"] = "no_such_metric"
     _refused(d10, "no_such_metric")
     d10b = _dict_of()
-    d10b["views"][0]["channels"][0].update(kind="point_metric", metric="bounces")
+    d10b["views"][0]["channels"][0].update(kind="point_metric", metric="bounces_count")
     _refused(d10b, "does not suit")
     d10c = _dict_of()
-    d10c["views"][1]["channels"][1]["buddha_points"] = ["all_bounces_mean", "a_future_point"]
+    d10c["views"][1]["channels"][1]["buddha_points"] = ["bounces_mean", "a_future_point"]
     _refused(d10c, "a_future_point")
     d10d = _dict_of()
     d10d["obstacles"][0]["fields"]["in_effect"] = 1                      # a number, not a key
@@ -362,13 +362,13 @@ def test_a_file_from_another_version_is_read_leniently():
     d["export"]["a_future_choice"] = "x"
     d["counters"]["obstacle"] = 0                    # lower than the ids in use: raised above them
     d["export"]["video_format"] = "a_future_format"                   # unknown choice: control keeps its value
-    d["views"][1]["channels"][1]["buddha_points"] = ["all_bounces_mean"]
+    d["views"][1]["channels"][1]["buddha_points"] = ["bounces_mean"]
     loaded = m.project_from_dict(d)
     assert "video_format" not in loaded.export
     assert loaded.natural_stop.max_iter == m.DEFAULT_NATURAL_STOP_SETTINGS.max_iter
     assert loaded.obstacle_counter == max(o.id for o in loaded.obstacles) + 1
     chosen = m.view_channel_value(loaded.views[1], 1).buddha_points
-    assert chosen == (True,) + (False,) * (m.N_BUDDHA_POINTS - 1)
+    assert chosen == _buddha_choice(m.POINT_ALL_MEAN)
     d2 = _dict_of()
     d2["selected"] = {"obstacle": 12345, "view": 777}              # gone: first view, none selected
     loaded = m.project_from_dict(d2)
@@ -414,6 +414,54 @@ PINNED_KEYS = {
     "CAT_CHAN_SOURCE": {"query": "CHAN_SRC_QUERY", "buddha": "CHAN_SRC_BUDDHA",
                         "constant": "CHAN_SRC_CONSTANT"},
     "CAT_CHAN_KIND": {"point_metric": "KIND_POINT", "other_metric": "KIND_OTHER"},
+    "CAT_SEQUENCE": {"path": "SEQ_PATH", "bounces": "SEQ_BOUNCES", "boundary_bounces": "SEQ_BOUNDARY",
+                     "self_bounces": "SEQ_SELF"},
+    "CAT_POINT_REDUCTION": {"first": "PRED_FIRST", "last": "PRED_LAST", "mean": "PRED_MEAN",
+                            "uppermost": "PRED_TOP", "lowermost": "PRED_BOTTOM", "rightmost": "PRED_RIGHT",
+                            "leftmost": "PRED_LEFT"},
+    "CAT_STAT_REDUCTION": {"count": "SRED_COUNT", "length": "SRED_LENGTH", "last_direction": "SRED_LAST_DIR",
+                           "share": "SRED_SHARE"},
+    "CAT_METRIC": {                   # the run's own measurements, and each sequence's reductions
+        "horizontal_distance": "ST_HDIST", "vertical_distance": "ST_VDIST",
+        "manhattan_distance": "ST_MANHATTAN", "euclidean_distance": "ST_EUCLIDEAN",
+        "loop_area": "ST_LOOP_AREA", "mean_bounce_angle": "ST_ANGLES",
+        "termination_reason": "ST_TERMINATION", "last_segment_ratio": "ST_LAST_RATIO",
+        "bounces_count": "ST_BOUNCES", "self_bounces_share": "ST_RAY_FRAC",
+        "boundary_bounces_share": "ST_BOUNDARY_FRAC", "path_length": "ST_LENGTH",
+        "path_last_direction": "ST_LAST_DIR"},
+    "CAT_POINT": {
+        "path_first": "POINT_START", "path_last": "POINT_END", "bounces_mean": "POINT_ALL_MEAN",
+        "boundary_bounces_mean": "POINT_BOUNDARY_MEAN", "self_bounces_mean": "POINT_SELF_MEAN",
+        "bounces_uppermost": "POINT_TOP", "bounces_lowermost": "POINT_BOTTOM",
+        "bounces_rightmost": "POINT_RIGHT", "bounces_leftmost": "POINT_LEFT",
+        "self_bounces_uppermost": "POINT_SELF_TOP", "self_bounces_lowermost": "POINT_SELF_BOTTOM",
+        "self_bounces_rightmost": "POINT_SELF_RIGHT", "self_bounces_leftmost": "POINT_SELF_LEFT",
+        "origin": "POINT_ORIGIN", "top_left_corner": "POINT_TOP_LEFT_CORNER"},
+    "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
+                               "modulus": "BUDDHA_COMPRESS_MODULUS"},
+    "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
+    "CAT_EMIT_MODE": {"up": "EMIT_UP", "towards_point": "EMIT_TOWARDS"},
+    "CAT_CONFINE_METHOD": {"box": "CONFINE_BOX", "path_length": "CONFINE_PATH"},
+    "CAT_BLUR_TYPE": {"gaussian": "BUDDHA_BLUR_GAUSSIAN", "triangular": "BUDDHA_BLUR_TRIANGULAR",
+                      "bokeh": "BUDDHA_BLUR_BOKEH", "catadioptric_bokeh": "BUDDHA_BLUR_CATADIOPTRIC"},
+    "CAT_EFFECT": {"reflect": "OBSTACLE_EFFECT_REFLECT", "terminate": "OBSTACLE_EFFECT_TERMINATE",
+                   "pass_through": "OBSTACLE_EFFECT_PASS"},
+}
+PINNED_BUDDHA_POINT_KEYS = {          # key -> (style, the point or multi option, the limit that ended the rays)
+    "bounces_mean": ("BUDDHA_SIMPLE", "POINT_ALL_MEAN", None),
+    "self_bounces_mean": ("BUDDHA_SIMPLE", "POINT_SELF_MEAN", None),
+    "boundary_bounces_mean": ("BUDDHA_SIMPLE", "POINT_BOUNDARY_MEAN", None),
+    "path_last": ("BUDDHA_SIMPLE", "POINT_END", None),
+    "path_last_distance_limit": ("BUDDHA_SIMPLE", "POINT_END", "TERM_DIST"),
+    "path_last_perpendicular_collision": ("BUDDHA_SIMPLE", "POINT_END", "TERM_PERPENDICULAR"),
+    "path_last_confined": ("BUDDHA_SIMPLE", "POINT_END", "TERM_CONFINED"),
+    "all_self_bounces": ("BUDDHA_MULTI", "BUDDHA_MULTI_ALL_SELF", None),
+    "all_segment_midpoints": ("BUDDHA_MULTI", "BUDDHA_MULTI_ALL_MID", None),
+    "progressive_means_of_bounce_points": ("BUDDHA_MULTI", "BUDDHA_MULTI_PROG_BOUNCE", None),
+    "progressive_means_of_segment_midpoints": ("BUDDHA_MULTI", "BUDDHA_MULTI_PROG_MID", None)}
+# What the keys of format 4 (and 1-3: the migrations bring them to format 4's) meant: key -> the program's constant. Every
+# one must still load, as the key _migrate_project_4_to_5 renames it to.
+FORMAT_4_KEYS = {
     "CAT_METRIC": {
         "horizontal_distance": "ST_HDIST", "vertical_distance": "ST_VDIST",
         "manhattan_distance": "ST_MANHATTAN", "euclidean_distance": "ST_EUCLIDEAN",
@@ -430,26 +478,16 @@ PINNED_KEYS = {
         "leftmost_bounce": "POINT_LEFT", "uppermost_self_bounce": "POINT_SELF_TOP",
         "lowermost_self_bounce": "POINT_SELF_BOTTOM", "rightmost_self_bounce": "POINT_SELF_RIGHT",
         "leftmost_self_bounce": "POINT_SELF_LEFT", "origin": "POINT_ORIGIN",
-        "top_left_corner": "POINT_TOP_LEFT_CORNER"},
-    "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
-                               "modulus": "BUDDHA_COMPRESS_MODULUS"},
-    "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
-    "CAT_EMIT_MODE": {"up": "EMIT_UP", "towards_point": "EMIT_TOWARDS"},
-    "CAT_CONFINE_METHOD": {"box": "CONFINE_BOX", "path_length": "CONFINE_PATH"},
-    "CAT_BLUR_TYPE": {"gaussian": "BUDDHA_BLUR_GAUSSIAN", "triangular": "BUDDHA_BLUR_TRIANGULAR",
-                      "bokeh": "BUDDHA_BLUR_BOKEH", "catadioptric_bokeh": "BUDDHA_BLUR_CATADIOPTRIC"},
-    "CAT_EFFECT": {"reflect": "OBSTACLE_EFFECT_REFLECT", "terminate": "OBSTACLE_EFFECT_TERMINATE",
-                   "pass_through": "OBSTACLE_EFFECT_PASS"},
-}
-PINNED_BUDDHA_POINT_KEYS = {          # key -> the label of the entry in BUDDHA_POINT_CATALOG
-    "all_bounces_mean": "All bounces mean", "self_bounces_mean": "Self bounces mean",
-    "boundary_bounces_mean": "Boundary bounces mean", "termination_point": "Termination point",
-    "termination_point_distance_limit": "Termination point (distance limit)",
-    "termination_point_perpendicular_collision": "Termination point (perpendicular collision)",
-    "termination_point_confined": "Termination point (confined)",
-    "all_self_bounces": "All self bounces", "all_segment_midpoints": "All segment midpoints",
-    "progressive_means_of_bounce_points": "Progressive means of bounce points",
-    "progressive_means_of_segment_midpoints": "Progressive means of segment midpoints"}
+        "top_left_corner": "POINT_TOP_LEFT_CORNER"}}
+FORMAT_4_BUDDHA_POINT_KEYS = {        # key -> the format-5 key of the same thing
+    "all_bounces_mean": "bounces_mean", "self_bounces_mean": "self_bounces_mean",
+    "boundary_bounces_mean": "boundary_bounces_mean", "termination_point": "path_last",
+    "termination_point_distance_limit": "path_last_distance_limit",
+    "termination_point_perpendicular_collision": "path_last_perpendicular_collision",
+    "termination_point_confined": "path_last_confined", "all_self_bounces": "all_self_bounces",
+    "all_segment_midpoints": "all_segment_midpoints",
+    "progressive_means_of_bounce_points": "progressive_means_of_bounce_points",
+    "progressive_means_of_segment_midpoints": "progressive_means_of_segment_midpoints"}
 PINNED_SHAPE_KINDS = {"ellipse": "EllipseShape", "regular_polygon": "RegularPolygonShape",
                       "moss_egg": "MossEggShape", "circular_sector": "CircularSectorShape",
                       "circular_segment": "CircularSegmentShape", "two_circle_lens": "LensShape",
@@ -519,8 +557,10 @@ def test_the_keys_in_project_files_never_change():
         for key, constant in keys.items():
             assert catalog.by_key.get(key) == getattr(m, constant), \
                 f"{catalog_name}: the key {key!r} must still mean {constant}"
-    for key, label in PINNED_BUDDHA_POINT_KEYS.items():
-        assert m.BUDDHA_POINT_CATALOG[m.CAT_BUDDHA_POINT.by_key[key]][0] == label, key
+    for key, (style, ref, limit) in PINNED_BUDDHA_POINT_KEYS.items():
+        _label, entry_style, entry_ref, entry_limit = m.BUDDHA_POINT_CATALOG[m.CAT_BUDDHA_POINT.by_key[key]]
+        assert (entry_style, entry_ref, entry_limit) == (getattr(m, style), getattr(m, ref),
+                                                          None if limit is None else getattr(m, limit)), key
     for key, class_name in PINNED_SHAPE_KINDS.items():
         assert m.CAT_SHAPE_KIND.by_key[key].__name__ == class_name, key
     for catalog_name, keys in PINNED_EXPORT_CHOICES.items():
@@ -559,6 +599,42 @@ def test_a_catalog_translates_between_keys_and_codes_and_refuses_what_it_does_no
         raise AssertionError("a key that is not lower-case snake case was accepted")
 
 
+def test_every_key_a_format_4_file_can_hold_still_means_the_same_once_migrated():
+    """Format 4 named each metric, point and Buddha point on its own; format 5 names them by sequence and reduction.
+    Every old key must come out of the migration as a key that means what the old one did."""
+    for catalog_name, renames in (("CAT_METRIC", m._FORMAT_4_METRIC_RENAMES), ("CAT_POINT", m._FORMAT_4_POINT_RENAMES)):
+        for old_key, constant in FORMAT_4_KEYS[catalog_name].items():
+            new_key = renames.get(old_key, old_key)
+            assert getattr(m, catalog_name).by_key.get(new_key) == getattr(m, constant), (catalog_name, old_key)
+    assert set(m._FORMAT_4_METRIC_RENAMES) <= set(FORMAT_4_KEYS["CAT_METRIC"])
+    assert set(m._FORMAT_4_POINT_RENAMES) <= set(FORMAT_4_KEYS["CAT_POINT"])
+    for old_key, new_key in FORMAT_4_BUDDHA_POINT_KEYS.items():
+        assert m._FORMAT_4_BUDDHA_RENAMES.get(old_key, old_key) == new_key, old_key
+        assert new_key in m.CAT_BUDDHA_POINT.by_key, new_key
+    assert set(m._FORMAT_4_BUDDHA_RENAMES) <= set(FORMAT_4_BUDDHA_POINT_KEYS) | set(FORMAT_4_KEYS["CAT_POINT"])
+
+
+def test_a_format_4_channel_is_renamed_in_every_view_and_keyframe_by_the_migration():
+    channel = {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
+               "point1": "uppermost_self_bounce", "point2": "end_point"}
+    other = {"source": "query", "kind": "other_metric", "metric": "ray_bounce_fraction"}
+    buddha = {"source": "buddha", "buddha_points": ["all_bounces_mean", "termination_point_confined", "all_self_bounces"],
+              "buddha_compression": "modulus", "buddha_brightness": "1x"}
+    data = {"format": m.PROJECT_FORMAT_NAME, "format_version": 4,
+            "views": [{"id": 0, "mode": "RGB", "channels": [channel, other, buddha]}],
+            "keyframes": [{"id": 1, "frame_index": 0, "settings": {"view:0:chan0": channel, "iter": 5}}]}
+    migrated = m._migrate_project_4_to_5(data)
+    assert migrated["format_version"] == 5 and data["format_version"] == 4          # the input is not touched
+    assert migrated["views"][0]["channels"] == [
+        {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
+         "point1": "self_bounces_uppermost", "point2": "path_last"},
+        {"source": "query", "kind": "other_metric", "metric": "self_bounces_share"},
+        {"source": "buddha", "buddha_points": ["bounces_mean", "path_last_confined", "all_self_bounces"],
+         "buddha_compression": "modulus", "buddha_brightness": "1x"}]
+    assert migrated["keyframes"][0]["settings"]["view:0:chan0"]["point1"] == "self_bounces_uppermost"
+    assert migrated["keyframes"][0]["settings"]["iter"] == 5
+
+
 def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     data = _dict_of()
     assert data["simulation"]["emit_mode"] == "towards_point"
@@ -570,7 +646,7 @@ def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
     channel = data["views"][1]["channels"][1]
     assert channel == {"source": "buddha",
-                       "buddha_points": ["self_bounces_mean", "boundary_bounces_mean"],
+                       "buddha_points": ["boundary_bounces_mean", "self_bounces_mean"],
                        "buddha_compression": "modulus", "buddha_brightness": "8x"}
     settings = data["keyframes"][0]["settings"]
     assert settings["view:5:chan1"] == channel and settings["iter"] == 40
@@ -621,7 +697,7 @@ def test_a_format_1_project_file_is_converted_when_loaded():
     assert isinstance(old["simulation"]["emit_mode"], int)
     loaded = m.load_project(V1_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
-    assert m.project_text(loaded).count('"format_version": 4') == 1
+    assert m.project_text(loaded).count('"format_version": 5') == 1
 
 
 V2_PROJECT_FILE = os.path.join(ROOT, "dev", "testing",
@@ -642,7 +718,7 @@ def test_a_format_2_project_file_is_converted_when_loaded():
     assert loaded.ray == _sample_project().ray
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 4
+    assert converted["format_version"] == 5
     assert converted["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)      # the two moved, none was copied
     assert old["simulation"]["iter"] == converted["natural_stop"]["iter"] == 77
@@ -828,7 +904,7 @@ def test_a_format_3_project_file_is_converted_when_loaded():
     assert loaded.obstacles and len(loaded.obstacles) == len(m.SHAPE_CLASSES)
     assert loaded.natural_stop.max_iter == 77 and loaded.natural_stop.confine_window == 6
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 4
+    assert converted["format_version"] == 5
     assert set(converted["natural_stop"]) == set(m.NATURAL_STOP_SETTING_SPECS)      # the six moved ...
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)                 # ... and none stayed
     assert converted["natural_stop"]["iter"] == old["simulation"]["iter"] == 77
@@ -848,3 +924,26 @@ def test_the_format_3_to_4_migration_moves_only_the_natural_stopping_settings_it
     assert "natural_stop" not in old and "iter" in old["simulation"]          # the file's data is not modified
     assert m.project_from_dict(old).natural_stop.escape_radius == m.DEFAULT_ESCAPE_RADIUS
     assert m._migrate_project_3_to_4({"format_version": 3})["natural_stop"] == {}
+
+
+V4_PROJECT_FILE = os.path.join(ROOT, "dev", "testing", "project_v4.lightbounce")
+
+
+def test_a_format_4_project_file_is_converted_when_loaded():
+    """dev/testing/project_v4.lightbounce is a real file written by format 4 from _sample_project(): its
+    channels name each metric, point and Buddha point on its own ("start_point", "self_bounces_mean"). Format 5 names
+    them by sequence and reduction, and the file must keep loading, to exactly that project."""
+    import json
+    with open(V4_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    assert old["format_version"] == 4
+    assert old["views"][0]["channels"][0]["point1"] == "start_point"
+    assert old["views"][1]["channels"][1]["buddha_points"] == ["self_bounces_mean", "boundary_bounces_mean"]
+    loaded = m.load_project(V4_PROJECT_FILE)
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    converted = json.loads(m.project_text(loaded))
+    assert converted["format_version"] == 5
+    assert converted["views"][0]["channels"][0]["point1"] == "path_first"
+    assert converted["views"][0]["channels"][0]["point2"] == "path_last"
+    assert converted["views"][1]["channels"][1]["buddha_points"] == ["boundary_bounces_mean", "self_bounces_mean"]
+    assert converted["keyframes"][0]["settings"]["view:0:chan0"]["point1"] == "path_first"

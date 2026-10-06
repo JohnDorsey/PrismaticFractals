@@ -20,17 +20,17 @@ from .export_text import (
 )
 from .image_io import DOWNSAMPLE_FACTORS, DOWNSAMPLE_METHODS, JXL_MODES, SAVE_NEW_FORMATS
 from .kernels import (
-    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, OBSTACLE_EFFECT_PASS,
-    OBSTACLE_EFFECT_REFLECT, OBSTACLE_EFFECT_TERMINATE, POINT_ALL_MEAN, POINT_BOTTOM,
-    POINT_BOUNDARY_MEAN, POINT_END, POINT_LEFT, POINT_RIGHT, POINT_SELF_BOTTOM, POINT_SELF_LEFT,
-    POINT_SELF_MEAN, POINT_SELF_RIGHT, POINT_SELF_TOP, POINT_START, POINT_TOP, ST_ANGLES,
-    ST_BOUNCES, ST_BOUNDARY_FRAC, ST_EUCLIDEAN, ST_HDIST, ST_LAST_DIR, ST_LAST_RATIO, ST_LENGTH,
-    ST_LOOP_AREA, ST_MANHATTAN, ST_RAY_FRAC, ST_TERMINATION, ST_VDIST
+    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, N_POINTS, N_PRED, N_SEQS, N_SRED, OBSTACLE_EFFECT_PASS,
+    OBSTACLE_EFFECT_REFLECT, OBSTACLE_EFFECT_TERMINATE, PRED_BOTTOM, PRED_FIRST, PRED_LAST, PRED_LEFT, PRED_MEAN,
+    PRED_RIGHT, PRED_TOP, SEQ_BOUNCES, SEQ_BOUNDARY, SEQ_PATH, SEQ_SELF, SRED_COUNT, SRED_LAST_DIR, SRED_LENGTH,
+    SRED_SHARE, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN, ST_TERMINATION,
+    ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
 )
 from .metrics import (
-    BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
-    CHAN_SRC_QUERY, KIND_OTHER, KIND_POINT, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_STATS,
-    POINT_ORIGIN, POINT_STATS, POINT_TOP_LEFT_CORNER
+    BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
+    BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
+    CHAN_SRC_QUERY, KIND_OTHER, KIND_POINT, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_STATS, POINT_ORIGIN,
+    POINT_STATS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
 )
 from .settings import (
     BuddhaBlurSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalStopSettings, RaySettings, SETTING_TABLES,
@@ -43,7 +43,7 @@ from .views import ChannelSettings, MODES, ViewConfig, snapshot_view, view_chann
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 4
+PROJECT_FORMAT_VERSION = 5
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
 
@@ -91,28 +91,46 @@ def _string_catalog(name, keys, labels):
 CAT_CHAN_SOURCE = Catalog("channel source", [
     ("query", CHAN_SRC_QUERY), ("buddha", CHAN_SRC_BUDDHA), ("constant", CHAN_SRC_CONSTANT)])
 CAT_CHAN_KIND = Catalog("channel kind", [("point_metric", KIND_POINT), ("other_metric", KIND_OTHER)])
-CAT_METRIC = Catalog("metric", [
+# The named sequences of points, and the reductions of them a channel can use (what the engine stores for
+# each ray). A point, a metric of a sequence and a Buddha point are each named by the sequence's key and the
+# reduction's: "self_bounces_uppermost", "path_length", "path_last_confined".
+CAT_SEQUENCE = Catalog("sequence", [("path", SEQ_PATH), ("bounces", SEQ_BOUNCES),
+                                    ("boundary_bounces", SEQ_BOUNDARY), ("self_bounces", SEQ_SELF)])
+CAT_POINT_REDUCTION = Catalog("point reduction", [
+    ("first", PRED_FIRST), ("last", PRED_LAST), ("mean", PRED_MEAN), ("uppermost", PRED_TOP),
+    ("lowermost", PRED_BOTTOM), ("rightmost", PRED_RIGHT), ("leftmost", PRED_LEFT)])
+CAT_STAT_REDUCTION = Catalog("scalar reduction", [
+    ("count", SRED_COUNT), ("length", SRED_LENGTH), ("last_direction", SRED_LAST_DIR), ("share", SRED_SHARE)])
+CAT_METRIC = Catalog("metric", [          # the measurements of a ray's own run, then each sequence's reductions
     ("horizontal_distance", ST_HDIST), ("vertical_distance", ST_VDIST),
     ("manhattan_distance", ST_MANHATTAN), ("euclidean_distance", ST_EUCLIDEAN),
-    ("bounces", ST_BOUNCES), ("ray_bounce_fraction", ST_RAY_FRAC),
-    ("boundary_bounce_fraction", ST_BOUNDARY_FRAC), ("loop_area", ST_LOOP_AREA),
-    ("mean_bounce_angle", ST_ANGLES), ("ray_length", ST_LENGTH),
-    ("last_segment_direction", ST_LAST_DIR), ("termination_reason", ST_TERMINATION),
-    ("last_segment_ratio", ST_LAST_RATIO)])
+    ("loop_area", ST_LOOP_AREA), ("mean_bounce_angle", ST_ANGLES), ("termination_reason", ST_TERMINATION),
+    ("last_segment_ratio", ST_LAST_RATIO)]
+    + [(f"{CAT_SEQUENCE.key(seq)}_{CAT_STAT_REDUCTION.key(red)}", stat_slot(seq, red))
+       for seq in range(N_SEQS) for red in range(N_SRED)])
 CAT_POINT = Catalog("point", [
-    ("start_point", POINT_START), ("end_point", POINT_END), ("all_bounces_mean", POINT_ALL_MEAN),
-    ("boundary_bounces_mean", POINT_BOUNDARY_MEAN), ("self_bounces_mean", POINT_SELF_MEAN),
-    ("uppermost_bounce", POINT_TOP), ("lowermost_bounce", POINT_BOTTOM),
-    ("rightmost_bounce", POINT_RIGHT), ("leftmost_bounce", POINT_LEFT),
-    ("uppermost_self_bounce", POINT_SELF_TOP), ("lowermost_self_bounce", POINT_SELF_BOTTOM),
-    ("rightmost_self_bounce", POINT_SELF_RIGHT), ("leftmost_self_bounce", POINT_SELF_LEFT),
-    ("origin", POINT_ORIGIN), ("top_left_corner", POINT_TOP_LEFT_CORNER)])
+    (f"{CAT_SEQUENCE.key(seq)}_{CAT_POINT_REDUCTION.key(red)}", point_slot(seq, red))
+    for seq in range(N_SEQS) for red in range(N_PRED)]
+    + [("origin", POINT_ORIGIN), ("top_left_corner", POINT_TOP_LEFT_CORNER)])
+_BUDDHA_TERM_KEYS = {TERM_DIST: "distance_limit", TERM_PERPENDICULAR: "perpendicular_collision",
+                     TERM_CONFINED: "confined"}
+_BUDDHA_MULTI_KEYS = {BUDDHA_MULTI_ALL_SELF: "all_self_bounces", BUDDHA_MULTI_ALL_MID: "all_segment_midpoints",
+                      BUDDHA_MULTI_PROG_BOUNCE: "progressive_means_of_bounce_points",
+                      BUDDHA_MULTI_PROG_MID: "progressive_means_of_segment_midpoints"}
+
+
+def _buddha_point_key(style, ref, term_filter):
+    """The key of one entry of BUDDHA_POINT_CATALOG: a stored point's own key, with the limit that ended the
+    rays it is limited to; or the multi option's."""
+    if style == BUDDHA_MULTI:
+        return _BUDDHA_MULTI_KEYS[ref]
+    key = CAT_POINT.key(ref)
+    return key if term_filter is None else f"{key}_{_BUDDHA_TERM_KEYS[term_filter]}"
+
+
 CAT_BUDDHA_POINT = Catalog("Buddha point", [          # the code is the place in BUDDHA_POINT_CATALOG
-    ("all_bounces_mean", 0), ("self_bounces_mean", 1), ("boundary_bounces_mean", 2),
-    ("termination_point", 3), ("termination_point_distance_limit", 4),
-    ("termination_point_perpendicular_collision", 5), ("termination_point_confined", 6),
-    ("all_self_bounces", 7), ("all_segment_midpoints", 8),
-    ("progressive_means_of_bounce_points", 9), ("progressive_means_of_segment_midpoints", 10)])
+    (_buddha_point_key(style, ref, term_filter), index)
+    for index, (_label, style, ref, term_filter) in enumerate(BUDDHA_POINT_CATALOG)])
 CAT_BUDDHA_COMPRESSION = Catalog("Buddha compression", [
     ("arctangent", BUDDHA_COMPRESS_ARCTAN), ("modulus", BUDDHA_COMPRESS_MODULUS)])
 CAT_BUDDHA_BRIGHTNESS = Catalog("Buddha brightness", [      # the code is the place in the options
@@ -471,6 +489,24 @@ def _keyframe_from_json(data, seen_ids):
     return Keyframe(kf_id, frame_index, values)
 
 
+# What format 1 and 2 files call the metrics, sample points and Buddha points, and the numbers format 1 used for them
+# (the program's own numbers of that time). Frozen history: the program's tables have since been rebuilt from named
+# sequences, so these are spelt out; _migrate_project_4_to_5 renames them to today's keys.
+_FORMAT_1_METRICS = {0: "horizontal_distance", 1: "vertical_distance", 2: "manhattan_distance",
+                     3: "euclidean_distance", 4: "bounces", 5: "ray_bounce_fraction",
+                     6: "boundary_bounce_fraction", 7: "loop_area", 8: "mean_bounce_angle", 9: "ray_length",
+                     10: "last_segment_direction", 11: "termination_reason", 12: "last_segment_ratio"}
+_FORMAT_1_POINTS = {0: "start_point", 1: "end_point", 2: "all_bounces_mean", 3: "boundary_bounces_mean",
+                    4: "self_bounces_mean", 5: "uppermost_bounce", 6: "lowermost_bounce", 7: "rightmost_bounce",
+                    8: "leftmost_bounce", 9: "uppermost_self_bounce", 10: "lowermost_self_bounce",
+                    11: "rightmost_self_bounce", 12: "leftmost_self_bounce", 13: "origin",
+                    14: "top_left_corner"}
+_FORMAT_1_BUDDHA_POINTS = ["all_bounces_mean", "self_bounces_mean", "boundary_bounces_mean", "termination_point",
+                           "termination_point_distance_limit", "termination_point_perpendicular_collision",
+                           "termination_point_confined", "all_self_bounces", "all_segment_midpoints",
+                           "progressive_means_of_bounce_points", "progressive_means_of_segment_midpoints"]
+
+
 def _migrate_project_1_to_2(data):
     """Format 1 stored choices as the program's numbers (and obstacle kinds as class names); format 2
     stores their keys. Converts a parsed format-1 file."""
@@ -483,13 +519,20 @@ def _migrate_project_1_to_2(data):
         _expect(isinstance(old, dict), f"{where}: a colour channel must be an object")
         points = old.get("buddha_points")
         _expect(isinstance(points, list), f"{where}: buddha_points must be a list")
-        padded = tuple(bool(p) for p in points)[:N_BUDDHA_POINTS] + \
-            (False,) * max(0, N_BUDDHA_POINTS - len(points))
-        return _channel_to_json(ChannelSettings(
-            chan_src=old["chan_src"], kind=old["kind"], stat=old["stat"], point1=old["point1"],
-            point2=old["point2"], buddha_points=padded,
-            buddha_compression=old["buddha_compression"],
-            buddha_brightness=old["buddha_brightness"], constant=old["constant"]))
+        out = {"source": CAT_CHAN_SOURCE.key(old["chan_src"])}
+        if old["chan_src"] == CHAN_SRC_QUERY:
+            out["kind"] = CAT_CHAN_KIND.key(old["kind"])
+            out["metric"] = _FORMAT_1_METRICS[old["stat"]]
+            if old["kind"] == KIND_POINT:
+                out["point1"] = _FORMAT_1_POINTS[old["point1"]]
+                out["point2"] = _FORMAT_1_POINTS[old["point2"]]
+        elif old["chan_src"] == CHAN_SRC_BUDDHA:
+            out["buddha_points"] = [key for key, chosen in zip(_FORMAT_1_BUDDHA_POINTS, points) if chosen]
+            out["buddha_compression"] = CAT_BUDDHA_COMPRESSION.key(old["buddha_compression"])
+            out["buddha_brightness"] = CAT_BUDDHA_BRIGHTNESS.key(old["buddha_brightness"])
+        else:
+            out["constant"] = CAT_CONSTANT.key(old["constant"])
+        return out
 
     def setting(key, value, where):
         if key.startswith("view:") and ":chan" in key:
@@ -559,9 +602,62 @@ def _migrate_project_3_to_4(data):
     return data
 
 
+# Format 4 named the metrics, sample points and Buddha points one by one; format 5 names each by its sequence
+# and reduction (the other keys of format 4 are still the same). Only the renamed ones are listed.
+_FORMAT_4_METRIC_RENAMES = {
+    "bounces": "bounces_count", "ray_bounce_fraction": "self_bounces_share",
+    "boundary_bounce_fraction": "boundary_bounces_share", "ray_length": "path_length",
+    "last_segment_direction": "path_last_direction"}
+_FORMAT_4_POINT_RENAMES = {
+    "start_point": "path_first", "end_point": "path_last", "all_bounces_mean": "bounces_mean",
+    "uppermost_bounce": "bounces_uppermost", "lowermost_bounce": "bounces_lowermost",
+    "rightmost_bounce": "bounces_rightmost", "leftmost_bounce": "bounces_leftmost",
+    "uppermost_self_bounce": "self_bounces_uppermost", "lowermost_self_bounce": "self_bounces_lowermost",
+    "rightmost_self_bounce": "self_bounces_rightmost", "leftmost_self_bounce": "self_bounces_leftmost"}
+_FORMAT_4_BUDDHA_RENAMES = {
+    **_FORMAT_4_POINT_RENAMES, "termination_point": "path_last",
+    "termination_point_distance_limit": "path_last_distance_limit",
+    "termination_point_perpendicular_collision": "path_last_perpendicular_collision",
+    "termination_point_confined": "path_last_confined"}
+
+
+def _migrate_project_4_to_5(data):
+    """Format 4 named each metric, sample point and Buddha point of a colour channel on its own (a few for what is
+    now a reduction of a named sequence); format 5 names them by sequence and reduction. Converts a parsed
+    format-4 file: the channels of every view and of every keyframe have those names replaced (see the tables
+    above); all else is unchanged."""
+    import copy
+    data = copy.deepcopy(data)
+
+    def channel(ch):
+        if not isinstance(ch, dict):
+            return ch
+        if "metric" in ch:
+            ch["metric"] = _FORMAT_4_METRIC_RENAMES.get(ch["metric"], ch["metric"])
+        for name in ("point1", "point2"):
+            if name in ch:
+                ch[name] = _FORMAT_4_POINT_RENAMES.get(ch[name], ch[name])
+        if isinstance(ch.get("buddha_points"), list):
+            ch["buddha_points"] = [_FORMAT_4_BUDDHA_RENAMES.get(key, key) for key in ch["buddha_points"]]
+        return ch
+
+    for view in data.get("views", []):
+        if isinstance(view, dict) and isinstance(view.get("channels"), list):
+            view["channels"] = [channel(ch) for ch in view["channels"]]
+    for kf in data.get("keyframes", []):
+        settings = kf.get("settings") if isinstance(kf, dict) else None
+        if isinstance(settings, dict):
+            for key in settings:
+                if key.startswith("view:") and ":chan" in key:
+                    settings[key] = channel(settings[key])
+    data["format_version"] = 5
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
                       2: _migrate_project_2_to_3,
-                      3: _migrate_project_3_to_4}
+                      3: _migrate_project_3_to_4,
+                      4: _migrate_project_4_to_5}
 
 
 def project_from_dict(data):

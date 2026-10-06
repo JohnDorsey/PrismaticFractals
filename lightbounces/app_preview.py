@@ -8,11 +8,11 @@ from .constants import (
 )
 from .image_io import bilinear_resize, encode_png_bytes, preview_placeholder, render_text_line
 from .kernels import (
-    PIXEL, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
+    N_STATS, PIXEL, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
     RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, SIZE, compute_sequences, compute_stats, emits_ray,
     in_sequence, trace_path
 )
-from .metrics import N_STAT_CHOICES, POINT_STATS, resolve_point_xy
+from .metrics import POINT_STATS, resolve_point_xy
 from .settings import NaturalStopSettings, RaySettings, settings_natural_stop, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .views import MODES
@@ -261,7 +261,7 @@ class PreviewMixin:
         letters = [name[0] for name, _color in MODES[self.live_view().mode]]
         v["components"].set("   ".join(f"{letters[c]} {vals[c]:.3f}" for c in range(3)))
         v["color"].set(hexcol)
-        for s in range(N_STAT_CHOICES):
+        for s in range(N_STATS):
             self.stat_vars[s].set(f"{vec[s]:.3f}")
         self.swatch.configure(bg=hexcol)
         self.info_placeholder.grid_remove()

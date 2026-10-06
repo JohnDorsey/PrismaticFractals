@@ -1,7 +1,7 @@
 """Short texts the interface shows about settings: the keyframe settings list (section headers, a value as text, the presence filter) and the Coloration tab's help line."""
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, OBSTACLE_EFFECT_NAMES
 from .metrics import (
-    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
+    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT, CHAN_SRC_BUDDHA,
     CHAN_SRC_CONSTANT, KIND_POINT, NONE_ONE, NONE_ZERO, POINT_SHORT, STAT_SHORT
 )
 from .shapes import OBST_FIELD_FMT
@@ -53,8 +53,7 @@ def short_value_text(key, val):
             return val
         # field is "chan0"/"chan1"/"chan2"
         if val.chan_src == CHAN_SRC_BUDDHA:
-            chosen = [BUDDHA_POINT_LABELS[i].split()[0]
-                      for i, on in enumerate(val.buddha_points) if on]
+            chosen = [BUDDHA_POINT_SHORT[i] for i, on in enumerate(val.buddha_points) if on]
             comp = BUDDHA_COMPRESSION_LABELS[val.buddha_compression]
             bright = BUDDHA_BRIGHTNESS_OPTIONS[val.buddha_brightness]
             return f"Buddha:{'+'.join(chosen) if chosen else 'none'}/{comp}/{bright}"

@@ -9,9 +9,9 @@ from .constants import (
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
-    KIND_BOUNDARY, KIND_ESCAPED, KIND_OBSTACLE_TERM, KIND_SELF, KIND_START, SIZE
+    KIND_BOUNDARY, KIND_ESCAPED, KIND_OBSTACLE_TERM, KIND_SELF, KIND_START, N_STATS, SIZE
 )
-from .metrics import N_STAT_CHOICES, STAT_SHORT
+from .metrics import STAT_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
 
 
@@ -178,7 +178,7 @@ class LayoutMixin:
         # Metric list: name | value | "-> R" tag for channels currently using it
         self.stat_vars = []
         self.stat_tags = []
-        for s in range(N_STAT_CHOICES):
+        for s in range(N_STATS):
             ttk.Label(right, text=STAT_SHORT[s], font=self.small_font).grid(
                 row=s, column=0, sticky="w", padx=(0, 10))
             var = tk.StringVar()

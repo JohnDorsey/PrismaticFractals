@@ -9,9 +9,8 @@ from .constants import (
     BUDDHA_BLUR_GAUSSIAN_TRUNCATE, BUDDHA_BLUR_TRIANGULAR
 )
 from .kernels import (
-    N_LEGACY_POINTS, N_LEGACY_STATS, POINT_ALL_MEAN, POINT_BOUNDARY_MEAN, POINT_END, POINT_SELF_MEAN,
-    POINT_SLOT, STAT_SLOT, ST_EUCLIDEAN, ST_HDIST, ST_MANHATTAN, ST_VDIST, TERM_CONFINED, TERM_DIST,
-    TERM_PERPENDICULAR
+    N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
 )
 
 
@@ -99,69 +98,153 @@ def blur_counts_image(counts, kernel):
     return full[max_offset:max_offset + h, max_offset:max_offset + w]
 
 
-# What a view can choose to colour a channel by: N_STAT_CHOICES metrics (the ST_* numbers). A ray's stored metrics (N_STATS in
-# kernels.py) hold these first, in the same slots, followed by reductions of the engine's named sequences nothing offers yet.
-N_STAT_CHOICES = N_LEGACY_STATS
+# --------------------------------------------------------------------------- #
+# What a view can choose: the points and metrics, generated from the named sequences
+# --------------------------------------------------------------------------- #
+# The ray-bouncing engine's named sequences of points (SEQ_* in kernels.py) and what is stored about each: every
+# reduction below of every sequence, per ray. A view chooses among ALL of them, so each choice below is one
+# (sequence, reduction) and its label, short name and description are made from the sequence's and the reduction's;
+# only the measurements of a ray's own run, which are no reduction of a sequence, are written out by hand. Another
+# engine declares its own sequences the same way; every engine should offer SEQ_PATH ("Path": all its points, in
+# order), so that a channel set to it means something whichever engine made the figure.
+SEQUENCE_LABELS = ["Path", "All bounces", "Boundary bounces", "Self bounces"]
+SEQUENCE_SHORT = ["Path", "Bounces", "Boundary", "Self"]
+SEQUENCE_DESCRIPTIONS = [
+    "every point of the ray's path, in order: its start, each bounce and its end point.",
+    "the points where the ray bounced, of any kind (not its start, nor an end point that is not a bounce).",
+    "the points where the ray bounced off the edge of a shape (a reflecting edge).",
+    "the points where the ray bounced off its own earlier path.",
+]
+POINT_REDUCTION_LABELS = ["First point", "Last point", "Mean point", "Uppermost point", "Lowermost point",
+                          "Rightmost point", "Leftmost point"]
+POINT_REDUCTION_SHORT = ["first", "last", "mean", "top", "bottom", "right", "left"]
+POINT_REDUCTION_DESCRIPTIONS = [
+    "the first point of the sequence.", "the last point of the sequence.",
+    "the average of the sequence's points.",
+    "the sequence's point with the largest vertical coordinate.",
+    "the sequence's point with the smallest vertical coordinate.",
+    "the sequence's point with the largest horizontal coordinate.",
+    "the sequence's point with the smallest horizontal coordinate.",
+]
+STAT_REDUCTION_LABELS = ["Point count / limit", "Length (arctan)", "Last segment direction", "Share of the bounces"]
+STAT_REDUCTION_SHORT = ["count", "length", "last dir", "share"]
+STAT_REDUCTION_DESCRIPTIONS = [
+    "how many points the sequence has, divided by the iteration limit (at most 1).",
+    "the length of the line through the sequence's points in order, squashed into 0..1 with (2/\u03c0)\u00b7arctan(length/5).",
+    "the direction of the last segment of the line through the sequence's points, from -180\u00b0 to 180\u00b0 "
+    "mapped to 0..1 (0.5 if it has fewer than two points).",
+    "how many points the sequence has, divided by how many bounces the path has (0 if it has none; at most 1).",
+]
+
+
+def point_slot(seq, reduction):
+    """The index into a ray's stored points of one reduction (PRED_*) of one named sequence (SEQ_*)."""
+    return int(POINT_SLOT[seq, reduction])
+
+
+def stat_slot(seq, reduction):
+    """The index into a ray's stored metrics of one scalar reduction (SRED_*) of one named sequence (SEQ_*)."""
+    return int(STAT_SLOT[seq, reduction])
+
+
+def _slot_owners(slots):
+    """{slot: (sequence, reduction)} for a POINT_SLOT / STAT_SLOT table."""
+    return {int(slots[seq, red]): (seq, red) for seq in range(slots.shape[0]) for red in range(slots.shape[1])}
+
+
+POINT_OF_SLOT = _slot_owners(POINT_SLOT)
+STAT_OF_SLOT = _slot_owners(STAT_SLOT)
+
+# The measurements of a ray's own run (compute_stats writes them; they are no reduction of a sequence):
+# slot -> (label, short name for the ray-preview panel, description)
+RUN_STAT_INFO = {
+    ST_HDIST: ("Horizontal distance", "H dist",
+               "horizontal distance between point 1 and point 2 (|x1 - x2|), divided by 2 and clipped to 0..1."),
+    ST_VDIST: ("Vertical distance", "V dist",
+               "vertical distance between point 1 and point 2 (|y1 - y2|), divided by 2 and clipped to 0..1."),
+    ST_MANHATTAN: ("Manhattan distance", "Manhattan",
+                   "Manhattan (taxicab) distance between point 1 and point 2 (|x1-x2| + |y1-y2|), divided by 2 "
+                   "and clipped to 0..1."),
+    ST_EUCLIDEAN: ("Euclidean distance", "Euclidean",
+                   "straight-line (Euclidean) distance between point 1 and point 2, divided by 2 and clipped to 0..1."),
+    ST_LOOP_AREA: ("Loop area / same-perimeter circle", "Loop area/circle",
+                   "area of the loop formed when the ray first strikes its own path, divided by the area of a circle "
+                   "with the same perimeter as the loop (1 = a perfect circle; smaller = more elongated or jagged; 0 "
+                   "if it never touches itself)."),
+    ST_ANGLES: ("Mean bounce angle / 180\u00b0", "Angle sum/(180\u00b7n)",
+                "the average deflection angle over all bounces (the angle in degrees between incoming and outgoing "
+                "directions), divided by 180 (i.e. angle sum / (180 \u00d7 bounces))."),
+    ST_TERMINATION: ("Termination reason", "Termination reason",
+                     "why the ray stopped: 0 = iteration limit, 0.2 = confined to less than a pixel, 0.4 = distance "
+                     "limit, 0.6 = reached an edge set to \"terminate\", 0.8 = hit a reflective surface perfectly "
+                     "perpendicularly, 1 = escaped (nothing left to hit)."),
+    ST_LAST_RATIO: ("Last segment / uncut length", "Last seg / uncut",
+                    "length of the last segment divided by the length it would have had without the distance limit "
+                    "(1 unless the distance limit cut it short)."),
+}
+
+
+def _sequence_note(seq):
+    return f" The sequence is {SEQUENCE_LABELS[seq].lower()}: {SEQUENCE_DESCRIPTIONS[seq]}"
+
+
+STAT_LABELS = []             # shown in the color-mapping table
+STAT_SHORT = []              # compact names for the ray-preview panel (end-point values)
+STAT_DESCRIPTIONS = []
+for _slot in range(N_STATS):
+    if _slot in RUN_STAT_INFO:
+        _label, _short, _description = RUN_STAT_INFO[_slot]
+    else:
+        _seq, _red = STAT_OF_SLOT[_slot]
+        _label = f"{SEQUENCE_LABELS[_seq]}: {STAT_REDUCTION_LABELS[_red]}"
+        _short = f"{SEQUENCE_SHORT[_seq]} {STAT_REDUCTION_SHORT[_red]}"
+        _description = STAT_REDUCTION_DESCRIPTIONS[_red] + _sequence_note(_seq)
+    STAT_LABELS.append(_label)
+    STAT_SHORT.append(_short)
+    STAT_DESCRIPTIONS.append(_description)
 
 # Metrics that compare two sample points (the others ignore the point choices).
 # They are evaluated at coloring time from the stored points; the copies stored
 # in the metrics array are for the end of the ray and feed the preview list.
 POINT_STATS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
-OTHER_STATS = tuple(s for s in range(N_STAT_CHOICES) if s not in POINT_STATS)
+# every other metric, in the order the "Other" dropdown lists them: the run's own measurements, then each sequence's
+OTHER_STATS = (tuple(slot for slot in RUN_STAT_INFO if slot not in POINT_STATS)
+               + tuple(stat_slot(seq, red) for seq in range(N_SEQS) for red in range(N_SRED)))
 
-STAT_LABELS = [     # shown in the color-mapping table
-    "Horizontal distance",
-    "Vertical distance",
-    "Manhattan distance",
-    "Euclidean distance",
-    "Bounces / iteration limit",
-    "Ray-bounces / bounces",
-    "Boundary-bounces / bounces",
-    "Loop area / same-perimeter circle",
-    "Mean bounce angle / 180\u00b0",
-    "Total ray length (arctan)",
-    "Last segment direction",
-    "Termination reason",
-    "Last segment / uncut length",
-]
-STAT_SHORT = [      # compact names for the ray-preview panel (end-point values)
-    "H dist", "V dist", "Manhattan", "Euclidean", "Bounces/limit", "Ray hits/bounces",
-    "Boundary hits/bounces", "Loop area/circle", "Angle sum/(180\u00b7n)",
-    "Length (arctan)", "Last seg direction", "Termination reason",
-    "Last seg / uncut",
-]
-STAT_DESCRIPTIONS = [
-    "horizontal distance between point 1 and point 2 (|x1 - x2|), divided by "
-    "2 and clipped to 0..1.",
-    "vertical distance between point 1 and point 2 (|y1 - y2|), divided by 2 "
-    "and clipped to 0..1.",
-    "Manhattan (taxicab) distance between point 1 and point 2 "
-    "(|x1-x2| + |y1-y2|), divided by 2 and clipped to 0..1.",
-    "straight-line (Euclidean) distance between point 1 and point 2, divided "
-    "by 2 and clipped to 0..1.",
-    "number of bounces divided by the iteration limit.",
-    "bounces off the ray's own earlier path, divided by total bounces "
-    "(0 if there were none).",
-    "bounces off the edge of a shape (a reflecting edge), divided by total bounces "
-    "(0 if there were none).",
-    "area of the loop formed when the ray first strikes its own path, "
-    "divided by the area of a circle with the same perimeter as the loop "
-    "(1 = a perfect circle; smaller = more elongated or jagged; 0 if it "
-    "never touches itself).",
-    "the average deflection angle over all bounces (the angle in degrees "
-    "between incoming and outgoing directions), divided by 180 "
-    "(i.e. angle sum / (180 \u00d7 bounces)).",
-    "total path length, squashed into 0..1 with (2/\u03c0)\u00b7arctan(length/5).",
-    "direction of the final segment, as an angle from -180\u00b0 to 180\u00b0 "
-    "(counterclockwise from pointing right) mapped to 0..1: 0.5 = right, "
-    "0.75 = up, 0.25 = down, 0 or 1 = left.",
-    "why the ray stopped: 0 = iteration limit, 0.2 = confined to less than "
-    "a pixel, 0.4 = distance limit, 0.6 = reached an edge set to "
-    "\"terminate\", 0.8 = hit a reflective surface perfectly perpendicularly, "
-    "1 = escaped (nothing left to hit).",
-    "length of the last segment divided by the length it would have had "
-    "without the distance limit (1 unless the distance limit cut it short).",
-]
+# Two fixed reference points, unrelated to any ray - always the same regardless of
+# where the ray went. They are CHOICES only, with no slot of their own (the ids come after the
+# stored points' slots), so any code reading a chosen point's coordinates must check
+# CONSTANT_POINT_COORDS first.
+POINT_ORIGIN = N_POINTS                       # the fixed point (0, 0)
+POINT_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed point (-1, 1): the top-left corner of the
+                                              # [-1, 1] square the simulation runs in
+N_POINT_CHOICES = N_POINTS + 2                # total selectable points (every stored one + 2 fixed)
+CONSTANT_POINT_COORDS = {POINT_ORIGIN: (0.0, 0.0), POINT_TOP_LEFT_CORNER: (-1.0, 1.0)}
+
+POINT_LABELS = []
+POINT_DESCRIPTIONS = []
+POINT_SHORT = []
+for _slot in range(N_POINTS):
+    _seq, _red = POINT_OF_SLOT[_slot]
+    POINT_LABELS.append(f"{SEQUENCE_LABELS[_seq]}: {POINT_REDUCTION_LABELS[_red]}")
+    POINT_DESCRIPTIONS.append(POINT_REDUCTION_DESCRIPTIONS[_red] + _sequence_note(_seq))
+    POINT_SHORT.append(f"{SEQUENCE_SHORT[_seq]}.{POINT_REDUCTION_SHORT[_red]}")
+POINT_LABELS += ["Origin", "Top left corner"]
+POINT_DESCRIPTIONS += ["the fixed point (0, 0) - unrelated to the ray, always the same.",
+                       "the fixed point (-1, 1), the top-left corner of the simulation's [-1, 1] square - unrelated "
+                       "to the ray, always the same."]
+POINT_SHORT += ["Origin", "TopLeft"]
+POINT_NOTE = (" (Origin and Top left corner don't depend on the ray at all; a sequence the ray has no points in "
+              "falls back to the ray's end point.)")
+
+# The order the two point dropdowns list the choices in: the two fixed points
+# (which don't depend on the ray at all) first, then each sequence's points. Only the display
+# order - a point's id (its index in POINT_LABELS, and into the per-ray stored points for
+# every one but the fixed two) does not depend on it, and choosing by label still maps back
+# through POINT_LABELS.index().
+POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + [
+    point_slot(seq, red) for seq in range(N_SEQS) for red in range(N_PRED)]
+POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
 
 # Constant "metrics" a channel can be given instead of a real one (listed among
 # the "Other" metrics)
@@ -229,118 +312,6 @@ def point_comparison_metric(stat, p1x, p1y, p2x, p2y):
     return np.clip(v, 0.0, 1.0)
 
 
-# Two fixed reference points, unrelated to any ray - always the same regardless of
-# where the ray went. They are CHOICES only, with no slot of their own: the ids below are
-# not indexes into a ray's stored points (whose slots 0..N_LEGACY_POINTS - 1 are the other
-# choices' ids, and whose later slots, from N_LEGACY_POINTS on, belong to no choice yet), so any
-# code reading a chosen point's coordinates must check CONSTANT_POINT_COORDS first.
-POINT_ORIGIN = N_LEGACY_POINTS            # the fixed point (0, 0)
-POINT_TOP_LEFT_CORNER = N_LEGACY_POINTS + 1   # the fixed point (-1, 1): the top-left corner of the
-                              # [-1, 1] square the simulation runs in
-N_POINT_CHOICES = N_LEGACY_POINTS + 2     # total selectable points (13 stored + 2 fixed)
-CONSTANT_POINT_COORDS = {POINT_ORIGIN: (0.0, 0.0), POINT_TOP_LEFT_CORNER: (-1.0, 1.0)}
-
-POINT_LABELS = [
-    "Start point",
-    "End point",
-    "All bounces mean",
-    "Boundary bounces mean",
-    "Self bounces mean",
-    "Uppermost bounce",
-    "Lowermost bounce",
-    "Rightmost bounce",
-    "Leftmost bounce",
-    "Uppermost self bounce",
-    "Lowermost self bounce",
-    "Rightmost self bounce",
-    "Leftmost self bounce",
-    "Origin",
-    "Top left corner",
-]
-POINT_DESCRIPTIONS = [
-    "the ray's starting point (the pixel it was emitted from).",
-    "the last point of the ray (if the distance limit ended it part-way "
-    "along a segment, the cut point).",
-    "the average of every point where the ray bounced, of any kind.",
-    "the average of the points where the ray bounced off the edge of a "
-    "shape (a reflecting edge).",
-    "the average of the points where the ray bounced off its own earlier "
-    "path.",
-    "the bounce point with the largest vertical coordinate.",
-    "the bounce point with the smallest vertical coordinate.",
-    "the bounce point with the largest horizontal coordinate.",
-    "the bounce point with the smallest horizontal coordinate.",
-    "the bounce point with the largest vertical coordinate, among only "
-    "the bounces off the ray's own earlier path.",
-    "the bounce point with the smallest vertical coordinate, among only "
-    "the bounces off the ray's own earlier path.",
-    "the bounce point with the largest horizontal coordinate, among only "
-    "the bounces off the ray's own earlier path.",
-    "the bounce point with the smallest horizontal coordinate, among only "
-    "the bounces off the ray's own earlier path.",
-    "the fixed point (0, 0) - unrelated to the ray, always the same.",
-    "the fixed point (-1, 1), the top-left corner of the simulation's "
-    "[-1, 1] square - unrelated to the ray, always the same.",
-]
-POINT_NOTE = (" (Start and end always exist, and Origin/Top left corner don't depend "
-             "on the ray at all; the rest fall back to the end point if the ray "
-             "never bounced that way.)")
-POINT_SHORT = ["Start", "End", "AllMean", "BoundMean", "SelfMean",
-              "Top", "Bottom", "Right", "Left",
-              "SelfTop", "SelfBottom", "SelfRight", "SelfLeft",
-              "Origin", "TopLeft"]
-
-# The order the two point dropdowns list the choices in: the two fixed points
-# (which don't depend on the ray at all) first, then the points picked out of
-# the ray's path. Only the display order - a point's id (its index in
-# POINT_LABELS, and into the per-ray sample array for the real ones) never
-# changes, and choosing by label still maps back through POINT_LABELS.index().
-POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + list(range(N_LEGACY_POINTS))
-POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
-
-# The ray-bouncing engine's named sequences of points (SEQ_* in kernels.py) and what is stored about each: every
-# reduction below of every sequence, per ray. The metrics and points above are aliases of some of these (POINT_ALIASES /
-# STAT_ALIASES in kernels.py); the rest are stored but not yet offered to a view. Another engine declares its own
-# sequences the same way; every engine should offer SEQ_PATH ("Path": all its points, in order), so that a channel
-# set to it means something whichever engine made the figure.
-SEQUENCE_LABELS = ["Path", "All bounces", "Boundary bounces", "Self bounces"]
-SEQUENCE_DESCRIPTIONS = [
-    "every point of the ray's path, in order: its start, each bounce and its end point.",
-    "the points where the ray bounced, of any kind (not its start, nor an end point that is not a bounce).",
-    "the points where the ray bounced off the edge of a shape (a reflecting edge).",
-    "the points where the ray bounced off its own earlier path.",
-]
-POINT_REDUCTION_LABELS = ["First point", "Last point", "Mean point", "Uppermost point", "Lowermost point",
-                          "Rightmost point", "Leftmost point"]
-POINT_REDUCTION_DESCRIPTIONS = [
-    "the first point of the sequence.", "the last point of the sequence.",
-    "the average of the sequence's points.",
-    "the sequence's point with the largest vertical coordinate.",
-    "the sequence's point with the smallest vertical coordinate.",
-    "the sequence's point with the largest horizontal coordinate.",
-    "the sequence's point with the smallest horizontal coordinate.",
-]
-STAT_REDUCTION_LABELS = ["Number of points / iteration limit", "Length (arctan)", "Last segment direction",
-                         "Share of the bounces"]
-STAT_REDUCTION_DESCRIPTIONS = [
-    "how many points the sequence has, divided by the iteration limit (at most 1).",
-    "the length of the line through the sequence's points in order, squashed into 0..1 with (2/π)·arctan(length/5).",
-    "the direction of the last segment of the line through the sequence's points, from -180° to 180° "
-    "mapped to 0..1 (0.5 if it has fewer than two points).",
-    "how many points the sequence has, divided by how many bounces the path has (0 if it has none; at most 1).",
-]
-
-
-def point_slot(seq, reduction):
-    """The index into a ray's stored points of one reduction (PRED_*) of one named sequence (SEQ_*)."""
-    return int(POINT_SLOT[seq, reduction])
-
-
-def stat_slot(seq, reduction):
-    """The index into a ray's stored metrics of one scalar reduction (SRED_*) of one named sequence (SEQ_*)."""
-    return int(STAT_SLOT[seq, reduction])
-
-
 def extract_point_xy(points_arr, point_idx, computed, n):
     """(x, y) arrays of length n holding the chosen point's coordinates for
     every computed pixel: read from `points_arr` (an (H, W, N_POINTS, 2)
@@ -377,26 +348,24 @@ BUDDHA_MULTI_PROG_BOUNCE = "prog_bounce"     # progressive means of bounce point
 BUDDHA_MULTI_PROG_MID = "prog_mid"           # progressive means of segment midpoints
 
 # (label, style, point index (BUDDHA_SIMPLE) or multi-kind (BUDDHA_MULTI),
-#  required termination reason (BUDDHA_SIMPLE only) or None for no filter)
-BUDDHA_POINT_CATALOG = [
-    ("All bounces mean", BUDDHA_SIMPLE, POINT_ALL_MEAN, None),
-    ("Self bounces mean", BUDDHA_SIMPLE, POINT_SELF_MEAN, None),
-    ("Boundary bounces mean", BUDDHA_SIMPLE, POINT_BOUNDARY_MEAN, None),
-    ("Termination point", BUDDHA_SIMPLE, POINT_END, None),
-    ("Termination point (distance limit)", BUDDHA_SIMPLE, POINT_END, TERM_DIST),
-    ("Termination point (perpendicular collision)", BUDDHA_SIMPLE, POINT_END,
-    TERM_PERPENDICULAR),
-    ("Termination point (confined)", BUDDHA_SIMPLE, POINT_END, TERM_CONFINED),
-    ("All self bounces", BUDDHA_MULTI, BUDDHA_MULTI_ALL_SELF, None),
-    ("All segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, None),
-    ("Progressive means of bounce points", BUDDHA_MULTI, BUDDHA_MULTI_PROG_BOUNCE, None),
-    ("Progressive means of segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_PROG_MID, None),
-]
+#  required termination reason (BUDDHA_SIMPLE only) or None for no filter).
+# The simple ones are every point stored for a ray - each reduction of each named sequence, in the order of
+# the stored points - followed by the path's last point for the rays a given limit ended; then the multi ones.
+BUDDHA_POINT_CATALOG = (
+    [(POINT_LABELS[slot], BUDDHA_SIMPLE, slot, None) for slot in range(N_POINTS)]
+    + [("Path: Last point (distance limit)", BUDDHA_SIMPLE, POINT_END, TERM_DIST),
+       ("Path: Last point (perpendicular collision)", BUDDHA_SIMPLE, POINT_END, TERM_PERPENDICULAR),
+       ("Path: Last point (confined)", BUDDHA_SIMPLE, POINT_END, TERM_CONFINED),
+       ("All self bounces", BUDDHA_MULTI, BUDDHA_MULTI_ALL_SELF, None),
+       ("All segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, None),
+       ("Progressive means of bounce points", BUDDHA_MULTI, BUDDHA_MULTI_PROG_BOUNCE, None),
+       ("Progressive means of segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_PROG_MID, None)])
 N_BUDDHA_POINTS = len(BUDDHA_POINT_CATALOG)
 BUDDHA_POINT_LABELS = [c[0] for c in BUDDHA_POINT_CATALOG]
-BUDDHA_POINT_SHORT = ["AllMean", "SelfMean", "BoundMean", "Term", "Term(dist)", "Term(perp)",
-                      "Term(confined)", "AllSelf", "AllMid", "ProgBounce", "ProgMid"]
-DEFAULT_BUDDHA_POINTS = (True,) + (False,) * (N_BUDDHA_POINTS - 1)   # "All bounces mean" only
+BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(perp)", "Path.last(confined)",
+                                               "AllSelf", "AllMid", "ProgBounce", "ProgMid"]
+# "Bounces: Mean point" only - the default has always been the mean of all the bounces
+DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 
 # Buddha coloration: how a pixel's (unbounded, non-negative integer) visit
 # count maps down to the 0..255 a color channel needs.

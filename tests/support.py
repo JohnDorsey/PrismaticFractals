@@ -653,4 +653,11 @@ def _independent_membership(o):
     return member
 
 
+def _buddha_choice(*points):
+    """A channel's buddha_points tuple with exactly the entries `points` (indexes into BUDDHA_POINT_CATALOG - a stored
+    point's own number, such as POINT_SELF_MEAN, is its entry) switched on."""
+    return tuple(i in points for i in range(m.N_BUDDHA_POINTS))
+
+
 __all__ = [n for n in dir() if not n.startswith("__")]
+
