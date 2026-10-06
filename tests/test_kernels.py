@@ -310,7 +310,7 @@ def test_stats_and_points_are_sane_for_an_escaped_ray():
     out = np.empty(m.N_STATS)
     sp = np.empty((m.N_POINTS, 2))
     m.compute_stats(pts, len(pts), raw, 12, 1.0, out)
-    m.compute_points(pts, len(pts), raw, kinds, sp)
+    m.compute_sequences(pts, len(pts), kinds, int(raw[m.RAW_BOUNCES]), 12, out, sp)
     assert out[m.ST_TERMINATION] == 1.0
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
     assert np.allclose(sp[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
@@ -551,8 +551,13 @@ def test_an_obstacle_reproduces_the_recorded_classic_golden_data():
     for idx, scene in enumerate(CLASSIC_SCENES):
         stats, points, status = _render_scene(scene, n=GOLDEN_GRID)
         assert np.array_equal(status, golden[f"status_{idx}"]), scene["name"]
-        assert np.allclose(stats, golden[f"stats_{idx}"], atol=1e-5), scene["name"]
-        assert np.allclose(points, golden[f"points_{idx}"], atol=1e-5), scene["name"]
+        # the golden data holds the 13 metrics and 13 points recorded before named sequences added slots after them
+        assert golden[f"stats_{idx}"].shape[-1] == m.N_LEGACY_STATS and golden[f"points_{idx}"].shape[-2] == m.N_LEGACY_POINTS
+        # (not the two fraction metrics: the data records the old count that also took in a final perpendicular hit, which
+        # one capsule ray ends with - they are now plain sequence shares, see the test of that)
+        recorded = [s for s in range(m.N_LEGACY_STATS) if s not in (m.ST_RAY_FRAC, m.ST_BOUNDARY_FRAC)]
+        assert np.allclose(stats[..., recorded], golden[f"stats_{idx}"][..., recorded], atol=1e-5), scene["name"]
+        assert np.allclose(points[..., :m.N_LEGACY_POINTS, :], golden[f"points_{idx}"], atol=1e-5), scene["name"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1595,3 +1600,201 @@ def test_the_ray_engine_still_ends_by_the_same_shared_checks_as_its_own_inline_o
     path_rule = m.confine_rule(3, m.CONFINE_PATH, 2.5)           # two segments in the window, each under a diameter
     pts, kinds, term, raw = _kernel_trace(0.1, 0.2, 30.0, [], circle=(R, R), max_iter=400, confine=path_rule)
     assert m.is_confined(pts, len(pts), path_rule) == (term == m.TERM_CONFINED)
+
+
+# --------------------------------------------------------------------------- #
+# Named sequences of points: filtered views of one tagged path, each reduced to the same stored numbers
+# --------------------------------------------------------------------------- #
+def _reference_members(seq, kinds, nb, npts):
+    """Which points of a path are in the named sequence, written independently of the kernel."""
+    if seq == m.SEQ_PATH:
+        return list(range(npts))
+    bounces = range(1, nb + 1)
+    if seq == m.SEQ_BOUNCES:
+        return list(bounces)
+    wanted = m.KIND_BOUNDARY if seq == m.SEQ_BOUNDARY else m.KIND_SELF
+    return [k for k in bounces if kinds[k] == wanted]
+
+
+def _reference_point(seq, reduction, pts, kinds, nb, npts):
+    members = _reference_members(seq, kinds, nb, npts)
+    if not members:
+        return pts[npts - 1]                       # an empty sequence reports the path's end point
+    xy = pts[members]
+    return {m.PRED_FIRST: lambda: xy[0], m.PRED_LAST: lambda: xy[-1], m.PRED_MEAN: lambda: xy.mean(axis=0),
+            m.PRED_TOP: lambda: xy[np.argmax(xy[:, 1])], m.PRED_BOTTOM: lambda: xy[np.argmin(xy[:, 1])],
+            m.PRED_RIGHT: lambda: xy[np.argmax(xy[:, 0])], m.PRED_LEFT: lambda: xy[np.argmin(xy[:, 0])]}[reduction]()
+
+
+def _reference_scalar(seq, reduction, pts, kinds, nb, npts, max_iter):
+    xy = pts[_reference_members(seq, kinds, nb, npts)]
+    if reduction == m.SRED_COUNT:
+        return min(len(xy) / max_iter, 1.0)
+    if reduction == m.SRED_SHARE:
+        return min(len(xy) / nb, 1.0) if nb > 0 else 0.0
+    steps = np.diff(xy, axis=0) if len(xy) > 1 else np.zeros((0, 2))
+    if reduction == m.SRED_LENGTH:
+        return np.arctan(np.hypot(steps[:, 0], steps[:, 1]).sum() / 5.0) * 2.0 / np.pi
+    angle = np.arctan2(steps[-1, 1], steps[-1, 0]) if len(steps) else 0.0
+    return min(max((angle + np.pi) / (2.0 * np.pi), 0.0), 1.0)
+
+
+def _stored_for_path(pts, kinds, nb, max_iter=20):
+    """(stored points, stored metrics) the kernels make of a path - the whole stored layout."""
+    npts = len(pts)
+    raw = np.zeros(m.N_RAW)
+    raw[m.RAW_BOUNCES] = nb
+    raw[m.RAW_SELF_K] = -1
+    raw[m.RAW_TERM] = m.TERM_ITER
+    out = np.full(m.N_STATS, np.nan)
+    sp = np.full((m.N_POINTS, 2), np.nan)
+    m.compute_stats(pts, npts, raw, max_iter, 1.0, out)
+    m.compute_sequences(pts, npts, kinds, nb, max_iter, out, sp)
+    return sp, out
+
+
+def _check_stored_against_reference(pts, kinds, nb, max_iter=20, label=""):
+    npts = len(pts)
+    sp, out = _stored_for_path(pts, kinds, nb, max_iter)
+    assert np.isfinite(sp).all() and np.isfinite(out).all(), f"a slot was never written {label}"
+    for seq in range(m.N_SEQS):
+        for red in range(m.N_PRED):
+            want = _reference_point(seq, red, pts, kinds, nb, npts)
+            got = sp[m.point_slot(seq, red)]
+            assert np.allclose(got, want, rtol=0, atol=1e-12), (label, "point", seq, red, got, want)
+        for red in range(m.N_SRED):
+            want = _reference_scalar(seq, red, pts, kinds, nb, npts, max_iter)
+            assert np.isclose(out[m.stat_slot(seq, red)], want, rtol=0, atol=1e-12), (label, "scalar", seq, red)
+
+
+#  a hand-made path: start, boundary, self, boundary, self bounces, then a distance-cut end point
+_HAND_PTS = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 3.0], [-1.0, 2.0], [0.0, -2.0], [3.0, 3.0]])
+_HAND_KINDS = np.array([m.KIND_START, m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_DISTCUT])
+
+
+def test_each_named_sequence_is_a_filtered_view_of_the_one_tagged_path():
+    members = {s: [k for k in range(6) if m.in_sequence(s, k, _HAND_KINDS, 4, 6)] for s in range(m.N_SEQS)}
+    assert members == {m.SEQ_PATH: [0, 1, 2, 3, 4, 5],
+                       m.SEQ_BOUNCES: [1, 2, 3, 4],        # not the start, nor the cut end point
+                       m.SEQ_BOUNDARY: [1, 3], m.SEQ_SELF: [2, 4]}
+    # a final point that was recorded but is not a counted bounce (a perpendicular hit) is in no bounce sequence
+    assert [k for k in range(6) if m.in_sequence(m.SEQ_SELF, k, _HAND_KINDS, 2, 6)] == [2]
+    assert not any(m.in_sequence(s, 0, _HAND_KINDS, 4, 6) for s in (m.SEQ_BOUNCES, m.SEQ_BOUNDARY, m.SEQ_SELF))
+
+
+def test_the_choices_a_view_could_always_make_are_aliases_that_still_pick_what_they_always_picked():
+    """The 13 sample points and the metrics that are reductions of a sequence, on a path small enough to work out by
+    hand - independent of the alias tables, which they must agree with."""
+    sp, out = _stored_for_path(_HAND_PTS, _HAND_KINDS, 4, max_iter=20)
+    expected = {m.POINT_START: (0, 0), m.POINT_END: (3, 3), m.POINT_ALL_MEAN: (0.5, 1.0),
+                m.POINT_BOUNDARY_MEAN: (0.0, 1.5), m.POINT_SELF_MEAN: (1.0, 0.5),
+                m.POINT_TOP: (2, 3), m.POINT_BOTTOM: (0, -2), m.POINT_RIGHT: (2, 3), m.POINT_LEFT: (-1, 2),
+                m.POINT_SELF_TOP: (2, 3), m.POINT_SELF_BOTTOM: (0, -2), m.POINT_SELF_RIGHT: (2, 3),
+                m.POINT_SELF_LEFT: (0, -2)}
+    assert len(expected) == m.N_LEGACY_POINTS
+    for point, xy in expected.items():
+        assert np.allclose(sp[point], xy), (point, sp[point], xy)
+    assert out[m.ST_BOUNCES] == 4 / 20
+    path_length = np.hypot(*np.diff(_HAND_PTS, axis=0).T).sum()
+    assert np.isclose(out[m.ST_LENGTH], np.arctan(path_length / 5.0) * 2.0 / np.pi)
+    assert np.isclose(out[m.ST_LAST_DIR], (np.arctan2(5.0, 3.0) + np.pi) / (2.0 * np.pi))     # (0, -2) -> (3, 3)
+    # no self bounce: every self choice is the end point, the boundary ones are still the boundary's
+    kinds = _HAND_KINDS.copy()
+    kinds[[2, 4]] = m.KIND_BOUNDARY
+    sp, _out = _stored_for_path(_HAND_PTS, kinds, 4)
+    for point in (m.POINT_SELF_MEAN, m.POINT_SELF_TOP, m.POINT_SELF_BOTTOM, m.POINT_SELF_RIGHT, m.POINT_SELF_LEFT):
+        assert np.allclose(sp[point], (3, 3)), point
+    assert np.allclose(sp[m.POINT_BOUNDARY_MEAN], (0.5, 1.0))
+    # no bounce at all: every bounce choice is the end point
+    sp, out = _stored_for_path(_HAND_PTS[[0, 5]], _HAND_KINDS[[0, 5]], 0)
+    assert all(np.allclose(sp[p], (3, 3)) for p in range(m.N_LEGACY_POINTS) if p != m.POINT_START)
+    assert out[m.ST_BOUNCES] == 0.0
+
+
+def test_every_stored_point_and_scalar_is_its_sequences_reduction_by_an_independent_reference():
+    """Random paths with coarse coordinates (so there are ties for every extremum), every mix of kinds,
+    paths with no bounces, and one-point paths: all N_POINTS points and every scalar reduction."""
+    rng = np.random.RandomState(7)
+    for trial in range(400):
+        npts = int(rng.randint(1, 20))
+        nb = int(rng.randint(0, npts))
+        pts = np.round(rng.uniform(-1, 1, (npts, 2)), 1)
+        kinds = np.zeros(npts)
+        for k in range(1, npts):
+            kinds[k] = (rng.choice([m.KIND_BOUNDARY, m.KIND_SELF]) if k <= nb else
+                        rng.choice([m.KIND_DISTCUT, m.KIND_OBSTACLE_TERM, m.KIND_ESCAPED, m.KIND_BOUNDARY, m.KIND_SELF]))
+        _check_stored_against_reference(pts, kinds, nb, max_iter=int(rng.randint(1, 30)), label=f"trial {trial}")
+
+
+def test_a_sequence_with_fewer_than_two_points_has_no_direction_and_an_empty_one_reports_the_end_point():
+    pts = np.array([[0.0, 0.0], [0.25, -0.5]])
+    sp, out = _stored_for_path(pts, np.array([m.KIND_START, m.KIND_ESCAPED]), 0)
+    assert out[m.stat_slot(m.SEQ_BOUNCES, m.SRED_LAST_DIR)] == 0.5 and out[m.stat_slot(m.SEQ_SELF, m.SRED_COUNT)] == 0.0
+    assert out[m.stat_slot(m.SEQ_SELF, m.SRED_LENGTH)] == 0.0
+    assert np.allclose(sp[m.point_slot(m.SEQ_SELF, m.PRED_FIRST)], (0.25, -0.5))
+    assert out[m.stat_slot(m.SEQ_PATH, m.SRED_COUNT)] == 2 / 20
+
+
+def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
+    """The whole stored layout, end to end: the arrays render_rows_wh fills hold, for each pixel, every reduction of
+    every sequence of the path trace_path makes for that pixel's ray (checked with the independent reference)."""
+    ellipse = m.EllipseShape(1)
+    ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
+    arrays = m.build_obstacle_arrays(_start_scene() + [ellipse])
+    stop, ray, n = _stop(60), _ray(arrays, seg_mult=0.9), 24
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    checked = 0
+    for j in range(0, n, 2):
+        for i in range(0, n, 2):
+            if not status[j, i]:
+                continue
+            pts, kinds, raw = np.empty((62, 2)), np.empty(62), np.empty(m.N_RAW)
+            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, pts, kinds, stop, ray, raw)
+            nb = int(raw[m.RAW_BOUNCES])
+            for seq in range(m.N_SEQS):
+                for red in range(m.N_PRED):
+                    want = _reference_point(seq, red, pts, kinds, nb, npts)
+                    assert np.allclose(points[j, i, m.point_slot(seq, red)], want, atol=1e-5), (i, j, seq, red)
+                for red in range(m.N_SRED):
+                    want = _reference_scalar(seq, red, pts, kinds, nb, npts, 60)
+                    assert np.isclose(stats[j, i, m.stat_slot(seq, red)], want, atol=1e-5), (i, j, seq, red)
+            checked += 1
+    assert checked > 40
+
+
+def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequences_for_every_ray():
+    """ST_RAY_FRAC and ST_BOUNDARY_FRAC were once measured from a separate count of edge hits, which also counted a
+    final hit at exactly perpendicular incidence that is no recorded bounce (a ray that bounced once and then ended
+    that way got -1 and 2). They are now the Self and Boundary sequences' share of the bounces, like any sequence's."""
+    lens = m.LensShape(1)
+    lens.cx, lens.cy, lens.in_effect, lens.out_effect = -0.3, 0.3, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_REFLECT
+    poly = m.RegularPolygonShape(2)
+    poly.radius, poly.cx, poly.cy = 0.4, 0.3, 0.4
+    arrays = m.build_obstacle_arrays(_start_scene() + [lens, poly])
+    n = 64
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(400), _ray(arrays), 0)
+    fired = status == 1
+    perpendicular = fired & (np.abs(stats[..., m.ST_TERMINATION] - m.TERM_STAT_VALUE[m.TERM_PERPENDICULAR]) < 0.01)
+    assert perpendicular.sum() > 10, "the scene must include rays that end perpendicularly"
+    count = lambda seq: np.round(stats[..., m.stat_slot(seq, m.SRED_COUNT)] * 400)
+    bounces, own, edge = count(m.SEQ_BOUNCES), count(m.SEQ_SELF), count(m.SEQ_BOUNDARY)
+    assert np.all((own + edge == bounces)[fired])
+    safe = np.maximum(bounces, 1)
+    assert np.allclose(stats[..., m.ST_RAY_FRAC][fired], (own / safe)[fired], atol=1e-6)
+    assert np.allclose(stats[..., m.ST_BOUNDARY_FRAC][fired], (edge / safe)[fired], atol=1e-6)
+    assert np.all(stats[..., m.ST_RAY_FRAC][fired] >= 0) and np.all(stats[..., m.ST_BOUNDARY_FRAC][fired] <= 1)
+    assert np.allclose((stats[..., m.ST_RAY_FRAC] + stats[..., m.ST_BOUNDARY_FRAC])[fired & (bounces > 0)], 1.0, atol=1e-6)
+
+
+def test_the_stored_layout_and_its_alias_tables_agree():
+    assert m.N_POINTS == m.N_SEQS * m.N_PRED == 28 and m.N_STATS == 13 + m.N_SEQS * m.N_SRED - len(m.STAT_ALIASES) == 24
+    assert m.point_slot(m.SEQ_SELF, m.PRED_TOP) == m.POINT_SELF_TOP and m.point_slot(m.SEQ_PATH, m.PRED_LAST) == m.POINT_END
+    assert m.stat_slot(m.SEQ_PATH, m.SRED_LENGTH) == m.ST_LENGTH and m.stat_slot(m.SEQ_BOUNCES, m.SRED_COUNT) == m.ST_BOUNCES
+    assert sorted(m.POINT_SLOT.ravel().tolist()) == list(range(m.N_POINTS))
+    assert m.SEQ_PATH == 0 and m.SEQUENCE_LABELS[m.SEQ_PATH] == "Path"      # the sequence every engine offers

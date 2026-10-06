@@ -4,8 +4,8 @@ THE RULE (verified: python dev/refactor/numba_cache_check.py): when numba reuses
 modification time of the file the kernel is defined in. So a kernel keeps running STALE code if a constant it reads, or
 another @njit function it calls, is changed in a different file. Therefore this one file defines
   * every @njit function (they all call each other),
-  * every constant a kernel reads - and the rest of each numbered family (TERM_*, SHAPE_*, ST_*, POINT_*, RAW_*, KIND_*,
-    OBSTACLE_EFFECT_*, ...) so that a family is never split between files,
+  * every constant a kernel reads - and the rest of each numbered family (TERM_*, SHAPE_*, ST_*, POINT_*, SEQ_*, PRED_*,
+    SRED_*, RAW_*, KIND_*, OBSTACLE_EFFECT_*, ...) so that a family is never split between files,
   * the kernel argument types (FuzzRule, ConfineRule, EmissionRule, ObstacleArrays),
 and imports nothing from the rest of the package except numba's njit/prange (decorators, not values a compiled function
 freezes in). test_the_numba_kernels_read_only_names_defined_in_their_own_file enforces this. Every other module imports
@@ -158,7 +158,7 @@ ST_LENGTH = 9       # total ray length                        (arctangent)
 ST_LAST_DIR = 10    # direction of the last line segment      (linear angle)
 ST_TERMINATION = 11  # why the ray stopped (see TERM_STAT_VALUE)
 ST_LAST_RATIO = 12  # last segment length / its uncut length
-N_STATS = 13
+# (ST_* are the metrics a view can choose - see N_STATS below for how many slots a ray's stored metrics really have)
 
 # Sample points that can be picked out of a ray's path
 POINT_START = 0          # the ray's starting point (the pixel it was emitted from)
@@ -175,23 +175,91 @@ POINT_SELF_TOP = 9       # uppermost bounce off the ray's own earlier path
 POINT_SELF_BOTTOM = 10   # lowermost bounce off the ray's own earlier path
 POINT_SELF_RIGHT = 11    # rightmost bounce off the ray's own earlier path
 POINT_SELF_LEFT = 12     # leftmost bounce off the ray's own earlier path
-N_POINTS = 13             # the simulation's own per-ray sample point count - NOT the
-                         # total number of selectable points; see N_POINT_CHOICES
+# (POINT_* are the sample points a view can choose; N_POINTS below is how many a ray's stored points really have)
+
+# --------------------------------------------------------------------------- #
+# Named sequences of points: what the ray-bouncing engine offers, and what is stored about each
+# --------------------------------------------------------------------------- #
+# A traced ray is ONE path of tagged points (trace_path: pts and kinds). The engine declares named sequences, each a
+# filtered view of that path - a membership rule, in_sequence below - and every sequence is reduced to the same fixed
+# set of per-pixel numbers (points, and scalars) when the ray is traced, so recolouring stays instant whichever
+# sequence a channel is given. Nothing about a reduction is specific to the ray engine: another engine that produces a
+# path of points declares its own sequences the same way, and the reductions below work on any of them.
+SEQ_PATH = 0        # every point of the path: the start, each bounce and the end point (every engine has this one)
+SEQ_BOUNCES = 1     # the bounce points of any kind (pts[1] .. pts[bounces]; not the start, nor a cut/terminating end)
+SEQ_BOUNDARY = 2    # the bounce points off a shape's edge (KIND_BOUNDARY)
+SEQ_SELF = 3        # the bounce points off the ray's own earlier path (KIND_SELF)
+N_SEQS = 4
+
+# What is stored, per sequence, about its points: one (x, y) each. An empty sequence reports the path's end point.
+PRED_FIRST = 0      # the first point of the sequence
+PRED_LAST = 1       # the last point
+PRED_MEAN = 2       # the mean of its points
+PRED_TOP = 3        # the point with the largest y (the first such, on a tie)
+PRED_BOTTOM = 4     # the point with the smallest y
+PRED_RIGHT = 5      # the point with the largest x
+PRED_LEFT = 6       # the point with the smallest x
+N_PRED = 7
+
+# ... and one number each (0..1), about the polyline through its points taken in order:
+SRED_COUNT = 0      # how many points it has / the iteration limit (at most 1)
+SRED_LENGTH = 1     # the polyline's length, squashed by (2/pi) arctan(length / 5)
+SRED_LAST_DIR = 2   # the direction of its last segment, -180..180 degrees mapped to 0..1 (0.5 if it has under two points)
+SRED_SHARE = 3      # how many points it has / how many bounces the path has (0 if none; at most 1)
+N_SRED = 4
+
+# The metrics and sample points a view could choose before sequences existed are ALIASES: each is one reduction of one
+# sequence (a metric the table has no row for - the distances between two points, the fractions, the loop area, the
+# bounce angles, the termination reason, the last segment's ratio - is a measurement of the ray's own run, not of a
+# sequence, and is still written by compute_stats alone). Their numbers have not changed, and they are the first slots
+# of the stored arrays; the rest of the grid follows, in (sequence, reduction) order.
+POINT_ALIASES = (                                    # POINT_* number -> (sequence, reduction)
+    (SEQ_PATH, PRED_FIRST), (SEQ_PATH, PRED_LAST),
+    (SEQ_BOUNCES, PRED_MEAN), (SEQ_BOUNDARY, PRED_MEAN), (SEQ_SELF, PRED_MEAN),
+    (SEQ_BOUNCES, PRED_TOP), (SEQ_BOUNCES, PRED_BOTTOM), (SEQ_BOUNCES, PRED_RIGHT), (SEQ_BOUNCES, PRED_LEFT),
+    (SEQ_SELF, PRED_TOP), (SEQ_SELF, PRED_BOTTOM), (SEQ_SELF, PRED_RIGHT), (SEQ_SELF, PRED_LEFT))
+STAT_ALIASES = {                                     # ST_* number -> (sequence, reduction), where there is one
+    ST_BOUNCES: (SEQ_BOUNCES, SRED_COUNT), ST_LENGTH: (SEQ_PATH, SRED_LENGTH),
+    ST_LAST_DIR: (SEQ_PATH, SRED_LAST_DIR),
+    ST_RAY_FRAC: (SEQ_SELF, SRED_SHARE), ST_BOUNDARY_FRAC: (SEQ_BOUNDARY, SRED_SHARE)}
+N_LEGACY_POINTS = len(POINT_ALIASES)
+N_LEGACY_STATS = 13
+
+
+def _number_slots(n_seqs, n_reds, legacy_slots, first_free):
+    """slot[sequence, reduction] -> the index into a ray's stored array: the aliases keep their old numbers, and
+    every other (sequence, reduction) pair takes the next free one in order."""
+    slots = np.full((n_seqs, n_reds), -1, dtype=np.int64)
+    for slot, (seq, red) in legacy_slots:
+        slots[seq, red] = slot
+    nxt = first_free
+    for seq in range(n_seqs):
+        for red in range(n_reds):
+            if slots[seq, red] < 0:
+                slots[seq, red] = nxt
+                nxt += 1
+    return slots
+
+
+POINT_SLOT = _number_slots(N_SEQS, N_PRED, list(enumerate(POINT_ALIASES)), N_LEGACY_POINTS)
+STAT_SLOT = _number_slots(N_SEQS, N_SRED, list(STAT_ALIASES.items()), N_LEGACY_STATS)
+N_POINTS = N_SEQS * N_PRED            # the points stored for each ray: every reduction of every sequence
+N_STATS = N_LEGACY_STATS + N_SEQS * N_SRED - len(STAT_ALIASES)   # the metrics stored: the 13 a view can choose (three of
+                                                                # them reductions of a sequence), then the other reductions
 
 # Raw measurements filled in by trace_path / compute_stats
-RAW_BOUNDARY = 0    # number of bounces off a shape's edge (not off the ray's own path)
-RAW_SELF_K = 1      # index of the segment hit at the first self-touch (-1: never)
-RAW_SELF_M = 2      # index of the hit point at the first self-touch
-RAW_DEFLECT = 3     # sum of deflection angles, degrees
-RAW_LENGTH = 4      # total path length
-RAW_LAST = 5        # length of the last segment (as drawn)
-RAW_AREA = 6        # area of the first self-loop
-RAW_LAST_DIR = 7    # direction of the last segment, degrees (-180..180)
-RAW_BOUNCES = 8     # number of bounces
-RAW_TERM = 9        # why the ray stopped (TERM_*)
-RAW_LAST_FULL = 10  # uncut length of a distance-cut last segment (0 if not cut)
-RAW_DISP = 11       # straight-line distance from start point to end point
-N_RAW = 12
+RAW_SELF_K = 0      # index of the segment hit at the first self-touch (-1: never)
+RAW_SELF_M = 1      # index of the hit point at the first self-touch
+RAW_DEFLECT = 2     # sum of deflection angles, degrees
+RAW_LENGTH = 3      # total path length
+RAW_LAST = 4        # length of the last segment (as drawn)
+RAW_AREA = 5        # area of the first self-loop
+RAW_LAST_DIR = 6    # direction of the last segment, degrees (-180..180)
+RAW_BOUNCES = 7     # number of bounces
+RAW_TERM = 8        # why the ray stopped (TERM_*)
+RAW_LAST_FULL = 9   # uncut length of a distance-cut last segment (0 if not cut)
+RAW_DISP = 10       # straight-line distance from start point to end point
+N_RAW = 11
 
 OBST_OBJ_BASE = -100        # best_obj <= this encodes "obstacle index -100 - best_obj"
 
@@ -1716,7 +1784,6 @@ def trace_path(x0, y0, pts, kinds, stop, ray, raw):
     kinds[0] = KIND_START
     npts = 1
     n_bounces = 0
-    n_boundary = 0
     self_k = -1
     self_m = -1
     deflect = 0.0
@@ -1883,7 +1950,6 @@ def trace_path(x0, y0, pts, kinds, stop, ray, raw):
         if best_obj <= OBST_OBJ_BASE:
             nx = wnx
             ny = wny
-            n_boundary += 1                      # any reflecting edge counts as boundary
         else:
             if self_k < 0:                       # first time the ray touches itself
                 self_k = best_obj
@@ -1994,7 +2060,6 @@ def trace_path(x0, y0, pts, kinds, stop, ray, raw):
             term = TERM_CONFINED
             break
 
-    raw[RAW_BOUNDARY] = n_boundary
     raw[RAW_SELF_K] = self_k
     raw[RAW_SELF_M] = self_m
     raw[RAW_DEFLECT] = deflect
@@ -2005,10 +2070,122 @@ def trace_path(x0, y0, pts, kinds, stop, ray, raw):
 
 
 @njit(cache=True)
+def in_sequence(seq, k, kinds, nb, npts):
+    """Whether point k (0 <= k < npts) of a traced path belongs to the named sequence `seq` (SEQ_*): the one definition
+    of what each sequence is. `kinds` are the points' kinds (trace_path) and `nb` the number of bounces (the bounce
+    points are pts[1] .. pts[nb])."""
+    if seq == SEQ_PATH:
+        return True
+    if k < 1 or k > nb:
+        return False
+    if seq == SEQ_BOUNCES:
+        return True
+    if seq == SEQ_BOUNDARY:
+        return kinds[k] == KIND_BOUNDARY
+    return kinds[k] == KIND_SELF
+
+
+@njit(cache=True)
+def sequence_summary(seq, pts, npts, kinds, nb, max_iter, out, sp):
+    """Reduce the named sequence `seq` of a traced path, in one pass over its points, to everything that is stored
+    about it: its point reductions (PRED_*, into their rows of `sp`, shape (N_POINTS, 2); a sequence with no points
+    reports the path's end point for each) and its scalar reductions (SRED_*, into their slots of `out`: how many
+    points it has over the iteration limit, the length and last direction of the polyline through them in order, and
+    its share of the path's bounces)."""
+    count = 0
+    sx = 0.0
+    sy = 0.0
+    total = 0.0
+    prev_x = 0.0
+    prev_y = 0.0
+    last_dx = 0.0
+    last_dy = 0.0
+    i_first = -1
+    i_last = -1
+    i_top = -1
+    i_bottom = -1
+    i_right = -1
+    i_left = -1
+    for k in range(npts):
+        if not in_sequence(seq, k, kinds, nb, npts):
+            continue
+        x = pts[k, 0]
+        y = pts[k, 1]
+        sx += x
+        sy += y
+        if count > 0:
+            total += sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
+            last_dx = x - prev_x
+            last_dy = y - prev_y
+            if y > pts[i_top, 1]:
+                i_top = k
+            if y < pts[i_bottom, 1]:
+                i_bottom = k
+            if x > pts[i_right, 0]:
+                i_right = k
+            if x < pts[i_left, 0]:
+                i_left = k
+        else:
+            i_first = k
+            i_top = k
+            i_bottom = k
+            i_right = k
+            i_left = k
+        prev_x = x
+        prev_y = y
+        i_last = k
+        count += 1
+    if count == 0:
+        i_first = npts - 1
+        i_last = npts - 1
+        i_top = npts - 1
+        i_bottom = npts - 1
+        i_right = npts - 1
+        i_left = npts - 1
+        mean_x = pts[npts - 1, 0]
+        mean_y = pts[npts - 1, 1]
+    else:
+        mean_x = sx / count
+        mean_y = sy / count
+    sp[POINT_SLOT[seq, PRED_FIRST], 0] = pts[i_first, 0]
+    sp[POINT_SLOT[seq, PRED_FIRST], 1] = pts[i_first, 1]
+    sp[POINT_SLOT[seq, PRED_LAST], 0] = pts[i_last, 0]
+    sp[POINT_SLOT[seq, PRED_LAST], 1] = pts[i_last, 1]
+    sp[POINT_SLOT[seq, PRED_MEAN], 0] = mean_x
+    sp[POINT_SLOT[seq, PRED_MEAN], 1] = mean_y
+    sp[POINT_SLOT[seq, PRED_TOP], 0] = pts[i_top, 0]
+    sp[POINT_SLOT[seq, PRED_TOP], 1] = pts[i_top, 1]
+    sp[POINT_SLOT[seq, PRED_BOTTOM], 0] = pts[i_bottom, 0]
+    sp[POINT_SLOT[seq, PRED_BOTTOM], 1] = pts[i_bottom, 1]
+    sp[POINT_SLOT[seq, PRED_RIGHT], 0] = pts[i_right, 0]
+    sp[POINT_SLOT[seq, PRED_RIGHT], 1] = pts[i_right, 1]
+    sp[POINT_SLOT[seq, PRED_LEFT], 0] = pts[i_left, 0]
+    sp[POINT_SLOT[seq, PRED_LEFT], 1] = pts[i_left, 1]
+    ang = atan2(last_dy, last_dx) if count >= 2 else 0.0
+    out[STAT_SLOT[seq, SRED_COUNT]] = min(count / max_iter, 1.0)
+    out[STAT_SLOT[seq, SRED_LENGTH]] = atan(total / 5.0) * 2.0 / pi
+    out[STAT_SLOT[seq, SRED_LAST_DIR]] = min(max((ang + pi) / (2.0 * pi), 0.0), 1.0)
+    out[STAT_SLOT[seq, SRED_SHARE]] = min(count / nb, 1.0) if nb > 0 else 0.0
+
+
+@njit(cache=True)
+def compute_sequences(pts, npts, kinds, nb, max_iter, out, sp):
+    """Fill every stored reduction of every named sequence (SEQ_*) of a traced path: the points into `sp` (shape
+    (N_POINTS, 2)) and the scalars into `out` (N_STATS slots; compute_stats fills the rest). The bounce points are
+    pts[1] .. pts[nb]; the start point and a distance-cut end point are not bounce points. A sequence with no points
+    (a ray with no bounces of the relevant kind) uses the path's end point. Five of the slots are the old choices
+    ST_BOUNCES, ST_LENGTH, ST_LAST_DIR, ST_RAY_FRAC and ST_BOUNDARY_FRAC, and thirteen points are the old POINT_*
+    choices (see POINT_ALIASES)."""
+    for seq in range(N_SEQS):
+        sequence_summary(seq, pts, npts, kinds, nb, max_iter, out, sp)
+
+
+@njit(cache=True)
 def compute_stats(pts, npts, raw, max_iter, seg_mult, out):
     """
-    Turn a traced path into the N_STATS metrics (each in 0..1, written to
-    `out`). Also fills RAW_LENGTH, RAW_LAST, RAW_AREA, RAW_LAST_DIR and
+    Turn a traced path into the metrics of the ray's own run (each in 0..1, written to
+    `out`; compute_sequences fills the rest, among them ST_BOUNCES, ST_LENGTH,
+    ST_LAST_DIR, ST_RAY_FRAC and ST_BOUNDARY_FRAC). Also fills RAW_LENGTH, RAW_LAST, RAW_AREA, RAW_LAST_DIR and
     RAW_DISP in `raw`. The loop-area metric is the loop's area divided by the
     area of a circle with the same perimeter as the loop, so it is
     dimensionless and needs no reference shape (1 is a perfect circle). The point-comparison metrics are written here using
@@ -2017,7 +2194,6 @@ def compute_stats(pts, npts, raw, max_iter, seg_mult, out):
     sample points have been computed.
     """
     bounces = int(raw[RAW_BOUNCES])
-    n_boundary = raw[RAW_BOUNDARY]
 
     # Path lengths
     total = 0.0
@@ -2071,22 +2247,15 @@ def compute_stats(pts, npts, raw, max_iter, seg_mult, out):
     out[ST_MANHATTAN] = min((abs(sdx) + abs(sdy)) * 0.5, 1.0)
     out[ST_EUCLIDEAN] = min(disp * 0.5, 1.0)
 
-    out[ST_BOUNCES] = min(bounces / max_iter, 1.0)
     if bounces > 0:
-        out[ST_RAY_FRAC] = (bounces - n_boundary) / bounces
-        out[ST_BOUNDARY_FRAC] = n_boundary / bounces
         out[ST_ANGLES] = min(raw[RAW_DEFLECT] / (180.0 * bounces), 1.0)
     else:                                          # cut off before the first bounce
-        out[ST_RAY_FRAC] = 0.0
-        out[ST_BOUNDARY_FRAC] = 0.0
         out[ST_ANGLES] = 0.0
     if perimeter > 1e-12:
         # the area of a circle with circumference `perimeter` is perimeter^2 / (4 pi)
         out[ST_LOOP_AREA] = min(area / (perimeter * perimeter / (4.0 * pi)), 1.0)
     else:
         out[ST_LOOP_AREA] = 0.0
-    out[ST_LENGTH] = atan(total / 5.0) * 2.0 / pi
-    out[ST_LAST_DIR] = min(max((ang + pi) / (2.0 * pi), 0.0), 1.0)
 
     term = int(raw[RAW_TERM])
     if term == TERM_ITER:
@@ -2107,116 +2276,6 @@ def compute_stats(pts, npts, raw, max_iter, seg_mult, out):
         out[ST_LAST_RATIO] = min(last / full, 1.0)
     else:
         out[ST_LAST_RATIO] = 1.0
-
-
-@njit(cache=True)
-def compute_points(pts, npts, raw, kinds, sp):
-    """
-    Pick the N_POINTS candidate sample points out of a traced path and write
-    their (x, y) coordinates to sp (shape (N_POINTS, 2)). The bounce points are
-    pts[1] .. pts[n_bounces]; the start point and a distance-cut end point are
-    not bounce points. A ray with no bounces of the relevant kind uses its end
-    point for that mean/extremum (all/boundary/self); a ray with no bounces at
-    all uses its end point for every bounce-based choice.
-    """
-    nb = int(raw[RAW_BOUNCES])
-    ex = pts[npts - 1, 0]
-    ey = pts[npts - 1, 1]
-
-    sp[POINT_START, 0] = pts[0, 0]
-    sp[POINT_START, 1] = pts[0, 1]
-    sp[POINT_END, 0] = ex
-    sp[POINT_END, 1] = ey
-
-    if nb > 0:
-        ax = 0.0
-        ay = 0.0
-        bx = 0.0
-        by = 0.0
-        bn = 0
-        sxm = 0.0
-        sym = 0.0
-        sn = 0
-        i_r = 1                                    # max x, any kind
-        i_l = 1                                    # min x, any kind
-        i_t = 1                                    # max y, any kind
-        i_b = 1                                    # min y, any kind
-        i_rs = -1                                   # max x, self bounces only
-        i_ls = -1                                   # min x, self bounces only
-        i_ts = -1                                   # max y, self bounces only
-        i_bs = -1                                   # min y, self bounces only
-        for k in range(1, nb + 1):
-            x = pts[k, 0]
-            y = pts[k, 1]
-            ax += x
-            ay += y
-            if kinds[k] == KIND_BOUNDARY:
-                bx += x
-                by += y
-                bn += 1
-            elif kinds[k] == KIND_SELF:
-                sxm += x
-                sym += y
-                sn += 1
-                if i_rs < 0 or x > pts[i_rs, 0]:
-                    i_rs = k
-                if i_ls < 0 or x < pts[i_ls, 0]:
-                    i_ls = k
-                if i_ts < 0 or y > pts[i_ts, 1]:
-                    i_ts = k
-                if i_bs < 0 or y < pts[i_bs, 1]:
-                    i_bs = k
-            if x > pts[i_r, 0]:
-                i_r = k
-            if x < pts[i_l, 0]:
-                i_l = k
-            if y > pts[i_t, 1]:
-                i_t = k
-            if y < pts[i_b, 1]:
-                i_b = k
-        sp[POINT_ALL_MEAN, 0] = ax / nb
-        sp[POINT_ALL_MEAN, 1] = ay / nb
-        if bn > 0:
-            sp[POINT_BOUNDARY_MEAN, 0] = bx / bn
-            sp[POINT_BOUNDARY_MEAN, 1] = by / bn
-        else:
-            sp[POINT_BOUNDARY_MEAN, 0] = ex
-            sp[POINT_BOUNDARY_MEAN, 1] = ey
-        if sn > 0:
-            sp[POINT_SELF_MEAN, 0] = sxm / sn
-            sp[POINT_SELF_MEAN, 1] = sym / sn
-            sp[POINT_SELF_RIGHT, 0] = pts[i_rs, 0]
-            sp[POINT_SELF_RIGHT, 1] = pts[i_rs, 1]
-            sp[POINT_SELF_LEFT, 0] = pts[i_ls, 0]
-            sp[POINT_SELF_LEFT, 1] = pts[i_ls, 1]
-            sp[POINT_SELF_TOP, 0] = pts[i_ts, 0]
-            sp[POINT_SELF_TOP, 1] = pts[i_ts, 1]
-            sp[POINT_SELF_BOTTOM, 0] = pts[i_bs, 0]
-            sp[POINT_SELF_BOTTOM, 1] = pts[i_bs, 1]
-        else:
-            sp[POINT_SELF_MEAN, 0] = ex
-            sp[POINT_SELF_MEAN, 1] = ey
-            sp[POINT_SELF_RIGHT, 0] = ex
-            sp[POINT_SELF_RIGHT, 1] = ey
-            sp[POINT_SELF_LEFT, 0] = ex
-            sp[POINT_SELF_LEFT, 1] = ey
-            sp[POINT_SELF_TOP, 0] = ex
-            sp[POINT_SELF_TOP, 1] = ey
-            sp[POINT_SELF_BOTTOM, 0] = ex
-            sp[POINT_SELF_BOTTOM, 1] = ey
-        sp[POINT_RIGHT, 0] = pts[i_r, 0]
-        sp[POINT_RIGHT, 1] = pts[i_r, 1]
-        sp[POINT_LEFT, 0] = pts[i_l, 0]
-        sp[POINT_LEFT, 1] = pts[i_l, 1]
-        sp[POINT_TOP, 0] = pts[i_t, 0]
-        sp[POINT_TOP, 1] = pts[i_t, 1]
-        sp[POINT_BOTTOM, 0] = pts[i_b, 0]
-        sp[POINT_BOTTOM, 1] = pts[i_b, 1]
-    else:
-        for p in range(N_POINTS):
-            if p != POINT_START and p != POINT_END:
-                sp[p, 0] = ex
-                sp[p, 1] = ey
 
 
 # A numba limitation shapes the two parallel drivers below: a parallel function cannot take a tuple that contains
@@ -2263,7 +2322,7 @@ def _render_rows_parallel(stats, points, status, row0, row1, max_iter, max_dist,
                                 NaturalStopRule(max_iter, max_dist, escape_radius, confine),
                                 RayArgs(seg_mult, fuzz, emission, obstacles), raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
-        compute_points(pts, npts, raw, kinds, sp)
+        compute_sequences(pts, npts, kinds, int(raw[RAW_BOUNCES]), max_iter, out, sp)
         for s in range(N_STATS):
             stats[j, i, s] = out[s]
         for p in range(N_POINTS):
@@ -2323,7 +2382,7 @@ def scatter_multi_buddha(row0, row1, stop, ray, seed_base, want_all_self, want_a
 
             if want_all_self:
                 for k in range(1, nb + 1):
-                    if kinds[k] == KIND_SELF:
+                    if in_sequence(SEQ_SELF, k, kinds, nb, npts):
                         scatter_one_buddha_point(counts, pts[k, 0], pts[k, 1], w, h)
 
             if want_all_mid:
@@ -2396,7 +2455,7 @@ def _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, ma
                                 NaturalStopRule(max_iter, max_dist, escape_radius, confine),
                                 RayArgs(seg_mult, fuzz, emission, obstacles), raw)
         compute_stats(pts, npts, raw, max_iter, seg_mult, out)
-        compute_points(pts, npts, raw, kinds, sp)
+        compute_sequences(pts, npts, kinds, int(raw[RAW_BOUNCES]), max_iter, out, sp)
         for s in range(N_STATS):
             stats[j, i, s] = out[s]
         for p in range(N_POINTS):

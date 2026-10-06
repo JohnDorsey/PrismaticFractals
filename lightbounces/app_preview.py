@@ -8,11 +8,11 @@ from .constants import (
 )
 from .image_io import bilinear_resize, encode_png_bytes, preview_placeholder, render_text_line
 from .kernels import (
-    N_STATS, PIXEL, RAW_AREA, RAW_BOUNCES, RAW_BOUNDARY, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SIZE, compute_points, compute_stats, emits_ray,
-    trace_path
+    PIXEL, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, SIZE, compute_sequences, compute_stats, emits_ray,
+    in_sequence, trace_path
 )
-from .metrics import POINT_STATS, resolve_point_xy
+from .metrics import N_STAT_CHOICES, POINT_STATS, resolve_point_xy
 from .settings import NaturalStopSettings, RaySettings, settings_natural_stop, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .views import MODES
@@ -177,7 +177,7 @@ class PreviewMixin:
         term, n = trace_path(x, y, pts, kinds, settings_natural_stop(pn),
                              settings_ray_args(ps, obstacles), raw)
         compute_stats(pts, n, raw, pn.max_iter, ps.seg_mult, vec)
-        compute_points(pts, n, raw, kinds, sp)
+        compute_sequences(pts, n, kinds, int(raw[RAW_BOUNCES]), pn.max_iter, vec, sp)
         vals = self.component_values(vec, sp, x, y)
         self.draw_segments(pts, kinds, n)
 
@@ -236,7 +236,7 @@ class PreviewMixin:
 
         # ---- info panel ----
         bounces = int(raw[RAW_BOUNCES])
-        n_boundary = int(raw[RAW_BOUNDARY])
+        n_boundary = sum(in_sequence(SEQ_BOUNDARY, k, kinds, bounces, n) for k in range(n))
         fx, fy = float(pts[n - 1, 0]), float(pts[n - 1, 1])
         r, g, b = self.map_color(vals)
         hexcol = f"#{r:02x}{g:02x}{b:02x}"
@@ -261,7 +261,7 @@ class PreviewMixin:
         letters = [name[0] for name, _color in MODES[self.live_view().mode]]
         v["components"].set("   ".join(f"{letters[c]} {vals[c]:.3f}" for c in range(3)))
         v["color"].set(hexcol)
-        for s in range(N_STATS):
+        for s in range(N_STAT_CHOICES):
             self.stat_vars[s].set(f"{vec[s]:.3f}")
         self.swatch.configure(bg=hexcol)
         self.info_placeholder.grid_remove()

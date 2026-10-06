@@ -1,13 +1,13 @@
 """Colour mapping on the live image: the Coloration tab's handlers (model, source, metric, points...), the Buddha count buffers and their blur cache, and recolouring rows from the stored per-pixel data."""
 import numpy as np
 from .constants import BACKGROUND, TERM_STAT_VALUE
-from .kernels import N_STATS, SIZE, ST_TERMINATION, scatter_multi_buddha
+from .kernels import SIZE, ST_TERMINATION, scatter_multi_buddha
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_BRIGHTNESS_VALUES, BUDDHA_COMPRESSION_LABELS,
     BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF, BUDDHA_MULTI_PROG_BOUNCE,
     BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, BUDDHA_POINT_LABELS, CHAN_BUDDHA,
     CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, KIND_LABELS, KIND_POINT, NONE_ONE,
-    NONE_ZERO, OTHER_LABELS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_METRIC_LABELS, POINT_NOTE,
+    N_STAT_CHOICES, NONE_ZERO, OTHER_LABELS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_METRIC_LABELS, POINT_NOTE,
     POINT_STATS, STAT_DESCRIPTIONS, STAT_LABELS, blur_counts_image, buddha_compress,
     build_buddha_blur_kernel, constant_label_to_stat, constant_stat_to_label, extract_point_xy,
     make_mapping, other_label_to_stat, other_stat_to_label, point_comparison_metric,
@@ -79,7 +79,7 @@ class RecolorMixin:
         live view specifically - this describes the top-left preview image,
         not whichever view is being edited."""
         letters = [name[0] for name, _color in MODES[self.live_view().mode]]
-        for s in range(N_STATS):
+        for s in range(N_STAT_CHOICES):
             used = [letters[c] for c in range(3) if self.mapping[c] == s]
             self.stat_tags[s].configure(text="-> " + ", ".join(used) if used else "")
 

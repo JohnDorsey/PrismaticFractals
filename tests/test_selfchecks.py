@@ -45,3 +45,44 @@ def test_self_checks_catch_a_setting_info_mismatch():
         raise AssertionError("expected run_self_checks() to raise")
     except AssertionError as e:
         assert "SETTING_INFO" in str(e)
+
+
+def test_self_checks_catch_a_sequence_catalog_of_the_wrong_length():
+    fresh = load_module()
+    fresh.selfchecks.SEQUENCE_LABELS = fresh.SEQUENCE_LABELS[:-1]
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "SEQUENCE_LABELS" in str(e)
+
+
+def test_self_checks_catch_a_point_alias_that_is_not_its_own_slot_and_a_slot_given_twice():
+    fresh = load_module()
+    rows = list(fresh.POINT_ALIASES)
+    rows[2], rows[3] = rows[3], rows[2]
+    fresh.selfchecks.POINT_ALIASES = tuple(rows)
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "point choice" in str(e)
+    fresh = load_module()
+    slots = fresh.POINT_SLOT.copy()
+    slots[fresh.SEQ_SELF, fresh.PRED_LEFT] = slots[fresh.SEQ_PATH, fresh.PRED_FIRST]
+    fresh.selfchecks.POINT_SLOT = slots
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "POINT_SLOT" in str(e)
+
+
+def test_self_checks_catch_a_metric_alias_that_is_not_its_own_slot():
+    fresh = load_module()
+    fresh.selfchecks.STAT_ALIASES = {**fresh.STAT_ALIASES, fresh.ST_LENGTH: (fresh.SEQ_SELF, fresh.SRED_LENGTH)}
+    try:
+        fresh.run_self_checks()
+        raise AssertionError("expected run_self_checks() to raise")
+    except AssertionError as e:
+        assert "metric" in str(e)

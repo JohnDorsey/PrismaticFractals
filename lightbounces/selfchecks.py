@@ -7,13 +7,19 @@ from .constants import (
     LAYOUTS, OBSTACLE_EFFECT_NAMES, TERM_CODES, TERM_END_COLOR, TERM_OUTCOME_TEXT,
     TERM_STAT_VALUE
 )
-from .kernels import N_STATS
+from .kernels import (
+    N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
+    POINT_BOTTOM, POINT_BOUNDARY_MEAN, POINT_END, POINT_LEFT, POINT_RIGHT, POINT_SELF_BOTTOM, POINT_SELF_LEFT,
+    POINT_SELF_MEAN, POINT_SELF_RIGHT, POINT_SELF_TOP, POINT_SLOT, POINT_START, POINT_TOP, STAT_ALIASES, STAT_SLOT
+)
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT,
     CHAN_CONSTANT_LABELS, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, CHAN_SRC_QUERY,
     CONSTANT_POINT_COORDS, DEFAULT_BUDDHA_POINTS, KIND_OTHER, KIND_POINT, NONE_ONE, NONE_ZERO,
-    N_BUDDHA_POINTS, N_POINT_CHOICES, POINT_DESCRIPTIONS, POINT_LABELS, POINT_MENU_ORDER,
-    POINT_ORIGIN, POINT_SHORT, POINT_TOP_LEFT_CORNER
+    N_BUDDHA_POINTS, N_POINT_CHOICES, N_STAT_CHOICES, POINT_DESCRIPTIONS, POINT_LABELS, POINT_MENU_ORDER,
+    POINT_ORIGIN, POINT_REDUCTION_DESCRIPTIONS, POINT_REDUCTION_LABELS, POINT_SHORT, POINT_TOP_LEFT_CORNER,
+    SEQUENCE_DESCRIPTIONS, SEQUENCE_LABELS, STAT_DESCRIPTIONS, STAT_LABELS, STAT_REDUCTION_DESCRIPTIONS,
+    STAT_REDUCTION_LABELS, STAT_SHORT
 )
 from .projects import (
     CAT_BUDDHA_BRIGHTNESS, CAT_BUDDHA_COMPRESSION, CAT_BUDDHA_POINT, CAT_CHAN_KIND,
@@ -115,6 +121,33 @@ def run_self_checks():
         raise AssertionError("the two fixed points come first in the point dropdowns")
     if set(CONSTANT_POINT_COORDS) != {POINT_ORIGIN, POINT_TOP_LEFT_CORNER}:
         raise AssertionError("CONSTANT_POINT_COORDS doesn't match the fixed point ids")
+    for _name, _lst, _want in (
+            ("SEQUENCE_LABELS", SEQUENCE_LABELS, N_SEQS), ("SEQUENCE_DESCRIPTIONS", SEQUENCE_DESCRIPTIONS, N_SEQS),
+            ("POINT_REDUCTION_LABELS", POINT_REDUCTION_LABELS, N_PRED),
+            ("POINT_REDUCTION_DESCRIPTIONS", POINT_REDUCTION_DESCRIPTIONS, N_PRED),
+            ("STAT_REDUCTION_LABELS", STAT_REDUCTION_LABELS, N_SRED),
+            ("STAT_REDUCTION_DESCRIPTIONS", STAT_REDUCTION_DESCRIPTIONS, N_SRED),
+            ("STAT_LABELS", STAT_LABELS, N_STAT_CHOICES), ("STAT_SHORT", STAT_SHORT, N_STAT_CHOICES),
+            ("STAT_DESCRIPTIONS", STAT_DESCRIPTIONS, N_STAT_CHOICES)):
+        if len(_lst) != _want:
+            raise AssertionError(f"{_name} has {len(_lst)} entries but there are {_want} of what it describes")
+    legacy_points = [POINT_START, POINT_END, POINT_ALL_MEAN, POINT_BOUNDARY_MEAN, POINT_SELF_MEAN, POINT_TOP,
+                     POINT_BOTTOM, POINT_RIGHT, POINT_LEFT, POINT_SELF_TOP, POINT_SELF_BOTTOM, POINT_SELF_RIGHT,
+                     POINT_SELF_LEFT]
+    if legacy_points != list(range(N_LEGACY_POINTS)) or len(POINT_ALIASES) != N_LEGACY_POINTS:
+        raise AssertionError("the POINT_* numbers must be 0, 1, 2... in order, one row of POINT_ALIASES each")
+    if N_POINTS != N_SEQS * N_PRED or sorted(POINT_SLOT.ravel().tolist()) != list(range(N_POINTS)):
+        raise AssertionError("POINT_SLOT must give every (sequence, point reduction) its own slot of the N_POINTS")
+    for point_id, (seq, red) in enumerate(POINT_ALIASES):
+        if POINT_SLOT[seq, red] != point_id:
+            raise AssertionError(f"point choice {point_id} is not the slot of its own (sequence, reduction) {(seq, red)}")
+    if sorted(STAT_SLOT.ravel().tolist()) != sorted(set(range(N_STATS)) - set(range(N_LEGACY_STATS))
+                                                    | set(STAT_ALIASES)):
+        raise AssertionError("STAT_SLOT must give every (sequence, scalar reduction) its own slot, the aliases "
+                             "keeping the numbers of the metrics they stand for")
+    for stat_id, (seq, red) in STAT_ALIASES.items():
+        if STAT_SLOT[seq, red] != stat_id:
+            raise AssertionError(f"metric {stat_id} is not the slot of its own (sequence, reduction) {(seq, red)}")
     if len(CHAN_SRC_LABELS) != 3:
         raise AssertionError(
             f"CHAN_SRC_LABELS has {len(CHAN_SRC_LABELS)} entries but there are 3 "
@@ -134,7 +167,7 @@ def run_self_checks():
     for catalog, wanted in (
             (CAT_CHAN_SOURCE, {CHAN_SRC_QUERY, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT}),
             (CAT_CHAN_KIND, {KIND_POINT, KIND_OTHER}),
-            (CAT_METRIC, set(range(N_STATS))), (CAT_POINT, set(range(N_POINT_CHOICES))),
+            (CAT_METRIC, set(range(N_STAT_CHOICES))), (CAT_POINT, set(range(N_POINT_CHOICES))),
             (CAT_BUDDHA_POINT, set(range(N_BUDDHA_POINTS))),
             (CAT_BUDDHA_COMPRESSION, set(range(len(BUDDHA_COMPRESSION_LABELS)))),
             (CAT_BUDDHA_BRIGHTNESS, set(range(len(BUDDHA_BRIGHTNESS_OPTIONS)))),

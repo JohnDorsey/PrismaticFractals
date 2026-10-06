@@ -7,7 +7,7 @@ from .constants import (
 )
 from .geometry import ellipse_bound
 from .kernels import (
-    ObstacleArrays, SHAPE_ELLIPSE, SIZE, compute_points, compute_stats, emits_ray,
+    ObstacleArrays, SHAPE_ELLIPSE, SIZE, compute_sequences, compute_stats, emits_ray,
     inside_boundary, render_rows, trace_path
 )
 from .metrics import CHAN_SRC_BUDDHA
@@ -37,9 +37,8 @@ class GenerationMixin:
         stop = natural_stop_rule(WARM_ITER, big, DEFAULT_ESCAPE_RADIUS, CONFINE_DEFAULT)
         ray = ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT, no_obstacles)
         trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, stop, ray, self.hover_raw)
-        compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER,
-                      DEFAULT_SEGMENT_MULT, self.hover_vec)
-        compute_points(self.hover_pts, 4, self.hover_raw, self.hover_kinds, self.hover_sp)
+        compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER, DEFAULT_SEGMENT_MULT, self.hover_vec)
+        compute_sequences(self.hover_pts, 4, self.hover_kinds, 0, WARM_ITER, self.hover_vec, self.hover_sp)
         render_rows(self.stats, self.points, self.status, 0, 1, stop, ray, 0)
         self.stats[:] = 0
         self.points[:] = 0

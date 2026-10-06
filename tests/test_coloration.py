@@ -37,7 +37,7 @@ def test_point_lists_include_the_two_new_fixed_points():
     assert m.POINT_LABELS[m.POINT_ORIGIN] == "Origin"
     assert m.POINT_LABELS[m.POINT_TOP_LEFT_CORNER] == "Top left corner"
     assert len(m.POINT_LABELS) == len(m.POINT_SHORT) == len(m.POINT_DESCRIPTIONS)
-    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 2
+    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_LEGACY_POINTS + 2
 
 
 def test_colorize_view_produces_uniform_color_for_two_constant_points():

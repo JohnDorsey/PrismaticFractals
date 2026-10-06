@@ -9,8 +9,9 @@ from .constants import (
     BUDDHA_BLUR_GAUSSIAN_TRUNCATE, BUDDHA_BLUR_TRIANGULAR
 )
 from .kernels import (
-    N_POINTS, N_STATS, POINT_ALL_MEAN, POINT_BOUNDARY_MEAN, POINT_END, POINT_SELF_MEAN,
-    ST_EUCLIDEAN, ST_HDIST, ST_MANHATTAN, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
+    N_LEGACY_POINTS, N_LEGACY_STATS, POINT_ALL_MEAN, POINT_BOUNDARY_MEAN, POINT_END, POINT_SELF_MEAN,
+    POINT_SLOT, STAT_SLOT, ST_EUCLIDEAN, ST_HDIST, ST_MANHATTAN, ST_VDIST, TERM_CONFINED, TERM_DIST,
+    TERM_PERPENDICULAR
 )
 
 
@@ -98,11 +99,15 @@ def blur_counts_image(counts, kernel):
     return full[max_offset:max_offset + h, max_offset:max_offset + w]
 
 
+# What a view can choose to colour a channel by: N_STAT_CHOICES metrics (the ST_* numbers). A ray's stored metrics (N_STATS in
+# kernels.py) hold these first, in the same slots, followed by reductions of the engine's named sequences nothing offers yet.
+N_STAT_CHOICES = N_LEGACY_STATS
+
 # Metrics that compare two sample points (the others ignore the point choices).
 # They are evaluated at coloring time from the stored points; the copies stored
 # in the metrics array are for the end of the ray and feed the preview list.
 POINT_STATS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
-OTHER_STATS = tuple(s for s in range(N_STATS) if s not in POINT_STATS)
+OTHER_STATS = tuple(s for s in range(N_STAT_CHOICES) if s not in POINT_STATS)
 
 STAT_LABELS = [     # shown in the color-mapping table
     "Horizontal distance",
@@ -225,13 +230,14 @@ def point_comparison_metric(stat, p1x, p1y, p2x, p2y):
 
 
 # Two fixed reference points, unrelated to any ray - always the same regardless of
-# where the ray went. Not part of the simulation's own N_POINTS sample points (they're
-# never written into the points array the simulation kernels fill), so any code
-# reading a chosen point's coordinates must check CONSTANT_POINT_COORDS first.
-POINT_ORIGIN = 13             # the fixed point (0, 0)
-POINT_TOP_LEFT_CORNER = 14    # the fixed point (-1, 1): the top-left corner of the
+# where the ray went. They are CHOICES only, with no slot of their own: the ids below are
+# not indexes into a ray's stored points (whose slots 0..N_LEGACY_POINTS - 1 are the other
+# choices' ids, and whose later slots, from N_LEGACY_POINTS on, belong to no choice yet), so any
+# code reading a chosen point's coordinates must check CONSTANT_POINT_COORDS first.
+POINT_ORIGIN = N_LEGACY_POINTS            # the fixed point (0, 0)
+POINT_TOP_LEFT_CORNER = N_LEGACY_POINTS + 1   # the fixed point (-1, 1): the top-left corner of the
                               # [-1, 1] square the simulation runs in
-N_POINT_CHOICES = 15          # total selectable points (13 real + 2 fixed)
+N_POINT_CHOICES = N_LEGACY_POINTS + 2     # total selectable points (13 stored + 2 fixed)
 CONSTANT_POINT_COORDS = {POINT_ORIGIN: (0.0, 0.0), POINT_TOP_LEFT_CORNER: (-1.0, 1.0)}
 
 POINT_LABELS = [
@@ -289,14 +295,56 @@ POINT_SHORT = ["Start", "End", "AllMean", "BoundMean", "SelfMean",
 # the ray's path. Only the display order - a point's id (its index in
 # POINT_LABELS, and into the per-ray sample array for the real ones) never
 # changes, and choosing by label still maps back through POINT_LABELS.index().
-POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + list(range(N_POINTS))
+POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + list(range(N_LEGACY_POINTS))
 POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
+
+# The ray-bouncing engine's named sequences of points (SEQ_* in kernels.py) and what is stored about each: every
+# reduction below of every sequence, per ray. The metrics and points above are aliases of some of these (POINT_ALIASES /
+# STAT_ALIASES in kernels.py); the rest are stored but not yet offered to a view. Another engine declares its own
+# sequences the same way; every engine should offer SEQ_PATH ("Path": all its points, in order), so that a channel
+# set to it means something whichever engine made the figure.
+SEQUENCE_LABELS = ["Path", "All bounces", "Boundary bounces", "Self bounces"]
+SEQUENCE_DESCRIPTIONS = [
+    "every point of the ray's path, in order: its start, each bounce and its end point.",
+    "the points where the ray bounced, of any kind (not its start, nor an end point that is not a bounce).",
+    "the points where the ray bounced off the edge of a shape (a reflecting edge).",
+    "the points where the ray bounced off its own earlier path.",
+]
+POINT_REDUCTION_LABELS = ["First point", "Last point", "Mean point", "Uppermost point", "Lowermost point",
+                          "Rightmost point", "Leftmost point"]
+POINT_REDUCTION_DESCRIPTIONS = [
+    "the first point of the sequence.", "the last point of the sequence.",
+    "the average of the sequence's points.",
+    "the sequence's point with the largest vertical coordinate.",
+    "the sequence's point with the smallest vertical coordinate.",
+    "the sequence's point with the largest horizontal coordinate.",
+    "the sequence's point with the smallest horizontal coordinate.",
+]
+STAT_REDUCTION_LABELS = ["Number of points / iteration limit", "Length (arctan)", "Last segment direction",
+                         "Share of the bounces"]
+STAT_REDUCTION_DESCRIPTIONS = [
+    "how many points the sequence has, divided by the iteration limit (at most 1).",
+    "the length of the line through the sequence's points in order, squashed into 0..1 with (2/π)·arctan(length/5).",
+    "the direction of the last segment of the line through the sequence's points, from -180° to 180° "
+    "mapped to 0..1 (0.5 if it has fewer than two points).",
+    "how many points the sequence has, divided by how many bounces the path has (0 if it has none; at most 1).",
+]
+
+
+def point_slot(seq, reduction):
+    """The index into a ray's stored points of one reduction (PRED_*) of one named sequence (SEQ_*)."""
+    return int(POINT_SLOT[seq, reduction])
+
+
+def stat_slot(seq, reduction):
+    """The index into a ray's stored metrics of one scalar reduction (SRED_*) of one named sequence (SEQ_*)."""
+    return int(STAT_SLOT[seq, reduction])
 
 
 def extract_point_xy(points_arr, point_idx, computed, n):
     """(x, y) arrays of length n holding the chosen point's coordinates for
     every computed pixel: read from `points_arr` (an (H, W, N_POINTS, 2)
-    array) for a real simulation point, or a constant-filled array for
+    array of the stored points) for a real simulation point, or a constant-filled array for
     POINT_ORIGIN/POINT_TOP_LEFT_CORNER, which was never written into
     `points_arr` at all."""
     if point_idx in CONSTANT_POINT_COORDS:
@@ -308,7 +356,7 @@ def extract_point_xy(points_arr, point_idx, computed, n):
 
 def resolve_point_xy(sp, point_idx):
     """(x, y) for a single ray's chosen point: read from `sp` (that ray's
-    own (N_POINTS, 2) sample points) for a real simulation point, or one of
+    own (N_POINTS, 2) stored points) for a real simulation point, or one of
     the two fixed constant points."""
     if point_idx in CONSTANT_POINT_COORDS:
         return CONSTANT_POINT_COORDS[point_idx]
