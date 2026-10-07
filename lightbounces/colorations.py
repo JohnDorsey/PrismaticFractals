@@ -1,6 +1,6 @@
-"""Views: how the stored simulation data is turned into a coloured image. A view is three colour channels (each a Query, Buddha or Constant
-source) in an RGB or HSV colour model; this module has the live editable ViewConfig, its frozen copies (ViewSnapshot, ViewSettings),
-ChannelSettings (one channel as a keyframe stores it), resolve_views (a view's values for a video frame) and the colour-model maths."""
+"""Colorations: how the stored simulation data is turned into a coloured image. A coloration is three colour channels (each a Query, Buddha or Constant
+source) in an RGB or HSV colour model; this module has the live editable ColorationConfig, its frozen copies (ColorationSnapshot, ColorationSettings),
+ChannelSettings (one channel as a keyframe stores it), resolve_colorations (a coloration's values for a video frame) and the colour-model maths."""
 import numpy as np
 from .kernels import POINT_END, POINT_START, ST_BOUNCES, ST_HDIST, ST_MANHATTAN, ST_VDIST
 from .metrics import (
@@ -33,29 +33,29 @@ MODES = {
 MODE_NAMES = list(MODES)
 
 
-# Views: showing more than 3 channels' worth of information at once, by
+# Colorations: showing more than 3 channels' worth of information at once, by
 # rendering the same simulation multiple times with different colorations
 # and placing the results side by side in an exported image or video. Each
-# view is exactly what the Coloration tab already controls for a single
-# image - a color model plus up to 3 channels - bundled as a ViewConfig.
+# coloration is exactly what the Coloration tab already controls for a single
+# image - a color model plus up to 3 channels - bundled as a ColorationConfig.
 #
-# self.views is one uniform list of ViewConfig objects. The top-left preview
-# shows self.live_view() - whichever view is currently selected
-# (self.selected_view_id) in the Coloration tab; selecting a view for
+# self.colorations is one uniform list of ColorationConfig objects. The top-left preview
+# shows self.live_coloration() - whichever coloration is currently selected
+# (self.selected_coloration_id) in the Coloration tab; selecting a coloration for
 # editing is what makes it the preview too, there's no separate step. Every
-# view uses the same dynamic "view:<id>:..." keyframe keys, mirroring
+# coloration uses the same dynamic "coloration:<id>:..." keyframe keys, mirroring
 # Shape/self.obstacles and "obst:<id>:<field>" exactly, since the two
 # problems are the same shape: a dynamic list of same-structure things,
 # each with its own independently keyframeable fields, where the SET of
 # things is fixed for a given render but every field of every one of them
-# can still be held or animated. Deleting the selected (live) view falls
-# back to self.views[0] - no promotion step and no keyframe-key renaming is
-# ever needed, because no view's keyframe data is tied to its list position.
-class ViewConfig:
-    """One view's live state: a color model plus up to 3 channels - exactly
-    what the Coloration tab controls. Position in self.views has no special
+# can still be held or animated. Deleting the selected (live) coloration falls
+# back to self.colorations[0] - no promotion step and no keyframe-key renaming is
+# ever needed, because no coloration's keyframe data is tied to its list position.
+class ColorationConfig:
+    """One coloration's live state: a color model plus up to 3 channels - exactly
+    what the Coloration tab controls. Position in self.colorations has no special
     meaning; which one the top-left preview shows is whichever is selected
-    (see live_view/select_view), not necessarily self.views[0]."""
+    (see live_coloration/select_coloration), not necessarily self.colorations[0]."""
     __slots__ = ("id", "mode", "chan_src", "kinds", "point_metric", "other_metric",
                 "point1_choice", "point2_choice", "buddha_points", "buddha_compression",
                 "buddha_brightness", "constant_choice")
@@ -91,8 +91,8 @@ class ViewConfig:
         self.constant_choice[c] = channel.constant
 
     def settings(self):
-        """This view as the ViewSettings the colouring code takes."""
-        return ViewSettings(mode=self.mode, kinds=self.kinds, point_metric=self.point_metric,
+        """This coloration as the ColorationSettings the colouring code takes."""
+        return ColorationSettings(mode=self.mode, kinds=self.kinds, point_metric=self.point_metric,
                             other_metric=self.other_metric, point1_choice=self.point1_choice,
                             point2_choice=self.point2_choice, chan_src=self.chan_src,
                             buddha_points=self.buddha_points,
@@ -102,9 +102,9 @@ class ViewConfig:
 
 
 @strict_record
-class ViewSnapshot:
-    """A frozen copy of one ViewConfig's fields (see snapshot_view). Its fields
-    mirror ViewConfig.__slots__ (a test keeps them in step); the per-channel lists
+class ColorationSnapshot:
+    """A frozen copy of one ColorationConfig's fields (see snapshot_coloration). Its fields
+    mirror ColorationConfig.__slots__ (a test keeps them in step); the per-channel lists
     are stored as tuples."""
     id: int
     mode: str
@@ -120,22 +120,22 @@ class ViewSnapshot:
     constant_choice: tuple
 
 
-def snapshot_view(v):
-    """A plain, immutable copy of one ViewConfig's fields - safe to read from
+def snapshot_coloration(v):
+    """A plain, immutable copy of one ColorationConfig's fields - safe to read from
     a background render thread while the GUI thread might still be editing
-    the live ViewConfig object (mirrors Shape.snapshot). ViewConfig's
+    the live ColorationConfig object (mirrors Shape.snapshot). ColorationConfig's
     per-channel fields are mutable lists (the UI mutates them in place, e.g.
     self.chan_src[c] = ...), so each one is copied here rather than shared -
     a shared reference would let a background thread see a live edit
     mid-render, exactly what a "snapshot" is meant to prevent (the record stores
     the per-channel lists as tuples)."""
-    return ViewSnapshot(**{f: getattr(v, f) for f in ViewConfig.__slots__})
+    return ColorationSnapshot(**{f: getattr(v, f) for f in ColorationConfig.__slots__})
 
 
 @strict_record
 class ChannelSettings:
-    """One color channel of a view, as a keyframe stores it (the value of a
-    "view:<id>:chan<c>" key). `constant` is a field of its own even though it only
+    """One color channel of a coloration, as a keyframe stores it (the value of a
+    "coloration:<id>:chan<c>" key). `constant` is a field of its own even though it only
     means something when chan_src is CHAN_SRC_CONSTANT - it is never packed into
     `stat`, whose meaning already depends on `kind`, so reading it never requires
     guessing which of several interpretations currently applies."""
@@ -150,8 +150,8 @@ class ChannelSettings:
     constant: int
 
 
-def view_channel_value(v, c):
-    """Channel c's current setting for a ViewConfig or ViewSnapshot `v`, as
+def coloration_channel_value(v, c):
+    """Channel c's current setting for a ColorationConfig or ColorationSnapshot `v`, as
     stored in a keyframe (a ChannelSettings)."""
     stat = v.point_metric[c] if v.kinds[c] == KIND_POINT else v.other_metric[c]
     return ChannelSettings(
@@ -161,24 +161,24 @@ def view_channel_value(v, c):
         constant=v.constant_choice[c])
 
 
-# Every field a view can define in a keyframe: (field, label, is_float) -
+# Every field a coloration can define in a keyframe: (field, label, is_float) -
 # mirrors the shapes' KEYFRAME_FIELDS. None of these are float (a color model or a whole
 # channel's configuration is held between keyframes, never interpolated).
-VIEW_FIELD_INFO = [("mode", "Color model", False), ("chan0", "Channel 1", False),
+COLORATION_FIELD_INFO = [("mode", "Color model", False), ("chan0", "Channel 1", False),
                    ("chan1", "Channel 2", False), ("chan2", "Channel 3", False)]
 
 
-def view_field_value(v, field):
-    """The current value of one of a view's VIEW_FIELD_INFO fields, in the
+def coloration_field_value(v, field):
+    """The current value of one of a coloration's COLORATION_FIELD_INFO fields, in the
     same shape a keyframe stores it in."""
     if field == "mode":
         return v.mode
-    return view_channel_value(v, int(field[-1]))
+    return coloration_channel_value(v, int(field[-1]))
 
 
 @strict_record
-class ViewSettings:
-    """One view's resolved coloration, as colorize_view reads it (per-channel values
+class ColorationSettings:
+    """One coloration, resolved, as apply_coloration reads it (per-channel values
     are 3-tuples)."""
     mode: str
     kinds: tuple
@@ -195,10 +195,10 @@ class ViewSettings:
 
 def decompose_chans(mode, chans):
     """A color model plus 3 channels' ChannelSettings (as stored in a keyframe, or
-    built by view_channel_value) -> a ViewSettings, decomposed into the separate
+    built by coloration_channel_value) -> a ColorationSettings, decomposed into the separate
     per-channel fields render_full_image's coloring step actually reads. Used by
-    resolve_views() for every view alike."""
-    return ViewSettings(
+    resolve_colorations() for every coloration alike."""
+    return ColorationSettings(
         mode=mode,
         kinds=tuple(c.kind for c in chans),
         point_metric=tuple(c.stat if c.kind == KIND_POINT else DEFAULT_POINT_METRICS[i]
@@ -214,21 +214,21 @@ def decompose_chans(mode, chans):
         constant_choice=tuple(c.constant for c in chans))
 
 
-def resolve_views(view_snapshots, keyframes_sorted, frame_number):
-    """tuple of ViewSettings, one per view, in the same order as
-    view_snapshots - list/export order, unrelated to which view the
-    top-left preview happens to be showing (see live_view/select_view):
-    the SET of views is fixed (whichever existed when the render started),
+def resolve_colorations(coloration_snapshots, keyframes_sorted, frame_number):
+    """tuple of ColorationSettings, one per coloration, in the same order as
+    coloration_snapshots - list/export order, unrelated to which coloration the
+    top-left preview happens to be showing (see live_coloration/select_coloration):
+    the SET of colorations is fixed (whichever existed when the render started),
     but each one's color model and channels are independently resolved
     (held, never smoothly interpolated) from the keyframes - falling back
-    to that view's own value (at render-start time) wherever no keyframe
+    to that coloration's own value (at render-start time) wherever no keyframe
     defines it. Mirrors resolve_obstacle_arrays."""
     result = []
-    for snap in view_snapshots:
-        mode = resolve_value(f"view:{snap.id}:mode", keyframes_sorted, frame_number,
+    for snap in coloration_snapshots:
+        mode = resolve_value(f"coloration:{snap.id}:mode", keyframes_sorted, frame_number,
                              snap.mode, False)
-        chans = [resolve_value(f"view:{snap.id}:chan{c}", keyframes_sorted, frame_number,
-                               view_channel_value(snap, c), False)
+        chans = [resolve_value(f"coloration:{snap.id}:chan{c}", keyframes_sorted, frame_number,
+                               coloration_channel_value(snap, c), False)
                 for c in range(3)]
         result.append(decompose_chans(mode, chans))
     return tuple(result)

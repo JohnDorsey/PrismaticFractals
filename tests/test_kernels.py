@@ -715,7 +715,7 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     app.confine_threshold_var = _StubVar("1e-12")
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
-    app.views = []
+    app.colorations = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     data = app.capture_all_settings()
     assert data["confine_window"] == 9 and data["confine_method"] == PATH
@@ -1104,7 +1104,7 @@ def test_emission_settings_round_trip_through_capture_and_resolve():
     app.emit_offset_scale = _StubVar(12.5)
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
-    app.views = []
+    app.colorations = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     data = app.capture_all_settings()
     assert (data["emit_mode"], data["emit_target_r"], data["emit_target_theta"],
@@ -1682,7 +1682,7 @@ def test_each_named_sequence_is_a_filtered_view_of_the_one_tagged_path():
     assert not any(m.in_sequence(s, 0, _HAND_KINDS, 4, 6) for s in (m.SEQ_BOUNCES, m.SEQ_BOUNDARY, m.SEQ_SELF))
 
 
-def test_the_choices_a_view_could_always_make_are_aliases_that_still_pick_what_they_always_picked():
+def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_what_they_always_picked():
     """The 13 sample points and the metrics that are reductions of a sequence, on a path small enough to work out by
     hand - independent of the alias tables, which they must agree with."""
     sp, out = _stored_for_path(_HAND_PTS, _HAND_KINDS, 4, max_iter=20)

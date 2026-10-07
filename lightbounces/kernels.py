@@ -158,7 +158,7 @@ ST_LENGTH = 9       # total ray length                        (arctangent)
 ST_LAST_DIR = 10    # direction of the last line segment      (linear angle)
 ST_TERMINATION = 11  # why the ray stopped (see TERM_STAT_VALUE)
 ST_LAST_RATIO = 12  # last segment length / its uncut length
-# (ST_* are the metrics a view can choose - see N_STATS below for how many slots a ray's stored metrics really have)
+# (ST_* are the metrics a coloration can choose - see N_STATS below for how many slots a ray's stored metrics really have)
 
 # Sample points that can be picked out of a ray's path
 POINT_START = 0          # the ray's starting point (the pixel it was emitted from)
@@ -175,7 +175,7 @@ POINT_SELF_TOP = 9       # uppermost bounce off the ray's own earlier path
 POINT_SELF_BOTTOM = 10   # lowermost bounce off the ray's own earlier path
 POINT_SELF_RIGHT = 11    # rightmost bounce off the ray's own earlier path
 POINT_SELF_LEFT = 12     # leftmost bounce off the ray's own earlier path
-# (POINT_* are the sample points a view can choose; N_POINTS below is how many a ray's stored points really have)
+# (POINT_* are the sample points a coloration can choose; N_POINTS below is how many a ray's stored points really have)
 
 # --------------------------------------------------------------------------- #
 # Named sequences of points: what the ray-bouncing engine offers, and what is stored about each
@@ -208,7 +208,7 @@ SRED_LAST_DIR = 2   # the direction of its last segment, -180..180 degrees mappe
 SRED_SHARE = 3      # how many points it has / how many bounces the path has (0 if none; at most 1)
 N_SRED = 4
 
-# The metrics and sample points a view could choose before sequences existed are ALIASES: each is one reduction of one
+# The metrics and sample points a coloration could choose before sequences existed are ALIASES: each is one reduction of one
 # sequence (a metric the table has no row for - the distances between two points, the fractions, the loop area, the
 # bounce angles, the termination reason, the last segment's ratio - is a measurement of the ray's own run, not of a
 # sequence, and is still written by compute_stats alone). Their numbers have not changed, and they are the first slots
@@ -244,7 +244,7 @@ def _number_slots(n_seqs, n_reds, legacy_slots, first_free):
 POINT_SLOT = _number_slots(N_SEQS, N_PRED, list(enumerate(POINT_ALIASES)), N_LEGACY_POINTS)
 STAT_SLOT = _number_slots(N_SEQS, N_SRED, list(STAT_ALIASES.items()), N_LEGACY_STATS)
 N_POINTS = N_SEQS * N_PRED            # the points stored for each ray: every reduction of every sequence
-N_STATS = N_LEGACY_STATS + N_SEQS * N_SRED - len(STAT_ALIASES)   # the metrics stored: the 13 a view can choose (three of
+N_STATS = N_LEGACY_STATS + N_SEQS * N_SRED - len(STAT_ALIASES)   # the metrics stored: the 13 a coloration can choose (three of
                                                                 # them reductions of a sequence), then the other reductions
 
 # Raw measurements filled in by trace_path / compute_stats

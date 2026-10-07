@@ -1,13 +1,13 @@
 """Projects: saving and loading everything the user has set up.
 
 A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the controls' simulation settings (the ray engine's and the natural stopping limits, each its own section), the Buddha blur, the
-decorations, every obstacle, view and keyframe, and the Export designer and video panel choices - not the generated image, which Start
+decorations, every obstacle, coloration and keyframe, and the Export designer and video panel choices - not the generated image, which Start
 makes again (fuzzing is seeded, so the same settings give the same image).
 
 Every choice in the file is a readable string KEY ("euclidean_distance", "reflect", "lune"), never a number. A key is permanent: once a
 project file can contain it, it is never renamed or reused, and a Catalog translates it to the program's own code (an int the kernels
 index arrays with, which may be renumbered freely). So the program is free to reorder, insert and renumber its codes;
-test_the_keys_in_project_files_never_change pins the keys. Object ids (obstacles, views, keyframes) stay the whole numbers they are.
+test_the_keys_in_project_files_never_change pins the keys. Object ids (obstacles, colorations, keyframes) stay the whole numbers they are.
 Older files are converted one format version at a time by PROJECT_MIGRATIONS."""
 import json
 import re
@@ -38,12 +38,12 @@ from .settings import (
 )
 from .shapes import SHAPE_CLASSES
 from .version import FILE_VERSION
-from .views import ChannelSettings, MODES, ViewConfig, snapshot_view, view_channel_value
+from .colorations import ChannelSettings, MODES, ColorationConfig, snapshot_coloration, coloration_channel_value
 
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 5
+PROJECT_FORMAT_VERSION = 6
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
 
@@ -173,7 +173,7 @@ CAT_DOWNSAMPLE_METHOD = _string_catalog(
 #    .get()/.set(), possibly a dotted path - what it holds, its Catalog if it is a choice)
 # "choice" holds one of the catalog's texts, "text" any string, "bool", "number" an int or float.
 EXPORT_OPTIONS = [
-    ("include_all_views", "include_all_views_var", "bool", None),
+    ("include_all_colorations", "include_all_colorations_var", "bool", None),
     ("color_info_location", "color_info_location_var", "choice", CAT_COLOR_INFO),
     ("figure_info_location", "figure_info_location_var", "choice", CAT_FIGURE_INFO),
     ("image_source", "save_source_var", "choice", CAT_IMAGE_SOURCE),
@@ -202,7 +202,7 @@ EXPORT_OPTIONS = [
 
 @strict_record
 class Project:
-    """Everything a project file holds, as plain values (the obstacles, views and keyframes
+    """Everything a project file holds, as plain values (the obstacles, colorations and keyframes
     are independent frozen copies). Made by App.capture_project or project_from_dict."""
     ray: RaySettings                    # the ray-bouncing engine's controls
     natural_stop: NaturalStopSettings   # the limits that end a sequence of points, beside them
@@ -210,28 +210,28 @@ class Project:
     buddha_seed: BuddhaSeedSettings     # where the rays Buddha channels scatter start, beside them
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
-    views: tuple                        # ViewSnapshots, in list order
+    colorations: tuple                  # ColorationSnapshots, in list order
     keyframes: tuple                    # Keyframes, in list order
     export: dict                        # EXPORT_OPTIONS key -> the control's value
-    obstacle_counter: int               # the next new obstacle's / view's / keyframe's id
-    view_counter: int
+    obstacle_counter: int               # the next new obstacle's / coloration's / keyframe's id
+    coloration_counter: int
     keyframe_counter: int
     selected_obstacle_id: int           # -1 for none
-    selected_view_id: int
+    selected_coloration_id: int
 
 
-def view_config_from_snapshot(snapshot):
-    """A live ViewConfig with the contents of a ViewSnapshot."""
-    view = ViewConfig(snapshot.id)
-    view.mode = snapshot.mode
+def coloration_config_from_snapshot(snapshot):
+    """A live ColorationConfig with the contents of a ColorationSnapshot."""
+    coloration = ColorationConfig(snapshot.id)
+    coloration.mode = snapshot.mode
     for c in range(3):
-        view.set_channel(c, view_channel_value(snapshot, c))
-    return view
+        coloration.set_channel(c, coloration_channel_value(snapshot, c))
+    return coloration
 
 
 def project_signature(project):
     """What a project's content amounts to, comparable with == : exactly what its file would say,
-    apart from the program version, the id counters and which obstacle or view is selected. Used
+    apart from the program version, the id counters and which obstacle or coloration is selected. Used
     to tell whether there are unsaved changes (so a setting a file does not keep, like the
     Buddha compression of a channel that is not a Buddha channel, never counts as one)."""
     content = project_to_dict(project)
@@ -319,19 +319,19 @@ def project_to_dict(project):
                        "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
                                   for name in o.FIELD_NAMES}}
                       for o in project.obstacles],
-        "views": [{"id": v.id, "mode": v.mode,
-                   "channels": [_channel_to_json(view_channel_value(v, c)) for c in range(3)]}
-                  for v in project.views],
+        "colorations": [{"id": v.id, "mode": v.mode,
+                         "channels": [_channel_to_json(coloration_channel_value(v, c)) for c in range(3)]}
+                        for v in project.colorations],
         "keyframes": [{"id": kf.id, "frame_index": kf.frame_index,
                        "settings": {key: _setting_to_json(key, value)
                                     for key, value in kf.data.items()}}
                       for kf in project.keyframes],
         "export": export,
-        "counters": {"obstacle": project.obstacle_counter, "view": project.view_counter,
+        "counters": {"obstacle": project.obstacle_counter, "coloration": project.coloration_counter,
                      "keyframe": project.keyframe_counter},
         "selected": {"obstacle": (project.selected_obstacle_id
                                   if project.selected_obstacle_id >= 0 else None),
-                     "view": project.selected_view_id},
+                     "coloration": project.selected_coloration_id},
     }
 
 
@@ -386,7 +386,7 @@ def _channel_from_json(data, where, c):
     any other setting that is there is kept, and one that is not takes the channel's default."""
     _expect(isinstance(data, dict), f"{where}: a colour channel must be an object")
     _expect("source" in data, f"{where}: the channel has no 'source'")
-    default = view_channel_value(ViewConfig(0), c)
+    default = coloration_channel_value(ColorationConfig(0), c)
     source = CAT_CHAN_SOURCE.code(data["source"], where)
     values = {"chan_src": source, "kind": default.kind, "stat": default.stat,
               "point1": default.point1, "point2": default.point2,
@@ -453,21 +453,21 @@ def _shape_from_json(data, seen_ids):
     return shape.snapshot()
 
 
-def _view_from_json(data, seen_ids):
-    _expect(isinstance(data, dict), "a view must be an object")
-    view_id, mode, channels = data.get("id"), data.get("mode"), data.get("channels")
-    _expect(isinstance(view_id, int) and not isinstance(view_id, bool) and view_id >= 0,
-            "a view's id must be a whole number")
-    _expect(view_id not in seen_ids, f"two views have the id {view_id}")
-    seen_ids.add(view_id)
-    _expect(mode in MODES, f"view {view_id}: unknown colour model {mode!r}")
+def _coloration_from_json(data, seen_ids):
+    _expect(isinstance(data, dict), "a coloration must be an object")
+    coloration_id, mode, channels = data.get("id"), data.get("mode"), data.get("channels")
+    _expect(isinstance(coloration_id, int) and not isinstance(coloration_id, bool) and coloration_id >= 0,
+            "a coloration's id must be a whole number")
+    _expect(coloration_id not in seen_ids, f"two colorations have the id {coloration_id}")
+    seen_ids.add(coloration_id)
+    _expect(mode in MODES, f"coloration {coloration_id}: unknown colour model {mode!r}")
     _expect(isinstance(channels, list) and len(channels) == 3,
-            f"view {view_id}: it needs exactly 3 channels")
-    view = ViewConfig(view_id)
-    view.mode = mode
+            f"coloration {coloration_id}: it needs exactly 3 channels")
+    coloration = ColorationConfig(coloration_id)
+    coloration.mode = mode
     for c, channel in enumerate(channels):
-        view.set_channel(c, _channel_from_json(channel, f"view {view_id} channel {c + 1}", c))
-    return snapshot_view(view)
+        coloration.set_channel(c, _channel_from_json(channel, f"coloration {coloration_id} channel {c + 1}", c))
+    return snapshot_coloration(coloration)
 
 
 def _keyframe_from_json(data, seen_ids):
@@ -482,7 +482,7 @@ def _keyframe_from_json(data, seen_ids):
     _expect(isinstance(settings, dict), f"keyframe {kf_id}: settings must be an object")
     values = {}
     for key, value in settings.items():
-        if key.startswith("view:") and ":chan" in key:
+        if key.startswith("coloration:") and ":chan" in key:
             channel_number = key.rsplit(":chan", 1)[1]
             _expect(channel_number in ("0", "1", "2"), f"keyframe {kf_id}: {key!r} is not a channel")
             values[key] = _channel_from_json(value, f"keyframe {kf_id} {key}", int(channel_number))
@@ -553,9 +553,9 @@ def _migrate_project_1_to_2(data):
             for name in ("in_effect", "out_effect"):
                 if name in fields:
                     fields[name] = CAT_EFFECT.key(fields[name])
-    for view in data.get("views", []):
-        view["channels"] = [channel(ch, f"view {view.get('id')} channel {c + 1}")
-                            for c, ch in enumerate(view.get("channels", []))]
+    for coloration in data.get("views", []):                  # (what formats 1-5 call a coloration)
+        coloration["channels"] = [channel(ch, f"coloration {coloration.get('id')} channel {c + 1}")
+                                  for c, ch in enumerate(coloration.get("channels", []))]
     for kf in data.get("keyframes", []):
         kf["settings"] = {key: setting(key, value, f"keyframe {kf.get('id')} {key}")
                           for key, value in kf.get("settings", {}).items()}
@@ -626,8 +626,8 @@ _FORMAT_4_BUDDHA_RENAMES = {
 def _migrate_project_4_to_5(data):
     """Format 4 named each metric, sample point and Buddha point of a colour channel on its own (a few for what is
     now a reduction of a named sequence); format 5 names them by sequence and reduction. Converts a parsed
-    format-4 file: the channels of every view and of every keyframe have those names replaced (see the tables
-    above); all else is unchanged."""
+    format-4 file: the channels of every coloration (a "view" in formats 1-5) and of every keyframe have those names
+    replaced (see the tables above); all else is unchanged."""
     import copy
     data = copy.deepcopy(data)
 
@@ -643,9 +643,9 @@ def _migrate_project_4_to_5(data):
             ch["buddha_points"] = [_FORMAT_4_BUDDHA_RENAMES.get(key, key) for key in ch["buddha_points"]]
         return ch
 
-    for view in data.get("views", []):
-        if isinstance(view, dict) and isinstance(view.get("channels"), list):
-            view["channels"] = [channel(ch) for ch in view["channels"]]
+    for coloration in data.get("views", []):
+        if isinstance(coloration, dict) and isinstance(coloration.get("channels"), list):
+            coloration["channels"] = [channel(ch) for ch in coloration["channels"]]
     for kf in data.get("keyframes", []):
         settings = kf.get("settings") if isinstance(kf, dict) else None
         if isinstance(settings, dict):
@@ -656,10 +656,33 @@ def _migrate_project_4_to_5(data):
     return data
 
 
+def _migrate_project_5_to_6(data):
+    """Format 5 called what the program now calls a coloration a "view": the "views" section, the "view" id counter
+    and selection, the "include_all_views" export choice and the "view:<id>:..." keyframe keys. Format 6 renames them
+    all ("colorations", "coloration", "include_all_colorations", "coloration:<id>:..."); the values are unchanged.
+    Converts a parsed format-5 file."""
+    import copy
+    data = copy.deepcopy(data)
+    if "views" in data:
+        data["colorations"] = data.pop("views")
+    for section, old, new in (("counters", "view", "coloration"), ("selected", "view", "coloration"),
+                              ("export", "include_all_views", "include_all_colorations")):
+        if isinstance(data.get(section), dict) and old in data[section]:
+            data[section][new] = data[section].pop(old)
+    for kf in data.get("keyframes", []):
+        settings = kf.get("settings") if isinstance(kf, dict) else None
+        if isinstance(settings, dict):
+            kf["settings"] = {("coloration:" + key[len("view:"):] if key.startswith("view:") else key): value
+                              for key, value in settings.items()}
+    data["format_version"] = 6
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
                       2: _migrate_project_2_to_3,
                       3: _migrate_project_3_to_4,
-                      4: _migrate_project_4_to_5}
+                      4: _migrate_project_4_to_5,
+                      5: _migrate_project_5_to_6}
 
 
 def project_from_dict(data):
@@ -708,21 +731,21 @@ def _project_from_dict(data):
         elif isinstance(value, (bool, int, float, str)):
             export[key] = value
 
-    obstacle_ids, view_ids, keyframe_ids = set(), set(), set()
+    obstacle_ids, coloration_ids, keyframe_ids = set(), set(), set()
     obstacles = tuple(_shape_from_json(o, obstacle_ids) for o in data.get("obstacles", []))
-    views = tuple(_view_from_json(v, view_ids) for v in data.get("views", []))
-    _expect(views, "The project has no views.")
+    colorations = tuple(_coloration_from_json(v, coloration_ids) for v in data.get("colorations", []))
+    _expect(colorations, "The project has no colorations.")
     keyframes = tuple(_keyframe_from_json(kf, keyframe_ids) for kf in data.get("keyframes", []))
 
     counters = data.get("counters") or {}
     selected = data.get("selected") or {}
     selected_obstacle = selected.get("obstacle")
-    selected_view = selected.get("view")
+    selected_coloration = selected.get("coloration")
     return Project(
-        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, buddha_seed=buddha_seed, decorations=decorations, obstacles=obstacles, views=views,
-        keyframes=keyframes, export=export,
+        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, buddha_seed=buddha_seed,
+        decorations=decorations, obstacles=obstacles, colorations=colorations, keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
-        view_counter=max(counters.get("view", 0), max(view_ids) + 1),
+        coloration_counter=max(counters.get("coloration", 0), max(coloration_ids) + 1),
         keyframe_counter=max(counters.get("keyframe", 0), max(keyframe_ids, default=-1) + 1),
         selected_obstacle_id=selected_obstacle if selected_obstacle in obstacle_ids else -1,
-        selected_view_id=selected_view if selected_view in view_ids else views[0].id)
+        selected_coloration_id=selected_coloration if selected_coloration in coloration_ids else colorations[0].id)

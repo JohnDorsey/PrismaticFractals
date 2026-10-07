@@ -154,7 +154,7 @@ DEFAULT_NATURAL_STOP_SETTINGS = NaturalStopSettings(
 class RaySettings:
     """Every value of every control of the ray-bouncing engine itself (not the natural stopping limits, which are a
     NaturalStopSettings of their own) - what determines the generated image, together with the natural stop settings and
-    the obstacles (the scene, the obstacles and the views, is tracked separately). Start compares these, "Revert"
+    the obstacles (the scene, the obstacles and the colorations, is tracked separately). Start compares these, "Revert"
     restores them, and a keyframe resolves to one for each video frame. The Buddha blur is NOT in here either: it is a
     BuddhaBlurSettings of its own, used side by side with this."""
     seg_mult: float
@@ -175,7 +175,7 @@ DEFAULT_RAY_SETTINGS = RaySettings(
 
 
 # A resolved frame's complete settings (what render_full_image needs, aside from the
-# views and obstacles - each resolved separately, the same way: a fixed set
+# colorations and obstacles - each resolved separately, the same way: a fixed set
 # established when the render starts, each one's own fields independently
 # held/animated from the keyframes). Built by resolve_frame_settings() from whichever
 # keyframes define each setting. The ray engine's settings, the natural stopping limits and the
@@ -207,7 +207,7 @@ class Keyframe:
 def remove_keyframe_keys(keyframes, prefix):
     """Deletes every setting whose key starts with `prefix` from every
     keyframe's data, returning how many were removed. Used when an obstacle
-    or view is deleted, with a prefix like "obst:3:" - the trailing colon
+    or coloration is deleted, with a prefix like "obst:3:" - the trailing colon
     matters, so obstacle 3's cleanup can't touch obstacle 30's keys."""
     removed = 0
     for kf in keyframes:
@@ -221,14 +221,14 @@ def remove_keyframe_keys(keyframes, prefix):
 def snapshot_keyframes(keyframes):
     """Independent copies of `keyframes` (own data dicts), so a running render is unaffected by anything done
     to the real keyframes meanwhile - including the cleanup of a deleted
-    obstacle's or view's settings."""
+    obstacle's or coloration's settings."""
     return [Keyframe(kf.id, kf.frame_index, dict(kf.data)) for kf in keyframes]
 
 
 @strict_record
 class SettingEntry:
     """One row of the keyframe settings list: a setting (a static one, or one field of
-    an obstacle or a view), where it is listed and what it falls back to."""
+    an obstacle or a coloration), where it is listed and what it falls back to."""
     key: str
     tab: str
     label: str
@@ -569,8 +569,8 @@ def resolve_setting(key, keyframes_sorted, frame_number):
 def resolve_frame_settings(keyframes_sorted, frame_number):
     """A full KeyframeData for one video frame - the ray engine's settings, the natural stopping
     limits and the Buddha blur, side by side - with every setting resolved independently via
-    resolve_setting(). The views' coloration isn't part of this - see resolve_views(),
-    called separately (mirroring resolve_obstacle_arrays), since views are a dynamic list
+    resolve_setting(). The colorations are not part of this - see resolve_colorations(),
+    called separately (mirroring resolve_obstacle_arrays), since colorations are a dynamic list
     like obstacles, not a fixed set of settings."""
     v = {key: resolve_setting(key, keyframes_sorted, frame_number)
         for key, _tab, _label in SETTING_INFO}

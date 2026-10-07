@@ -6,14 +6,14 @@ from .constants import BACKGROUND, PROJECT_POLL_MS
 from .paths import ensure_project_dir
 from .projects import (
     EXPORT_OPTIONS, PROJECT_EXTENSION, PROJECT_FILE_TYPES, Project, ProjectError, _is_number,
-    load_project, project_signature, save_project, view_config_from_snapshot
+    load_project, project_signature, save_project, coloration_config_from_snapshot
 )
 from .settings import (
     DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_STOP_DEFAULT, fuzz_rule, ray_args,
     settings_to_dict, snapshot_keyframes
 )
 from .shapes import build_obstacle_arrays
-from .views import snapshot_view
+from .colorations import snapshot_coloration
 
 
 class ProjectsMixin:
@@ -87,12 +87,12 @@ class ProjectsMixin:
             buddha_seed=self.current_buddha_seed_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
-            views=tuple(snapshot_view(v) for v in self.views),
+            colorations=tuple(snapshot_coloration(v) for v in self.colorations),
             keyframes=tuple(snapshot_keyframes(self.keyframes)),
             export=self.capture_export_options(), obstacle_counter=self._obst_counter,
-            view_counter=self._view_counter, keyframe_counter=self._kf_counter,
+            coloration_counter=self._coloration_counter, keyframe_counter=self._kf_counter,
             selected_obstacle_id=selected.id if selected is not None else -1,
-            selected_view_id=self.selected_view_id)
+            selected_coloration_id=self.selected_coloration_id)
 
     def discard_generated_image(self):
         """Back to the blank state before the first Start (stopping a generation in progress)."""
@@ -115,13 +115,13 @@ class ProjectsMixin:
         self.img[:] = BACKGROUND
         self.rows_done = 0
         self.batch_rows = 1
-        self.view_thumb_cache = {}
+        self.coloration_thumb_cache = {}
         self.canvas.delete("pending")
         self.pinned_px = None
         self.clear_overlay()
 
     def apply_project(self, project):
-        """Make the program hold exactly `project`: the controls, obstacles, views, keyframes
+        """Make the program hold exactly `project`: the controls, obstacles, colorations, keyframes
         and export choices are replaced, and the image goes blank until Start. Used by
         File > Open and File > New alike, so a loaded project cannot differ from a fresh one."""
         self.discard_generated_image()
@@ -140,9 +140,9 @@ class ProjectsMixin:
             self.selected_obstacle = next(
                 (o for o in self.obstacles if o.id == project.selected_obstacle_id),
                 self.obstacles[0] if self.obstacles else None)
-            self.views = [view_config_from_snapshot(v) for v in project.views]
-            self._view_counter = project.view_counter
-            self.selected_view_id = project.selected_view_id
+            self.colorations = [coloration_config_from_snapshot(v) for v in project.colorations]
+            self._coloration_counter = project.coloration_counter
+            self.selected_coloration_id = project.selected_coloration_id
             self.keyframes = snapshot_keyframes(project.keyframes)
             self._kf_counter = project.keyframe_counter
             self.selected_keyframe = None
@@ -161,8 +161,8 @@ class ProjectsMixin:
         self.on_downsample_factor_changed()
         self.refresh_obstacle_editor()
         self.rebuild_obstacle_list()
-        self.refresh_color_controls_for_selected_view()
-        self.rebuild_view_list()
+        self.refresh_color_controls_for_selected_coloration()
+        self.rebuild_coloration_list()
         self.refresh_live_preview_state()
         self.on_buddha_seeds_changed()
         self.on_decoration_changed("outline")

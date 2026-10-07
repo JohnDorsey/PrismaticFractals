@@ -82,14 +82,14 @@ def _make_fake_app_for_snapshot():
 
 
 # --------------------------------------------------------------------------- #
-# Views (multiple side-by-side colorations of the same simulation)
+# Colorations (multiple side-by-side colorations of the same simulation)
 # --------------------------------------------------------------------------- #
 def _fake_render_app():
     class FakeApp:
         pass
     app = FakeApp()
     app.render_full_image = m.App.render_full_image.__get__(app)
-    app.colorize_view = m.App.colorize_view.__get__(app)
+    app.apply_coloration = m.App.apply_coloration.__get__(app)
     return app
 
 
@@ -98,8 +98,8 @@ def _starting_obst_arrays():
     return m.build_obstacle_arrays([m.default_starting_obstacle(0)])
 
 
-def _view_settings_from_config(v):
-    return m.ViewSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
+def _coloration_settings_from_config(v):
+    return m.ColorationSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
                           other_metric=v.other_metric, point1_choice=v.point1_choice,
                           point2_choice=v.point2_choice, chan_src=v.chan_src,
                           buddha_points=v.buddha_points, buddha_compression=v.buddha_compression,
@@ -107,24 +107,24 @@ def _view_settings_from_config(v):
                           constant_choice=v.constant_choice)
 
 
-def _fake_view_list_app():
+def _fake_coloration_list_app():
     class FakeApp:
         pass
     app = FakeApp()
-    app.views = [m.ViewConfig(0)]
-    app._view_counter = 1
-    app.selected_view_id = 0
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
-    app.new_view = m.App.new_view.__get__(app)
-    app.duplicate_view = m.App.duplicate_view.__get__(app)
-    app.delete_view = m.App.delete_view.__get__(app)
-    app.select_view = m.App.select_view.__get__(app)
+    app.colorations = [m.ColorationConfig(0)]
+    app._coloration_counter = 1
+    app.selected_coloration_id = 0
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
+    app.new_coloration = m.App.new_coloration.__get__(app)
+    app.duplicate_coloration = m.App.duplicate_coloration.__get__(app)
+    app.delete_coloration = m.App.delete_coloration.__get__(app)
+    app.select_coloration = m.App.select_coloration.__get__(app)
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
-    app.rebuild_view_list = lambda: None
-    app.refresh_color_controls_for_selected_view = lambda: None
+    app.rebuild_coloration_list = lambda: None
+    app.refresh_color_controls_for_selected_coloration = lambda: None
     # Stubs for the live-rendering cascade every selection change now
     # triggers (self.mapping is set directly, not via apply_mapping_change,
     # so no stub is needed for that part).
@@ -135,7 +135,7 @@ def _fake_view_list_app():
     app.update_preview = lambda i, j: None
     app.rows_done = 0
     app.pinned_px = None
-    app.view_thumb_cache = {}
+    app.coloration_thumb_cache = {}
     app.keyframes = []
     app.refresh_timeline_diffs = lambda: None
     app.purge_keyframe_settings = m.App.purge_keyframe_settings.__get__(app)
@@ -143,9 +143,9 @@ def _fake_view_list_app():
 
 
 # --------------------------------------------------------------------------- #
-# Export includes every view, side by side (the actual save/render call
+# Export includes every coloration, side by side (the actual save/render call
 # chains, not just render_full_image in isolation - these exercise the real
-# path from "how many views exist right now" through to the output file)
+# path from "how many colorations exist right now" through to the output file)
 # --------------------------------------------------------------------------- #
 class _StubJxlControls:
     """Stands in for JxlQualityControls (the video panel's JPEG XL choices)."""
@@ -193,20 +193,20 @@ def _fake_export_app():
     class FakeApp:
         pass
     app = FakeApp()
-    app.views = [m.ViewConfig(0)]
-    app._view_counter = 1
-    app.selected_view_id = 0
-    app.include_all_views_var = _StubVar(True)
+    app.colorations = [m.ColorationConfig(0)]
+    app._coloration_counter = 1
+    app.selected_coloration_id = 0
+    app.include_all_colorations_var = _StubVar(True)
     app.color_info_location_var = _StubVar("None")
     app.figure_info_location_var = _StubVar("None")
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
-    app.views_to_export = m.App.views_to_export.__get__(app)
-    app.new_view = m.App.new_view.__get__(app)
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
+    app.colorations_to_export = m.App.colorations_to_export.__get__(app)
+    app.new_coloration = m.App.new_coloration.__get__(app)
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app.rebuild_buddha_counts = lambda: None
     app.update_stat_tags = lambda: None
@@ -215,9 +215,9 @@ def _fake_export_app():
     app.update_preview = lambda i, j: None
     app.rows_done = 0
     app.pinned_px = None
-    app.view_thumb_cache = {}
-    app.rebuild_view_list = lambda: None
-    app.refresh_color_controls_for_selected_view = lambda: None
+    app.coloration_thumb_cache = {}
+    app.rebuild_coloration_list = lambda: None
+    app.refresh_color_controls_for_selected_coloration = lambda: None
     app.obstacles = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
@@ -226,7 +226,7 @@ def _fake_export_app():
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
-    app.colorize_view = m.App.colorize_view.__get__(app)
+    app.apply_coloration = m.App.apply_coloration.__get__(app)
     return app
 
 
@@ -249,7 +249,7 @@ def _run_save_new_image_synchronously(app):
 # --------------------------------------------------------------------------- #
 # "Current image" export (_write/render_current_image): reuses the
 # already-traced simulation rather than re-simulating, and respects
-# "Include all views" the same way the other two export paths do
+# "Include all colorations" the same way the other two export paths do
 # --------------------------------------------------------------------------- #
 def _fake_current_image_app():
     app = _fake_export_app()
@@ -275,7 +275,7 @@ def _fake_current_image_app():
     app.frame = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
     app.render_current_image = m.App.render_current_image.__get__(app)
-    app.render_view_thumbnail = m.App.render_view_thumbnail.__get__(app)
+    app.render_coloration_thumbnail = m.App.render_coloration_thumbnail.__get__(app)
     app._write = m.App._write.__get__(app)
     app.save_format_var = _StubVar("png")
     app.save_jxl_mode_var = _StubVar("Lossless")
@@ -353,16 +353,16 @@ def _circle_obstacle(cx, cy, radius, in_effect, out_effect, fire=False, id_=0):
 # --------------------------------------------------------------------------- #
 # The new ray behavior end to end: the real render paths, not just trace_path
 # --------------------------------------------------------------------------- #
-def _terminated_view(**_):
-    """A view whose channel 0 is the termination-reason metric and whose other
+def _terminated_coloration(**_):
+    """A coloration whose channel 0 is the termination-reason metric and whose other
     channels are constant 0: a pixel's red value then says why its ray stopped
     (255 = escaped)."""
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     v.kinds[0] = m.KIND_OTHER
     v.other_metric[0] = m.ST_TERMINATION
     v.chan_src[1] = v.chan_src[2] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = v.constant_choice[2] = m.NONE_ZERO
-    return _view_settings_from_config(v)
+    return _coloration_settings_from_config(v)
 
 
 # --------------------------------------------------------------------------- #
@@ -397,24 +397,24 @@ def _angle_deg(direction):
 
 
 # --------------------------------------------------------------------------- #
-# Editing a non-live selected view must never touch the live view (this is
+# Editing a non-live selected coloration must never touch the live coloration (this is
 # the actual mechanism behind the reported bug: thumbnails silently going
-# stale, or two different-looking views becoming identical, because edits
-# were always landing on self.live_view() regardless of what was selected)
+# stale, or two different-looking colorations becoming identical, because edits
+# were always landing on self.live_coloration() regardless of what was selected)
 # --------------------------------------------------------------------------- #
 def _fake_color_editor_app():
     class FakeApp:
         pass
     app = FakeApp()
-    app.views = [m.ViewConfig(0), m.ViewConfig(1)]
-    app.views[1].mode = "HSV"
-    app._view_counter = 2
-    app.selected_view_id = 0
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
-    app.select_view = m.App.select_view.__get__(app)
+    app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
+    app.colorations[1].mode = "HSV"
+    app._coloration_counter = 2
+    app.selected_coloration_id = 0
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
+    app.select_coloration = m.App.select_coloration.__get__(app)
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app._color_editor_loading = False
 
@@ -449,7 +449,7 @@ def _fake_color_editor_app():
                                  m.DEFAULT_CONSTANT_CHOICES)
     app.rows_done = 0
     app.pinned_px = None
-    app.view_thumb_cache = {}
+    app.coloration_thumb_cache = {}
     app.recolor_calls = []
     app.recolor = lambda r0, r1: app.recolor_calls.append((r0, r1))
     app.draw = lambda: None
@@ -459,10 +459,10 @@ def _fake_color_editor_app():
     app.stat_tag_calls = []
     app.update_stat_tags = lambda: app.stat_tag_calls.append(1)
     app.rebuild_calls = []
-    app.rebuild_view_list = lambda: app.rebuild_calls.append(1)
+    app.rebuild_coloration_list = lambda: app.rebuild_calls.append(1)
     app.refresh_timeline_diffs = lambda: None
-    app.refresh_color_controls_for_selected_view = (
-        m.App.refresh_color_controls_for_selected_view.__get__(app))
+    app.refresh_color_controls_for_selected_coloration = (
+        m.App.refresh_color_controls_for_selected_coloration.__get__(app))
     app.refresh_row = m.App.refresh_row.__get__(app)
     app.on_mode_changed = m.App.on_mode_changed.__get__(app)
     app.apply_mapping_change = m.App.apply_mapping_change.__get__(app)
@@ -533,7 +533,7 @@ class _ModuleRegistered:
 
 # --------------------------------------------------------------------------- #
 # Strict records (FuzzParams, RaySettings, BuddhaBlurSettings, KeyframeData,
-# ViewSettings, ObstacleSnapshot, ViewSnapshot): keyword-only, frozen, no
+# ColorationSettings, ObstacleSnapshot, ColorationSnapshot): keyword-only, frozen, no
 # indexing, checked types
 # --------------------------------------------------------------------------- #
 def _raises(exc, fn):

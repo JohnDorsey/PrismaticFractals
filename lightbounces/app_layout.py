@@ -118,7 +118,22 @@ class LayoutMixin:
         self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)
         self.build_fuzzing_controls(mutations_inner)
         self.build_segment_mult_controls(mutations_inner)
-        self.build_color_controls(color_tab)
+        # The Coloration tab has two tabs of its own: Framing (what part of the world the image shows - empty for
+        # now) and Colorations (the list of colorations and the editor of the selected one).
+        coloration_notebook = ttk.Notebook(color_tab)
+        coloration_notebook.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        color_tab.rowconfigure(0, weight=1)
+        self.coloration_notebook = coloration_notebook
+        framing_tab = ttk.Frame(coloration_notebook)
+        colorations_tab = ttk.Frame(coloration_notebook)
+        self.framing_tab = framing_tab
+        self.colorations_tab = colorations_tab
+        coloration_notebook.add(framing_tab, text="Framing")
+        coloration_notebook.add(colorations_tab, text="Colorations")
+        framing_tab.columnconfigure(0, weight=1)
+        colorations_tab.columnconfigure(0, weight=1)
+        coloration_notebook.select(colorations_tab)    # Framing is empty: open on the controls that are there
+        self.build_color_controls(colorations_tab)
         # The Buddha tab has two tabs of its own: where the rays that are scattered start (the seed points), and
         # the blur of the scattered points.
         buddha_notebook = ttk.Notebook(buddha_tab)
@@ -380,7 +395,7 @@ class LayoutMixin:
                                     fill=color, width=0)
 
     def build_status_quadrant(self):
-        """Bottom middle: the Export designer (whether to include one view
+        """Bottom middle: the Export designer (whether to include one coloration
         or all of them in exported output), then the Export controls (what
         to export, its format, and the Export / Export As buttons)."""
         container = ttk.Frame(self.root, width=RIGHT_W, height=BOTTOM_H)
@@ -391,12 +406,12 @@ class LayoutMixin:
         container.rowconfigure(1, weight=1)
         vcmd_wide = (self.root.register(self.validate_bitrate_digits), "%P")
 
-        # ---- Export designer: which view(s) end up in the output ----
+        # ---- Export designer: which coloration(s) end up in the output ----
         designer = ttk.LabelFrame(container, text="Export designer")
         designer.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        self.include_all_views_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(designer, text="Include all views",
-                        variable=self.include_all_views_var).grid(
+        self.include_all_colorations_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(designer, text="Include all colorations",
+                        variable=self.include_all_colorations_var).grid(
             row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
 
         color_info_row = ttk.Frame(designer)
@@ -469,7 +484,7 @@ class LayoutMixin:
 
         # "New image" only: its own resolution (an existing preview already
         # has one, so this only makes sense when generating a fresh image) -
-        # this is per view: with "Include all views" on, each view is
+        # this is per coloration: with "Include all colorations" on, each coloration is
         # rendered at this resolution and they're placed side by side, so
         # the final output is wider than this.
         self.save_new_frame = ttk.Frame(rest)

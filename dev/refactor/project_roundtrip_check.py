@@ -1,7 +1,7 @@
 """The real-window check run after every refactoring step (python dev/refactor/project_roundtrip_check.py).
 
 It starts the real program (needs a display), builds a non-default project (extra obstacles, a second
-view with a Buddha channel, a keyframe, changed settings), generates the image, saves the project,
+coloration with a Buddha channel, a keyframe, changed settings), generates the image, saves the project,
 chooses New, opens the saved file, generates again - and asserts that
 
   * New gives exactly the starting project and a blank image,
@@ -67,13 +67,13 @@ app.obstacles[1].cut_offset = 0.7
 app.obstacles[1].r = 0.1
 app.iter_var.set("40")
 app.emit_offset_scale.set(-20.0)
-app.new_view()
-app.live_view().set_channel(0, lb.ChannelSettings(
+app.new_coloration()
+app.live_coloration().set_channel(0, lb.ChannelSettings(
     chan_src=lb.CHAN_SRC_BUDDHA, kind=lb.KIND_OTHER, stat=lb.ST_BOUNCES, point1=0, point2=1,
     buddha_points=(False,) * 8 + (True,) + (False,) * (lb.N_BUDDHA_POINTS - 9),
     buddha_compression=0, buddha_brightness=1, constant=lb.NONE_ZERO))
-app.refresh_color_controls_for_selected_view()
-app.rebuild_view_list()
+app.refresh_color_controls_for_selected_coloration()
+app.rebuild_coloration_list()
 app.refresh_live_preview_state()
 app.new_keyframe()
 app.fps_var.set("12")
@@ -95,7 +95,7 @@ saved = lb.project_signature(app.capture_project())
 
 app.new_project()
 check(lb.project_signature(app.capture_project()) == lb.project_signature(app.default_project)
-      and len(app.obstacles) == 1 and len(app.views) == 1 and not app.keyframes,
+      and len(app.obstacles) == 1 and len(app.colorations) == 1 and not app.keyframes,
       "New gives exactly the starting project")
 check(app.generated_settings is None and int(app.status.sum()) == 0, "New leaves a blank image")
 check(app.current_blur_settings() == lb.DEFAULT_BUDDHA_BLUR, "New puts the blur controls back to their defaults")

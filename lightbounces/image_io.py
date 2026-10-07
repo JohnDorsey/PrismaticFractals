@@ -15,7 +15,7 @@ from .external import njit
 
 
 # A tiny 5x7 bitmap font, used for the "no img"/"preview will go here"
-# placeholders and for the view-name overlay on the live preview
+# placeholders and for the coloration-name overlay on the live preview
 FONT_5X7 = {
     "n": ["00000", "11010", "10110", "10010", "10010", "10010", "00000"],
     "o": ["00000", "01110", "10001", "10001", "10001", "01110", "00000"],

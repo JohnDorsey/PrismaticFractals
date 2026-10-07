@@ -33,7 +33,7 @@ def _fake_preview_app(pinned):
                 ("pending", "outline", "ray_path", "ray_start", "ray_end", "guides", "samples")}
     app.canvas = _StubWidget()
     app.hline_img = app.vline_img = None
-    app.live_view = lambda: m.ViewConfig(0)
+    app.live_coloration = lambda: m.ColorationConfig(0)
     app.map_color = lambda vals: (1, 2, 3)
     app.info_vars = collections.defaultdict(_StubVar)
     app.stat_vars = [_StubVar() for _ in range(m.N_STATS)]
@@ -145,7 +145,7 @@ def test_font_5x7_new_glyphs_are_not_blank():
 
 
 def test_coloration_info_lines_omits_metric_kind_and_shows_the_metric_name():
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     lines = m.coloration_info_lines(v)
     assert lines[0] == f"Mode:{v.mode}"
     assert not any("Point comparison" in l or "Other" in l for l in lines), \
@@ -158,7 +158,7 @@ def test_coloration_info_lines_omits_metric_kind_and_shows_the_metric_name():
 def test_coloration_info_lines_uses_long_names_not_short_ones():
     """The point of this turn's change: dropdown-length names, not the
     compact forms used elsewhere (e.g. the keyframe list)."""
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     lines = m.coloration_info_lines(v)
     joined = " ".join(lines)
     assert "H dist" not in joined and "Horizontal distance" in joined
@@ -171,7 +171,7 @@ def test_point_comparison_metric_names_no_longer_say_between_points():
 
 
 def test_coloration_info_lines_shows_points_only_for_point_comparison_metrics():
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     v.kinds[2] = m.KIND_OTHER
     v.other_metric[2] = m.ST_BOUNCES
     lines = m.coloration_info_lines(v)
@@ -183,7 +183,7 @@ def test_coloration_info_lines_shows_points_only_for_point_comparison_metrics():
 
 
 def test_coloration_info_lines_buddha_channel_shows_points_compression_brightness():
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     v.chan_src[1] = m.CHAN_SRC_BUDDHA
     v.buddha_points[1] = tuple(i in (0, 3) for i in range(m.N_BUDDHA_POINTS))
     v.buddha_compression[1] = m.BUDDHA_COMPRESS_MODULUS
@@ -199,12 +199,12 @@ def test_coloration_info_lines_buddha_channel_shows_points_compression_brightnes
         "brightness labels already include 'x' - must not be doubled"
 
 
-def test_coloration_info_lines_works_for_resolved_view_settings_too():
-    """New image / video export pass resolved ViewSettings (read-only
-    tuples), not live ViewConfig objects - the field names must line up."""
-    vc = m.ViewConfig(0)
+def test_coloration_info_lines_works_for_resolved_coloration_settings_too():
+    """New image / video export pass resolved ColorationSettings (read-only
+    tuples), not live ColorationConfig objects - the field names must line up."""
+    vc = m.ColorationConfig(0)
     vc.chan_src[1] = m.CHAN_SRC_BUDDHA
-    vs = _view_settings_from_config(vc)
+    vs = _coloration_settings_from_config(vc)
     assert m.coloration_info_lines(vc) == m.coloration_info_lines(vs)
 
 
@@ -212,15 +212,15 @@ def test_draw_coloration_info_uses_pure_black_background_and_not_pure_white_text
     assert m.COLORATION_INFO_BG == (0, 0, 0)
     assert m.COLORATION_INFO_FG != (255, 255, 255)
     img = np.full((100, 200, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img, [m.ViewConfig(0), m.ViewConfig(1)], 100)
+    m.draw_coloration_info(img, [m.ColorationConfig(0), m.ColorationConfig(1)], 100)
     assert (img == m.COLORATION_INFO_BG).all(axis=-1).any()
     assert (img == m.COLORATION_INFO_FG).all(axis=-1).any()
     assert not (img == (255, 255, 255)).all(axis=-1).any()
 
 
-def test_draw_coloration_info_stays_within_each_views_own_portion():
+def test_draw_coloration_info_stays_within_each_colorations_own_portion():
     img = np.full((100, 200, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img, [m.ViewConfig(0), m.ViewConfig(1)], 100)
+    m.draw_coloration_info(img, [m.ColorationConfig(0), m.ColorationConfig(1)], 100)
     left_has_info = (img[:, :100] == m.COLORATION_INFO_BG).all(axis=-1).any()
     right_has_info = (img[:, 100:] == m.COLORATION_INFO_BG).all(axis=-1).any()
     assert left_has_info and right_has_info
@@ -228,7 +228,7 @@ def test_draw_coloration_info_stays_within_each_views_own_portion():
 
 def test_draw_coloration_info_does_not_crash_on_a_tiny_image():
     img = np.full((15, 20, 3), 50, dtype=np.uint8)
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     v.chan_src[1] = m.CHAN_SRC_BUDDHA
     m.draw_coloration_info(img, [v], 20)   # must not raise
 
@@ -240,7 +240,7 @@ def _text_row_extent(img, background):
 
 
 def test_coloration_info_text_scales_up_above_size_512():
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     img_1x = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
     m.draw_coloration_info(img_1x, [v], m.SIZE)
     img_2x = np.full((m.SIZE * 2, m.SIZE * 2, 3), 128, dtype=np.uint8)
@@ -248,11 +248,11 @@ def test_coloration_info_text_scales_up_above_size_512():
     h1 = _text_row_extent(img_1x, 128)
     h2 = _text_row_extent(img_2x, 128)
     assert h2 == h1 * 2, \
-        f"text should be exactly 2x taller at 2x the view resolution, got {h1} vs {h2}"
+        f"text should be exactly 2x taller at 2x the coloration resolution, got {h1} vs {h2}"
 
 
 def test_coloration_info_text_never_shrinks_below_the_size_512_baseline():
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     img_baseline = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
     m.draw_coloration_info(img_baseline, [v], m.SIZE)
     img_small = np.full((200, 200, 3), 128, dtype=np.uint8)
@@ -262,9 +262,9 @@ def test_coloration_info_text_never_shrinks_below_the_size_512_baseline():
 
 
 def test_coloration_info_text_scale_uses_the_smaller_of_width_and_height():
-    """An unusually elongated export (very wide, short view) shouldn't get
+    """An unusually elongated export (very wide, short coloration) shouldn't get
     oversized text just because one dimension is large."""
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     img_square = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
     m.draw_coloration_info(img_square, [v], m.SIZE)
     img_wide_short = np.full((m.SIZE, m.SIZE * 4, 3), 128, dtype=np.uint8)   # short height
@@ -273,13 +273,13 @@ def test_coloration_info_text_scale_uses_the_smaller_of_width_and_height():
         "text size should follow the smaller dimension (height here), not the wide one"
 
 
-def test_bottom_margin_text_scales_with_the_views_own_size_not_the_margin():
+def test_bottom_margin_text_scales_with_the_colorations_own_size_not_the_margin():
     """Regression test: the margin's own height is only a quarter of
-    view_width by design, but the text size must track view_width itself -
+    coloration_width by design, but the text size must track coloration_width itself -
     it was previously computed from the (always smaller) margin height,
     which meant the text barely grew until an absurdly large export
-    (view_width beyond ~3072) rather than scaling normally."""
-    v = m.ViewConfig(0)
+    (coloration_width beyond ~3072) rather than scaling normally."""
+    v = m.ColorationConfig(0)
     img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
     out_512 = m.add_bottom_color_margin(img_512, [v], m.SIZE)
     h1 = _text_row_extent(out_512[m.SIZE:], m.COLORATION_INFO_BG)
@@ -291,7 +291,7 @@ def test_bottom_margin_text_scales_with_the_views_own_size_not_the_margin():
     assert h2 == h1 * 2, f"expected exactly 2x text height at 1080 vs 512, got {h1} -> {h2}"
 
 
-def test_left_margin_text_scales_with_the_views_own_size_not_the_margin():
+def test_left_margin_text_scales_with_the_colorations_own_size_not_the_margin():
     """Measures vertical extent (line height/spacing), not horizontal -
     horizontal extent can be legitimately clipped once text no longer fits
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
@@ -365,11 +365,11 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
-    view_snapshot = [m.snapshot_view(v) for v in app.views_to_export()]
-    views = m.resolve_views(view_snapshot, keyframes, 0)
+    coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
+    colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
 
-    rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
-    rgb = m.apply_info_locations(rgb, views, 40, data.ray, data.natural_stop, [],
+    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations)
+    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop, [],
                                  "Overlay", "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
@@ -381,12 +381,12 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
-    view_snapshot = [m.snapshot_view(v) for v in app.views_to_export()]
-    views = m.resolve_views(view_snapshot, keyframes, 0)
+    coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
+    colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
 
-    rgb = app.render_full_image(data, 40, 40, obst_arrays, views)
+    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations)
     original_width = rgb.shape[1]
-    rgb = m.apply_info_locations(rgb, views, 40, data.ray, data.natural_stop,
+    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop,
                                  _start_scene(), "None", "Left margin", mutate_ok=True)
     assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
@@ -400,7 +400,7 @@ def test_color_info_and_figure_settings_locations_default_to_none():
 
 def test_apply_info_locations_none_leaves_the_image_unchanged():
     settings = _generation()
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     out = m.apply_info_locations(img, [v], 40, *settings, [], "None", "None", mutate_ok=True)
     assert out.shape == img.shape
@@ -413,7 +413,7 @@ def test_apply_info_locations_margin_cases_never_mutate_when_not_ok():
     mutate_ok=False is honored for "Overlay" specifically, which otherwise
     would draw straight into the caller's array."""
     settings = _generation()
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     original = img.copy()
     m.apply_info_locations(img, [v], 40, *settings, [], "Overlay", "None", mutate_ok=False)
@@ -429,7 +429,7 @@ def test_write_with_bottom_margin_produces_a_taller_image():
     img = m.read_png(path)
     assert img.shape == (m.SIZE + m.SIZE // 4, m.SIZE, 3)
     assert (img[m.SIZE:] == m.COLORATION_INFO_BG).all(axis=-1).mean() > 0.5
-    assert (img[:m.SIZE] == 42).all(), "the original view content must be untouched"
+    assert (img[:m.SIZE] == 42).all(), "the original coloration content must be untouched"
 
 
 def test_write_with_left_margin_produces_a_wider_image():
@@ -441,7 +441,7 @@ def test_write_with_left_margin_produces_a_wider_image():
     img = m.read_png(path)
     assert img.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
     assert (img[:, :m.SIZE // 2] == m.COLORATION_INFO_BG).all(axis=-1).any()
-    assert (img[:, m.SIZE // 2:] == 42).all(), "the original view content must be untouched"
+    assert (img[:, m.SIZE // 2:] == 42).all(), "the original coloration content must be untouched"
 
 
 def test_write_with_both_margins_composes_correctly():

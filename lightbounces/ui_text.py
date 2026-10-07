@@ -47,7 +47,7 @@ def short_value_text(key, val):
         if fmt == "angle":
             return f"{val:.1f}\u00b0"
         return str(val)                          # "int" fields, and anything else
-    if key.startswith("view:"):
+    if key.startswith("coloration:"):
         field = key.split(":", 2)[2]
         if field == "mode":
             return val

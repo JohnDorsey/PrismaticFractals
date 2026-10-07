@@ -8,7 +8,7 @@ from .parsing import parse_resolution_dimension
 from .paths import ensure_export_dir
 from .settings import Keyframe, resolve_frame_settings, resolve_obstacles
 from .shapes import build_obstacle_arrays
-from .views import resolve_views, snapshot_view
+from .colorations import resolve_colorations, snapshot_coloration
 
 
 class ExportMixin:
@@ -52,27 +52,27 @@ class ExportMixin:
             if path:
                 self._write(path)
 
-    def views_to_export(self):
-        """Which views to include in an export, per the Export designer's
-        "Include all views" checkbox: all of them, in list/composition
+    def colorations_to_export(self):
+        """Which colorations to include in an export, per the Export designer's
+        "Include all colorations" checkbox: all of them, in list/composition
         order, or just the one currently selected/shown in the preview."""
-        if self.include_all_views_var.get():
-            return list(self.views)
-        return [self.live_view()]
+        if self.include_all_colorations_var.get():
+            return list(self.colorations)
+        return [self.live_coloration()]
 
     def _write(self, path):
         fmt = self.save_format_var.get()
         jxl_lossless = self.save_jxl_mode_var.get() == "Lossless"
         jxl_quality = int(round(float(self.save_jxl_quality_scale.get())))
-        views = self.views_to_export()
-        # self.frame already holds exactly the single-view case (with the
+        colorations = self.colorations_to_export()
+        # self.frame already holds exactly the single-coloration case (with the
         # outline if that decoration is on, no preview overlays) - only
-        # recompute when more than one view needs to be composed in.
-        rgb = self.frame if len(views) == 1 else self.render_current_image(views)
+        # recompute when more than one coloration needs to be composed in.
+        rgb = self.frame if len(colorations) == 1 else self.render_current_image(colorations)
         rgb = apply_info_locations(
-            rgb, views, rgb.shape[1] // len(views), self.generated_settings,
+            rgb, colorations, rgb.shape[1] // len(colorations), self.generated_settings,
             self.generated_natural_stop, self.gen_obstacle_snapshots, self.color_info_location_var.get(),
-            self.figure_info_location_var.get(), mutate_ok=len(views) > 1)   # len(views) > 1 means rgb is already a fresh
+            self.figure_info_location_var.get(), mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.frame
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -98,7 +98,7 @@ class ExportMixin:
 
     def save_new_image(self, path_or_none):
         """Generate a fresh image at the New-figure controls' own resolution
-        (per view - with "Include all views" on, each view is rendered at
+        (per coloration - with "Include all colorations" on, each coloration is rendered at
         this size and they're placed side by side) from the CURRENT (live)
         settings - the same per-frame rendering path video export uses,
         treating the current state as a single one-off "keyframe" - and save
@@ -122,8 +122,8 @@ class ExportMixin:
         obst_snapshots = [o.snapshot() for o in self.obstacles]
         obst_values = resolve_obstacles(obst_snapshots, [fake_kf], 0)
         obst_arrays = build_obstacle_arrays(obst_values)
-        view_snapshots = [snapshot_view(v) for v in self.views_to_export()]
-        views = resolve_views(view_snapshots, [fake_kf], 0)
+        coloration_snapshots = [snapshot_coloration(v) for v in self.colorations_to_export()]
+        colorations = resolve_colorations(coloration_snapshots, [fake_kf], 0)
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
         if path_or_none is None:
@@ -136,19 +136,19 @@ class ExportMixin:
         self.save_as_btn.state(["disabled"])
         thread = threading.Thread(
             target=self._save_new_image_worker,
-            args=(data, w, h, obst_arrays, obst_values, views, fmt, jxl_lossless,
+            args=(data, w, h, obst_arrays, obst_values, colorations, fmt, jxl_lossless,
                  jxl_quality, path, color_location, figure_location),
             daemon=True)
         thread.start()
 
-    def _save_new_image_worker(self, data, w, h, obst_arrays, obst_values, views, fmt,
+    def _save_new_image_worker(self, data, w, h, obst_arrays, obst_values, colorations, fmt,
                                jxl_lossless, jxl_quality, path, color_location,
                                figure_location):
         """Runs on a background thread: never touches a Tk widget directly,
         only via self.root.after(0, ...)."""
         try:
-            rgb = self.render_full_image(data, w, h, obst_arrays, views)
-            rgb = apply_info_locations(rgb, views, w, data.ray, data.natural_stop,
+            rgb = self.render_full_image(data, w, h, obst_arrays, colorations)
+            rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_stop,
                                        obst_values, color_location, figure_location,
                                        mutate_ok=True)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)

@@ -74,7 +74,7 @@ class GenerationMixin:
         self.rows_done = 0
         self.batch_rows = 1
         self.rebuild_buddha_counts()
-        self.view_thumb_cache = {}   # every non-live view's cached thumbnail is for the
+        self.coloration_thumb_cache = {}   # every non-live coloration's cached thumbnail is for the
                                      # previous generation's data - none of it applies here
         self.done = False
         self.running = True
@@ -112,7 +112,7 @@ class GenerationMixin:
                 break
 
         self.scatter_buddha_rows(rows_before, self.rows_done)
-        if any(s == CHAN_SRC_BUDDHA for s in self.live_view().chan_src):
+        if any(s == CHAN_SRC_BUDDHA for s in self.live_coloration().chan_src):
             self.recolor(0, self.rows_done)         # a Buddha channel's counts can
                                                      # affect any already-drawn pixel
         else:
@@ -140,13 +140,13 @@ class GenerationMixin:
         if self.pinned_px is not None:             # refresh the pinned preview
             self.hover_px = None                   # with the settings just used
             self.update_preview(*self.pinned_px)
-        self.rebuild_view_list()                   # every view's thumbnail reflects the
+        self.rebuild_coloration_list()                   # every coloration's thumbnail reflects the
                                                     # simulation that just finished, even
                                                     # if the Coloration tab isn't showing
 
     def settings_of_current_image(self):
         """The RaySettings the current image was generated with (the defaults, for
-        the placeholder image before the first Start). Coloring a view from the
+        the placeholder image before the first Start). Coloring a coloration from the
         stored data needs all of them, not just the limits: Buddha coloration
         re-traces rays with the generated emission rule and fuzzing."""
         if self.generated_settings is not None:

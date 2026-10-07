@@ -5,7 +5,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 # --------------------------------------------------------------------------- #
-# Deleting an obstacle or view removes its "obst:<id>:*" / "view:<id>:*"
+# Deleting an obstacle or coloration removes its "obst:<id>:*" / "coloration:<id>:*"
 # settings from every keyframe immediately (they used to be left behind as
 # orphans: invisible in the Timeline's settings list, so impossible to remove)
 # --------------------------------------------------------------------------- #
@@ -15,13 +15,13 @@ def _kf(id_, frame_index, data):
 
 def test_remove_keyframe_keys_removes_only_that_ids_keys_from_every_keyframe():
     kfs = [_kf(0, 0, {"iter": 5, "obst:3:r": 0.5, "obst:3:theta": 10.0, "obst:30:r": 0.9}),
-           _kf(1, 10, {"obst:3:r": 0.7, "view:3:mode": "RGB"}),
+           _kf(1, 10, {"obst:3:r": 0.7, "coloration:3:mode": "RGB"}),
            _kf(2, 20, {"iter": 9})]
     removed = m.remove_keyframe_keys(kfs, "obst:3:")
     assert removed == 3
     assert kfs[0].data == {"iter": 5, "obst:30:r": 0.9}, \
         "obst:30:* must survive removal of obst:3:* (ids that merely start alike)"
-    assert kfs[1].data == {"view:3:mode": "RGB"}, "view:3 is not obstacle 3"
+    assert kfs[1].data == {"coloration:3:mode": "RGB"}, "coloration:3 is not obstacle 3"
     assert kfs[2].data == {"iter": 9}
 
 
@@ -54,11 +54,11 @@ def test_delete_obstacle_purges_its_settings_from_every_keyframe():
     app.obstacles = [keep, doomed]
     app.selected_obstacle = doomed
     app.keyframes = [_kf(0, 0, {"iter": 5, "obst:0:r": 0.1, "obst:1:r": 0.5,
-                                "view:1:mode": "RGB"}),
+                                "coloration:1:mode": "RGB"}),
                      _kf(1, 10, {"obst:1:theta": 45.0, "obst:1:effect": 1})]
     app.delete_obstacle()
     assert app.obstacles == [keep]
-    assert app.keyframes[0].data == {"iter": 5, "obst:0:r": 0.1, "view:1:mode": "RGB"}
+    assert app.keyframes[0].data == {"iter": 5, "obst:0:r": 0.1, "coloration:1:mode": "RGB"}
     assert app.keyframes[1].data == {}
     assert app.diff_refreshes, "the Timeline's settings list must be refreshed"
 
@@ -73,24 +73,24 @@ def test_delete_obstacle_with_nothing_selected_changes_no_keyframe():
     assert app.keyframes[0].data == {"obst:0:r": 0.1}
 
 
-def test_delete_view_purges_its_settings_from_every_keyframe():
-    app = _fake_view_list_app()
-    app.new_view()                       # view id 1, selected
-    app.keyframes = [_kf(0, 0, {"iter": 5, "view:0:mode": "RGB", "view:1:mode": "HSV",
-                                "view:1:chan0": ("x",), "obst:1:r": 0.2}),
-                     _kf(1, 10, {"view:1:chan2": ("y",)})]
-    app.delete_view()
-    assert app.all_view_ids() == [0]
-    assert app.keyframes[0].data == {"iter": 5, "view:0:mode": "RGB", "obst:1:r": 0.2}
+def test_delete_coloration_purges_its_settings_from_every_keyframe():
+    app = _fake_coloration_list_app()
+    app.new_coloration()                       # coloration id 1, selected
+    app.keyframes = [_kf(0, 0, {"iter": 5, "coloration:0:mode": "RGB", "coloration:1:mode": "HSV",
+                                "coloration:1:chan0": ("x",), "obst:1:r": 0.2}),
+                     _kf(1, 10, {"coloration:1:chan2": ("y",)})]
+    app.delete_coloration()
+    assert app.all_coloration_ids() == [0]
+    assert app.keyframes[0].data == {"iter": 5, "coloration:0:mode": "RGB", "obst:1:r": 0.2}
     assert app.keyframes[1].data == {}
 
 
-def test_refused_delete_of_the_only_view_purges_nothing():
-    app = _fake_view_list_app()
-    app.keyframes = [_kf(0, 0, {"view:0:mode": "RGB"})]
-    app.delete_view()
-    assert app.all_view_ids() == [0]
-    assert app.keyframes[0].data == {"view:0:mode": "RGB"}
+def test_refused_delete_of_the_only_coloration_purges_nothing():
+    app = _fake_coloration_list_app()
+    app.keyframes = [_kf(0, 0, {"coloration:0:mode": "RGB"})]
+    app.delete_coloration()
+    assert app.all_coloration_ids() == [0]
+    assert app.keyframes[0].data == {"coloration:0:mode": "RGB"}
 
 
 def test_render_keyframe_snapshot_is_unaffected_by_later_edits_to_the_keyframes():
@@ -644,8 +644,8 @@ def test_every_setting_and_obstacle_field_resolves_to_a_control():
     for field in m.EllipseShape.FIELD_NAMES:
         if field not in ("width", "height"):
             app.obs_widgets[(m.Shape, field)] = types.SimpleNamespace(name=f"Shape.{field}")
-    v = m.ViewConfig(2)
-    app.selected_view_obj = lambda: v
+    v = m.ColorationConfig(2)
+    app.selected_coloration_obj = lambda: v
     app.widgets_for_setting = m.App.widgets_for_setting.__get__(app)
     app.obstacle_widget = m.App.obstacle_widget.__get__(app)
     for key in m.SETTING_WIDGET_ATTRS:
@@ -658,6 +658,6 @@ def test_every_setting_and_obstacle_field_resolves_to_a_control():
             owner = cls.__name__ if field in {p.field for p in cls.PARAMS} else "Shape"
             assert [w.name for w in found] == [f"{owner}.{field}"], (cls.__name__, field)
             assert app.widgets_for_setting(f"obst:5:{field}") == []     # not the edited obstacle
-    assert [w.name for w in app.widgets_for_setting("view:2:mode")] == ["mode_combo"]
-    assert [w.name for w in app.widgets_for_setting("view:2:chan1")] == ["block1"]
-    assert app.widgets_for_setting("view:3:chan1") == []
+    assert [w.name for w in app.widgets_for_setting("coloration:2:mode")] == ["mode_combo"]
+    assert [w.name for w in app.widgets_for_setting("coloration:2:chan1")] == ["block1"]
+    assert app.widgets_for_setting("coloration:3:chan1") == []

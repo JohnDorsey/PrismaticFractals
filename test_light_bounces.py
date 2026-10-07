@@ -1,7 +1,7 @@
 """Runs the test suite (the tests themselves are in the tests/ folder, one file per area).
 
     python test_light_bounces.py                 every test
-    python test_light_bounces.py kernels views   only those areas (tests/test_<area>.py)
+    python test_light_bounces.py kernels colorations   only those areas (tests/test_<area>.py)
     python test_light_bounces.py -k golden       only tests whose name contains the text
     python test_light_bounces.py --list          the areas
 

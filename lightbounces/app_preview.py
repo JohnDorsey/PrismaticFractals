@@ -3,8 +3,8 @@ import tkinter as tk
 import numpy as np
 from .constants import (
     CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
-    TERM_END_COLOR, TERM_OUTCOME_TEXT, VIEW_NAME_OVERLAY_BG, VIEW_NAME_OVERLAY_FG,
-    VIEW_NAME_OVERLAY_MARGIN, VIEW_NAME_OVERLAY_PAD, VIEW_NAME_OVERLAY_SCALE
+    TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
+    COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE
 )
 from .image_io import bilinear_resize, encode_png_bytes, preview_placeholder, render_text_line
 from .kernels import (
@@ -15,7 +15,7 @@ from .kernels import (
 from .metrics import POINT_STATS, resolve_point_xy
 from .settings import NaturalStopSettings, RaySettings, settings_natural_stop, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
-from .views import MODES
+from .colorations import MODES
 
 
 class PreviewMixin:
@@ -54,7 +54,7 @@ class PreviewMixin:
         drawn into it if that decoration is enabled
         (two layers: outer = incoming effect, inner = outgoing effect; brown for
         Terminate, pale light blue for Reflect, black for Pass through),
-        then the live view's name in the bottom-left corner - a preview-only
+        then the live coloration's name in the bottom-left corner - a preview-only
         decoration drawn into self.display_frame, a separate buffer from
         self.frame (which is what gets exported/saved, and so must never
         carry it)."""
@@ -65,28 +65,28 @@ class PreviewMixin:
                 draw_obstacle_outline(self.frame, ring.shape, ring.bound, self.gx - ring.cx,
                                       self.gy - ring.cy, ring.in_effect, ring.out_effect)
         np.copyto(self.display_frame, self.frame)
-        self.draw_view_name_overlay()
+        self.draw_coloration_name_overlay()
         header = f"P6 {SIZE} {SIZE} 255\n".encode()
         self.photo.configure(data=header + self.display_frame.tobytes(), format="PPM")
 
-    def draw_view_name_overlay(self):
-        """Stamps the live view's display name ("view N") into the bottom-left
+    def draw_coloration_name_overlay(self):
+        """Stamps the live coloration's display name ("coloration N") into the bottom-left
         corner of self.display_frame, in the tiny 5x7 pixel font, on a solid
         background box so it stays legible over any image content. Never
         touches self.frame - this is preview-only and must never end up in
         a saved/exported image."""
-        idx = self.all_view_ids().index(self.live_view().id)
-        mask = render_text_line(f"view {idx}", VIEW_NAME_OVERLAY_SCALE)
+        idx = self.all_coloration_ids().index(self.live_coloration().id)
+        mask = render_text_line(f"coloration {idx}", COLORATION_NAME_OVERLAY_SCALE)
         h, w = mask.shape
-        pad = VIEW_NAME_OVERLAY_PAD
-        margin = VIEW_NAME_OVERLAY_MARGIN
+        pad = COLORATION_NAME_OVERLAY_PAD
+        margin = COLORATION_NAME_OVERLAY_MARGIN
         y1 = SIZE - margin
         y0 = y1 - h - 2 * pad
         x0 = margin
         x1 = x0 + w + 2 * pad
-        self.display_frame[y0:y1, x0:x1] = VIEW_NAME_OVERLAY_BG
+        self.display_frame[y0:y1, x0:x1] = COLORATION_NAME_OVERLAY_BG
         region = self.display_frame[y0 + pad:y0 + pad + h, x0 + pad:x0 + pad + w]
-        region[mask] = VIEW_NAME_OVERLAY_FG
+        region[mask] = COLORATION_NAME_OVERLAY_FG
 
     # ---- hover demonstration ---------------------------------------------- #
     def preview_settings(self):
@@ -223,17 +223,17 @@ class PreviewMixin:
         # Sample points: two rings (point 1, point 2) per channel that uses a
         # point-comparison metric
         if show["samples"]:
-            live_view = self.live_view()
+            live_coloration = self.live_coloration()
             for c in range(3):
                 if self.mapping[c] in POINT_STATS:
                     base_rad = 8 - 2 * c
-                    for p, rad in ((live_view.point1_choice[c], base_rad),
-                                  (live_view.point2_choice[c], base_rad + 3)):
+                    for p, rad in ((live_coloration.point1_choice[c], base_rad),
+                                  (live_coloration.point2_choice[c], base_rad + 3)):
                         px, py = resolve_point_xy(sp, p)
                         cx = (px + 1.0) * half
                         cy = (1.0 - py) * half
                         cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, width=2,
-                                      outline=SAMPLE_COLORS[live_view.mode][c], tags="ray")
+                                      outline=SAMPLE_COLORS[live_coloration.mode][c], tags="ray")
 
         # ---- info panel ----
         bounces = int(raw[RAW_BOUNCES])
@@ -259,7 +259,7 @@ class PreviewMixin:
             v["loop"].set(f"area {raw[RAW_AREA]:.4f}")
         else:
             v["loop"].set("never touches itself")
-        letters = [name[0] for name, _color in MODES[self.live_view().mode]]
+        letters = [name[0] for name, _color in MODES[self.live_coloration().mode]]
         v["components"].set("   ".join(f"{letters[c]} {vals[c]:.3f}" for c in range(3)))
         v["color"].set(hexcol)
         for s in range(N_STATS):

@@ -6,14 +6,14 @@ import numpy as np
 from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared helpers
 
 
-def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_included():
+def test_new_image_export_widens_when_a_second_coloration_is_added_and_all_colorations_included():
     """The scenario the person actually cares about: does exporting a "New
-    figure" actually get wider when you add a view AND turn on "Include all
-    views" - through the real save_new_image -> _save_new_image_worker ->
+    figure" actually get wider when you add a coloration AND turn on "Include all
+    colorations" - through the real save_new_image -> _save_new_image_worker ->
     render_full_image chain, not just render_full_image called directly
-    with a hand-built views list."""
+    with a hand-built colorations list."""
     app = _fake_export_app()
-    app.include_all_views_var = _StubVar(True)
+    app.include_all_colorations_var = _StubVar(True)
     app.save_new_w_var = _StubVar("20")
     app.save_new_h_var = _StubVar("20")
     app.save_format_var = _StubVar("png")
@@ -34,34 +34,34 @@ def test_new_image_export_widens_when_a_second_view_is_added_and_all_views_inclu
         _run_save_new_image_synchronously(app)
         files = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
         assert len(files) == 1
-        img_one_view = m.read_png(os.path.join(tmpdir, files[0]))
-        assert img_one_view.shape == (20, 20, 3)
+        img_one_coloration = m.read_png(os.path.join(tmpdir, files[0]))
+        assert img_one_coloration.shape == (20, 20, 3)
         os.remove(os.path.join(tmpdir, files[0]))
 
-        app.new_view()
-        assert app.all_view_ids() == [0, 1]
+        app.new_coloration()
+        assert app.all_coloration_ids() == [0, 1]
         _run_save_new_image_synchronously(app)
         files2 = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
         assert len(files2) == 1
-        img_two_views = m.read_png(os.path.join(tmpdir, files2[0]))
-        assert img_two_views.shape == (20, 40, 3), \
-            f"adding a second view should double the export width, got {img_two_views.shape}"
+        img_two_colorations = m.read_png(os.path.join(tmpdir, files2[0]))
+        assert img_two_colorations.shape == (20, 40, 3), \
+            f"adding a second coloration should double the export width, got {img_two_colorations.shape}"
     finally:
         m.paths.EXPORT_DIR = orig_export_dir
 
 
-def test_include_all_views_defaults_to_true():
+def test_include_all_colorations_defaults_to_true():
     app = _fake_export_app()
-    assert app.include_all_views_var.get() is True
+    assert app.include_all_colorations_var.get() is True
 
 
-def test_new_image_export_stays_single_width_when_all_views_not_included():
-    """With "Include all views" explicitly off, adding a second view must
-    NOT widen the export - only the selected/live view goes out. (The
+def test_new_image_export_stays_single_width_when_all_colorations_not_included():
+    """With "Include all colorations" explicitly off, adding a second coloration must
+    NOT widen the export - only the selected/live coloration goes out. (The
     checkbox now defaults to on, so this test turns it off explicitly
     rather than relying on a default.)"""
     app = _fake_export_app()
-    app.include_all_views_var = _StubVar(False)
+    app.include_all_colorations_var = _StubVar(False)
     app.save_new_w_var = _StubVar("20")
     app.save_new_h_var = _StubVar("20")
     app.save_format_var = _StubVar("png")
@@ -75,7 +75,7 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
     app._save_new_image_failed = m.App._save_new_image_failed.__get__(app)
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
 
-    app.new_view()
+    app.new_coloration()
     tmpdir = tempfile.mkdtemp()
     orig_export_dir = m.paths.EXPORT_DIR
     m.paths.EXPORT_DIR = tmpdir
@@ -85,147 +85,147 @@ def test_new_image_export_stays_single_width_when_all_views_not_included():
         assert len(files) == 1
         img = m.read_png(os.path.join(tmpdir, files[0]))
         assert img.shape == (20, 20, 3), \
-            f"with 'Include all views' off, export must stay single-width, got {img.shape}"
+            f"with 'Include all colorations' off, export must stay single-width, got {img.shape}"
     finally:
         m.paths.EXPORT_DIR = orig_export_dir
 
 
-def test_video_frame_render_widens_when_a_second_view_is_added_and_included():
+def test_video_frame_render_widens_when_a_second_coloration_is_added_and_included():
     """Same property, for the video-render call chain: snapshot
-    views_to_export() the way the render launch site now does, resolve
-    them, and render - before and after adding a view, with 'Include all
-    views' on."""
+    colorations_to_export() the way the render launch site now does, resolve
+    them, and render - before and after adding a coloration, with 'Include all
+    colorations' on."""
     app = _fake_export_app()
-    app.include_all_views_var = _StubVar(True)
+    app.include_all_colorations_var = _StubVar(True)
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [o.snapshot() for o in app.obstacles]
     data = m.resolve_frame_settings(keyframes, 0)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
 
-    view_snapshot = [m.snapshot_view(v) for v in app.views_to_export()]
-    views = m.resolve_views(view_snapshot, keyframes, 0)
-    img_one_view = app.render_full_image(data, 20, 20, obst_arrays, views)
-    assert img_one_view.shape == (20, 20, 3)
+    coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
+    colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
+    img_one_coloration = app.render_full_image(data, 20, 20, obst_arrays, colorations)
+    assert img_one_coloration.shape == (20, 20, 3)
 
-    app.new_view()
-    view_snapshot2 = [m.snapshot_view(v) for v in app.views_to_export()]   # as the render
+    app.new_coloration()
+    coloration_snapshot2 = [m.snapshot_coloration(v) for v in app.colorations_to_export()]   # as the render
                                                                            # launch site
                                                                            # re-snapshots
-    views2 = m.resolve_views(view_snapshot2, keyframes, 0)
-    img_two_views = app.render_full_image(data, 20, 20, obst_arrays, views2)
-    assert img_two_views.shape == (20, 40, 3), \
-        f"adding a second view should double the video frame width, got {img_two_views.shape}"
+    colorations2 = m.resolve_colorations(coloration_snapshot2, keyframes, 0)
+    img_two_colorations = app.render_full_image(data, 20, 20, obst_arrays, colorations2)
+    assert img_two_colorations.shape == (20, 40, 3), \
+        f"adding a second coloration should double the video frame width, got {img_two_colorations.shape}"
 
 
-def test_render_view_thumbnail_does_not_crash_for_every_view_kind():
-    """Regression test: render_view_thumbnail builds its own ViewSettings
+def test_render_coloration_thumbnail_does_not_crash_for_every_coloration_kind():
+    """Regression test: render_coloration_thumbnail builds its own ColorationSettings
     manually (like render_current_image does) and had no coverage at all -
     that's exactly how a missing constant_choice argument shipped
     undetected. Exercises it for Query, Buddha, and Constant channels."""
     app = _fake_current_image_app()
-    v = m.ViewConfig(0)
+    v = m.ColorationConfig(0)
     v.chan_src[0] = m.CHAN_SRC_CONSTANT
     v.constant_choice[0] = m.NONE_ONE
     v.chan_src[1] = m.CHAN_SRC_BUDDHA
-    thumb = app.render_view_thumbnail(v, m.THUMB_SIZE)
+    thumb = app.render_coloration_thumbnail(v, m.THUMB_SIZE)
     assert thumb.shape == (m.THUMB_SIZE, m.THUMB_SIZE, 3)
     assert (thumb[..., 0] == 255).all()   # channel 0 is Constant, Always 1
 
 
-def test_render_view_thumbnail_reuses_self_img_for_the_live_view():
-    """The performance fix itself: the live view's thumbnail must be an
+def test_render_coloration_thumbnail_reuses_self_img_for_the_live_coloration():
+    """The performance fix itself: the live coloration's thumbnail must be an
     exact downsample of self.img (already kept current by recolor()), not
-    a fresh colorize_view computation - this is what avoids redundantly
+    a fresh apply_coloration computation - this is what avoids redundantly
     re-tracing every ray for a "multi" Buddha point option on every single
     color-setting change."""
     app = _fake_current_image_app()
     app.img = np.random.RandomState(0).randint(0, 256, (m.SIZE, m.SIZE, 3), dtype=np.uint8)
-    live = app.live_view()
-    assert live is app.views[0]
-    thumb = app.render_view_thumbnail(live, m.THUMB_SIZE)
+    live = app.live_coloration()
+    assert live is app.colorations[0]
+    thumb = app.render_coloration_thumbnail(live, m.THUMB_SIZE)
     ys = (np.arange(m.THUMB_SIZE) * m.SIZE / m.THUMB_SIZE).astype(np.int64)
     xs = (np.arange(m.THUMB_SIZE) * m.SIZE / m.THUMB_SIZE).astype(np.int64)
     expected = app.img[np.ix_(ys, xs)]
     assert np.array_equal(thumb, expected)
 
 
-def test_render_view_thumbnail_never_calls_colorize_view_for_the_live_view():
+def test_render_coloration_thumbnail_never_calls_apply_coloration_for_the_live_coloration():
     """Belt-and-suspenders on the same guarantee: even a "multi" Buddha
     point (the expensive, ray-re-tracing case) must not reach
-    colorize_view at all when thumbnailing the live view."""
+    apply_coloration at all when thumbnailing the live coloration."""
     app = _fake_current_image_app()
     app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
-    live = app.live_view()
+    live = app.live_coloration()
     live.chan_src[0] = m.CHAN_SRC_BUDDHA
     live.buddha_points[0] = tuple(i == 7 for i in range(m.N_BUDDHA_POINTS))  # a "multi" point
 
     def _boom(*a, **k):
-        raise AssertionError("colorize_view must not be called for the live view's thumbnail")
-    app.colorize_view = _boom
-    app.render_view_thumbnail(live, m.THUMB_SIZE)   # must not raise
+        raise AssertionError("apply_coloration must not be called for the live coloration's thumbnail")
+    app.apply_coloration = _boom
+    app.render_coloration_thumbnail(live, m.THUMB_SIZE)   # must not raise
 
 
-def test_render_view_thumbnail_still_uses_colorize_view_for_a_non_live_view():
-    """The other half: a view that ISN'T live has no incrementally-updated
-    self.img to reuse, so it must still go through colorize_view as
+def test_render_coloration_thumbnail_still_uses_apply_coloration_for_a_non_live_coloration():
+    """The other half: a coloration that ISN'T live has no incrementally-updated
+    self.img to reuse, so it must still go through apply_coloration as
     before."""
     app = _fake_current_image_app()
     app.img = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # sentinel: must be unused
-    other = m.ViewConfig(99)
+    other = m.ColorationConfig(99)
     other.mode = "HSV"
-    assert other is not app.live_view()
-    thumb = app.render_view_thumbnail(other, m.THUMB_SIZE)
+    assert other is not app.live_coloration()
+    thumb = app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert not np.array_equal(thumb, np.full((m.THUMB_SIZE, m.THUMB_SIZE, 3), 42, dtype=np.uint8))
 
 
-def test_render_view_thumbnail_caches_a_non_live_view_across_calls():
-    """The third performance fix: rendering the SAME non-live view's
+def test_render_coloration_thumbnail_caches_a_non_live_coloration_across_calls():
+    """The third performance fix: rendering the SAME non-live coloration's
     thumbnail twice, with nothing having changed (rows_done unchanged),
     must only actually compute it once - this is what keeps editing one
-    view fast even when a DIFFERENT, unrelated view uses an expensive
-    "multi" Buddha point option, since rebuild_view_list re-renders every
-    view's thumbnail on every single color edit."""
+    coloration fast even when a DIFFERENT, unrelated coloration uses an expensive
+    "multi" Buddha point option, since rebuild_coloration_list re-renders every
+    coloration's thumbnail on every single color edit."""
     app = _fake_current_image_app()
-    other = m.ViewConfig(99)
+    other = m.ColorationConfig(99)
     calls = []
-    real_colorize = app.colorize_view
+    real_colorize = app.apply_coloration
     def counting_colorize(*a, **k):
         calls.append(1)
         return real_colorize(*a, **k)
-    app.colorize_view = counting_colorize
-    thumb1 = app.render_view_thumbnail(other, m.THUMB_SIZE)
-    thumb2 = app.render_view_thumbnail(other, m.THUMB_SIZE)
+    app.apply_coloration = counting_colorize
+    thumb1 = app.render_coloration_thumbnail(other, m.THUMB_SIZE)
+    thumb2 = app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert len(calls) == 1, "the second call should reuse the cache, not recompute"
     assert np.array_equal(thumb1, thumb2)
 
 
-def test_render_view_thumbnail_recomputes_a_non_live_view_after_rows_done_advances():
+def test_render_coloration_thumbnail_recomputes_a_non_live_coloration_after_rows_done_advances():
     """When new simulation data becomes available, a cached non-live
-    thumbnail must not be reused, even though the view's own settings
+    thumbnail must not be reused, even though the coloration's own settings
     haven't changed - it may now cover more of the image."""
     app = _fake_current_image_app()
-    other = m.ViewConfig(99)
+    other = m.ColorationConfig(99)
     calls = []
-    real_colorize = app.colorize_view
+    real_colorize = app.apply_coloration
     def counting_colorize(*a, **k):
         calls.append(1)
         return real_colorize(*a, **k)
-    app.colorize_view = counting_colorize
-    app.render_view_thumbnail(other, m.THUMB_SIZE)
+    app.apply_coloration = counting_colorize
+    app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     app.rows_done = m.SIZE // 2   # simulate more rows having completed
-    app.render_view_thumbnail(other, m.THUMB_SIZE)
+    app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert len(calls) == 2, "rows_done advancing must invalidate the cache"
 
 
-def test_select_view_invalidates_the_incoming_views_stale_cache():
+def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     """Regression test for the specific staleness bug this design has to
-    avoid: a view that was cached while non-live, then selected (becomes
+    avoid: a coloration that was cached while non-live, then selected (becomes
     live, gets edited), then deselected again must NOT fall back to its
     pre-edit cached thumbnail just because rows_done happens to match."""
     app = _fake_color_editor_app()
-    app.render_view_thumbnail = m.App.render_view_thumbnail.__get__(app)
-    app.colorize_view = m.App.colorize_view.__get__(app)
+    app.render_coloration_thumbnail = m.App.render_coloration_thumbnail.__get__(app)
+    app.apply_coloration = m.App.apply_coloration.__get__(app)
     app.obstacles = []
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     app.points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
@@ -239,28 +239,28 @@ def test_select_view_invalidates_the_incoming_views_stale_cache():
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
 
-    # view 1 starts non-live; cache its (default RGB) thumbnail first
-    view1 = app.views[1]
-    thumb_before = app.render_view_thumbnail(view1, m.THUMB_SIZE)
-    assert view1.id in app.view_thumb_cache
+    # coloration 1 starts non-live; cache its (default RGB) thumbnail first
+    coloration1 = app.colorations[1]
+    thumb_before = app.render_coloration_thumbnail(coloration1, m.THUMB_SIZE)
+    assert coloration1.id in app.coloration_thumb_cache
 
-    # select it (becomes live), "edit" it, then select view 0 again (view 1
-    # becomes non-live) - all through the real select_view, which must
-    # invalidate view 1's stale entry when it becomes live. view1 is HSV
-    # mode (the fixture's default for views[1]), so channel 2 is Value -
+    # select it (becomes live), "edit" it, then select coloration 0 again (coloration 1
+    # becomes non-live) - all through the real select_coloration, which must
+    # invalidate coloration 1's stale entry when it becomes live. coloration1 is HSV
+    # mode (the fixture's default for colorations[1]), so channel 2 is Value -
     # editing it is what actually changes the visible output; Hue alone
     # wouldn't, since Value stays 0 either way.
-    app.select_view(1)
-    view1.chan_src[2] = m.CHAN_SRC_CONSTANT
-    view1.constant_choice[2] = m.NONE_ONE
-    app.select_view(0)
-    thumb_after = app.render_view_thumbnail(view1, m.THUMB_SIZE)
+    app.select_coloration(1)
+    coloration1.chan_src[2] = m.CHAN_SRC_CONSTANT
+    coloration1.constant_choice[2] = m.NONE_ONE
+    app.select_coloration(0)
+    thumb_after = app.render_coloration_thumbnail(coloration1, m.THUMB_SIZE)
     assert not np.array_equal(thumb_before, thumb_after), \
         "must reflect the edit made while live, not the stale pre-edit cache"
 
 
-def test_write_uses_self_frame_directly_for_a_single_view():
-    """No need to recompute anything when only one view is being exported -
+def test_write_uses_self_frame_directly_for_a_single_coloration():
+    """No need to recompute anything when only one coloration is being exported -
     self.frame already holds exactly that."""
     app = _fake_current_image_app()
     tmpdir = tempfile.mkdtemp()
@@ -268,14 +268,14 @@ def test_write_uses_self_frame_directly_for_a_single_view():
     app._write(path)
     img = m.read_png(path)
     assert img.shape == (m.SIZE, m.SIZE, 3)
-    assert (img == 42).all(), "single-view export should be exactly self.frame"
+    assert (img == 42).all(), "single-coloration export should be exactly self.frame"
 
 
-def test_write_composes_all_views_when_include_all_views_is_on():
+def test_write_composes_all_colorations_when_include_all_colorations_is_on():
     app = _fake_current_image_app()
-    app.include_all_views_var = _StubVar(True)
-    app.new_view()
-    app.views[1].mode = "HSV"
+    app.include_all_colorations_var = _StubVar(True)
+    app.new_coloration()
+    app.colorations[1].mode = "HSV"
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
@@ -283,18 +283,18 @@ def test_write_composes_all_views_when_include_all_views_is_on():
     assert img.shape == (m.SIZE, m.SIZE * 2, 3)
     half = m.SIZE
     assert not np.array_equal(img[:, :half], img[:, half:]), \
-        "two views with different modes should produce different halves"
+        "two colorations with different modes should produce different halves"
 
 
-def test_render_current_image_matches_self_frame_for_identical_single_view():
+def test_render_current_image_matches_self_frame_for_identical_single_coloration():
     """A sanity check that the two code paths agree: composing just the live
-    view through render_current_image gives the same picture self.frame
+    coloration through render_current_image gives the same picture self.frame
     already has (modulo the outline, which render_current_image also
     applies - both are off here for a clean, direct pixel comparison isn't
     meaningful since self.frame's content comes from a different source in
     this fixture; instead just check shape and that it runs without error)."""
     app = _fake_current_image_app()
-    img = app.render_current_image([app.live_view()])
+    img = app.render_current_image([app.live_coloration()])
     assert img.shape == (m.SIZE, m.SIZE, 3)
 
 

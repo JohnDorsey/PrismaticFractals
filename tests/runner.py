@@ -1,7 +1,7 @@
 """Finds and runs the tests (the folder's test_*.py files and support.py); used by test_light_bounces.py in the project folder.
 
     python test_light_bounces.py                 every test (what to run after every edit)
-    python test_light_bounces.py kernels views   only the tests of those areas (tests/test_<area>.py)
+    python test_light_bounces.py kernels colorations   only the tests of those areas (tests/test_<area>.py)
     python test_light_bounces.py -k golden       only the tests whose name contains the text (any number of -k)
     python test_light_bounces.py --list          the areas and how many tests each has
 

@@ -174,11 +174,11 @@ def test_render_text_line_can_draw_every_letter_hash_and_theta():
 
 
 # --------------------------------------------------------------------------- #
-# The view-name pixel-font overlay on the live preview
+# The coloration-name pixel-font overlay on the live preview
 # --------------------------------------------------------------------------- #
-def test_font_5x7_covers_every_character_needed_for_view_names():
-    for ch in "view0123456789 ":
-        assert ch in m.FONT_5X7, f"FONT_5X7 is missing {ch!r}, needed for 'view N' text"
+def test_font_5x7_covers_every_character_needed_for_coloration_names():
+    for ch in "coloration0123456789 ":
+        assert ch in m.FONT_5X7, f"FONT_5X7 is missing {ch!r}, needed for 'coloration N' text"
 
 
 def test_render_text_line_produces_legible_glyphs_for_every_digit():
@@ -190,62 +190,62 @@ def test_render_text_line_produces_legible_glyphs_for_every_digit():
         assert mask.any(), f"digit {ch!r} renders as entirely blank"
 
 
-def test_view_name_overlay_draws_in_the_bottom_left_corner_only():
+def test_coloration_name_overlay_draws_in_the_bottom_left_corner_only():
     app = type("FakeApp", (), {})()
     app.display_frame = np.full((m.SIZE, m.SIZE, 3), 100, dtype=np.uint8)
-    app.views = [m.ViewConfig(0), m.ViewConfig(1)]
-    app.selected_view_id = 1
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
-    app.draw_view_name_overlay = m.App.draw_view_name_overlay.__get__(app)
+    app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
+    app.selected_coloration_id = 1
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
+    app.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app)
 
-    app.draw_view_name_overlay()
+    app.draw_coloration_name_overlay()
 
     # A background-box pixel near the bottom-left corner must be the
     # overlay's background color, and some pixels nearby must be its
     # foreground color (the text itself) - while the rest of the image is
     # untouched.
-    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.VIEW_NAME_OVERLAY_BG
+    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
     region = app.display_frame[m.SIZE - 40:m.SIZE, 0:100]
-    assert ((region == m.VIEW_NAME_OVERLAY_FG).all(axis=-1)).sum() > 0
+    assert ((region == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1)).sum() > 0
     assert tuple(app.display_frame[10, m.SIZE - 10]) == (100, 100, 100)   # untouched elsewhere
 
 
-def test_view_name_overlay_reflects_the_live_views_position():
+def test_coloration_name_overlay_reflects_the_live_colorations_position():
     app = type("FakeApp", (), {})()
     app.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
-    app.views = [m.ViewConfig(0), m.ViewConfig(1), m.ViewConfig(2)]
-    app.selected_view_id = 2
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
-    app.draw_view_name_overlay = m.App.draw_view_name_overlay.__get__(app)
+    app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1), m.ColorationConfig(2)]
+    app.selected_coloration_id = 2
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
+    app.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app)
 
-    app.draw_view_name_overlay()
-    text_pixels_with_id_2 = (app.display_frame == m.VIEW_NAME_OVERLAY_FG).all(axis=-1).sum()
+    app.draw_coloration_name_overlay()
+    text_pixels_with_id_2 = (app.display_frame == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
 
     app2 = type("FakeApp", (), {})()
     app2.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
-    app2.views = app.views
-    app2.selected_view_id = 0
-    app2.view_by_id = m.App.view_by_id.__get__(app2)
-    app2.selected_view_obj = m.App.selected_view_obj.__get__(app2)
-    app2.live_view = m.App.live_view.__get__(app2)
-    app2.all_view_ids = m.App.all_view_ids.__get__(app2)
-    app2.draw_view_name_overlay = m.App.draw_view_name_overlay.__get__(app2)
-    app2.draw_view_name_overlay()
-    text_pixels_with_id_0 = (app2.display_frame == m.VIEW_NAME_OVERLAY_FG).all(axis=-1).sum()
+    app2.colorations = app.colorations
+    app2.selected_coloration_id = 0
+    app2.coloration_by_id = m.App.coloration_by_id.__get__(app2)
+    app2.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app2)
+    app2.live_coloration = m.App.live_coloration.__get__(app2)
+    app2.all_coloration_ids = m.App.all_coloration_ids.__get__(app2)
+    app2.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app2)
+    app2.draw_coloration_name_overlay()
+    text_pixels_with_id_0 = (app2.display_frame == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
 
-    # "view 2" and "view 0" are different-length strings of lit pixels in
+    # "coloration 2" and "coloration 0" are different-length strings of lit pixels in
     # general, but at minimum the two renders should differ - same digit
     # count here, so compare the actual pixel patterns are not identical.
     assert not np.array_equal(app.display_frame, app2.display_frame)
 
 
-def test_draw_never_lets_the_view_name_overlay_leak_into_the_export_buffer():
+def test_draw_never_lets_the_coloration_name_overlay_leak_into_the_export_buffer():
     """Regression test: draw() used to draw the overlay directly into
     self.frame, which _write() (the "Current preview image" export path)
     saves straight to disk - meaning the preview-only overlay was silently
@@ -256,19 +256,19 @@ def test_draw_never_lets_the_view_name_overlay_leak_into_the_export_buffer():
     app.frame = np.empty_like(app.img)
     app.display_frame = np.empty_like(app.img)
     app.deco = {"outline": type("X", (), {"get": lambda self: False})()}
-    app.views = [m.ViewConfig(0)]
-    app.selected_view_id = 0
-    app.view_by_id = m.App.view_by_id.__get__(app)
-    app.selected_view_obj = m.App.selected_view_obj.__get__(app)
-    app.live_view = m.App.live_view.__get__(app)
-    app.all_view_ids = m.App.all_view_ids.__get__(app)
+    app.colorations = [m.ColorationConfig(0)]
+    app.selected_coloration_id = 0
+    app.coloration_by_id = m.App.coloration_by_id.__get__(app)
+    app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
+    app.live_coloration = m.App.live_coloration.__get__(app)
+    app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
     app.obstacle_ring_specs = lambda: []
-    app.draw_view_name_overlay = m.App.draw_view_name_overlay.__get__(app)
+    app.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app)
     app.draw = m.App.draw.__get__(app)
     app.photo = type("P", (), {"configure": lambda self, **kw: None})()
 
     app.draw()
 
-    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.VIEW_NAME_OVERLAY_BG
+    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
     assert tuple(app.frame[m.SIZE - 10, 10]) == (50, 50, 50), \
         "the overlay leaked into self.frame, which gets written to disk on export"

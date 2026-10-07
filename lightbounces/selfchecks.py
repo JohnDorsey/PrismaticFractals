@@ -32,7 +32,7 @@ from .settings import (
     SETTING_TABLES, SETTING_WIDGET_ATTRS, record_leaf_paths
 )
 from .shapes import SHAPE_CLASSES
-from .views import DEFAULT_BUDDHA_POINTS_PER_CHAN, ViewConfig
+from .colorations import DEFAULT_BUDDHA_POINTS_PER_CHAN, ColorationConfig
 
 
 def run_self_checks():
@@ -167,8 +167,8 @@ def run_self_checks():
         raise AssertionError(
             f"CHAN_CONSTANT_LABELS has {len(CHAN_CONSTANT_LABELS)} entries but a "
             "Constant channel only ever holds NONE_ZERO or NONE_ONE")
-    if "constant_choice" not in ViewConfig.__slots__:
-        raise AssertionError("ViewConfig is missing its dedicated constant_choice field")
+    if "constant_choice" not in ColorationConfig.__slots__:
+        raise AssertionError("ColorationConfig is missing its dedicated constant_choice field")
 
     kind_keys = [cls.KEY for cls in SHAPE_CLASSES]
     if (None in kind_keys or len(set(kind_keys)) != len(kind_keys)

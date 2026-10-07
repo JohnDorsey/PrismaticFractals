@@ -14,13 +14,13 @@ from .ui_text import (
     DIFF_PRESENCE_CHOICES, diff_section_header_text, setting_passes_presence_filter,
     short_value_text
 )
-from .views import VIEW_FIELD_INFO, view_channel_value, view_field_value
+from .colorations import COLORATION_FIELD_INFO, coloration_channel_value, coloration_field_value
 from .widgets import MODIFIED_OUTLINE, MODIFIED_OUTLINE_PX, ModifiedOutline, detect_modified_keys
 
 
 class TimelineMixin:
     def purge_keyframe_settings(self, prefix):
-        """Removes a just-deleted obstacle's or view's settings from every
+        """Removes a just-deleted obstacle's or coloration's settings from every
         keyframe right away (see remove_keyframe_keys), so no keyframe is ever
         left holding settings for something that no longer exists - they
         would otherwise be invisible in the Timeline's settings list, and so
@@ -150,8 +150,8 @@ class TimelineMixin:
     # ---- timeline: keyframes ------------------------------------------------ #
     def capture_all_settings(self, show_error=True):
         """dict of every canonical setting's current value (plus every current
-        obstacle's fields and every current view's fields, as dynamic
-        "obst:<id>:<field>" / "view:<id>:<field>" keys), or None (with an
+        obstacle's fields and every current coloration's fields, as dynamic
+        "obst:<id>:<field>" / "coloration:<id>:<field>" keys), or None (with an
         error dialog, unless show_error is False - for passive/reactive
         callers like refresh_timeline_diffs, which already show their own
         gentle inline message and run on every keystroke, where a popup
@@ -167,10 +167,10 @@ class TimelineMixin:
         for o in self.obstacles:
             for field in o.FIELD_NAMES:
                 d[f"obst:{o.id}:{field}"] = getattr(o, field)
-        for v in self.views:
-            d[f"view:{v.id}:mode"] = v.mode
+        for v in self.colorations:
+            d[f"coloration:{v.id}:mode"] = v.mode
             for c in range(3):
-                d[f"view:{v.id}:chan{c}"] = view_channel_value(v, c)
+                d[f"coloration:{v.id}:chan{c}"] = coloration_channel_value(v, c)
         return d
 
     def new_keyframe(self):
@@ -211,9 +211,9 @@ class TimelineMixin:
                     self.refresh_obstacle_editor()
                 self.rebuild_obstacle_list()
             return
-        if key.startswith("view:"):
-            _prefix, view_id, field = key.split(":", 2)
-            v = self.view_by_id(int(view_id))
+        if key.startswith("coloration:"):
+            _prefix, coloration_id, field = key.split(":", 2)
+            v = self.coloration_by_id(int(coloration_id))
             if v is None:
                 return
             if field == "mode":
@@ -221,9 +221,9 @@ class TimelineMixin:
             else:
                 c = int(field[-1])
                 v.set_channel(c, val)
-            if v is self.selected_view_obj():
-                self.refresh_color_controls_for_selected_view()
-            if v is self.live_view():
+            if v is self.selected_coloration_obj():
+                self.refresh_color_controls_for_selected_coloration()
+            if v is self.live_coloration():
                 self.mapping = make_mapping(v.kinds, v.point_metric, v.other_metric,
                                             v.chan_src, v.constant_choice)
                 if field != "mode" and v.chan_src[int(field[-1])] == CHAN_SRC_BUDDHA:
@@ -236,7 +236,7 @@ class TimelineMixin:
                 self.draw()
                 if self.pinned_px is not None:
                     self.update_preview(*self.pinned_px)
-            self.rebuild_view_list()
+            self.rebuild_coloration_list()
             return
         if key == "outline":
             self.deco["outline"].set(val)
@@ -264,24 +264,24 @@ class TimelineMixin:
         """The value to fall back to when no keyframe defines `key` at all:
         the static default for a normal setting, that obstacle's own current
         value (None if it no longer exists) for an obst:<id>:<field> key, or
-        that view's own current value (None if it no longer exists) for a
-        view:<id>:<field> key."""
+        that coloration's own current value (None if it no longer exists) for a
+        coloration:<id>:<field> key."""
         if key.startswith("obst:"):
             _prefix, obst_id, field = key.split(":", 2)
             o = next((o for o in self.obstacles if o.id == int(obst_id)), None)
             return getattr(o, field) if o is not None else None
-        if key.startswith("view:"):
-            _prefix, view_id, field = key.split(":", 2)
-            v = self.view_by_id(int(view_id))
-            return view_field_value(v, field) if v is not None else None
+        if key.startswith("coloration:"):
+            _prefix, coloration_id, field = key.split(":", 2)
+            v = self.coloration_by_id(int(coloration_id))
+            return coloration_field_value(v, field) if v is not None else None
         return DEFAULT_SETTING_VALUES[key]
 
     def setting_is_float(self, key):
         if key.startswith("obst:"):
             return OBST_FIELD_IS_FLOAT[key.split(":", 2)[2]]
-        if key.startswith("view:"):
+        if key.startswith("coloration:"):
             field = key.split(":", 2)[2]
-            return next(is_f for f, _label, is_f in VIEW_FIELD_INFO if f == field)
+            return next(is_f for f, _label, is_f in COLORATION_FIELD_INFO if f == field)
         return key in SETTING_FLOAT_KEYS
 
     def load_animated_setting(self, kf, key, refresh=True):
@@ -403,7 +403,7 @@ class TimelineMixin:
         """With a keyframe selected, mark every setting whose value changed since
         the previous check as modified (see detect_modified_keys). Polling the
         settings, rather than hooking every control, catches every way a setting
-        can be edited (entries, sliders, dropdowns, the obstacle and view
+        can be edited (entries, sliders, dropdowns, the obstacle and coloration
         editors) and costs well under a millisecond. Returns whether the set of
         modified settings changed."""
         if self.selected_keyframe is None or self.kf_applying:
@@ -422,7 +422,7 @@ class TimelineMixin:
 
     def widgets_for_setting(self, key):
         """The main control(s) currently showing setting `key`: [] when it has
-        none visible now (an obstacle or view other than the one being edited)."""
+        none visible now (an obstacle or coloration other than the one being edited)."""
         def attr(name):
             obj = getattr(self, name, None)
             return getattr(obj, "widget", obj) if obj is not None else None
@@ -435,10 +435,10 @@ class TimelineMixin:
             widget = self.obstacle_widget(type(o), field)
             widget = getattr(widget, "widget", widget)
             return [widget] if widget is not None else []
-        if key.startswith("view:"):
-            _prefix, view_id, field = key.split(":", 2)
-            v = self.selected_view_obj()
-            if v is None or v.id != int(view_id):
+        if key.startswith("coloration:"):
+            _prefix, coloration_id, field = key.split(":", 2)
+            v = self.selected_coloration_obj()
+            if v is None or v.id != int(coloration_id):
                 return []
             if field == "mode":
                 widget = attr("mode_combo")
@@ -482,7 +482,7 @@ class TimelineMixin:
 
     def all_setting_entries(self):
         """[SettingEntry, ...] for every static setting plus every current
-        obstacle's and view's fields, in display order."""
+        obstacle's and coloration's fields, in display order."""
         entries = [SettingEntry(key=key, tab=tab, label=label, is_float=key in SETTING_FLOAT_KEYS,
                                 fallback=DEFAULT_SETTING_VALUES[key])
                    for key, tab, label in SETTING_INFO]
@@ -491,19 +491,19 @@ class TimelineMixin:
             for field, label, is_float in o.KEYFRAME_FIELDS:
                 entries.append(SettingEntry(key=f"obst:{o.id}:{field}", tab=tab, label=label,
                                             is_float=is_float, fallback=getattr(o, field)))
-        for idx, v in enumerate(self.views):
-            tab = f"View {idx}"
-            for field, label, is_float in VIEW_FIELD_INFO:
-                entries.append(SettingEntry(key=f"view:{v.id}:{field}", tab=tab, label=label,
+        for idx, v in enumerate(self.colorations):
+            tab = f"Coloration {idx}"
+            for field, label, is_float in COLORATION_FIELD_INFO:
+                entries.append(SettingEntry(key=f"coloration:{v.id}:{field}", tab=tab, label=label,
                                             is_float=is_float,
-                                            fallback=view_field_value(v, field)))
+                                            fallback=coloration_field_value(v, field)))
         return entries
 
     def all_setting_tabs(self):
         """Tab names in display order: the fixed ones, then one per
-        obstacle, then one per view."""
+        obstacle, then one per coloration."""
         return (SETTING_TABS_ORDER + [obstacle_tab_title(i, o) for i, o in enumerate(self.obstacles)]
-               + [f"View {i}" for i in range(len(self.views))])
+               + [f"Coloration {i}" for i in range(len(self.colorations))])
 
     def refresh_timeline_diffs(self):
         """Rebuild the settings list (see _rebuild_timeline_diffs), then refit its
@@ -513,7 +513,7 @@ class TimelineMixin:
 
     def fit_diff_scroll(self):
         """Make the settings list's scroll area match its content right now, and keep
-        the view inside it. Waiting for the list frame's <Configure> event is not
+        the coloration inside it. Waiting for the list frame's <Configure> event is not
         enough: when a rebuild leaves the list shorter than the current scroll
         position (a filter or a collapsed section shrinking it), the canvas shows
         none of the frame, never resizes it, and so never sends that event - the
@@ -528,7 +528,7 @@ class TimelineMixin:
     def _rebuild_timeline_diffs(self):
         """Rebuild the settings list for the selected keyframe: every setting,
         grouped into collapsible sections (by the tab it lives on, or the obstacle
-        or view it belongs to; all collapsed until expanded, see
+        or coloration it belongs to; all collapsed until expanded, see
         toggle_diff_section), each setting showing whether it's defined here,
         animated by surrounding keyframes, or neither."""
         if not hasattr(self, "diff_list_frame"):

@@ -1,6 +1,6 @@
 """What is written around and into exported images: the Export designer's and video panel's option lists, default file names, the text of the
 coloration info and of the figure settings (the left margin that lists every figure-defining setting), the layout of that text, and the
-functions that draw it into an image (overlay, bottom margin, left margin). Pure functions of settings, views and obstacles; no UI."""
+functions that draw it into an image (overlay, bottom margin, left margin). Pure functions of settings, colorations and obstacles; no UI."""
 import time
 import numpy as np
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES
@@ -11,7 +11,7 @@ from .metrics import (
     CHAN_SRC_CONSTANT, KIND_POINT, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_STATS, STAT_LABELS,
     constant_stat_to_label
 )
-from .views import MODES
+from .colorations import MODES
 from . import paths
 
 
@@ -69,8 +69,8 @@ COLORATION_INFO_MARGIN = 4
 COLORATION_INFO_LINE_GAP = 2
 
 
-def coloration_info_lines(view):
-    """One view's coloration settings as a list of text lines, mirroring how
+def coloration_info_lines(coloration):
+    """One coloration's settings as a list of text lines, mirroring how
     the Coloration tab itself is organized: the color model, then each
     channel's Source and either its Metric (+ Point 1/2, if it's a point-
     comparison metric) or its Buddha points (one per line, as in the
@@ -78,33 +78,33 @@ def coloration_info_lines(view):
     names shown in the Coloration tab's own dropdowns - the metric's Type
     (point comparison/other) is never shown on its own, though; it's
     implied by which metric is named."""
-    lines = [f"Mode:{view.mode}"]
+    lines = [f"Mode:{coloration.mode}"]
     for c in range(3):
-        letter = MODES[view.mode][c][0][0]
-        if view.chan_src[c] == CHAN_SRC_BUDDHA:
+        letter = MODES[coloration.mode][c][0][0]
+        if coloration.chan_src[c] == CHAN_SRC_BUDDHA:
             lines.append(f"{letter}:Buddha")
-            chosen = [BUDDHA_POINT_LABELS[i] for i, on in enumerate(view.buddha_points[c]) if on]
+            chosen = [BUDDHA_POINT_LABELS[i] for i, on in enumerate(coloration.buddha_points[c]) if on]
             if chosen:
                 lines.extend(f"  {name}" for name in chosen)
             else:
                 lines.append("  (none)")
-            comp = BUDDHA_COMPRESSION_LABELS[view.buddha_compression[c]]
-            bright = BUDDHA_BRIGHTNESS_OPTIONS[view.buddha_brightness[c]]
+            comp = BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]]
+            bright = BUDDHA_BRIGHTNESS_OPTIONS[coloration.buddha_brightness[c]]
             lines.append(f"  {comp} {bright}")
-        elif view.chan_src[c] == CHAN_SRC_CONSTANT:
+        elif coloration.chan_src[c] == CHAN_SRC_CONSTANT:
             lines.append(f"{letter}:Constant")
-            lines.append(f"  {constant_stat_to_label(view.constant_choice[c])}")
+            lines.append(f"  {constant_stat_to_label(coloration.constant_choice[c])}")
         else:
-            stat = view.point_metric[c] if view.kinds[c] == KIND_POINT else view.other_metric[c]
+            stat = coloration.point_metric[c] if coloration.kinds[c] == KIND_POINT else coloration.other_metric[c]
             if stat in (NONE_ZERO, NONE_ONE):
                 raise ValueError(
                     f"channel {c} has stat={stat} (a Constant-only sentinel) but "
-                    f"chan_src is {view.chan_src[c]}, not CHAN_SRC_CONSTANT")
+                    f"chan_src is {coloration.chan_src[c]}, not CHAN_SRC_CONSTANT")
             name = STAT_LABELS[stat]
             lines.append(f"{letter}:{name}")
             if stat in POINT_STATS:
-                p1 = POINT_SHORT[view.point1_choice[c]]
-                p2 = POINT_SHORT[view.point2_choice[c]]
+                p1 = POINT_SHORT[coloration.point1_choice[c]]
+                p2 = POINT_SHORT[coloration.point2_choice[c]]
                 lines.append(f"  P1:{p1} P2:{p2}")
     return lines
 
@@ -115,7 +115,7 @@ FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines u
 def figure_info_blocks(ray, natural_stop, obstacles):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
-    view - as a list of blocks of text lines: the stopping limits and segment
+    coloration - as a list of blocks of text lines: the stopping limits and segment
     length, the emission direction, the confinement rule, the fuzzing, and every
     obstacle. (Coloration, decorations and the
     Buddha blur only process or decorate the generated data, so they aren't
@@ -222,42 +222,42 @@ def _draw_text_block(img, lines, x0, y0, avail_w, avail_h, scale, draw_bg):
         y += line_h
 
 
-def draw_coloration_info(img, views, view_width):
-    """Draws each of `views`' coloration_info_lines onto its own
-    view_width-wide portion of the already-composed `img` (side by side, in
-    the same order as `views`), top-left, in the tiny pixel font on a solid
+def draw_coloration_info(img, colorations, coloration_width):
+    """Draws each of `colorations`' coloration_info_lines onto its own
+    coloration_width-wide portion of the already-composed `img` (side by side, in
+    the same order as `colorations`), top-left, in the tiny pixel font on a solid
     background box drawn over the existing image content. The text scales
-    up with the per-view resolution (the smaller of view_width and the
+    up with the per-coloration resolution (the smaller of coloration_width and the
     image height, so an unusually elongated export doesn't get oversized
     text) - see resolution_scale."""
-    scale = resolution_scale(min(view_width, img.shape[0]))
+    scale = resolution_scale(min(coloration_width, img.shape[0]))
     m = COLORATION_INFO_MARGIN * scale
-    for i, v in enumerate(views):
-        x_lo = i * view_width
+    for i, v in enumerate(colorations):
+        x_lo = i * coloration_width
         _draw_text_block(img, coloration_info_lines(v), x_lo + m, m,
-                         view_width - 2 * m, img.shape[0] - 2 * m, scale, draw_bg=True)
+                         coloration_width - 2 * m, img.shape[0] - 2 * m, scale, draw_bg=True)
 
 
-def add_bottom_color_margin(img, views, view_width):
+def add_bottom_color_margin(img, colorations, coloration_width):
     """Returns a new, taller copy of `img`: a solid black strip appended
-    below it, view_width wide per view (so each view's own coloration info
-    sits directly beneath that view, matching its own side-by-side
-    position) and a quarter that tall, holding that view's
+    below it, coloration_width wide per coloration (so each coloration's own coloration info
+    sits directly beneath that coloration, matching its own side-by-side
+    position) and a quarter that tall, holding that coloration's
     coloration_info_lines. Never mutates `img`."""
     h, w, _ = img.shape
-    margin_h = view_width // 4
+    margin_h = coloration_width // 4
     out = np.empty((h + margin_h, w, 3), dtype=img.dtype)
     out[:h] = img
     out[h:] = COLORATION_INFO_BG
-    scale = resolution_scale(view_width)   # the view's own size, not the margin's
+    scale = resolution_scale(coloration_width)   # the coloration's own size, not the margin's
                                            # (always smaller, one quarter of it) -
                                            # otherwise the text would barely ever
                                            # grow even at large export resolutions
     m = COLORATION_INFO_MARGIN * scale
-    for i, v in enumerate(views):
-        x_lo = i * view_width
+    for i, v in enumerate(colorations):
+        x_lo = i * coloration_width
         _draw_text_block(out, coloration_info_lines(v), x_lo + m, h + m,
-                         view_width - 2 * m, margin_h - 2 * m, scale, draw_bg=False)
+                         coloration_width - 2 * m, margin_h - 2 * m, scale, draw_bg=False)
     return out
 
 
@@ -270,7 +270,7 @@ def add_left_figure_margin(img, ray, natural_stop, obstacles):
     obstacles, so every frame of a video gets the same one. Never mutates
     `img`."""
     h, w, _ = img.shape
-    scale = resolution_scale(h)   # the view's own size, not the margin's (see
+    scale = resolution_scale(h)   # the coloration's own size, not the margin's (see
                                   # add_bottom_color_margin's identical fix)
     m = COLORATION_INFO_MARGIN * scale
     line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
@@ -288,7 +288,7 @@ def add_left_figure_margin(img, ray, natural_stop, obstacles):
     return out
 
 
-def apply_info_locations(rgb, views, view_width, ray, natural_stop, obstacles, color_location,
+def apply_info_locations(rgb, colorations, coloration_width, ray, natural_stop, obstacles, color_location,
                          figure_location, mutate_ok):
     """Applies the Export designer's Color info location and Figure settings
     location choices to `rgb` (already composed, before any margin
@@ -303,9 +303,9 @@ def apply_info_locations(rgb, views, view_width, ray, natural_stop, obstacles, c
     if color_location == "Overlay":
         if not mutate_ok:
             rgb = rgb.copy()
-        draw_coloration_info(rgb, views, view_width)
+        draw_coloration_info(rgb, colorations, coloration_width)
     elif color_location == "Bottom margin":
-        rgb = add_bottom_color_margin(rgb, views, view_width)
+        rgb = add_bottom_color_margin(rgb, colorations, coloration_width)
     if figure_location == "Left margin":
         rgb = add_left_figure_margin(rgb, ray, natural_stop, obstacles)
     return rgb

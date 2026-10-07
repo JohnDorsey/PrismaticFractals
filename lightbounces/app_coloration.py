@@ -1,4 +1,4 @@
-"""Views and the Coloration tab: the list of views with thumbnails, creating/duplicating/deleting/selecting a view, the colour editor, and the Buddha blur tab (a change recolours at once)."""
+"""Colorations and the Coloration tab: the list of colorations with thumbnails, creating/duplicating/deleting/selecting a coloration, the colour editor, and the Buddha blur tab (a change recolours at once)."""
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
@@ -16,30 +16,30 @@ from .metrics import (
     POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_stat_to_label, make_mapping
 )
 from .ui_text import default_map_help
-from .views import MODES, MODE_NAMES, ViewConfig
+from .colorations import MODES, MODE_NAMES, ColorationConfig
 
 
 class ColorationMixin:
-    # ---- views (Coloration tab) -------------------------------------------- #
-    def view_by_id(self, view_id):
-        """The live ViewConfig for one view id, or None if it doesn't exist."""
-        for v in self.views:
-            if v.id == view_id:
+    # ---- colorations (Coloration tab) -------------------------------------------- #
+    def coloration_by_id(self, coloration_id):
+        """The live ColorationConfig for one coloration id, or None if it doesn't exist."""
+        for v in self.colorations:
+            if v.id == coloration_id:
                 return v
         return None
 
-    def live_view(self):
-        """The view the top-left preview shows: whichever view is currently
-        selected in the Coloration tab. Selecting a view always shows it
+    def live_coloration(self):
+        """The coloration the top-left preview shows: whichever coloration is currently
+        selected in the Coloration tab. Selecting a coloration always shows it
         here - there's no separate "focus" step."""
-        return self.selected_view_obj()
+        return self.selected_coloration_obj()
 
     def refresh_live_preview_state(self):
-        """Recompute everything that depends on which view is currently live
+        """Recompute everything that depends on which coloration is currently live
         (self.mapping, the running Buddha counts, the displayed image) -
-        called whenever self.live_view() changes (selecting a different
-        view, or creating/deleting one changes the selection)."""
-        live = self.live_view()
+        called whenever self.live_coloration() changes (selecting a different
+        coloration, or creating/deleting one changes the selection)."""
+        live = self.live_coloration()
         self.mapping = make_mapping(live.kinds, live.point_metric, live.other_metric,
                                     live.chan_src, live.constant_choice)
         self.rebuild_buddha_counts()
@@ -49,113 +49,113 @@ class ColorationMixin:
         if self.pinned_px is not None:
             self.update_preview(*self.pinned_px)
 
-    def selected_view_obj(self):
-        return self.view_by_id(self.selected_view_id)
+    def selected_coloration_obj(self):
+        return self.coloration_by_id(self.selected_coloration_id)
 
-    def all_view_ids(self):
-        """Every view's id, in display order (self.views' own list order)."""
-        return [v.id for v in self.views]
+    def all_coloration_ids(self):
+        """Every coloration's id, in display order (self.colorations' own list order)."""
+        return [v.id for v in self.colorations]
 
-    def new_view(self):
-        """Add a new (default-settings) view right after the selected one,
+    def new_coloration(self):
+        """Add a new (default-settings) coloration right after the selected one,
         and select it - which also makes it the one shown in the preview."""
-        v = ViewConfig(self._view_counter)
-        self._view_counter += 1
-        idx = self.all_view_ids().index(self.selected_view_id)
-        self.views.insert(idx + 1, v)
-        self.selected_view_id = v.id
-        self.view_thumb_cache.pop(v.id, None)
+        v = ColorationConfig(self._coloration_counter)
+        self._coloration_counter += 1
+        idx = self.all_coloration_ids().index(self.selected_coloration_id)
+        self.colorations.insert(idx + 1, v)
+        self.selected_coloration_id = v.id
+        self.coloration_thumb_cache.pop(v.id, None)
         self.refresh_live_preview_state()
-        self.rebuild_view_list()
-        self.refresh_color_controls_for_selected_view()
+        self.rebuild_coloration_list()
+        self.refresh_color_controls_for_selected_coloration()
 
-    def duplicate_view(self):
-        """A copy of the selected view, inserted right after it, selected,
+    def duplicate_coloration(self):
+        """A copy of the selected coloration, inserted right after it, selected,
         and shown in the preview."""
-        src = self.selected_view_obj()
+        src = self.selected_coloration_obj()
         if src is None:
             return
-        new_v = ViewConfig(self._view_counter)
-        self._view_counter += 1
-        for field in ViewConfig.__slots__:
+        new_v = ColorationConfig(self._coloration_counter)
+        self._coloration_counter += 1
+        for field in ColorationConfig.__slots__:
             if field == "id":
                 continue
             val = getattr(src, field)
             setattr(new_v, field, list(val) if isinstance(val, list) else val)
-        idx = self.all_view_ids().index(self.selected_view_id)
-        self.views.insert(idx + 1, new_v)
-        self.selected_view_id = new_v.id
-        self.view_thumb_cache.pop(new_v.id, None)
+        idx = self.all_coloration_ids().index(self.selected_coloration_id)
+        self.colorations.insert(idx + 1, new_v)
+        self.selected_coloration_id = new_v.id
+        self.coloration_thumb_cache.pop(new_v.id, None)
         self.refresh_live_preview_state()
-        self.rebuild_view_list()
-        self.refresh_color_controls_for_selected_view()
+        self.rebuild_coloration_list()
+        self.refresh_color_controls_for_selected_coloration()
 
-    def delete_view(self):
-        """Removes the selected view, unless it's the only one left. The
-        deleted view was always the one shown in the preview (selection and
-        preview are the same thing), so self.views[0] becomes the new
+    def delete_coloration(self):
+        """Removes the selected coloration, unless it's the only one left. The
+        deleted coloration was always the one shown in the preview (selection and
+        preview are the same thing), so self.colorations[0] becomes the new
         selection, and the preview is refreshed to match it right away."""
-        if len(self.views) <= 1:
+        if len(self.colorations) <= 1:
             return
-        v = self.view_by_id(self.selected_view_id)
+        v = self.coloration_by_id(self.selected_coloration_id)
         if v is None:
             return
-        self.views.remove(v)
-        self.view_thumb_cache.pop(v.id, None)
-        self.purge_keyframe_settings(f"view:{v.id}:")
-        self.selected_view_id = self.views[0].id
-        self.view_thumb_cache.pop(self.selected_view_id, None)
+        self.colorations.remove(v)
+        self.coloration_thumb_cache.pop(v.id, None)
+        self.purge_keyframe_settings(f"coloration:{v.id}:")
+        self.selected_coloration_id = self.colorations[0].id
+        self.coloration_thumb_cache.pop(self.selected_coloration_id, None)
         self.refresh_live_preview_state()
-        self.rebuild_view_list()
-        self.refresh_color_controls_for_selected_view()
+        self.rebuild_coloration_list()
+        self.refresh_color_controls_for_selected_coloration()
 
-    def select_view(self, view_id):
-        """Selects a view for editing - which also makes it the one the
+    def select_coloration(self, coloration_id):
+        """Selects a coloration for editing - which also makes it the one the
         top-left panel shows."""
-        if view_id == self.selected_view_id:
+        if coloration_id == self.selected_coloration_id:
             return
-        self.selected_view_id = view_id
-        self.view_thumb_cache.pop(view_id, None)   # about to become live (and possibly
+        self.selected_coloration_id = coloration_id
+        self.coloration_thumb_cache.pop(coloration_id, None)   # about to become live (and possibly
                                                     # edited) - any cached thumbnail from
                                                     # before must not be reused once it's
                                                     # non-live again
         self.refresh_live_preview_state()
-        self.rebuild_view_list()
-        self.refresh_color_controls_for_selected_view()
+        self.rebuild_coloration_list()
+        self.refresh_color_controls_for_selected_coloration()
 
-    def refresh_color_controls_for_selected_view(self):
-        """Populate every Color mapping control from the selected view (or
+    def refresh_color_controls_for_selected_coloration(self):
+        """Populate every Color mapping control from the selected coloration (or
         leave them as-is if the Coloration tab hasn't been built yet, or no
-        view is selected). Mirrors refresh_obstacle_editor."""
+        coloration is selected). Mirrors refresh_obstacle_editor."""
         if not hasattr(self, "mode_var"):
             return                                  # Coloration tab not built yet
-        view = self.selected_view_obj()
-        if view is None:
+        coloration = self.selected_coloration_obj()
+        if coloration is None:
             return
         self._color_editor_loading = True
         try:
-            self.mode_var.set(view.mode)
-            for c, (name, color) in enumerate(MODES[view.mode]):
+            self.mode_var.set(coloration.mode)
+            for c, (name, color) in enumerate(MODES[coloration.mode]):
                 self.comp_labels[c].configure(text=name, foreground=color)
-            self.map_help_var.set(default_map_help(view.mode))
+            self.map_help_var.set(default_map_help(coloration.mode))
             for c in range(3):
-                self.chan_src_vars[c].set(CHAN_SRC_LABELS[view.chan_src[c]])
-                self.point1_vars[c].set(POINT_LABELS[view.point1_choice[c]])
-                self.point2_vars[c].set(POINT_LABELS[view.point2_choice[c]])
+                self.chan_src_vars[c].set(CHAN_SRC_LABELS[coloration.chan_src[c]])
+                self.point1_vars[c].set(POINT_LABELS[coloration.point1_choice[c]])
+                self.point2_vars[c].set(POINT_LABELS[coloration.point2_choice[c]])
                 for i, bvar in enumerate(self.buddha_point_vars[c]):
-                    bvar.set(view.buddha_points[c][i])
+                    bvar.set(coloration.buddha_points[c][i])
                 self.buddha_compression_vars[c].set(
-                    BUDDHA_COMPRESSION_LABELS[view.buddha_compression[c]])
+                    BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]])
                 self.buddha_brightness_vars[c].set(
-                    BUDDHA_BRIGHTNESS_OPTIONS[view.buddha_brightness[c]])
+                    BUDDHA_BRIGHTNESS_OPTIONS[coloration.buddha_brightness[c]])
                 self.refresh_row(c)
         finally:
             self._color_editor_loading = False
 
-    def build_views_list(self, parent):
+    def build_colorations_list(self, parent):
         """New/Dupe/Del stacked to the left of a horizontally-scrolling strip
-        of view thumbnails - visually the Obstacles tab's list turned
-        sideways, since (unlike obstacles) views are always shown in a fixed
+        of coloration thumbnails - visually the Obstacles tab's list turned
+        sideways, since (unlike obstacles) colorations are always shown in a fixed
         left-to-right order in an exported image, so browsing them side by
         side mirrors how they'll actually be laid out."""
         top_row = ttk.Frame(parent)
@@ -164,75 +164,75 @@ class ColorationMixin:
 
         btn_col = ttk.Frame(top_row)
         btn_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
-        ttk.Button(btn_col, text="New", width=6, command=self.new_view).pack(
+        ttk.Button(btn_col, text="New", width=6, command=self.new_coloration).pack(
             fill="x", pady=(0, 3))
-        ttk.Button(btn_col, text="Dupe", width=6, command=self.duplicate_view).pack(
+        ttk.Button(btn_col, text="Dupe", width=6, command=self.duplicate_coloration).pack(
             fill="x", pady=(0, 3))
-        self.view_del_btn = ttk.Button(btn_col, text="Del", width=6, command=self.delete_view)
-        self.view_del_btn.pack(fill="x")
+        self.coloration_del_btn = ttk.Button(btn_col, text="Del", width=6, command=self.delete_coloration)
+        self.coloration_del_btn.pack(fill="x")
 
         list_container = ttk.Frame(top_row)
         list_container.grid(row=0, column=1, sticky="ew")
         list_container.columnconfigure(0, weight=1)
-        view_canvas = tk.Canvas(list_container, height=THUMB_SIZE + 34, highlightthickness=0)
-        view_hsb = ttk.Scrollbar(list_container, orient="horizontal",
-                                 command=view_canvas.xview)
-        view_canvas.configure(xscrollcommand=view_hsb.set)
-        view_canvas.grid(row=0, column=0, sticky="ew")
-        view_hsb.grid(row=1, column=0, sticky="ew")
-        self.view_list_frame = ttk.Frame(view_canvas)
-        view_canvas.create_window((0, 0), window=self.view_list_frame, anchor="nw")
-        self.view_list_frame.bind(
+        coloration_canvas = tk.Canvas(list_container, height=THUMB_SIZE + 34, highlightthickness=0)
+        coloration_hsb = ttk.Scrollbar(list_container, orient="horizontal",
+                                 command=coloration_canvas.xview)
+        coloration_canvas.configure(xscrollcommand=coloration_hsb.set)
+        coloration_canvas.grid(row=0, column=0, sticky="ew")
+        coloration_hsb.grid(row=1, column=0, sticky="ew")
+        self.coloration_list_frame = ttk.Frame(coloration_canvas)
+        coloration_canvas.create_window((0, 0), window=self.coloration_list_frame, anchor="nw")
+        self.coloration_list_frame.bind(
             "<Configure>",
-            lambda _e: view_canvas.configure(scrollregion=view_canvas.bbox("all")))
+            lambda _e: coloration_canvas.configure(scrollregion=coloration_canvas.bbox("all")))
         # (unlike the vertical obstacle list, the inner frame's WIDTH is never
         # pinned to the canvas's - it needs to grow past it, since scrolling
         # sideways to reach it is the whole point)
 
-        self.rebuild_view_list()
+        self.rebuild_coloration_list()
 
-    def rebuild_view_list(self):
-        for w in self.view_list_frame.winfo_children():
+    def rebuild_coloration_list(self):
+        for w in self.coloration_list_frame.winfo_children():
             w.destroy()
-        for idx, view_id in enumerate(self.all_view_ids()):
-            selected = view_id == self.selected_view_id
-            cell = tk.Frame(self.view_list_frame,
+        for idx, coloration_id in enumerate(self.all_coloration_ids()):
+            selected = coloration_id == self.selected_coloration_id
+            cell = tk.Frame(self.coloration_list_frame,
                             highlightthickness=SELECTED_OUTLINE_PX if selected else 0,
                             highlightbackground=SELECTED_OUTLINE,
                             highlightcolor=SELECTED_OUTLINE)
             cell.grid(row=0, column=idx, sticky="n", padx=2, pady=1)
 
-            view_obj = self.view_by_id(view_id)
+            coloration_obj = self.coloration_by_id(coloration_id)
             thumb = tk.PhotoImage(
-                data=encode_png_bytes(self.render_view_thumbnail(view_obj, THUMB_SIZE)),
+                data=encode_png_bytes(self.render_coloration_thumbnail(coloration_obj, THUMB_SIZE)),
                 format="png")
             thumb_lbl = tk.Label(cell, image=thumb, bd=0, cursor="hand2")
             thumb_lbl.image = thumb              # keep a reference alive
             thumb_lbl.grid(row=0, column=0, padx=2, pady=(2, 0))
-            thumb_lbl.bind("<Button-1>", lambda _e, vid=view_id: self.select_view(vid))
+            thumb_lbl.bind("<Button-1>", lambda _e, vid=coloration_id: self.select_coloration(vid))
 
-            lbl = tk.Label(cell, text=f"view {idx}", cursor="hand2", font=self.small_font)
+            lbl = tk.Label(cell, text=f"coloration {idx}", cursor="hand2", font=self.small_font)
             lbl.grid(row=1, column=0, pady=(0, 2))
-            lbl.bind("<Button-1>", lambda _e, vid=view_id: self.select_view(vid))
+            lbl.bind("<Button-1>", lambda _e, vid=coloration_id: self.select_coloration(vid))
 
-        if hasattr(self, "view_del_btn"):
-            self.view_del_btn.state(
-                ["disabled"] if len(self.views) <= 1 else ["!disabled"])
+        if hasattr(self, "coloration_del_btn"):
+            self.coloration_del_btn.state(
+                ["disabled"] if len(self.colorations) <= 1 else ["!disabled"])
 
     def build_color_controls(self, parent):
-        """The views list (New/Dupe/Del + a horizontal strip of view
+        """The colorations list (New/Dupe/Del + a horizontal strip of coloration
         thumbnails - unlabeled, like the Obstacles tab's list), then the
-        "Edit selected view" panel: a scrollable list of the color model row
+        "Edit selected coloration" panel: a scrollable list of the color model row
         followed by one block per channel: a Source (Query/Buddha) row, then
         that source's own controls on the row(s) below it. Shows/edits
-        whichever view is selected in the list above
-        (self.selected_view_obj()) - see
-        refresh_color_controls_for_selected_view()."""
+        whichever coloration is selected in the list above
+        (self.selected_coloration_obj()) - see
+        refresh_color_controls_for_selected_coloration()."""
         self._color_editor_loading = False
-        self.build_views_list(parent)
+        self.build_colorations_list(parent)
 
-        view = self.selected_view_obj()
-        mp = ttk.LabelFrame(parent, text="Edit selected view")
+        coloration = self.selected_coloration_obj()
+        mp = ttk.LabelFrame(parent, text="Edit selected coloration")
         mp.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 6))
         mp.columnconfigure(0, weight=1)
 
@@ -262,7 +262,7 @@ class ColorationMixin:
         top = ttk.Frame(chan_list_frame)
         top.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=(0, 6))
         ttk.Label(top, text="Color model:").pack(side="left", padx=(0, 10))
-        self.mode_var = tk.StringVar(value=view.mode)
+        self.mode_var = tk.StringVar(value=coloration.mode)
         self.mode_combo = ttk.Combobox(top, textvariable=self.mode_var,
                                        values=MODE_NAMES, state="readonly", width=8)
         self.mode_combo.pack(side="left")
@@ -292,7 +292,7 @@ class ColorationMixin:
         self.constant_combos = []
         self.chan_blocks = []
 
-        for c, (name, color) in enumerate(MODES[view.mode]):
+        for c, (name, color) in enumerate(MODES[coloration.mode]):
             block = ttk.Frame(chan_list_frame, relief="groove", borderwidth=1)
             block.grid(row=c + 1, column=0, sticky="ew", padx=(0, 4), pady=4)
             block.columnconfigure(2, weight=1)
@@ -300,7 +300,7 @@ class ColorationMixin:
             lbl = ttk.Label(block, text=name, foreground=color)
             lbl.grid(row=0, column=0, sticky="w", padx=(6, 10), pady=(4, 2))
             ttk.Label(block, text="Source:").grid(row=0, column=1, sticky="w", pady=(4, 2))
-            svar = tk.StringVar(value=CHAN_SRC_LABELS[view.chan_src[c]])
+            svar = tk.StringVar(value=CHAN_SRC_LABELS[coloration.chan_src[c]])
             scombo = ttk.Combobox(block, textvariable=svar, values=CHAN_SRC_LABELS,
                                   state="readonly", width=9)
             scombo.grid(row=0, column=2, sticky="w", padx=(6, 6), pady=(4, 2))
@@ -312,7 +312,7 @@ class ColorationMixin:
             qf.columnconfigure(1, weight=1)
             qf.columnconfigure(3, weight=1)
 
-            kvar = tk.StringVar(value=KIND_LABELS[view.kinds[c]])
+            kvar = tk.StringVar(value=KIND_LABELS[coloration.kinds[c]])
             kcombo = ttk.Combobox(qf, textvariable=kvar, values=KIND_LABELS,
                                   state="readonly", width=11)
             kcombo.grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
@@ -324,14 +324,14 @@ class ColorationMixin:
             mcombo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_metric_selected(c))
 
             ttk.Label(qf, text="Point 1:").grid(row=1, column=0, sticky="w", pady=2)
-            p1var = tk.StringVar(value=POINT_LABELS[view.point1_choice[c]])
+            p1var = tk.StringVar(value=POINT_LABELS[coloration.point1_choice[c]])
             p1combo = ttk.Combobox(qf, textvariable=p1var, values=POINT_MENU_LABELS,
                                    state="readonly", width=14)
             p1combo.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(4, 0), pady=2)
             p1combo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_point_selected(c))
 
             ttk.Label(qf, text="Point 2:").grid(row=2, column=0, sticky="w", pady=2)
-            p2var = tk.StringVar(value=POINT_LABELS[view.point2_choice[c]])
+            p2var = tk.StringVar(value=POINT_LABELS[coloration.point2_choice[c]])
             p2combo = ttk.Combobox(qf, textvariable=p2var, values=POINT_MENU_LABELS,
                                    state="readonly", width=14)
             p2combo.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(4, 0), pady=2)
@@ -355,7 +355,7 @@ class ColorationMixin:
             bvars = []
             bchecks = []
             for i in range(N_BUDDHA_POINTS):
-                bvar = tk.BooleanVar(value=view.buddha_points[c][i])
+                bvar = tk.BooleanVar(value=coloration.buddha_points[c][i])
                 if i < N_POINTS:
                     seq, red = POINT_OF_SLOT[i]
                     chk = ttk.Checkbutton(pts_grid, variable=bvar,
@@ -370,14 +370,14 @@ class ColorationMixin:
             settings_row = ttk.Frame(bf)
             settings_row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
             ttk.Label(settings_row, text="Compression:").pack(side="left", padx=(0, 4))
-            cvar = tk.StringVar(value=BUDDHA_COMPRESSION_LABELS[view.buddha_compression[c]])
+            cvar = tk.StringVar(value=BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]])
             ccombo = ttk.Combobox(settings_row, textvariable=cvar,
                                   values=BUDDHA_COMPRESSION_LABELS, state="readonly", width=11)
             ccombo.pack(side="left", padx=(0, 12))
             ccombo.bind("<<ComboboxSelected>>",
                         lambda _e, c=c: self.on_buddha_compression_changed(c))
             ttk.Label(settings_row, text="Brightness:").pack(side="left", padx=(0, 4))
-            brvar = tk.StringVar(value=BUDDHA_BRIGHTNESS_OPTIONS[view.buddha_brightness[c]])
+            brvar = tk.StringVar(value=BUDDHA_BRIGHTNESS_OPTIONS[coloration.buddha_brightness[c]])
             brcombo = ttk.Combobox(settings_row, textvariable=brvar,
                                    values=BUDDHA_BRIGHTNESS_OPTIONS, state="readonly", width=5)
             brcombo.pack(side="left")
@@ -390,7 +390,7 @@ class ColorationMixin:
             cnf.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(6, 6), pady=(0, 4))
             ttk.Label(cnf, text="Value:").pack(side="left", padx=(0, 4))
             const_var = tk.StringVar(
-                value=constant_stat_to_label(view.constant_choice[c]))
+                value=constant_stat_to_label(coloration.constant_choice[c]))
             const_combo = ttk.Combobox(cnf, textvariable=const_var,
                                        values=CHAN_CONSTANT_LABELS, state="readonly", width=9)
             const_combo.pack(side="left")
@@ -422,7 +422,7 @@ class ColorationMixin:
             self.constant_combos.append(const_combo)
             self.refresh_row(c)
 
-        self.map_help_var = tk.StringVar(value=default_map_help(view.mode))
+        self.map_help_var = tk.StringVar(value=default_map_help(coloration.mode))
         ttk.Label(mp, textvariable=self.map_help_var, foreground="#666",
                   wraplength=RIGHT_W - 70, justify="left").grid(
             row=1, column=0, sticky="w", padx=8, pady=(4, 6))
@@ -508,23 +508,23 @@ class ColorationMixin:
 
     def refresh_buddha_seeds(self):
         """Scatter every Buddha channel again from the seeds as they now are, and recolour (like refresh_blur, but
-        the scattered counts themselves are new). Costs nothing when no view has a Buddha channel."""
+        the scattered counts themselves are new). Costs nothing when no coloration has a Buddha channel."""
         self.seed_job = None
-        self.view_thumb_cache = {}
-        if not any(src == CHAN_SRC_BUDDHA for v in self.views for src in v.chan_src):
+        self.coloration_thumb_cache = {}
+        if not any(src == CHAN_SRC_BUDDHA for v in self.colorations for src in v.chan_src):
             return
         self.rebuild_buddha_counts()
         self.recolor(0, self.rows_done)
         self.draw()
         if self.pinned_px is not None:
             self.update_preview(*self.pinned_px)
-        self.rebuild_view_list()
+        self.rebuild_coloration_list()
 
     def build_buddha_blur_controls(self, parent):
         """Radius slider and blur-type dropdown for Buddha coloration's
         point-scattering blur - one setting for the whole image (a
         BuddhaBlurSettings, beside the ray simulation's settings and not part of
-        them), not a per-view/per-channel one, so it lives in its own tab rather
+        them), not a per-coloration/per-channel one, so it lives in its own tab rather
         than inside the Coloration tab's per-channel Buddha controls. A change
         recolors the image at once (the blur is applied to the stored scatter
         counts, never to the simulation, so no Start is needed)."""
@@ -570,16 +570,16 @@ class ColorationMixin:
 
     def refresh_blur(self):
         """Recolor everything that shows a Buddha channel with the blur now set: every
-        channel's cached blurred counts and every non-live view's cached thumbnail are for
-        the old blur; the live view is recolored, redrawn and its thumbnail rebuilt. Costs
-        nothing visible when no view has a Buddha channel."""
+        channel's cached blurred counts and every non-live coloration's cached thumbnail are for
+        the old blur; the live coloration is recolored, redrawn and its thumbnail rebuilt. Costs
+        nothing visible when no coloration has a Buddha channel."""
         self.blur_job = None
         self.buddha_counts_blurred = [None] * 3
-        self.view_thumb_cache = {}
-        if not any(src == CHAN_SRC_BUDDHA for v in self.views for src in v.chan_src):
+        self.coloration_thumb_cache = {}
+        if not any(src == CHAN_SRC_BUDDHA for v in self.colorations for src in v.chan_src):
             return
         self.recolor(0, self.rows_done)
         self.draw()
         if self.pinned_px is not None:
             self.update_preview(*self.pinned_px)
-        self.rebuild_view_list()
+        self.rebuild_coloration_list()

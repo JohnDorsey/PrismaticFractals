@@ -74,7 +74,7 @@ def test_strict_records_check_every_value_against_its_annotation():
 
 
 def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
-    vs = m.ViewSettings(mode="RGB", kinds=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
+    vs = m.ColorationSettings(mode="RGB", kinds=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
                         point1_choice=(0, 0, 0), point2_choice=(0, 0, 0), chan_src=[0, 0, 0],
                         buddha_points=[(True,)] * 3, buddha_compression=(0, 0, 0),
                         buddha_brightness=(0, 0, 0), constant_choice=(0, 0, 0))
@@ -128,36 +128,36 @@ def test_a_keyframes_data_holds_the_ray_settings_the_natural_stop_and_the_buddha
     assert louder.buddha_blur.radius == 0.2 and louder.ray is data.ray
 
 
-def test_the_view_snapshot_record_mirrors_the_slots_of_the_live_view():
-    assert [f.name for f in dataclasses.fields(m.ViewSnapshot)] == list(m.ViewConfig.__slots__)
+def test_the_coloration_snapshot_record_mirrors_the_slots_of_the_live_coloration():
+    assert [f.name for f in dataclasses.fields(m.ColorationSnapshot)] == list(m.ColorationConfig.__slots__)
 
 
-def test_snapshot_view_stores_the_channel_lists_as_tuples_unshared_with_the_live_view():
-    v = m.ViewConfig(2)
-    snap = m.snapshot_view(v)
-    assert isinstance(snap, m.ViewSnapshot) and snap.id == 2 and snap.mode == v.mode
-    assert all(isinstance(getattr(snap, f), tuple) for f in m.ViewConfig.__slots__
+def test_snapshot_coloration_stores_the_channel_lists_as_tuples_unshared_with_the_live_coloration():
+    v = m.ColorationConfig(2)
+    snap = m.snapshot_coloration(v)
+    assert isinstance(snap, m.ColorationSnapshot) and snap.id == 2 and snap.mode == v.mode
+    assert all(isinstance(getattr(snap, f), tuple) for f in m.ColorationConfig.__slots__
                if f not in ("id", "mode"))
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     assert snap.chan_src[0] != m.CHAN_SRC_BUDDHA                # a later live edit never reaches it
-    assert m.view_channel_value(snap, 0) == m.view_channel_value(m.ViewConfig(2), 0)
+    assert m.coloration_channel_value(snap, 0) == m.coloration_channel_value(m.ColorationConfig(2), 0)
 
 
-def test_resolved_obstacles_are_frozen_shapes_and_views_and_settings_are_strict_records():
+def test_resolved_obstacles_are_frozen_shapes_and_colorations_and_settings_are_strict_records():
     kfs = [m.Keyframe(0, 0, {"obst:1:r": 0.25})]
     o = m.EllipseShape(1)
     resolved = m.resolve_obstacles([o.snapshot()], kfs, 0)
     assert type(resolved[0]) is m.EllipseShape and resolved[0].r == 0.25
     assert _raises(AttributeError, lambda: setattr(resolved[0], "r", 1.0))     # frozen
-    views = m.resolve_views([m.snapshot_view(m.ViewConfig(0))], [], 0)
-    assert isinstance(views[0], m.ViewSettings)
+    colorations = m.resolve_colorations([m.snapshot_coloration(m.ColorationConfig(0))], [], 0)
+    assert isinstance(colorations[0], m.ColorationSettings)
     assert isinstance(m.resolve_frame_settings([], 0), m.KeyframeData)
     assert isinstance(m.resolve_frame_settings([], 0).ray, m.RaySettings)
 
 
-def test_views_colored_from_the_stored_data_use_the_settings_the_image_was_generated_with():
-    """Regression test: the two places that color a view from the stored data (the
-    composed 'Current image' export and the non-live view thumbnails) built their
+def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was_generated_with():
+    """Regression test: the two places that color a coloration from the stored data (the
+    composed 'Current image' export and the non-live coloration thumbnails) built their
     settings from the limits alone, so the confinement rule and emission direction
     silently fell back to their defaults - and Buddha coloration re-traces rays
     with both. Every RaySettings argument is required now, and they pass the
@@ -175,26 +175,26 @@ def test_views_colored_from_the_stored_data_use_the_settings_the_image_was_gener
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     seen = []
 
-    def fake_colorize(view, stats, points, status, w, h, blur, stop, ray, seed_base, seeds=None):
+    def fake_colorize(coloration, stats, points, status, w, h, blur, stop, ray, seed_base, seeds=None):
         seen.append((blur, stop, ray, seed_base))
         return np.zeros((h, w, 3), dtype=np.uint8)
-    app.colorize_view = fake_colorize
-    app.render_current_image([m.ViewConfig(0), m.ViewConfig(1)])
+    app.apply_coloration = fake_colorize
+    app.render_current_image([m.ColorationConfig(0), m.ColorationConfig(1)])
     expected = (blur, app.gen_stop, app.gen_ray, generated.fuzz.seed)
     assert seen == [expected] * 2
     assert seen[0][1].confine == m.ConfineRule(window=9, method=m.CONFINE_PATH, threshold=0.123)
     assert seen[0][2].emission.offset == 12.0
     seen.clear()
-    app.view_thumb_cache = {}
+    app.coloration_thumb_cache = {}
     app.rows_done = 0
-    app.live_view = lambda: app.views[0]
-    app.render_view_thumbnail(m.ViewConfig(1), m.THUMB_SIZE)
+    app.live_coloration = lambda: app.colorations[0]
+    app.render_coloration_thumbnail(m.ColorationConfig(1), m.THUMB_SIZE)
     assert seen == [expected]
     blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_GAUSSIAN)   # the blur controls move on:
     expected = (blur,) + expected[1:]
     seen.clear()
-    app.view_thumb_cache = {}
-    app.render_current_image([m.ViewConfig(0), m.ViewConfig(1)])
+    app.coloration_thumb_cache = {}
+    app.render_current_image([m.ColorationConfig(0), m.ColorationConfig(1)])
     assert seen == [expected] * 2                                # the same generated image, the new blur
     app.generated_settings = None                                # before the first Start
     app.generated_natural_stop = None
@@ -429,13 +429,13 @@ def test_revert_writes_every_control_from_the_baseline_through_the_same_table():
 # --------------------------------------------------------------------------- #
 # ChannelSettings, SettingEntry, ObstacleRing; label and tab live in the spec rows
 # --------------------------------------------------------------------------- #
-def test_a_view_channel_is_stored_as_a_strict_record_and_decomposes_back():
-    v = m.ViewConfig(0)
+def test_a_coloration_channel_is_stored_as_a_strict_record_and_decomposes_back():
+    v = m.ColorationConfig(0)
     v.chan_src[2] = m.CHAN_SRC_BUDDHA
     v.buddha_points[2] = tuple(i == 1 for i in range(m.N_BUDDHA_POINTS))
     v.kinds[1] = m.KIND_OTHER
     v.other_metric[1] = m.ST_BOUNCES
-    chans = [m.view_channel_value(v, c) for c in range(3)]
+    chans = [m.coloration_channel_value(v, c) for c in range(3)]
     assert all(isinstance(ch, m.ChannelSettings) for ch in chans)
     assert chans[1].kind == m.KIND_OTHER and chans[1].stat == m.ST_BOUNCES
     assert chans[2].chan_src == m.CHAN_SRC_BUDDHA and chans[2].buddha_points[1] is True
@@ -443,7 +443,7 @@ def test_a_view_channel_is_stored_as_a_strict_record_and_decomposes_back():
     assert vs.other_metric[1] == m.ST_BOUNCES and vs.point_metric[1] == m.DEFAULT_POINT_METRICS[1]
     assert vs.chan_src[2] == m.CHAN_SRC_BUDDHA
     assert vs.buddha_points[2] == v.buddha_points[2]
-    assert chans[0] == m.view_channel_value(m.snapshot_view(v), 0)      # live view and snapshot agree
+    assert chans[0] == m.coloration_channel_value(m.snapshot_coloration(v), 0)      # live coloration and snapshot agree
     assert _raises(TypeError, lambda: chans[0][0])                      # no positional access
     assert _raises(TypeError, lambda: m.ChannelSettings(*dataclasses.astuple(chans[0])))
     assert _raises(TypeError, lambda: chans[0].replace(kind="point"))
@@ -456,7 +456,7 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     o1, o2 = m.EllipseShape(4), m.EllipseShape(9)
     o2.width = 0.7
     app.obstacles = [o1, o2]
-    app.views = [m.ViewConfig(3)]
+    app.colorations = [m.ColorationConfig(3)]
     entries = m.App.all_setting_entries(app)
     assert all(isinstance(e, m.SettingEntry) for e in entries)
     static = entries[:len(m.SETTING_INFO)]
@@ -464,8 +464,8 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     assert [e.is_float for e in static] == [e.key in m.SETTING_FLOAT_KEYS for e in static]
     width = next(e for e in entries if e.key == "obst:9:width")
     assert (width.tab, width.fallback, width.is_float) == (m.obstacle_tab_title(1, o2), 0.7, True)
-    chan = next(e for e in entries if e.key == "view:3:chan1")
-    assert chan.tab == "View 0" and chan.fallback == m.view_channel_value(app.views[0], 1)
+    chan = next(e for e in entries if e.key == "coloration:3:chan1")
+    assert chan.tab == "Coloration 0" and chan.fallback == m.coloration_channel_value(app.colorations[0], 1)
     assert m.obstacle_tab_title(0, o1) == "Obstacle #1 (Ellipse)"
     assert [e.tab for e in entries].count(m.obstacle_tab_title(0, o1)) == len(o1.KEYFRAME_FIELDS)
     assert "obst:4:shape" not in [e.key for e in entries]       # a shape's kind is not a setting

@@ -9,7 +9,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # Projects: the file format
 # --------------------------------------------------------------------------- #
 def _sample_project(**changes):
-    """A project using every kind of obstacle, two views (one with Buddha channels),
+    """A project using every kind of obstacle, two colorations (one with Buddha channels),
     keyframes (including channel records) and non-default simulation and export choices."""
     obstacles = []
     for i, cls in enumerate(m.SHAPE_CLASSES):
@@ -26,32 +26,32 @@ def _sample_project(**changes):
             elif name == "out_effect":
                 o.out_effect = (i + 1) % 3
         obstacles.append(o.snapshot())
-    v0, v1 = m.ViewConfig(0), m.ViewConfig(5)
+    v0, v1 = m.ColorationConfig(0), m.ColorationConfig(5)
     v1.mode = "HSV"
     v1.set_channel(1, m.ChannelSettings(
         chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=0, point2=1,
         buddha_points=_buddha_choice(m.POINT_SELF_MEAN, m.POINT_BOUNDARY_MEAN),
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ONE))
-    channel = m.view_channel_value(v1, 1)
+    channel = m.coloration_channel_value(v1, 1)
     keyframes = (m.Keyframe(2, 0, {"iter": 40, "dist": 2.5, "outline": False,
-                                   "obst:1:rotation": 15.0, "view:5:mode": "HSV",
-                                   "view:5:chan1": channel, "view:0:chan0": m.view_channel_value(v0, 0)}),
+                                   "obst:1:rotation": 15.0, "coloration:5:mode": "HSV",
+                                   "coloration:5:chan1": channel, "coloration:0:chan0": m.coloration_channel_value(v0, 0)}),
                  m.Keyframe(7, 30, {"obst:3:r": 0.5, "emit_mode": m.EMIT_TOWARDS}))
     ray, natural_stop = _generation(
         max_iter=77, max_dist=3.5, seg_mult=0.8, emit_mode=m.EMIT_TOWARDS, emit_target_r=0.3,
         emit_offset=12.5, confine_window=6,
         fuzz=m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=2.0, seed=99))
     blur = m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_BOKEH)
-    export = {"include_all_views": False, "color_info_location": m.COLOR_INFO_LOCATIONS[1],
+    export = {"include_all_colorations": False, "color_info_location": m.COLOR_INFO_LOCATIONS[1],
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
     fields = dict(ray=ray, natural_stop=natural_stop, buddha_blur=blur, buddha_seed=m.DEFAULT_BUDDHA_SEED,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
-                  views=(m.snapshot_view(v0), m.snapshot_view(v1)), keyframes=keyframes,
-                  export=export, obstacle_counter=40, view_counter=9, keyframe_counter=12,
-                  selected_obstacle_id=5, selected_view_id=5)
+                  colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)), keyframes=keyframes,
+                  export=export, obstacle_counter=40, coloration_counter=9, keyframe_counter=12,
+                  selected_obstacle_id=5, selected_coloration_id=5)
     fields.update(changes)
     return m.Project(**fields)
 
@@ -81,26 +81,26 @@ def test_a_project_survives_being_saved_and_loaded():
     loaded = _round_trip(project)
     assert m.project_signature(loaded) == m.project_signature(project)
     assert loaded.ray == project.ray and loaded.buddha_blur == project.buddha_blur
-    assert [v.id for v in loaded.views] == [0, 5]
-    for want, got in zip(project.views, loaded.views):
+    assert [v.id for v in loaded.colorations] == [0, 5]
+    for want, got in zip(project.colorations, loaded.colorations):
         assert got.mode == want.mode
         for number in range(3):
-            assert m.view_channel_value(got, number) == _as_saved(m.view_channel_value(want, number), number)
+            assert m.coloration_channel_value(got, number) == _as_saved(m.coloration_channel_value(want, number), number)
     assert [type(o) for o in loaded.obstacles] == list(m.SHAPE_CLASSES)
     assert loaded.export == project.export
     assert [o.id for o in loaded.obstacles] == [i * 2 + 1 for i in range(len(m.SHAPE_CLASSES))]
     assert all(o.state() == q.state() for o, q in zip(loaded.obstacles, project.obstacles))
     assert all(o._frozen for o in loaded.obstacles)
-    assert (loaded.obstacle_counter, loaded.view_counter, loaded.keyframe_counter) == (40, 9, 12)
-    assert (loaded.selected_obstacle_id, loaded.selected_view_id) == (5, 5)
+    assert (loaded.obstacle_counter, loaded.coloration_counter, loaded.keyframe_counter) == (40, 9, 12)
+    assert (loaded.selected_obstacle_id, loaded.selected_coloration_id) == (5, 5)
     kf = loaded.keyframes[0]
     assert (kf.id, kf.frame_index) == (2, 0)
     want = project.keyframes[0].data
-    assert kf.data["view:5:chan1"] == _as_saved(want["view:5:chan1"], 1)
-    assert kf.data["view:0:chan0"] == _as_saved(want["view:0:chan0"], 0)
-    assert {k: v for k, v in kf.data.items() if not k.startswith("view:") or k.endswith("mode")} \
-        == {k: v for k, v in want.items() if not k.startswith("view:") or k.endswith("mode")}
-    assert isinstance(kf.data["view:5:chan1"], m.ChannelSettings)
+    assert kf.data["coloration:5:chan1"] == _as_saved(want["coloration:5:chan1"], 1)
+    assert kf.data["coloration:0:chan0"] == _as_saved(want["coloration:0:chan0"], 0)
+    assert {k: v for k, v in kf.data.items() if not k.startswith("coloration:") or k.endswith("mode")} \
+        == {k: v for k, v in want.items() if not k.startswith("coloration:") or k.endswith("mode")}
+    assert isinstance(kf.data["coloration:5:chan1"], m.ChannelSettings)
     assert isinstance(kf.data["iter"], int) and kf.data["outline"] is False
 
 
@@ -127,8 +127,8 @@ def test_a_channel_in_a_file_has_only_the_settings_its_source_uses():
                                                                   "constant": "one"}
     text = m.project_text(_sample_project())
     import json
-    for view in json.loads(text)["views"]:
-        for channel in view["channels"]:
+    for coloration in json.loads(text)["colorations"]:
+        for channel in coloration["channels"]:
             unused = {"query": ["buddha_points", "buddha_compression", "buddha_brightness",
                                 "constant"],
                       "buddha": ["kind", "metric", "point1", "point2", "constant"],
@@ -155,10 +155,10 @@ def test_a_channel_missing_a_setting_its_source_uses_is_refused_and_unused_ones_
     assert "does not suit" in refused({"source": "query", "kind": "other_metric",
                                        "metric": "horizontal_distance"})
     just_constant = m._channel_from_json({"source": "constant", "constant": "one"}, "test", 2)
-    default = m.view_channel_value(m.ViewConfig(0), 2)
+    default = m.coloration_channel_value(m.ColorationConfig(0), 2)
     assert just_constant == default.replace(chan_src=m.CHAN_SRC_CONSTANT, constant=m.NONE_ONE)
     assert m._channel_from_json({"source": "query", "kind": "other_metric", "metric": "bounces_count"},
-                                "test", 1).point1 == m.view_channel_value(m.ViewConfig(0), 1).point1
+                                "test", 1).point1 == m.coloration_channel_value(m.ColorationConfig(0), 1).point1
 
 
 def test_a_file_that_keeps_unused_channel_settings_still_loads_with_them():
@@ -177,15 +177,15 @@ def test_unused_channel_settings_do_not_count_as_a_change_to_the_project():
     """What is not saved cannot make the project 'unsaved'."""
     project = _sample_project()
     sig = m.project_signature(project)
-    view = m.view_config_from_snapshot(project.views[0])
-    assert view.chan_src[0] == m.CHAN_SRC_QUERY
-    view.buddha_compression[0] = m.BUDDHA_COMPRESS_MODULUS            # unused: a query channel
-    view.constant_choice[0] = m.NONE_ONE
-    view.buddha_brightness[0] = 4
-    edited = project.replace(views=(m.snapshot_view(view), project.views[1]))
+    coloration = m.coloration_config_from_snapshot(project.colorations[0])
+    assert coloration.chan_src[0] == m.CHAN_SRC_QUERY
+    coloration.buddha_compression[0] = m.BUDDHA_COMPRESS_MODULUS            # unused: a query channel
+    coloration.constant_choice[0] = m.NONE_ONE
+    coloration.buddha_brightness[0] = 4
+    edited = project.replace(colorations=(m.snapshot_coloration(coloration), project.colorations[1]))
     assert m.project_signature(edited) == sig
-    view.chan_src[0] = m.CHAN_SRC_BUDDHA                              # now they are used
-    changed = project.replace(views=(m.snapshot_view(view), project.views[1]))
+    coloration.chan_src[0] = m.CHAN_SRC_BUDDHA                              # now they are used
+    changed = project.replace(colorations=(m.snapshot_coloration(coloration), project.colorations[1]))
     assert m.project_signature(changed) != sig
 
 
@@ -207,14 +207,14 @@ def test_a_project_that_cannot_be_saved_counts_as_having_unsaved_changes():
 def test_a_project_file_is_pretty_printed_versioned_json():
     import json
     text = m.project_text(_sample_project())
-    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 5,')
+    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 6,')
     assert text.endswith("}\n") and "\r" not in text
     assert all(len(line) < 120 for line in text.split("\n"))            # one value per line
     data = json.loads(text)
-    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 5
+    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 6
     assert data["program_version"] == m.FILE_VERSION
     assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
-    assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "view": 5}
+    assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "coloration": 5}
     assert m.PROJECT_EXTENSION == ".lightbounce"
 
 
@@ -251,7 +251,7 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     _refused({**d, "format_version": 99}, "newer version")
     _refused({**d, "format_version": "1"}, "format version")
     _refused({**d, "format_version": 0}, "format version")
-    _refused({**d, "views": []}, "no views")
+    _refused({**d, "colorations": []}, "no colorations")
     d2 = _dict_of()
     d2["obstacles"][0]["kind"] = "HexagonShape"
     _refused(d2, "HexagonShape")
@@ -268,22 +268,22 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d6["obstacles"][1]["id"] = d6["obstacles"][0]["id"]
     _refused(d6, "two obstacles have the id")
     d7 = _dict_of()
-    d7["views"][1]["id"] = 0
-    _refused(d7, "two views have the id")
+    d7["colorations"][1]["id"] = 0
+    _refused(d7, "two colorations have the id")
     d8 = _dict_of()
-    d8["views"][0]["mode"] = "CMYK"
+    d8["colorations"][0]["mode"] = "CMYK"
     _refused(d8, "colour model")
     d9 = _dict_of()
-    d9["views"][0]["channels"].pop()
+    d9["colorations"][0]["channels"].pop()
     _refused(d9, "3 channels")
     d10 = _dict_of()
-    d10["views"][0]["channels"][0]["metric"] = "no_such_metric"
+    d10["colorations"][0]["channels"][0]["metric"] = "no_such_metric"
     _refused(d10, "no_such_metric")
     d10b = _dict_of()
-    d10b["views"][0]["channels"][0].update(kind="point_metric", metric="bounces_count")
+    d10b["colorations"][0]["channels"][0].update(kind="point_metric", metric="bounces_count")
     _refused(d10b, "does not suit")
     d10c = _dict_of()
-    d10c["views"][1]["channels"][1]["buddha_points"] = ["bounces_mean", "a_future_point"]
+    d10c["colorations"][1]["channels"][1]["buddha_points"] = ["bounces_mean", "a_future_point"]
     _refused(d10c, "a_future_point")
     d10d = _dict_of()
     d10d["obstacles"][0]["fields"]["in_effect"] = 1                      # a number, not a key
@@ -304,10 +304,10 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d13["natural_stop"]["iter"] = "many"
     _refused(d13, "damaged")
     d14 = _dict_of()
-    d14["views"][0]["channels"][0].pop("metric")
+    d14["colorations"][0]["channels"][0].pop("metric")
     _refused(d14, "no 'metric'")
     d15 = _dict_of()
-    d15["keyframes"][0]["settings"]["view:5:chan7"] = {"source": "query"}
+    d15["keyframes"][0]["settings"]["coloration:5:chan7"] = {"source": "query"}
     _refused(d15, "not a channel")
 
 
@@ -362,25 +362,25 @@ def test_a_file_from_another_version_is_read_leniently():
     d["export"]["a_future_choice"] = "x"
     d["counters"]["obstacle"] = 0                    # lower than the ids in use: raised above them
     d["export"]["video_format"] = "a_future_format"                   # unknown choice: control keeps its value
-    d["views"][1]["channels"][1]["buddha_points"] = ["bounces_mean"]
+    d["colorations"][1]["channels"][1]["buddha_points"] = ["bounces_mean"]
     loaded = m.project_from_dict(d)
     assert "video_format" not in loaded.export
     assert loaded.natural_stop.max_iter == m.DEFAULT_NATURAL_STOP_SETTINGS.max_iter
     assert loaded.obstacle_counter == max(o.id for o in loaded.obstacles) + 1
-    chosen = m.view_channel_value(loaded.views[1], 1).buddha_points
+    chosen = m.coloration_channel_value(loaded.colorations[1], 1).buddha_points
     assert chosen == _buddha_choice(m.POINT_ALL_MEAN)
     d2 = _dict_of()
-    d2["selected"] = {"obstacle": 12345, "view": 777}              # gone: first view, none selected
+    d2["selected"] = {"obstacle": 12345, "coloration": 777}              # gone: first coloration, none selected
     loaded = m.project_from_dict(d2)
-    assert loaded.selected_obstacle_id == -1 and loaded.selected_view_id == loaded.views[0].id
+    assert loaded.selected_obstacle_id == -1 and loaded.selected_coloration_id == loaded.colorations[0].id
 
 
 def test_the_project_signature_sees_content_but_not_selection_or_counters():
     base = _sample_project()
     sig = m.project_signature(base)
     assert m.project_signature(_sample_project()) == sig
-    assert m.project_signature(_sample_project(selected_obstacle_id=1, selected_view_id=0,
-                                               obstacle_counter=1, view_counter=1,
+    assert m.project_signature(_sample_project(selected_obstacle_id=1, selected_coloration_id=0,
+                                               obstacle_counter=1, coloration_counter=1,
                                                keyframe_counter=1)) == sig
     moved = base.obstacles[0].with_values(r=0.75)
     assert m.project_signature(_sample_project(obstacles=(moved,) + base.obstacles[1:])) != sig
@@ -391,8 +391,8 @@ def test_the_project_signature_sees_content_but_not_selection_or_counters():
     assert m.project_signature(base.replace(decorations={"outline": True, "pending": True})) != sig
     edited = (m.Keyframe(2, 0, {**base.keyframes[0].data, "iter": 41}), base.keyframes[1])
     assert m.project_signature(base.replace(keyframes=edited)) != sig
-    other_view = m.ViewConfig(5)
-    assert m.project_signature(base.replace(views=(base.views[0], m.snapshot_view(other_view)))) != sig
+    other_coloration = m.ColorationConfig(5)
+    assert m.project_signature(base.replace(colorations=(base.colorations[0], m.snapshot_coloration(other_coloration)))) != sig
 
 
 def test_the_export_option_table_names_each_choice_once_with_sensible_allowed_values():
@@ -526,7 +526,7 @@ PINNED_BUDDHA_BLUR_KEYS = ["buddha_blur_radius", "buddha_blur_type"]   # a secti
 PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_end", "guides",
                           "samples"]
 PINNED_EXPORT_KEYS = [
-    "include_all_views", "color_info_location", "figure_info_location", "image_source",
+    "include_all_colorations", "color_info_location", "figure_info_location", "image_source",
     "image_format", "image_jxl_mode", "image_jxl_quality", "image_width", "image_height",
     "video_fps", "video_width", "video_height", "video_start_frame",
     "video_number_files_from_start", "video_format",
@@ -617,7 +617,8 @@ def test_every_key_a_format_4_file_can_hold_still_means_the_same_once_migrated()
     assert set(m._FORMAT_4_BUDDHA_RENAMES) <= set(FORMAT_4_BUDDHA_POINT_KEYS) | set(FORMAT_4_KEYS["CAT_POINT"])
 
 
-def test_a_format_4_channel_is_renamed_in_every_view_and_keyframe_by_the_migration():
+def test_a_format_4_channel_is_renamed_in_every_coloration_and_keyframe_by_the_migration():
+    """(A format-4 file calls a coloration a "view": its "views" section and "view:<id>:..." keyframe keys.)"""
     channel = {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
                "point1": "uppermost_self_bounce", "point2": "end_point"}
     other = {"source": "query", "kind": "other_metric", "metric": "ray_bounce_fraction"}
@@ -647,12 +648,12 @@ def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     assert set(data["natural_stop"]) == set(m.NATURAL_STOP_SETTING_SPECS)
     assert {o["fields"]["in_effect"] for o in data["obstacles"]} <= set(m.CAT_EFFECT.by_key)
     assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
-    channel = data["views"][1]["channels"][1]
+    channel = data["colorations"][1]["channels"][1]
     assert channel == {"source": "buddha",
                        "buddha_points": ["boundary_bounces_mean", "self_bounces_mean"],
                        "buddha_compression": "modulus", "buddha_brightness": "8x"}
     settings = data["keyframes"][0]["settings"]
-    assert settings["view:5:chan1"] == channel and settings["iter"] == 40
+    assert settings["coloration:5:chan1"] == channel and settings["iter"] == 40
     assert data["keyframes"][1]["settings"]["emit_mode"] == "towards_point"
     assert data["export"]["video_format"] == "jxl" and data["export"]["color_info_location"] == "overlay"
     assert data["export"]["video_jxl_mode"] == "lossy" and data["export"]["image_format"] == "png"
@@ -700,7 +701,7 @@ def test_a_format_1_project_file_is_converted_when_loaded():
     assert isinstance(old["simulation"]["emit_mode"], int)
     loaded = m.load_project(V1_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
-    assert m.project_text(loaded).count('"format_version": 5') == 1
+    assert m.project_text(loaded).count('"format_version": 6') == 1
 
 
 V2_PROJECT_FILE = os.path.join(ROOT, "dev", "testing",
@@ -721,7 +722,7 @@ def test_a_format_2_project_file_is_converted_when_loaded():
     assert loaded.ray == _sample_project().ray
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 5
+    assert converted["format_version"] == 6
     assert converted["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)      # the two moved, none was copied
     assert old["simulation"]["iter"] == converted["natural_stop"]["iter"] == 77
@@ -907,7 +908,7 @@ def test_a_format_3_project_file_is_converted_when_loaded():
     assert loaded.obstacles and len(loaded.obstacles) == len(m.SHAPE_CLASSES)
     assert loaded.natural_stop.max_iter == 77 and loaded.natural_stop.confine_window == 6
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 5
+    assert converted["format_version"] == 6
     assert set(converted["natural_stop"]) == set(m.NATURAL_STOP_SETTING_SPECS)      # the six moved ...
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)                 # ... and none stayed
     assert converted["natural_stop"]["iter"] == old["simulation"]["iter"] == 77
@@ -945,11 +946,11 @@ def test_a_format_4_project_file_is_converted_when_loaded():
     loaded = m.load_project(V4_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 5
-    assert converted["views"][0]["channels"][0]["point1"] == "path_first"
-    assert converted["views"][0]["channels"][0]["point2"] == "path_last"
-    assert converted["views"][1]["channels"][1]["buddha_points"] == ["boundary_bounces_mean", "self_bounces_mean"]
-    assert converted["keyframes"][0]["settings"]["view:0:chan0"]["point1"] == "path_first"
+    assert converted["format_version"] == 6
+    assert converted["colorations"][0]["channels"][0]["point1"] == "path_first"
+    assert converted["colorations"][0]["channels"][0]["point2"] == "path_last"
+    assert converted["colorations"][1]["channels"][1]["buddha_points"] == ["boundary_bounces_mean", "self_bounces_mean"]
+    assert converted["keyframes"][0]["settings"]["coloration:0:chan0"]["point1"] == "path_first"
 
 
 def test_the_buddha_seeding_is_saved_in_a_section_of_its_own_and_comes_back_and_older_files_get_the_defaults():
@@ -964,4 +965,51 @@ def test_the_buddha_seeding_is_saved_in_a_section_of_its_own_and_comes_back_and_
     assert m.project_signature(project) != m.project_signature(_sample_project()), "a change of seeding is a change"
     del data["buddha_seeding"]                                     # a file from before seeding existed
     assert m.project_from_dict(data).buddha_seed == m.DEFAULT_BUDDHA_SEED
-    assert m.PROJECT_FORMAT_VERSION == 5, "a section added is no change of format: older files load with defaults"
+
+
+V5_PROJECT_FILE = os.path.join(ROOT, "dev", "testing", "project_v5.lightbounce")
+
+
+def test_a_format_5_project_file_is_converted_when_loaded():
+    """dev/testing/project_v5.lightbounce is a real file written by format 5 from _sample_project() (program
+    version 139): what the program now calls a coloration is a "view" in it - the "views" section, the "view" id
+    counter and selection, the "include_all_views" export choice and the "view:<id>:..." keyframe keys. Format 6
+    renames them, and the file must keep loading, to exactly that project."""
+    import json
+    with open(V5_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    assert old["format_version"] == 5 and "colorations" not in old
+    assert [view["id"] for view in old["views"]] == [0, 5] and old["counters"]["view"] == 9
+    assert old["selected"]["view"] == 5 and "include_all_views" in old["export"]
+    assert {"view:5:mode", "view:5:chan1", "view:0:chan0"} <= set(old["keyframes"][0]["settings"])
+    loaded = m.load_project(V5_PROJECT_FILE)
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    converted = json.loads(m.project_text(loaded))
+    assert converted["format_version"] == 6 and "views" not in converted
+    assert [c["id"] for c in converted["colorations"]] == [0, 5]
+    assert converted["counters"]["coloration"] == 9 and "view" not in converted["counters"]
+    assert converted["selected"]["coloration"] == 5 and "view" not in converted["selected"]
+    assert "include_all_colorations" in converted["export"] and "include_all_views" not in converted["export"]
+    assert "coloration:5:chan1" in converted["keyframes"][0]["settings"]
+    assert '"view' not in m.project_text(loaded), "no key of the converted file is still called a view"
+
+
+def test_the_format_5_to_6_migration_renames_only_the_view_keys_it_finds():
+    """Only the five names that spell "view" change; every other section, counter and keyframe key (an obstacle's,
+    a setting's) is left alone, the file's own data is not modified, and a file lacking a part is still converted."""
+    import json
+    with open(V5_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    new = m._migrate_project_5_to_6(old)
+    assert new["format_version"] == 6 and old["format_version"] == 5 and "views" in old
+    assert new["colorations"] == old["views"]
+    assert new["counters"] == {"obstacle": old["counters"]["obstacle"], "coloration": old["counters"]["view"],
+                               "keyframe": old["counters"]["keyframe"]}
+    assert new["selected"] == {"obstacle": old["selected"]["obstacle"], "coloration": old["selected"]["view"]}
+    settings = old["keyframes"][0]["settings"]
+    assert new["keyframes"][0]["settings"] == {
+        ("coloration:" + key[5:] if key.startswith("view:") else key): value for key, value in settings.items()}
+    assert any(key.startswith("obst:") for key in new["keyframes"][0]["settings"])
+    assert new["simulation"] == old["simulation"] and new["obstacles"] == old["obstacles"]
+    bare = m._migrate_project_5_to_6({"format_version": 5})
+    assert bare == {"format_version": 6}

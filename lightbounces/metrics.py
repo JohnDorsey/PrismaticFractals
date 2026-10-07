@@ -1,4 +1,4 @@
-"""What a view can ask of the stored simulation data and how Buddha coloration scatters it: the per-ray metrics (each scaled to 0..1 so it can
+"""What a coloration can ask of the stored simulation data and how Buddha coloration scatters it: the per-ray metrics (each scaled to 0..1 so it can
 drive a colour component) with their labels, the sample points that can be picked out of a ray's path, the Buddha point catalog,
 compression and brightness options, the Buddha blur (the functions that spread scattered points over their neighbours), and make_mapping,
 which says what each colour channel is currently using. The numbers the kernels fill in (ST_*, POINT_*, ...) live in kernels.py."""
@@ -99,10 +99,10 @@ def blur_counts_image(counts, kernel):
 
 
 # --------------------------------------------------------------------------- #
-# What a view can choose: the points and metrics, generated from the named sequences
+# What a coloration can choose: the points and metrics, generated from the named sequences
 # --------------------------------------------------------------------------- #
 # The ray-bouncing engine's named sequences of points (SEQ_* in kernels.py) and what is stored about each: every
-# reduction below of every sequence, per ray. A view chooses among ALL of them, so each choice below is one
+# reduction below of every sequence, per ray. A coloration chooses among ALL of them, so each choice below is one
 # (sequence, reduction) and its label, short name and description are made from the sequence's and the reduction's;
 # only the measurements of a ray's own run, which are no reduction of a sequence, are written out by hand. Another
 # engine declares its own sequences the same way; every engine should offer SEQ_PATH ("Path": all its points, in

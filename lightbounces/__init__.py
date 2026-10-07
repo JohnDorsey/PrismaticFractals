@@ -130,7 +130,7 @@ Coloration
   uppermost/lowermost/rightmost/leftmost bounces overall and among only its
   self-bounces) plus two fixed ones (the origin and the top-left corner).
 
-  A view is a color model (RGB or HSV) plus three channels. Each channel has a
+  A coloration is a color model (RGB or HSV) plus three channels. Each channel has a
   source:
     Query     a metric, evaluated once per ray for the pixel it was emitted
               from - either a point comparison (with its two sample points)
@@ -147,11 +147,11 @@ Coloration
               bokeh; radius 0 means no blur; a change recolors the image
               at once, no new Start needed),
     Constant  always 0 or always 1, taking no part in the simulation.
-  Per-pixel results are stored, so changing a view's coloration recolors the
+  Per-pixel results are stored, so changing a coloration's colour model or channels recolors the
   image without regenerating it (Buddha channels rebuild their histograms
   first; that never restarts the generation either).
 
-  Several views can exist at once, listed in the Coloration tab. Whichever
+  Several colorations can exist at once, listed in the Coloration tab. Whichever
   one is selected is the one shown in the preview (with its name overlaid,
   in the preview only); exports and videos can include all of them, side by
   side, so more than three channels' worth of information can be shown at once.
@@ -168,7 +168,7 @@ Decorations
 Timeline and video
   A keyframe has a frame index and a set of settings - any subset of every setting in the
   Simulation, Fuzzing, Buddha blur and Decorations tabs plus every
-  obstacle's and every view's own fields (an obstacle's shape parameters and
+  obstacle's and every coloration's own fields (an obstacle's shape parameters and
   ray effects included; its kind is not a setting). "New keyframe (from current settings)" defines every setting
   from the controls' current values; "New keyframe (empty)" defines none.
   Selecting a keyframe loads into the controls every setting it defines and
@@ -211,7 +211,7 @@ Timeline and video
   after a confirmation, deletes only frame_NNNNN.png files from TEMP.
 
 Exporting a still image
-  Export designer: whether the export includes all views or only the selected
+  Export designer: whether the export includes all colorations or only the selected
   one, where to put the coloration description (none, overlaid on the image,
   or in a bottom margin) and where to put the figure settings (none, or a left
   margin listing every setting that defines the figure: the stopping limits,
@@ -219,7 +219,7 @@ Exporting a still image
   extra columns if they need the room); these apply to videos as well, with
   the values of that frame. Export: either the
   Current image (the preview as it was generated) or a New image generated
-  afresh at its own width and height (per view), saved as jxl (the default),
+  afresh at its own width and height (per coloration), saved as jxl (the default),
   png or qoi (jxl lossless, or lossy with a quality setting). "Export" saves into the
   exports folder (next to the program) under a default name; "Export As..." asks for one. Both are
   disabled until an image has finished generating.
@@ -241,7 +241,7 @@ Window layout (six panels, in three columns)
 
 Projects
   File > New / Open / Save / Save as (Ctrl+N, O, S, Shift+S) keep a whole setup in a
-  .lightbounce file: the simulation settings, decorations, every obstacle, view and
+  .lightbounce file: the simulation settings, decorations, every obstacle, coloration and
   keyframe, and the Export designer and video choices (not the generated image: after
   opening a project the image is blank and Start makes it again, identical because
   fuzzing is seeded). A project file is pretty-printed, versioned JSON, so it can be read,
@@ -277,7 +277,7 @@ Development aids (screenshots and dumps)
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
 """
-from . import app_coloration, app_controls, app_debug, app_export, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, export_text, external, geometry, image_io, kernels, metrics, parsing, paths, projects, selfchecks, settings, shapes, ui_text, version, views, widgets, window
+from . import app_coloration, app_controls, app_debug, app_export, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, export_text, external, geometry, image_io, kernels, metrics, parsing, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
@@ -287,7 +287,7 @@ PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": 
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, metrics, views, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_obstacles, app_coloration, app_controls, app_layout, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, metrics, colorations, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a

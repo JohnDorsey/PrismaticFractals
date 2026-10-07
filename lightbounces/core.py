@@ -28,7 +28,7 @@ from .settings import (
 )
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
-from .views import ViewConfig
+from .colorations import ColorationConfig
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
 from .app_render import RenderMixin
@@ -96,22 +96,22 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.last_confine_window = DEFAULT_CONFINE_WINDOW
         self.last_confine_threshold = DEFAULT_CONFINE_THRESHOLD
         self.last_seed = DEFAULT_FUZZ_SEED
-        self.views = [ViewConfig(0)]      # list[ViewConfig], in export/composition order
-        self._view_counter = 1
-        self.selected_view_id = 0         # which view is selected - both for editing in
+        self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
+        self._coloration_counter = 1
+        self.selected_coloration_id = 0         # which coloration is selected - both for editing in
                                            # the Coloration tab AND shown in the preview
-        self.mapping = make_mapping(self.live_view().kinds, self.live_view().point_metric,
-                                    self.live_view().other_metric, self.live_view().chan_src,
-                                    self.live_view().constant_choice)
-        self.buddha_counts = [None, None, None]   # per channel of the live view: (SIZE, SIZE)
+        self.mapping = make_mapping(self.live_coloration().kinds, self.live_coloration().point_metric,
+                                    self.live_coloration().other_metric, self.live_coloration().chan_src,
+                                    self.live_coloration().constant_choice)
+        self.buddha_counts = [None, None, None]   # per channel of the live coloration: (SIZE, SIZE)
                                                    # float64 RAW (unblurred) visit counts,
                                                    # or None while unused/before Start
         self.buddha_counts_blurred = [None, None, None]   # per channel: the lazily-computed,
                                                            # cached blurred version - see
                                                            # blurred_buddha_counts()
-        self.view_thumb_cache = {}        # non-live view id -> (rows_done, thumbnail array)
+        self.coloration_thumb_cache = {}        # non-live coloration id -> (rows_done, thumbnail array)
                                           # at the time it was computed - see
-                                          # render_view_thumbnail(). The live view is
+                                          # render_coloration_thumbnail(). The live coloration is
                                           # never cached here; it always reuses self.img
                                           # directly instead.
         self.deco = {}                    # decoration key -> BooleanVar
@@ -179,7 +179,7 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.frame = np.empty_like(self.img)      # img + white outline; this is what
                                                    # gets exported/saved, so it must never
                                                    # hold a preview-only decoration
-        self.display_frame = np.empty_like(self.img)   # self.frame + the view-name
+        self.display_frame = np.empty_like(self.img)   # self.frame + the coloration-name
                                                         # overlay; only ever pushed to
                                                         # self.photo, never written to disk
 

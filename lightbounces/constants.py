@@ -297,7 +297,7 @@ OBST_EFFECT_RGB = {OBSTACLE_EFFECT_REFLECT: OBST_REFLECT_RGB,
                    OBSTACLE_EFFECT_TERMINATE: OBST_TERMINATE_RGB,
                    OBSTACLE_EFFECT_PASS: OBST_PASS_RGB}
 
-# Obstacle and view thumbnails
+# Obstacle and coloration thumbnails
 THUMB_SIZE = 48            # small resolution, per pixel
 THUMB_BACKGROUND = (110, 110, 110)   # obstacle thumbnails: background and shape fill
 THUMB_FILL = (150, 150, 150)
@@ -305,14 +305,14 @@ PREVIEW_SIZE = 150         # side length of the video-panel frame preview
 SELECTED_OUTLINE = "#ffeb3b"       # yellow
 SELECTED_OUTLINE_PX = 4
 
-# The live preview's "view N" name overlay (bottom-left corner, drawn with
-# FONT_5X7 - see draw_view_name_overlay). Preview-only: never part of an
+# The live preview's "coloration N" name overlay (bottom-left corner, drawn with
+# FONT_5X7 - see draw_coloration_name_overlay). Preview-only: never part of an
 # exported image.
-VIEW_NAME_OVERLAY_SCALE = 2
-VIEW_NAME_OVERLAY_PAD = 3          # blank border between the text and its background box
-VIEW_NAME_OVERLAY_MARGIN = 6       # gap between the background box and the image edge
-VIEW_NAME_OVERLAY_BG = (0, 0, 0)
-VIEW_NAME_OVERLAY_FG = (255, 255, 255)
+COLORATION_NAME_OVERLAY_SCALE = 2
+COLORATION_NAME_OVERLAY_PAD = 3          # blank border between the text and its background box
+COLORATION_NAME_OVERLAY_MARGIN = 6       # gap between the background box and the image edge
+COLORATION_NAME_OVERLAY_BG = (0, 0, 0)
+COLORATION_NAME_OVERLAY_FG = (255, 255, 255)
 
 # Window layout
 PAD = 8

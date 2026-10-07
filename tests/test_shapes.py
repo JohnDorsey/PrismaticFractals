@@ -326,7 +326,7 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(True)}
-    app.views = [m.ViewConfig(0)]
+    app.colorations = [m.ColorationConfig(0)]
     o1 = _make_distinct_obstacle(shape=m.SHAPE_MOSS_EGG)
     o1.id = 1
     o2 = _make_distinct_obstacle(shape=m.SHAPE_LENS)
@@ -867,7 +867,7 @@ def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_r
     start.out_effect = P
     data = m.resolve_frame_settings([], 0)
     img = app.render_full_image(data, 40, 40, m.build_obstacle_arrays([start]),
-                                (_terminated_view(),))
+                                (_terminated_coloration(),))
     assert tuple(img[20, 20]) == (255, 0, 0), "escaped rays are termination value 1.0"
     assert tuple(img[0, 0]) == tuple(m.BACKGROUND), "outside the obstacle nothing fires"
 
@@ -875,7 +875,7 @@ def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_r
 def test_render_full_image_with_the_starting_obstacle_produces_no_escaped_rays():
     app = _fake_render_app()
     data = m.resolve_frame_settings([], 0)
-    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), (_terminated_view(),))
+    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), (_terminated_coloration(),))
     assert img[20, 20][0] != 255
 
 
@@ -883,7 +883,7 @@ def test_render_full_image_of_an_empty_scene_is_just_the_background():
     app = _fake_render_app()
     data = m.resolve_frame_settings([], 0)
     empty = m.build_obstacle_arrays([])
-    img = app.render_full_image(data, 24, 24, empty, (_terminated_view(),))
+    img = app.render_full_image(data, 24, 24, empty, (_terminated_coloration(),))
     assert (img == np.array(m.BACKGROUND, dtype=np.uint8)).all()
 
 
