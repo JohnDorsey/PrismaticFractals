@@ -56,6 +56,7 @@ def _make_fake_app_for_snapshot():
     app.current_natural_stop_settings = m.App.current_natural_stop_settings.__get__(app)
     app.current_generation_settings = m.App.current_generation_settings.__get__(app)
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
 
     app.seed_var = _Get("0")
     app.last_seed = 0
@@ -222,6 +223,7 @@ def _fake_export_app():
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.colorize_view = m.App.colorize_view.__get__(app)
@@ -256,6 +258,7 @@ def _fake_current_image_app():
                  .astype(np.float32) * 2 - 1)
     app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.natural_stop_of_current_image = m.App.natural_stop_of_current_image.__get__(app)
     app.gen_stop = m.NATURAL_STOP_DEFAULT

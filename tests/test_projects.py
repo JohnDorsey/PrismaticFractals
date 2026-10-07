@@ -46,7 +46,7 @@ def _sample_project(**changes):
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
-    fields = dict(ray=ray, natural_stop=natural_stop, buddha_blur=blur,
+    fields = dict(ray=ray, natural_stop=natural_stop, buddha_blur=blur, buddha_seed=m.DEFAULT_BUDDHA_SEED,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
                   views=(m.snapshot_view(v0), m.snapshot_view(v1)), keyframes=keyframes,
@@ -520,6 +520,8 @@ PINNED_SIMULATION_KEYS = [        # the ray engine's own settings (the "simulati
     "bnd_mult", "self_offset", "self_jitter", "self_mult", "seed"]
 PINNED_NATURAL_STOP_KEYS = [      # a section of their own since format 4 (they were in "simulation")
     "iter", "dist", "escape_radius", "confine_window", "confine_method", "confine_threshold"]
+PINNED_BUDDHA_SEED_KEYS = ["buddha_seed_camera", "buddha_seed_x_start", "buddha_seed_x_stop",
+                           "buddha_seed_y_start", "buddha_seed_y_stop"]   # the "buddha_seeding" section
 PINNED_BUDDHA_BLUR_KEYS = ["buddha_blur_radius", "buddha_blur_type"]   # a section of their own since format 3
 PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_end", "guides",
                           "samples"]
@@ -571,6 +573,7 @@ def test_the_keys_in_project_files_never_change():
     assert set(PINNED_SIMULATION_KEYS) <= set(m.RAY_SETTING_SPECS)
     assert set(PINNED_NATURAL_STOP_KEYS) <= set(m.NATURAL_STOP_SETTING_SPECS)
     assert set(PINNED_BUDDHA_BLUR_KEYS) <= set(m.BLUR_SETTING_SPECS)
+    assert set(PINNED_BUDDHA_SEED_KEYS) <= set(m.BUDDHA_SEED_SETTING_SPECS)
     assert set(PINNED_EXPORT_KEYS) <= {row[0] for row in m.EXPORT_OPTIONS}
     assert set(PINNED_DECORATION_KEYS) <= {key for key, _label, _default in
                                            m.DECO_IMAGE + m.DECO_PREVIEW}
@@ -947,3 +950,18 @@ def test_a_format_4_project_file_is_converted_when_loaded():
     assert converted["views"][0]["channels"][0]["point2"] == "path_last"
     assert converted["views"][1]["channels"][1]["buddha_points"] == ["boundary_bounces_mean", "self_bounces_mean"]
     assert converted["keyframes"][0]["settings"]["view:0:chan0"]["point1"] == "path_first"
+
+
+def test_the_buddha_seeding_is_saved_in_a_section_of_its_own_and_comes_back_and_older_files_get_the_defaults():
+    import json
+    seeds = m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
+    project = _sample_project(buddha_seed=seeds)
+    data = json.loads(m.project_text(project))
+    assert data["buddha_seeding"] == {"buddha_seed_camera": False, "buddha_seed_x_start": -0.5,
+                                     "buddha_seed_x_stop": 0.25, "buddha_seed_y_start": -3.0,
+                                     "buddha_seed_y_stop": 2.0}
+    assert m.project_from_dict(data).buddha_seed == seeds
+    assert m.project_signature(project) != m.project_signature(_sample_project()), "a change of seeding is a change"
+    del data["buddha_seeding"]                                     # a file from before seeding existed
+    assert m.project_from_dict(data).buddha_seed == m.DEFAULT_BUDDHA_SEED
+    assert m.PROJECT_FORMAT_VERSION == 5, "a section added is no change of format: older files load with defaults"

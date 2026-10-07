@@ -37,6 +37,14 @@ BUDDHA_BLUR_LABELS = ["Gaussian distribution", "Triangular distribution", "Bokeh
                      "Catadioptric bokeh"]
 BUDDHA_BLUR_RADIUS_MIN = 0.0
 BUDDHA_BLUR_RADIUS_MAX = 0.5
+# Buddha seeding: where the rays that Buddha channels scatter are emitted (see BuddhaSeedSettings). The zone
+# defaults to the whole world, which is exactly what the camera pixels cover.
+DEFAULT_BUDDHA_SEED_CAMERA = True
+DEFAULT_BUDDHA_SEED_X_START = -1.0
+DEFAULT_BUDDHA_SEED_X_STOP = 1.0
+DEFAULT_BUDDHA_SEED_Y_START = -1.0
+DEFAULT_BUDDHA_SEED_Y_STOP = 1.0
+SEED_ZONE_OUTLINE = "#a040e0"      # the seeding zone's dashed outline on the preview (purple)
 DEFAULT_BUDDHA_BLUR_RADIUS = 0.0     # no blur - exactly the pre-blur single-pixel behavior
 DEFAULT_BUDDHA_BLUR_TYPE = BUDDHA_BLUR_GAUSSIAN
 BUDDHA_BLUR_GAUSSIAN_TRUNCATE = 3.0   # gaussian is truncated past this many standard

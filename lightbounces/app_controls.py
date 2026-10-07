@@ -20,7 +20,8 @@ from .parsing import (
     parse_resolution_dimension, parse_seed, parse_target_coordinate
 )
 from .settings import (
-    BuddhaBlurSettings, DEFAULT_FUZZ, FuzzParams, NaturalStopSettings, RaySettings, settings_to_dict
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, FuzzParams, NaturalStopSettings, RaySettings,
+    settings_to_dict
 )
 from .shapes import obstacles_signature
 from .widgets import FloatEntryHandle
@@ -635,6 +636,16 @@ class ControlsMixin:
         into a generated image, so there is no "generated" blur to remember."""
         return BuddhaBlurSettings(radius=self.buddha_blur_radius_scale.get(),
                                   type=BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get()))
+
+    def current_buddha_seed_settings(self):
+        """The Buddha seeding controls' values (a BuddhaSeedSettings). Like the blur it is never None: a zone entry
+        that holds something invalid for the moment counts as its last valid value. Not part of what a generated
+        image is made of, so there is no "generated" seeding to remember either."""
+        zone = {}
+        for field, last in self.last_buddha_seed.items():
+            value = parse_target_coordinate(getattr(self, f"buddha_seed_{field}_var").get())
+            zone[field] = last if value is None else value
+        return BuddhaSeedSettings(camera_pixels=bool(self.buddha_seed_camera_var.get()), **zone)
 
     def update_buttons(self):
         """Start: enabled if the entries are valid and either nothing has been

@@ -456,6 +456,7 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app.buddha_counts_blurred = [None, None, None]
     current = [m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)]
     app.current_blur_settings = lambda: current[0]
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
     app.recolor = lambda r0, r1: None
     app.draw = lambda: None
@@ -483,6 +484,7 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app.buddha_counts = [np.zeros((m.SIZE, m.SIZE), dtype=np.float64), None, None]
     app.buddha_counts_blurred = [None, None, None]
     app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH)
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
 
     first = app.blurred_buddha_counts(0)
@@ -759,3 +761,194 @@ def test_every_choice_a_view_can_make_has_its_own_label_and_a_working_key():
     assert m.STAT_LABELS[m.ST_TERMINATION] == "Termination reason"          # a measurement of the run, written out by hand
     slot = m.point_slot(m.SEQ_SELF, m.PRED_LAST)
     assert m.BUDDHA_POINT_CATALOG[slot][1:] == (m.BUDDHA_SIMPLE, slot, None)
+
+
+# --------------------------------------------------------------------------- #
+# The Buddha seeding tab: greying, the zone's entries, the outline on the preview, and the image
+# --------------------------------------------------------------------------- #
+class _SeedVar:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+class _StateWidget:
+    def __init__(self):
+        self.states = []
+
+    def state(self, spec):
+        self.states.append(list(spec))
+
+
+def _fake_seeding_app(camera=True, **zone):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    defaults = dict(x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+    defaults.update(zone)
+    app.last_buddha_seed = dict(defaults)
+    for field, value in defaults.items():
+        setattr(app, f"buddha_seed_{field}_var", _SeedVar(str(value)))
+    app.buddha_seed_camera_var = _SeedVar(camera)
+    app.buddha_seed_entries = [_StateWidget() for _ in range(4)]
+    app.buddha_seed_labels = [_StateWidget() for _ in range(5)]
+    app.seed_job = None
+    app.calls, app.pending = [], []
+    app.root = type("Root", (), {"after_idle": lambda self, fn: app.pending.append(fn) or "job"})()
+    app.refresh_timeline_diffs = lambda: app.calls.append("timeline")
+    app.update_seed_zone_outline = lambda: app.calls.append("outline")
+    for name in ("current_buddha_seed_settings", "update_buddha_seed_state", "on_buddha_seed_camera_changed",
+                 "on_buddha_seed_commit", "on_buddha_seeds_changed", "refresh_buddha_seeds"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    return app
+
+
+def test_the_zone_controls_are_greyed_out_while_the_camera_pixels_are_the_seeds():
+    app = _fake_seeding_app(camera=True)
+    app.update_buddha_seed_state()
+    assert all(w.states[-1] == ["disabled"] for w in app.buddha_seed_entries + app.buddha_seed_labels)
+    app.buddha_seed_camera_var.set(False)
+    app.on_buddha_seed_camera_changed()
+    assert all(w.states[-1] == ["!disabled"] for w in app.buddha_seed_entries + app.buddha_seed_labels)
+    assert app.calls == ["outline", "timeline"] and len(app.pending) == 1
+
+
+def test_the_seeding_settings_read_the_controls_and_an_entry_holding_nonsense_counts_as_its_last_value():
+    app = _fake_seeding_app(camera=False, x_start=-0.5)
+    app.buddha_seed_x_stop_var.set("0.75")
+    app.buddha_seed_y_start_var.set("-")                 # half typed
+    got = app.current_buddha_seed_settings()
+    assert got == m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.75, y_start=-1.0, y_stop=1.0)
+    app.buddha_seed_camera_var.set(True)
+    assert app.current_buddha_seed_settings().camera_pixels is True
+
+
+def test_committing_a_zone_entry_tidies_it_puts_back_the_last_valid_value_and_recolours_once():
+    app = _fake_seeding_app(camera=False)
+    app.buddha_seed_x_start_var.set("-.5")
+    app.buddha_seed_y_stop_var.set("")
+    app.on_buddha_seed_commit()
+    assert app.buddha_seed_x_start_var.get() == "-0.5" and app.last_buddha_seed["x_start"] == -0.5
+    assert app.buddha_seed_y_stop_var.get() == "1.0", "an empty entry goes back to its last valid value"
+    assert len(app.pending) == 1
+    app.on_buddha_seed_commit()                          # a second commit before the recolour: still one pending job
+    assert len(app.pending) == 1
+
+
+def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_the_zone_in_world_space():
+    class Canvas:
+        def __init__(self):
+            self.rects, self.deleted = [], []
+
+        def delete(self, tag):
+            self.deleted.append(tag)
+            self.rects = []
+
+        def create_rectangle(self, *coords, **options):
+            self.rects.append((coords, options))
+
+    class Notebook:
+        def __init__(self, selected):
+            self.selected = selected
+
+        def select(self):
+            return self.selected
+
+    app = _fake_seeding_app(camera=False, x_start=-0.5, x_stop=0.5, y_start=-1.0, y_stop=0.0)
+    app.canvas = Canvas()
+    app.buddha_seeding_tab, app.buddha_tab = "seeding", "buddha"
+    app.controls_notebook, app.buddha_notebook = Notebook("buddha"), Notebook("seeding")
+    app.seed_tab_focused = m.App.seed_tab_focused.__get__(app)
+    del app.update_seed_zone_outline
+    app.update_seed_zone_outline = m.App.update_seed_zone_outline.__get__(app)
+    app.update_seed_zone_outline()
+    (coords, options), = app.canvas.rects
+    half = m.SIZE / 2.0
+    assert coords == (0.5 * half, 1.0 * half, 1.5 * half, 2.0 * half), "x -0.5..0.5 and y -1..0 as pixels"
+    assert options["outline"] == m.SEED_ZONE_OUTLINE and options["dash"] and options["tags"] == "seedzone"
+    app.buddha_notebook.selected = "blur"                # the other sub-tab: invisible
+    app.update_seed_zone_outline()
+    assert app.canvas.rects == [] and app.canvas.deleted[-1] == "seedzone"
+    app.buddha_notebook.selected = "seeding"
+    app.controls_notebook.selected = "coloration"        # another tab of the controls: invisible
+    app.update_seed_zone_outline()
+    assert app.canvas.rects == []
+    app.controls_notebook.selected = "buddha"            # visible even with the camera pixels as seeds
+    app.buddha_seed_camera_var.set(True)
+    app.update_seed_zone_outline()
+    assert len(app.canvas.rects) == 1
+
+
+def _buddha_image(app, points_choice, seeds, zone_scene=None):
+    stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()), seg_mult=0.9)
+    n = 24
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    v = m.ViewConfig(0)
+    v.chan_src[0] = m.CHAN_SRC_BUDDHA
+    v.buddha_points[0] = _buddha_choice(*points_choice)
+    v.buddha_brightness[0] = 3
+    blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
+    return app.colorize_view(_view_settings_from_config(v), stats, points, status, n, n, blur, stop, ray, 0, seeds)
+
+
+def test_a_buddha_image_seeded_from_the_whole_world_zone_is_the_camera_pixels_image_whatever_the_options():
+    app = _fake_render_app()
+    zone = m.BuddhaSeedSettings(camera_pixels=False, x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+    choices = [(m.POINT_ALL_MEAN,), (m.POINT_END, m.POINT_SELF_MEAN), (len(m.BUDDHA_POINT_CATALOG) - 3,),
+               (len(m.BUDDHA_POINT_CATALOG) - 2, len(m.BUDDHA_POINT_CATALOG) - 1)]
+    for choice in choices:
+        tethered = _buddha_image(app, choice, None)
+        assert tethered[..., 0].max() > 0
+        assert np.array_equal(tethered, _buddha_image(app, choice, m.DEFAULT_BUDDHA_SEED)), "camera pixels"
+        assert np.array_equal(tethered, _buddha_image(app, choice, zone)), choice
+
+
+def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_how_many_seeds_there_are():
+    app = _fake_render_app()
+    whole = m.BuddhaSeedSettings(camera_pixels=False, x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+    small = whole.replace(x_start=-0.5, x_stop=0.5, y_start=-0.5, y_stop=0.5)
+    start_points = (m.POINT_START,)
+    a, b = _buddha_image(app, start_points, whole), _buddha_image(app, start_points, small)
+    assert not np.array_equal(a, b)
+    # every seed's start point is the seed itself: one count per seed that fires, in the zone - so the same total
+    # in both (all of them fire inside the unit circle's disc here), packed into the middle for the small zone
+    n = 24
+    stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()))
+    for zone, expected_rows in ((whole, (0, n)), (small, (n // 4, 3 * n // 4))):
+        counts = np.zeros((n, n))
+        m.scatter_from_seeds(0, n, zone.x_start, zone.x_stop, zone.y_start, zone.y_stop, stop, ray, 0,
+                             np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
+                             False, False, False, False, counts)
+        assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
+    full = np.zeros((n, n))
+    m.scatter_from_seeds(0, n, small.x_start, small.x_stop, small.y_start, small.y_stop, stop, ray, 0,
+                         np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
+                         False, False, False, False, full)
+    assert full.sum() == n * n, "all n x n seeds of the shrunken zone fire, and all are scattered"
+
+
+def test_refreshing_the_seeding_scatters_the_buddha_channels_again_and_recolours_but_only_if_there_are_any():
+    app = _fake_seeding_app(camera=False)
+    app.views = [m.ViewConfig(0)]
+    app.view_thumb_cache = {1: "stale"}
+    app.rows_done = 7
+    app.pinned_px = (3, 4)
+    for name in ("rebuild_buddha_counts", "draw", "rebuild_view_list"):
+        setattr(app, name, lambda name=name: app.calls.append(name))
+    app.recolor = lambda r0, r1: app.calls.append(("recolor", r0, r1))
+    app.update_preview = lambda i, j: app.calls.append(("preview", i, j))
+    app.seed_job = "job"
+    app.refresh_buddha_seeds()
+    assert app.seed_job is None and app.view_thumb_cache == {}
+    assert app.calls == [], "no view has a Buddha channel: nothing to scatter again"
+    app.views[0].chan_src[1] = m.CHAN_SRC_BUDDHA
+    app.refresh_buddha_seeds()
+    assert app.calls == ["rebuild_buddha_counts", ("recolor", 0, 7), "draw", ("preview", 3, 4), "rebuild_view_list"]

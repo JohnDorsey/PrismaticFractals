@@ -120,6 +120,7 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.tick_id = None
         self.outline_job = None
         self.blur_job = None              # a pending refresh_blur (slider events coalesce)
+        self.seed_job = None              # a pending refresh_buddha_seeds (changes of one moment coalesce)
         self.start_time = 0.0
         self.elapsed = 0.0
         self.next_tick = 0.0

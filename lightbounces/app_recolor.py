@@ -11,7 +11,7 @@ from .metrics import (
     POINT_STATS, STAT_DESCRIPTIONS, STAT_LABELS, blur_counts_image, buddha_compress,
     build_buddha_blur_kernel, constant_label_to_stat, constant_stat_to_label, extract_point_xy,
     make_mapping, other_label_to_stat, other_stat_to_label, point_comparison_metric,
-    resolve_point_xy, scatter_points_raw, world_radius_to_pixels
+    resolve_point_xy, scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
 )
 from .ui_text import default_map_help
 from .views import MODES, channels_to_rgb
@@ -253,12 +253,21 @@ class RecolorMixin:
         if r1 <= r0 or not any(s == CHAN_SRC_BUDDHA for s in view.chan_src):
             return
         h, w = SIZE, SIZE
+        seeds = self.current_buddha_seed_settings()
         fired = self.status[r0:r1] == 1
-        if not fired.any():
+        if seeds.camera_pixels and not fired.any():
             return
         term_stat = self.stats[r0:r1, :, ST_TERMINATION]
         for c in range(3):
             if view.chan_src[c] != CHAN_SRC_BUDDHA or self.buddha_counts[c] is None:
+                continue
+            if not seeds.camera_pixels:
+                # seeded from their own grid: every chosen point comes from rays fired there (rows of the grid
+                # correspond to the rows of the image as they are done)
+                if scatter_seeded_buddha(self.buddha_counts[c], seeds, r0, r1, view.buddha_points[c],
+                                         self.gen_stop, self.gen_ray,
+                                         self.settings_of_current_image().fuzz.seed):
+                    self.buddha_counts_blurred[c] = None
                 continue
             want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
                          BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}

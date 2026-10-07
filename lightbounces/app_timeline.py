@@ -162,7 +162,7 @@ class TimelineMixin:
                 messagebox.showerror("Invalid settings",
                                      "Fix the iteration/distance limit fields first.")
             return None
-        d = settings_to_dict(*snap, self.current_blur_settings())
+        d = settings_to_dict(*snap, self.current_blur_settings(), self.current_buddha_seed_settings())
         d["outline"] = self.deco["outline"].get()
         for o in self.obstacles:
             for field in o.FIELD_NAMES:
@@ -301,6 +301,7 @@ class TimelineMixin:
             self.on_shape_param_changed()
             self.on_fuzz_changed()
             self.on_buddha_blur_changed()
+            self.on_buddha_seeds_changed()
             self.refresh_timeline_diffs()
 
     def save_settings(self, kf, keys):
@@ -386,6 +387,7 @@ class TimelineMixin:
             self.on_shape_param_changed()
             self.on_fuzz_changed()
             self.on_buddha_blur_changed()
+            self.on_buddha_seeds_changed()
         finally:
             self.kf_applying = False
 

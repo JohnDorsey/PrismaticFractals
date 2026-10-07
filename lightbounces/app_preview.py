@@ -2,7 +2,7 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, PREVIEW_SIZE, SAMPLE_COLORS,
+    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, VIEW_NAME_OVERLAY_BG, VIEW_NAME_OVERLAY_FG,
     VIEW_NAME_OVERLAY_MARGIN, VIEW_NAME_OVERLAY_PAD, VIEW_NAME_OVERLAY_SCALE
 )
@@ -267,6 +267,28 @@ class PreviewMixin:
         self.swatch.configure(bg=hexcol)
         self.info_placeholder.grid_remove()
         self.info_rows.grid()
+
+    def seed_tab_focused(self):
+        """Whether the Buddha seeding tab is the one being looked at (its tab of the Buddha tab, which is itself
+        the selected tab of the controls)."""
+        return (self.controls_notebook.select() == str(self.buddha_tab)
+                and self.buddha_notebook.select() == str(self.buddha_seeding_tab))
+
+    def update_seed_zone_outline(self):
+        """Dashed purple outline of the zone the Buddha seed points are spread over, on the preview, while - and only
+        while - the Buddha seeding tab is being looked at. (It is not a decoration with a checkbox of its own, for
+        now.) The zone may reach outside the image."""
+        if not hasattr(self, "canvas") or not hasattr(self, "buddha_seeding_tab"):
+            return                                 # the window is still being built
+        self.canvas.delete("seedzone")
+        if not self.seed_tab_focused():
+            return
+        zone = self.current_buddha_seed_settings()
+        half = SIZE / 2.0
+        self.canvas.create_rectangle(
+            (zone.x_start + 1.0) * half, (1.0 - zone.y_stop) * half,
+            (zone.x_stop + 1.0) * half, (1.0 - zone.y_start) * half,
+            outline=SEED_ZONE_OUTLINE, width=2, dash=(6, 4), tags="seedzone")
 
     def on_leave(self, _event):
         if self.pinned_px is None:                 # a pinned preview stays put

@@ -10,7 +10,7 @@ from .constants import (
 )
 from .kernels import (
     N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, scatter_from_seeds
 )
 
 
@@ -366,6 +366,33 @@ BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(per
                                                "AllSelf", "AllMid", "ProgBounce", "ProgMid"]
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
+
+def scatter_seeded_buddha(counts, seeds, row0, row1, chosen, stop, ray, seed_base):
+    """Scatter, into `counts` (in place), the Buddha points `chosen` (a channel's tuple of flags, one per entry of
+    BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a BuddhaSeedSettings: its zone,
+    laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen option - the stored points
+    too - is made from those rays, not from the image's own. Returns whether anything was chosen."""
+    slots, end_terms = [], []
+    want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
+                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
+    for index, on in enumerate(chosen):
+        if not on:
+            continue
+        _label, style, ref, term_filter = BUDDHA_POINT_CATALOG[index]
+        if style == BUDDHA_MULTI:
+            want_multi[ref] = True
+        elif term_filter is None:
+            slots.append(ref)
+        else:
+            end_terms.append(term_filter)
+    if not (slots or end_terms or any(want_multi.values())):
+        return False
+    scatter_from_seeds(row0, row1, seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop, stop, ray, seed_base,
+                       np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
+                       want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
+                       want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)
+    return True
+
 
 # Buddha coloration: how a pixel's (unbounded, non-negative integer) visit
 # count maps down to the 0..255 a color channel needs.

@@ -2,11 +2,13 @@
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
-    BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN,
+    DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP,
+    DEFAULT_BUDDHA_SEED_Y_START, DEFAULT_BUDDHA_SEED_Y_STOP, BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN,
     DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_BLUR_TYPE, RIGHT_W, SELECTED_OUTLINE,
     SELECTED_OUTLINE_PX, THUMB_SIZE
 )
 from .image_io import encode_png_bytes
+from .parsing import parse_target_coordinate
 from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_CONSTANT_LABELS,
@@ -424,6 +426,99 @@ class ColorationMixin:
         ttk.Label(mp, textvariable=self.map_help_var, foreground="#666",
                   wraplength=RIGHT_W - 70, justify="left").grid(
             row=1, column=0, sticky="w", padx=8, pady=(4, 6))
+
+    def build_buddha_seeding_controls(self, parent):
+        """The Buddha seeding tab: where the rays that Buddha channels scatter start (their seed points - not to be
+        confused with the Emissions tab, which is about what direction each ray is fired in). With the checkbox
+        they start at the camera's pixels, the same places as the image's own rays; without it, on a grid laid
+        over the zone below with one seed per pixel of the output, however large or small the zone. Nothing
+        here changes what a generated image is made of, so a change recolours at once, no Start."""
+        self.buddha_seed_camera_var = tk.BooleanVar(value=DEFAULT_BUDDHA_SEED_CAMERA)
+        self.buddha_seed_camera_check = ttk.Checkbutton(
+            parent, text="use camera pixels as emission seed points",
+            variable=self.buddha_seed_camera_var, command=self.on_buddha_seed_camera_changed)
+        self.buddha_seed_camera_check.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
+
+        zone = ttk.LabelFrame(parent, text="Seed point grid")
+        zone.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+        zone.columnconfigure(0, weight=1)
+        coord_vcmd = (self.root.register(self.validate_signed_float), "%P")
+        self.buddha_seed_labels = []
+        self.buddha_seed_entries = []
+        self.last_buddha_seed = {}
+        for row, (field, label, default) in enumerate(
+                (("x_start", "X start", DEFAULT_BUDDHA_SEED_X_START),
+                 ("x_stop", "X stop", DEFAULT_BUDDHA_SEED_X_STOP),
+                 ("y_start", "Y start", DEFAULT_BUDDHA_SEED_Y_START),
+                 ("y_stop", "Y stop", DEFAULT_BUDDHA_SEED_Y_STOP))):
+            var = tk.StringVar(value=str(default))
+            setattr(self, f"buddha_seed_{field}_var", var)
+            self.last_buddha_seed[field] = default
+            name = ttk.Label(zone, text=label + " (world units):")
+            name.grid(row=row, column=0, sticky="w", padx=(8, 6), pady=2)
+            entry = ttk.Entry(zone, textvariable=var, width=14, justify="right", validate="key",
+                              validatecommand=coord_vcmd)
+            entry.grid(row=row, column=1, padx=(0, 8), pady=2)
+            for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
+                entry.bind(event, self.on_buddha_seed_commit)
+            setattr(self, f"buddha_seed_{field}_entry", entry)
+            self.buddha_seed_labels.append(name)
+            self.buddha_seed_entries.append(entry)
+        note = ttk.Label(zone, foreground="#666", wraplength=RIGHT_W - 70,
+                         text="Seed points are spread over this zone at regular spacings, one for each pixel "
+                              "of the image (the live image or an exported one), so shrinking the zone packs "
+                              "the same number of seeds into less space. A seed that is not inside a shape "
+                              "that fires rays fires nothing. The zone, dashed in purple on the preview while "
+                              "this tab is open, does not have to be inside the image.")
+        note.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 6))
+        self.buddha_seed_labels.append(note)
+        self.update_buddha_seed_state()
+
+    def update_buddha_seed_state(self):
+        """The zone's controls are greyed out while the camera's pixels are the seeds."""
+        state = ["disabled"] if self.buddha_seed_camera_var.get() else ["!disabled"]
+        for widget in self.buddha_seed_entries + self.buddha_seed_labels:
+            widget.state(state)
+
+    def on_buddha_seed_camera_changed(self):
+        self.on_buddha_seeds_changed()
+
+    def on_buddha_seed_commit(self, _event=None):
+        """Enter pressed or focus left a zone entry: tidy its text (an invalid one goes back to the last valid
+        value) and, if the zone changed, recolour."""
+        for field in self.last_buddha_seed:
+            var = getattr(self, f"buddha_seed_{field}_var")
+            value = parse_target_coordinate(var.get())
+            var.set(str(self.last_buddha_seed[field] if value is None else value))
+        self.on_buddha_seeds_changed()
+
+    def on_buddha_seeds_changed(self):
+        """The seeding changed (by hand, or loaded from a keyframe or a project): remember the zone's valid values,
+        refresh what shows it now, and recolour - which takes a moment when a Buddha channel has to trace its
+        rays again - once the changes of this moment have all arrived."""
+        for field in self.last_buddha_seed:
+            value = parse_target_coordinate(getattr(self, f"buddha_seed_{field}_var").get())
+            if value is not None:
+                self.last_buddha_seed[field] = value
+        self.update_buddha_seed_state()
+        self.update_seed_zone_outline()
+        self.refresh_timeline_diffs()
+        if self.seed_job is None:
+            self.seed_job = self.root.after_idle(self.refresh_buddha_seeds)
+
+    def refresh_buddha_seeds(self):
+        """Scatter every Buddha channel again from the seeds as they now are, and recolour (like refresh_blur, but
+        the scattered counts themselves are new). Costs nothing when no view has a Buddha channel."""
+        self.seed_job = None
+        self.view_thumb_cache = {}
+        if not any(src == CHAN_SRC_BUDDHA for v in self.views for src in v.chan_src):
+            return
+        self.rebuild_buddha_counts()
+        self.recolor(0, self.rows_done)
+        self.draw()
+        if self.pinned_px is not None:
+            self.update_preview(*self.pinned_px)
+        self.rebuild_view_list()
 
     def build_buddha_blur_controls(self, parent):
         """Radius slider and blur-type dropdown for Buddha coloration's

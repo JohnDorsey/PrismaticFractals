@@ -7,8 +7,9 @@ everything derived from them; the kernel argument tuples built from them (`fuzz_
 import dataclasses
 from math import cos, radians, sin
 from .constants import (
-    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS,
-    DEFAULT_BUDDHA_BLUR_TYPE, DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD,
+    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA,
+    DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP, DEFAULT_BUDDHA_SEED_Y_START,
+    DEFAULT_BUDDHA_SEED_Y_STOP, DEFAULT_BUDDHA_BLUR_TYPE, DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD,
     DEFAULT_CONFINE_WINDOW, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
@@ -107,6 +108,27 @@ DEFAULT_BUDDHA_BLUR = BuddhaBlurSettings(radius=DEFAULT_BUDDHA_BLUR_RADIUS,
 
 
 @strict_record
+class BuddhaSeedSettings:
+    """Where the rays that Buddha channels scatter start (their seed points). With `camera_pixels` they start at the
+    centres of the pixels of the image being made, in world space - for the live image from rays it has already
+    traced, so nothing is traced twice for the single-point options. Otherwise they start on a grid laid over the
+    zone x_start..x_stop by y_start..y_stop (world units) with as many rows and columns as the image has pixels: so
+    shrinking the zone makes the seeds closer together, never fewer. A record of its own, beside the others, and like
+    the blur not part of what a generated image is made of."""
+    camera_pixels: bool
+    x_start: float
+    x_stop: float
+    y_start: float
+    y_stop: float
+
+
+DEFAULT_BUDDHA_SEED = BuddhaSeedSettings(
+    camera_pixels=DEFAULT_BUDDHA_SEED_CAMERA, x_start=DEFAULT_BUDDHA_SEED_X_START,
+    x_stop=DEFAULT_BUDDHA_SEED_X_STOP, y_start=DEFAULT_BUDDHA_SEED_Y_START,
+    y_stop=DEFAULT_BUDDHA_SEED_Y_STOP)
+
+
+@strict_record
 class NaturalStopSettings:
     """What brings a sequence of points to its natural end, whichever engine makes the sequence (the ray-bouncing
     engine today; an escape-time iteration could take the same limits): how many points (`max_iter`), how long a path
@@ -163,6 +185,7 @@ class KeyframeData:
     ray: RaySettings
     natural_stop: NaturalStopSettings
     buddha_blur: BuddhaBlurSettings
+    buddha_seed: BuddhaSeedSettings
     outline: bool
 
 
@@ -296,15 +319,29 @@ BLUR_SETTING_SPECS = {
                               BUDDHA_BLUR_LABELS),
 }
 
+# The same for the Buddha seeding (a BuddhaSeedSettings).
+BUDDHA_SEED_SETTING_SPECS = {
+    "buddha_seed_camera": _spec(("camera_pixels",), "buddha_seed_camera_var", "buddha_seed_camera_check",
+                                "bool", "Buddha seeding", "Use camera pixels"),
+    "buddha_seed_x_start": _spec(("x_start",), "buddha_seed_x_start_var", "buddha_seed_x_start_entry",
+                                 "float_text", "Buddha seeding", "X start"),
+    "buddha_seed_x_stop": _spec(("x_stop",), "buddha_seed_x_stop_var", "buddha_seed_x_stop_entry",
+                                "float_text", "Buddha seeding", "X stop"),
+    "buddha_seed_y_start": _spec(("y_start",), "buddha_seed_y_start_var", "buddha_seed_y_start_entry",
+                                 "float_text", "Buddha seeding", "Y start"),
+    "buddha_seed_y_stop": _spec(("y_stop",), "buddha_seed_y_stop_var", "buddha_seed_y_stop_entry",
+                                "float_text", "Buddha seeding", "Y stop"),
+}
+
 # Every record of settings and the table of its rows. This is the one place that says
 # which records there are: a new kind of settings (say, those of another way to generate
 # bounces) is a record class, a table like those above, and an entry here. Setting keys
 # are unique across all the tables (they are what keyframes and project files call a
 # setting), and run_self_checks() checks each table against its record's fields.
 SETTING_TABLES = {NaturalStopSettings: NATURAL_STOP_SETTING_SPECS, RaySettings: RAY_SETTING_SPECS,
-                  BuddhaBlurSettings: BLUR_SETTING_SPECS}
+                  BuddhaBlurSettings: BLUR_SETTING_SPECS, BuddhaSeedSettings: BUDDHA_SEED_SETTING_SPECS}
 DEFAULT_SETTINGS = {NaturalStopSettings: DEFAULT_NATURAL_STOP_SETTINGS, RaySettings: DEFAULT_RAY_SETTINGS,
-                    BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR}
+                    BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR, BuddhaSeedSettings: DEFAULT_BUDDHA_SEED}
 
 # Every static setting a keyframe can define, from all the tables, in table order.
 SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
@@ -314,7 +351,7 @@ SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in
 # then the one decoration that is not part of any record of settings.
 SETTING_INFO = ([(key, spec.tab, spec.label) for key, spec in SETTING_SPECS.items()]
                 + [("outline", "Decorations", "Outline")])
-SETTING_TABS_ORDER = ["Emissions", "Termination", "Mutations", "Buddha blur", "Decorations"]
+SETTING_TABS_ORDER = ["Emissions", "Termination", "Mutations", "Buddha seeding", "Buddha blur", "Decorations"]
 SETTING_LABEL = {key: label for key, _tab, label in SETTING_INFO}
 SETTING_TAB = {key: tab for key, tab, _label in SETTING_INFO}
 
@@ -540,6 +577,7 @@ def resolve_frame_settings(keyframes_sorted, frame_number):
     return KeyframeData(ray=settings_from_dict(RaySettings, v),
                         natural_stop=settings_from_dict(NaturalStopSettings, v),
                         buddha_blur=settings_from_dict(BuddhaBlurSettings, v),
+                        buddha_seed=settings_from_dict(BuddhaSeedSettings, v),
                         outline=bool(v["outline"]))
 
 

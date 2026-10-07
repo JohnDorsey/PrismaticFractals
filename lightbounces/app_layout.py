@@ -85,11 +85,13 @@ class LayoutMixin:
 
         notebook = ttk.Notebook(ctl)
         notebook.grid(row=0, column=0, sticky="nsew", padx=8, pady=(6, 4))
+        self.controls_notebook = notebook
         emissions_tab = ttk.Frame(notebook)
         termination_tab = ttk.Frame(notebook)
         mutations_tab = ttk.Frame(notebook)
         color_tab = ttk.Frame(notebook)
-        buddha_blur_tab = ttk.Frame(notebook)
+        buddha_tab = ttk.Frame(notebook)
+        self.buddha_tab = buddha_tab
         deco_tab = ttk.Frame(notebook)
         obst_tab = ttk.Frame(notebook)
         sim_tab = ttk.Frame(notebook)             # empty for now: the settings that were in it have moved out
@@ -97,11 +99,11 @@ class LayoutMixin:
         notebook.add(termination_tab, text="Termination")
         notebook.add(mutations_tab, text="Mutations")
         notebook.add(color_tab, text="Coloration")
-        notebook.add(buddha_blur_tab, text="Buddha blur")
+        notebook.add(buddha_tab, text="Buddha")
         notebook.add(deco_tab, text="Decorations")
         notebook.add(obst_tab, text="Obstacles")
         notebook.add(sim_tab, text="Simulation")
-        for tab in (emissions_tab, termination_tab, mutations_tab, color_tab, buddha_blur_tab,
+        for tab in (emissions_tab, termination_tab, mutations_tab, color_tab, buddha_tab,
                     deco_tab, obst_tab, sim_tab):
             tab.columnconfigure(0, weight=1)
 
@@ -117,7 +119,24 @@ class LayoutMixin:
         self.build_fuzzing_controls(mutations_inner)
         self.build_segment_mult_controls(mutations_inner)
         self.build_color_controls(color_tab)
+        # The Buddha tab has two tabs of its own: where the rays that are scattered start (the seed points), and
+        # the blur of the scattered points.
+        buddha_notebook = ttk.Notebook(buddha_tab)
+        buddha_notebook.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        buddha_tab.rowconfigure(0, weight=1)
+        self.buddha_notebook = buddha_notebook
+        buddha_seeding_tab = ttk.Frame(buddha_notebook)
+        buddha_blur_tab = ttk.Frame(buddha_notebook)
+        self.buddha_seeding_tab = buddha_seeding_tab
+        buddha_notebook.add(buddha_seeding_tab, text="Buddha seeding")
+        buddha_notebook.add(buddha_blur_tab, text="Buddha blur")
+        buddha_seeding_tab.columnconfigure(0, weight=1)
+        buddha_blur_tab.columnconfigure(0, weight=1)
+        self.build_buddha_seeding_controls(buddha_seeding_tab)
         self.build_buddha_blur_controls(buddha_blur_tab)
+        # the seeding zone is drawn on the preview only while its tab is the one being looked at
+        for tabs in (notebook, buddha_notebook):
+            tabs.bind("<<NotebookTabChanged>>", lambda _e: self.update_seed_zone_outline())
         self.build_decoration_controls(deco_tab)
         self.obst_canvas, obst_inner = make_scrollable_tab(obst_tab)
         self.build_obstacles_controls(obst_inner)

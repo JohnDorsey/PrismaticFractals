@@ -84,6 +84,7 @@ class ProjectsMixin:
         selected = self.selected_obstacle
         return Project(
             ray=ray, natural_stop=natural_stop, buddha_blur=self.current_blur_settings(),
+            buddha_seed=self.current_buddha_seed_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
             views=tuple(snapshot_view(v) for v in self.views),
@@ -126,8 +127,8 @@ class ProjectsMixin:
         self.discard_generated_image()
         self.kf_applying = True
         try:
-            for key, value in settings_to_dict(project.ray, project.natural_stop,
-                                               project.buddha_blur).items():
+            for key, value in settings_to_dict(project.ray, project.natural_stop, project.buddha_blur,
+                                               project.buddha_seed).items():
                 self.set_setting_control(key, value)
             self.baseline = project.ray
             self.baseline_natural_stop = project.natural_stop
@@ -163,6 +164,7 @@ class ProjectsMixin:
         self.refresh_color_controls_for_selected_view()
         self.rebuild_view_list()
         self.refresh_live_preview_state()
+        self.on_buddha_seeds_changed()
         self.on_decoration_changed("outline")
         self.on_decoration_changed("pending")
         self.on_shape_param_changed()

@@ -8,7 +8,7 @@ from .metrics import (
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_BUDDHA,
     NONE_ONE, NONE_ZERO, POINT_STATS, blur_counts_image, buddha_compress,
     build_buddha_blur_kernel, extract_point_xy, make_mapping, point_comparison_metric,
-    scatter_points_raw, world_radius_to_pixels
+    scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
 )
 from .settings import settings_natural_stop, settings_ray_args
 from .shapes import build_obstacle_arrays, draw_obstacle_outline, ring_layer_masks
@@ -29,7 +29,8 @@ class RenderMixin:
             images.append(self.colorize_view(v.settings(), self.stats, self.points, self.status,
                                              SIZE, SIZE, self.current_blur_settings(),
                                              self.gen_stop, self.gen_ray,
-                                             self.settings_of_current_image().fuzz.seed))
+                                             self.settings_of_current_image().fuzz.seed,
+                                             self.current_buddha_seed_settings()))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
@@ -62,7 +63,7 @@ class RenderMixin:
         render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, stop, ray, seed)
 
         images = [self.colorize_view(v, stats, points, status, out_w, out_h, data.buddha_blur,
-                                     stop, ray, seed)
+                                     stop, ray, seed, data.buddha_seed)
                  for v in views]
 
         if data.outline:
@@ -79,14 +80,18 @@ class RenderMixin:
 
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def colorize_view(self, v, stats, points, status, out_w, out_h, blur, stop, ray, seed_base):
+    def colorize_view(self, v, stats, points, status, out_w, out_h, blur, stop, ray, seed_base, seeds=None):
         """One view's (out_h, out_w, 3) uint8 image (background color where no
         ray was computed, no outline - that's applied uniformly afterwards)
         from already-traced stats/points/status. `v` is a ViewSettings: this
         is the same coloring computation every view goes through, whichever
         one it is. `blur` (a BuddhaBlurSettings) is how Buddha channels are blurred;
         `stop` (a NaturalStopRule), `ray` (a RayArgs) and `seed_base` (the fuzzing seed) are the
-        simulation's own, used only to re-trace the rays for the "multi" Buddha point options."""
+        simulation's own, used only to re-trace the rays for the "multi" Buddha point options. `seeds` (a
+        BuddhaSeedSettings; None means the camera pixels) says where the rays that Buddha channels scatter start: by
+        default the pixels of this very image, whose stored points serve the single-point options; otherwise a seed
+        grid with this image's rows and columns over the seeding zone, every chosen point of which comes from
+        rays traced there."""
         mapping = make_mapping(v.kinds, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
@@ -101,6 +106,13 @@ class RenderMixin:
                 s = mapping[c]
                 if s == CHAN_BUDDHA:
                     counts = np.zeros((out_h, out_w), dtype=np.float64)
+                    if seeds is not None and not seeds.camera_pixels:
+                        scatter_seeded_buddha(counts, seeds, 0, out_h, v.buddha_points[c], stop, ray, seed_base)
+                        counts = blur_counts_image(counts, buddha_kernel)
+                        sub = counts[computed].astype(np.float64)
+                        mult = BUDDHA_BRIGHTNESS_VALUES[v.buddha_brightness[c]]
+                        vals.append(buddha_compress(sub, v.buddha_compression[c], mult))
+                        continue
                     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
                                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
                     term_stat = stats[..., ST_TERMINATION]
@@ -176,7 +188,8 @@ class RenderMixin:
         v = view_obj.settings()
         full = self.colorize_view(v, self.stats, self.points, self.status, SIZE, SIZE,
                                   self.current_blur_settings(), self.gen_stop, self.gen_ray,
-                                  self.settings_of_current_image().fuzz.seed)
+                                  self.settings_of_current_image().fuzz.seed,
+                                  self.current_buddha_seed_settings())
         ys = (np.arange(size) * SIZE / size).astype(np.int64)
         xs = (np.arange(size) * SIZE / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]

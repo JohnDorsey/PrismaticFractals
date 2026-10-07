@@ -33,7 +33,7 @@ from .metrics import (
     POINT_STATS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
 )
 from .settings import (
-    BuddhaBlurSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalStopSettings, RaySettings, SETTING_TABLES,
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalStopSettings, RaySettings, SETTING_TABLES,
     settings_from_dict, settings_to_dict, strict_record
 )
 from .shapes import SHAPE_CLASSES
@@ -207,6 +207,7 @@ class Project:
     ray: RaySettings                    # the ray-bouncing engine's controls
     natural_stop: NaturalStopSettings   # the limits that end a sequence of points, beside them
     buddha_blur: BuddhaBlurSettings     # the Buddha blur's, beside them (not inside)
+    buddha_seed: BuddhaSeedSettings     # where the rays Buddha channels scatter start, beside them
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
     views: tuple                        # ViewSnapshots, in list order
@@ -312,6 +313,7 @@ def project_to_dict(project):
         "simulation": _settings_to_json(project.ray),
         "natural_stop": _settings_to_json(project.natural_stop),
         "buddha_blur": _settings_to_json(project.buddha_blur),
+        "buddha_seeding": _settings_to_json(project.buddha_seed),
         "decorations": dict(project.decorations),
         "obstacles": [{"kind": type(o).KEY, "id": o.id,
                        "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
@@ -692,6 +694,8 @@ def _project_from_dict(data):
                                           "the natural stopping settings")
     buddha_blur = _settings_from_section(data, "buddha_blur", BuddhaBlurSettings,
                                          "the Buddha blur settings")
+    buddha_seed = _settings_from_section(data, "buddha_seeding", BuddhaSeedSettings,
+                                         "the Buddha seeding settings")
 
     decorations = {key: value for key, value in (data.get("decorations") or {}).items()
                    if isinstance(value, bool)}
@@ -715,7 +719,7 @@ def _project_from_dict(data):
     selected_obstacle = selected.get("obstacle")
     selected_view = selected.get("view")
     return Project(
-        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, decorations=decorations, obstacles=obstacles, views=views,
+        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, buddha_seed=buddha_seed, decorations=decorations, obstacles=obstacles, views=views,
         keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
         view_counter=max(counters.get("view", 0), max(view_ids) + 1),

@@ -2345,71 +2345,107 @@ def scatter_one_buddha_point(counts, x, y, w, h):
 
 
 @njit(cache=True)
-def scatter_multi_buddha(row0, row1, stop, ray, seed_base, want_all_self, want_all_mid,
-                         want_prog_bounce, want_prog_mid, counts):
+def scatter_trace_points(counts, pts, kinds, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
+                         want_prog_mid):
+    """Scatter into `counts` (in place) the points of one traced ray that the four "multi-point" Buddha options
+    ask for: every self bounce, every segment midpoint, the progressive means of the bounce points and of the
+    segment midpoints. (pts, kinds, npts, nb: as trace_path made them.)"""
+    h, w = counts.shape
+    if want_all_self:
+        for k in range(1, nb + 1):
+            if in_sequence(SEQ_SELF, k, kinds, nb, npts):
+                scatter_one_buddha_point(counts, pts[k, 0], pts[k, 1], w, h)
+
+    if want_all_mid:
+        for k in range(npts - 1):
+            mx = 0.5 * (pts[k, 0] + pts[k + 1, 0])
+            my = 0.5 * (pts[k, 1] + pts[k + 1, 1])
+            scatter_one_buddha_point(counts, mx, my, w, h)
+
+    if want_prog_bounce and nb >= 2:
+        sx = pts[1, 0] + pts[2, 0]
+        sy = pts[1, 1] + pts[2, 1]
+        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
+        for c in range(3, nb + 1):
+            sx += pts[c, 0]
+            sy += pts[c, 1]
+            scatter_one_buddha_point(counts, sx / c, sy / c, w, h)
+
+    if want_prog_mid and npts - 1 >= 2:
+        sx = 0.5 * (pts[0, 0] + pts[1, 0]) + 0.5 * (pts[1, 0] + pts[2, 0])
+        sy = 0.5 * (pts[0, 1] + pts[1, 1]) + 0.5 * (pts[1, 1] + pts[2, 1])
+        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
+        cnt = 2
+        for k in range(2, npts - 1):
+            sx += 0.5 * (pts[k, 0] + pts[k + 1, 0])
+            sy += 0.5 * (pts[k, 1] + pts[k + 1, 1])
+            cnt += 1
+            scatter_one_buddha_point(counts, sx / cnt, sy / cnt, w, h)
+
+
+@njit(cache=True)
+def scatter_from_seeds(row0, row1, x_start, x_stop, y_start, y_stop, stop, ray, seed_base, slots, end_terms,
+                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts):
     """
-    For rows [row0, row1), re-trace every ray that actually fires (starting at the
-    centre of each pixel of `counts`' own grid, and using the exact same seed
-    formula as render_rows / render_rows_wh, so this reproduces the identical
-    rays already shown, at whatever resolution that is) and, for whichever of the four "multi-point" Buddha
-    options are requested, scatter every one of that option's points into
-    `counts` (in place) - cheap, no blur kernel applied here; blur (if any)
-    is applied once, afterward, to the whole accumulated counts array.
-    Deliberately single-threaded (no prange): a scattered point can land on
-    any pixel, not just ones in this row range, so a parallel version would
-    risk concurrent writes to the same pixel. `stop` is a NaturalStopRule and `ray` a RayArgs
-    (see trace_path).
+    Buddha scattering from a grid of seed points. The grid has the shape of `counts` (h rows of w seeds) and is
+    laid over the zone x_start..x_stop by y_start..y_stop at regular spacings, so its size depends on the output's
+    resolution and not on the zone: a seed is the centre of its cell, columns going from x_start to x_stop and
+    rows from y_stop (the top row) down to y_start. The zone (-1, 1, -1, 1) is exactly the pixels of an image
+    covering the world, which is what the "camera pixels" seeding uses. For rows [row0, row1), every seed that
+    fires a ray (see emits_ray) is traced, with the same fuzzing seed formula as render_rows / render_rows_wh, and
+    scattered into `counts` (in place; no blur here, it is applied once afterwards): the stored point of each slot
+    in `slots` (see POINT_SLOT; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
+    an int64 array), and whatever the four multi options asked for (see scatter_trace_points).
+    Deliberately single-threaded (no prange): a scattered point can land on any pixel, so a parallel version would
+    risk concurrent writes. `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
     """
     max_iter = stop.max_iter
     obstacles = ray.obstacles
     fuzzing = ray.fuzz.enabled
     h, w = counts.shape
-    step_x = 2.0 / w                         # the grid of `counts` covers [-1, 1] on both axes
-    step_y = 2.0 / h                         # (exactly render_rows_wh's rays, at any resolution)
+    step_x = (x_stop - x_start) / w
+    step_y = (y_stop - y_start) / h
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(N_RAW)
+    out = np.empty(N_STATS)
+    sp = np.empty((N_POINTS, 2))
+    stored = len(slots) > 0 or len(end_terms) > 0
     for j in range(row0, row1):
         for i in range(w):
-            x = (i + 0.5) * step_x - 1.0
-            y = 1.0 - (j + 0.5) * step_y
+            x = x_start + (i + 0.5) * step_x
+            y = y_stop - (j + 0.5) * step_y
             if not emits_ray(x, y, obstacles):
                 continue
             if fuzzing:
                 np.random.seed(seed_base + i * 1000003 + j * 97)
-            _term, npts = trace_path(x, y, pts, kinds, stop, ray, raw)
+            term, npts = trace_path(x, y, pts, kinds, stop, ray, raw)
             nb = int(raw[RAW_BOUNCES])
+            if stored:
+                compute_sequences(pts, npts, kinds, nb, max_iter, out, sp)
+                for slot in slots:
+                    scatter_one_buddha_point(counts, sp[slot, 0], sp[slot, 1], w, h)
+                for t in end_terms:
+                    if term == t:
+                        scatter_one_buddha_point(counts, sp[POINT_END, 0], sp[POINT_END, 1], w, h)
+            scatter_trace_points(counts, pts, kinds, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
+                                 want_prog_mid)
 
-            if want_all_self:
-                for k in range(1, nb + 1):
-                    if in_sequence(SEQ_SELF, k, kinds, nb, npts):
-                        scatter_one_buddha_point(counts, pts[k, 0], pts[k, 1], w, h)
 
-            if want_all_mid:
-                for k in range(npts - 1):
-                    mx = 0.5 * (pts[k, 0] + pts[k + 1, 0])
-                    my = 0.5 * (pts[k, 1] + pts[k + 1, 1])
-                    scatter_one_buddha_point(counts, mx, my, w, h)
-
-            if want_prog_bounce and nb >= 2:
-                sx = pts[1, 0] + pts[2, 0]
-                sy = pts[1, 1] + pts[2, 1]
-                scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
-                for c in range(3, nb + 1):
-                    sx += pts[c, 0]
-                    sy += pts[c, 1]
-                    scatter_one_buddha_point(counts, sx / c, sy / c, w, h)
-
-            if want_prog_mid and npts - 1 >= 2:
-                sx = 0.5 * (pts[0, 0] + pts[1, 0]) + 0.5 * (pts[1, 0] + pts[2, 0])
-                sy = 0.5 * (pts[0, 1] + pts[1, 1]) + 0.5 * (pts[1, 1] + pts[2, 1])
-                scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
-                cnt = 2
-                for k in range(2, npts - 1):
-                    sx += 0.5 * (pts[k, 0] + pts[k + 1, 0])
-                    sy += 0.5 * (pts[k, 1] + pts[k + 1, 1])
-                    cnt += 1
-                    scatter_one_buddha_point(counts, sx / cnt, sy / cnt, w, h)
+@njit(cache=True)
+def scatter_multi_buddha(row0, row1, stop, ray, seed_base, want_all_self, want_all_mid,
+                         want_prog_bounce, want_prog_mid, counts):
+    """
+    For rows [row0, row1), re-trace every ray that actually fires (starting at the centre of each pixel of
+    `counts`' own grid, which covers the world [-1, 1] on both axes, and using the exact same seed formula as
+    render_rows / render_rows_wh, so this reproduces the identical rays already shown, at whatever resolution that
+    is) and scatter into `counts` the points of the "multi-point" Buddha options asked for - scatter_from_seeds
+    over the zone (-1, 1, -1, 1) with no stored points. `stop` is a NaturalStopRule and `ray` a RayArgs
+    (see trace_path).
+    """
+    no_slots = np.empty(0, dtype=np.int64)
+    scatter_from_seeds(row0, row1, -1.0, 1.0, -1.0, 1.0, stop, ray, seed_base, no_slots, no_slots,
+                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts)
 
 
 @njit(nogil=True, cache=True)

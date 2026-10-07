@@ -96,6 +96,7 @@ def test_capture_all_settings_has_no_first_view_special_case():
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": type("X", (), {"get": lambda self: True})()}
     v0 = m.ViewConfig(0)
     v1 = m.ViewConfig(5)

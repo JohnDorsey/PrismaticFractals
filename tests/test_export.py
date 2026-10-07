@@ -235,6 +235,7 @@ def test_select_view_invalidates_the_incoming_views_stale_cache():
     app.generated_settings = None                     # the placeholder image: default settings
     app.generated_natural_stop = None
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
     app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
 

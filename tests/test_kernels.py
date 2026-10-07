@@ -1798,3 +1798,99 @@ def test_the_stored_layout_and_its_alias_tables_agree():
     assert m.stat_slot(m.SEQ_PATH, m.SRED_LENGTH) == m.ST_LENGTH and m.stat_slot(m.SEQ_BOUNCES, m.SRED_COUNT) == m.ST_BOUNCES
     assert sorted(m.POINT_SLOT.ravel().tolist()) == list(range(m.N_POINTS))
     assert m.SEQ_PATH == 0 and m.SEQUENCE_LABELS[m.SEQ_PATH] == "Path"      # the sequence every engine offers
+
+
+# --------------------------------------------------------------------------- #
+# Buddha seeding: scattering from a grid of seed points laid over a zone
+# --------------------------------------------------------------------------- #
+def _seeding_scene():
+    """A closed scene with self bounces (a circle and an ellipse), traced with a few iterations so the test is quick."""
+    ellipse = m.EllipseShape(1)
+    ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
+    return _stop(40), _ray(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
+
+
+_NO_SLOTS = np.empty(0, dtype=np.int64)
+
+
+def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, False), rows=None, fuzz_seed=0):
+    stop, ray = _seeding_scene()
+    counts = np.zeros((n, n))
+    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], *zone, stop, ray, fuzz_seed,
+                         np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, counts)
+    return counts
+
+
+def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_covering_it():
+    """The camera pixels' seeding is the zone (-1, 1, -1, 1): scatter_multi_buddha is that, and so is a seeding of the
+    same options through the general kernel."""
+    stop, ray = _seeding_scene()
+    n = 24
+    for multi in [(True, False, False, False), (False, True, False, False), (False, False, True, True)]:
+        old = np.zeros((n, n))
+        m.scatter_multi_buddha(0, n, stop, ray, 0, *multi, old)
+        assert old.sum() > 0
+        assert np.array_equal(old, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), multi=multi))
+
+
+def test_seeding_the_stored_points_equals_scattering_those_stored_points_of_an_image_made_from_the_same_rays():
+    """With the camera zone, a seeded scatter of the stored point of a slot is the counts of that slot's points as
+    render_rows_wh stored them for the same pixels - so the tethered and the seeded way agree."""
+    stop, ray = _seeding_scene()
+    n = 24
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    status = np.zeros((n, n), dtype=np.uint8)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    for slot in (m.POINT_ALL_MEAN, m.point_slot(m.SEQ_SELF, m.PRED_LAST), m.POINT_END):
+        xs, ys = points[..., slot, 0][status == 1], points[..., slot, 1][status == 1]
+        col = np.floor((xs + 1.0) * (n / 2.0)).astype(np.int64)
+        row = np.floor((1.0 - ys) * (n / 2.0)).astype(np.int64)
+        ok = (col >= 0) & (col < n) & (row >= 0) & (row < n)
+        stored = np.zeros((n, n))
+        np.add.at(stored, (row[ok], col[ok]), 1)
+        seeded = _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), slots=[slot])
+        assert stored.sum() > 0 and np.allclose(stored, seeded), slot
+    nonempty = 0
+    for term in (m.TERM_CONFINED, m.TERM_PERPENDICULAR, m.TERM_ITER):
+        mask = (status == 1) & (np.abs(stats[..., m.ST_TERMINATION] - m.TERM_STAT_VALUE[term]) < 0.01)
+        xs, ys = points[..., m.POINT_END, 0][mask], points[..., m.POINT_END, 1][mask]
+        col = np.floor((xs + 1.0) * (n / 2.0)).astype(np.int64)
+        row = np.floor((1.0 - ys) * (n / 2.0)).astype(np.int64)
+        ok = (col >= 0) & (col < n) & (row >= 0) & (row < n)
+        stored = np.zeros((n, n))
+        np.add.at(stored, (row[ok], col[ok]), 1)
+        assert np.allclose(stored, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), end_terms=[term])), term
+        nonempty += int(stored.sum() > 0)
+    assert nonempty >= 2, "the scene must end rays in more than one way for this to mean anything"
+
+
+def test_a_smaller_zone_has_the_same_number_of_seeds_closer_together_and_a_seed_outside_a_shape_fires_nothing():
+    n = 16
+    stop, ray = _seeding_scene()
+    def seed_points(zone):
+        h = w = n
+        xs = zone[0] + (np.arange(w) + 0.5) * ((zone[1] - zone[0]) / w)
+        ys = zone[3] - (np.arange(h) + 0.5) * ((zone[3] - zone[2]) / h)
+        return np.meshgrid(xs, ys)
+    big_x, big_y = seed_points((-1.0, 1.0, -1.0, 1.0))
+    small_x, small_y = seed_points((-0.5, 0.5, -0.5, 0.5))
+    assert big_x.size == small_x.size == n * n, "the zone does not change how many seeds there are"
+    assert np.allclose(np.diff(small_x[0]), np.diff(big_x[0]) / 2), "they are twice as close"
+    assert np.allclose(big_x[0], (np.arange(n) + 0.5) * (2.0 / n) - 1.0), "the whole world's seeds are the pixel centres"
+    far = _scatter_seeds(n, (10.0, 12.0, 10.0, 12.0), multi=(True, True, True, True), slots=[m.POINT_END])
+    assert far.sum() == 0, "a zone with no shape in it fires no ray"
+    inner = _scatter_seeds(n, (-0.5, 0.5, -0.5, 0.5), slots=[m.POINT_START])
+    assert inner.sum() == n * n, "a zone inside the shape: every seed fires, and each start point is the seed itself"
+    # every start point is a seed, so each lands in its own cell of the image: with a zone twice as small
+    # (quarter of the image) the starts all fall in the middle half of the counts
+    assert inner[:n // 4].sum() == 0 and inner[-n // 4:].sum() == 0
+
+
+def test_seeding_only_the_rows_asked_for_adds_only_those_seeds():
+    n = 16
+    zone = (-1.0, 1.0, -1.0, 1.0)
+    whole = _scatter_seeds(n, zone, slots=[m.POINT_END], multi=(False, True, False, False))
+    parts = _scatter_seeds(n, zone, slots=[m.POINT_END], multi=(False, True, False, False), rows=(0, 6)) \
+        + _scatter_seeds(n, zone, slots=[m.POINT_END], multi=(False, True, False, False), rows=(6, n))
+    assert np.array_equal(whole, parts)

@@ -62,7 +62,8 @@ def test_strict_records_check_every_value_against_its_annotation():
     assert _raises(TypeError, lambda: m.RaySettings(**{**s, "fuzz": (False, 0.0)}))
     assert _raises(TypeError, lambda: m.KeyframeData(ray=m.DEFAULT_RAY_SETTINGS,
                                                      natural_stop=m.DEFAULT_NATURAL_STOP_SETTINGS,
-                                                     buddha_blur=0.0, outline=True))
+                                                     buddha_blur=0.0, buddha_seed=m.DEFAULT_BUDDHA_SEED,
+                                                     outline=True))
     n = m.DEFAULT_NATURAL_STOP_SETTINGS.as_dict()
     try:
         m.NaturalStopSettings(**{**n, "max_iter": "9"})
@@ -117,7 +118,7 @@ def test_records_pickle_by_field_name_not_position():
 def test_a_keyframes_data_holds_the_ray_settings_the_natural_stop_and_the_buddha_blur_side_by_side():
     data = m.resolve_frame_settings([], 0)
     assert [f.name for f in dataclasses.fields(m.KeyframeData)] == [
-        "ray", "natural_stop", "buddha_blur", "outline"]
+        "ray", "natural_stop", "buddha_blur", "buddha_seed", "outline"]
     assert isinstance(data.ray, m.RaySettings) and isinstance(data.buddha_blur, m.BuddhaBlurSettings)
     assert isinstance(data.natural_stop, m.NaturalStopSettings)
     assert data.natural_stop == m.DEFAULT_NATURAL_STOP_SETTINGS and data.ray == m.DEFAULT_RAY_SETTINGS
@@ -171,9 +172,10 @@ def test_views_colored_from_the_stored_data_use_the_settings_the_image_was_gener
     app.gen_stop = m.settings_natural_stop(generated_stop)
     app.gen_ray = m.settings_ray_args(generated, app.gen_ray.obstacles)
     app.current_blur_settings = lambda: blur
+    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     seen = []
 
-    def fake_colorize(view, stats, points, status, w, h, blur, stop, ray, seed_base):
+    def fake_colorize(view, stats, points, status, w, h, blur, stop, ray, seed_base, seeds=None):
         seen.append((blur, stop, ray, seed_base))
         return np.zeros((h, w, 3), dtype=np.uint8)
     app.colorize_view = fake_colorize
@@ -225,8 +227,14 @@ def _varied_natural_stop_settings():
         confine_method=m.CONFINE_PATH, confine_threshold=0.03)
 
 
+def _varied_seed_settings():
+    return m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
+
+
 def test_each_settings_table_and_its_record_fields_are_the_same_set():
-    assert set(m.SETTING_TABLES) == {m.NaturalStopSettings, m.RaySettings, m.BuddhaBlurSettings}
+    assert set(m.SETTING_TABLES) == {m.NaturalStopSettings, m.RaySettings, m.BuddhaBlurSettings,
+                                     m.BuddhaSeedSettings}
+    assert m.SETTING_TABLES[m.BuddhaSeedSettings] is m.BUDDHA_SEED_SETTING_SPECS
     assert m.SETTING_TABLES[m.NaturalStopSettings] is m.NATURAL_STOP_SETTING_SPECS
     assert m.SETTING_TABLES[m.RaySettings] is m.RAY_SETTING_SPECS
     assert m.SETTING_TABLES[m.BuddhaBlurSettings] is m.BLUR_SETTING_SPECS
@@ -239,10 +247,15 @@ def test_each_settings_table_and_its_record_fields_are_the_same_set():
         seen |= set(table)
     assert seen == {k for k, _t, _l in m.SETTING_INFO} - {"outline"}
     assert list(m.SETTING_SPECS) == (list(m.NATURAL_STOP_SETTING_SPECS) + list(m.RAY_SETTING_SPECS)
-                                     + list(m.BLUR_SETTING_SPECS))
+                                     + list(m.BLUR_SETTING_SPECS) + list(m.BUDDHA_SEED_SETTING_SPECS))
     assert set(m.NATURAL_STOP_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_window",
                                                 "confine_method", "confine_threshold"}
     assert set(m.BLUR_SETTING_SPECS) == {"buddha_blur_radius", "buddha_blur_type"}
+    assert set(m.BUDDHA_SEED_SETTING_SPECS) == {"buddha_seed_camera", "buddha_seed_x_start", "buddha_seed_x_stop",
+                                               "buddha_seed_y_start", "buddha_seed_y_stop"}
+    assert all(spec.tab == "Buddha seeding" for spec in m.BUDDHA_SEED_SETTING_SPECS.values())
+    assert m.DEFAULT_BUDDHA_SEED == m.BuddhaSeedSettings(camera_pixels=True, x_start=-1.0, x_stop=1.0,
+                                                         y_start=-1.0, y_stop=1.0)
 
 
 def test_self_checks_catch_a_settings_field_without_a_spec_row():
@@ -310,12 +323,18 @@ def test_settings_records_round_trip_through_the_key_dictionary():
         values = m.settings_to_dict(blur)
         assert set(values) == set(m.BLUR_SETTING_SPECS)
         assert m.settings_from_dict(m.BuddhaBlurSettings, values) == blur
+    for seeds in (m.DEFAULT_BUDDHA_SEED, _varied_seed_settings()):
+        values = m.settings_to_dict(seeds)
+        assert set(values) == set(m.BUDDHA_SEED_SETTING_SPECS)
+        assert m.settings_from_dict(m.BuddhaSeedSettings, values) == seeds
     ray, stop, blur = _varied_ray_settings(), _varied_natural_stop_settings(), _varied_blur_settings()
-    values = m.settings_to_dict(ray, stop, blur)              # side by side in one dictionary...
+    seeds = _varied_seed_settings()
+    values = m.settings_to_dict(ray, stop, blur, seeds)       # side by side in one dictionary...
     assert set(values) == set(m.SETTING_SPECS)
     assert m.settings_from_dict(m.RaySettings, values) == ray          # ...each record picks out its own
     assert m.settings_from_dict(m.NaturalStopSettings, values) == stop
     assert m.settings_from_dict(m.BuddhaBlurSettings, values) == blur
+    assert m.settings_from_dict(m.BuddhaSeedSettings, values) == seeds
     assert values["seed"] == 424242 and values["emit_jitter"] == 4.0 and values["iter"] == 77
     assert values["buddha_blur_type"] == m.BUDDHA_BLUR_BOKEH and values["fuzz_on"] is True
 
@@ -344,7 +363,7 @@ def test_the_derived_setting_tables_follow_the_settings_field_types():
                  "buddha_blur_type", "outline"} & floats)
     assert m.DEFAULT_SETTING_VALUES == {
         **m.settings_to_dict(m.DEFAULT_NATURAL_STOP_SETTINGS, m.DEFAULT_RAY_SETTINGS,
-                             m.DEFAULT_BUDDHA_BLUR), "outline": True}
+                             m.DEFAULT_BUDDHA_BLUR, m.DEFAULT_BUDDHA_SEED), "outline": True}
     assert m.SETTING_WIDGET_ATTRS["seed"] == "seed_entry"
     assert m.SETTING_WIDGET_ATTRS["outline"] == "deco_outline_check"
 

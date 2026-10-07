@@ -358,7 +358,7 @@ def _fake_kf_app():
         app.current[key] = val
     app.load_value = load_value
     for name in ("on_limit_var_changed", "on_shape_param_changed", "on_fuzz_changed",
-                 "on_buddha_blur_changed", "rebuild_keyframe_list", "refresh_timeline_diffs",
+                 "on_buddha_blur_changed", "on_buddha_seeds_changed", "rebuild_keyframe_list", "refresh_timeline_diffs",
                  "refresh_modified_outlines"):
         setattr(app, name, lambda *a, **k: None)
     for name in ("select_keyframe", "deselect_keyframe", "apply_keyframe_settings",

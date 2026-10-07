@@ -50,3 +50,14 @@ def test_an_exact_float_entry_keeps_the_typed_value_on_commit():
     plain = m.FloatEntryHandle(_TextVar("0.123"), "{:.2f}", 0.0)
     plain.commit()
     assert plain.var.get() == "0.12" and plain.get() == 0.12
+
+
+def test_the_buddha_tab_holds_a_seeding_tab_then_a_blur_tab_each_with_its_own_controls():
+    import inspect
+    source = inspect.getsource(m.App.build_controls_quadrant)
+    assert 'notebook.add(buddha_tab, text="Buddha")' in source
+    assert source.index('buddha_notebook.add(buddha_seeding_tab, text="Buddha seeding")') < \
+        source.index('buddha_notebook.add(buddha_blur_tab, text="Buddha blur")'), "seeding is the leftmost sub-tab"
+    assert "self.build_buddha_seeding_controls(buddha_seeding_tab)" in source
+    assert "self.build_buddha_blur_controls(buddha_blur_tab)" in source
+    assert '"<<NotebookTabChanged>>"' in source and "update_seed_zone_outline" in source
