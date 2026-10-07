@@ -259,6 +259,15 @@ GUIDE_FALLBACK_HEX = "#c8c8c8"     # used with a stipple if alpha images fail
 # lies at its top (earlier) and bottom (later) end.
 SEG_CANVAS_W = SIZE
 SEG_CANVAS_H = SIZE // 2   # 1 world unit, at the main image's pixels-per-unit
+# The corkscrew graphic: the sequence's segments all the same length, laid end to end from the centre of a
+# square canvas, each pointing the way its own segment does. The length is chosen so that the farthest point
+# is CORKSCREW_MARGIN of the canvas's side (at least CORKSCREW_MARGIN_MIN pixels) short of the edge.
+CORKSCREW_MARGIN = 0.04
+CORKSCREW_MARGIN_MIN = 6
+CORKSCREW_LINE_WIDTH = 2
+CORKSCREW_TEXT_W = 130             # width of the description to the left of the canvas (narrow enough that the canvas is
+                                   # limited by the tab's height, not its width, at the window's size)
+CORKSCREW_SIDE_MIN = 60
 KIND_COLOR = {KIND_START: (67, 160, 71), KIND_DISTCUT: (67, 160, 71),   # green
              KIND_BOUNDARY: (229, 57, 53),                              # red
              KIND_SELF: (30, 136, 229),                                 # blue

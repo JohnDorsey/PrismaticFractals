@@ -3,7 +3,8 @@ import tkinter as tk
 from tkinter import ttk
 import numpy as np
 from .constants import (
-    BOTTOM_H, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, KIND_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
+    BOTTOM_H, CORKSCREW_LINE_WIDTH, CORKSCREW_MARGIN, CORKSCREW_MARGIN_MIN, CORKSCREW_SIDE_MIN,
+    CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, KIND_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
     SEG_CANVAS_W
 )
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
@@ -13,6 +14,38 @@ from .kernels import (
 )
 from .metrics import STAT_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
+
+
+def corkscrew_steps(pts, kinds, n):
+    """The path pts[0..n-1] with every segment made one unit long, in the direction it really points, laid end to end
+    from (0, 0): (the vertices, shape (m + 1, 2); the kind of each segment's start point; the kind of its end point).
+    A segment of no length has no direction and is left out."""
+    if n < 2:
+        return np.zeros((1, 2)), np.zeros(0), np.zeros(0)
+    steps = np.diff(np.asarray(pts[:n], dtype=float), axis=0)
+    length = np.hypot(steps[:, 0], steps[:, 1])
+    keep = length > 1e-12
+    unit = steps[keep] / length[keep][:, None]
+    vertices = np.vstack((np.zeros((1, 2)), np.cumsum(unit, axis=0)))
+    kinds = np.asarray(kinds[:n], dtype=float)
+    return vertices, kinds[:-1][keep], kinds[1:][keep]
+
+
+def corkscrew_fit(vertices, side):
+    """The corkscrew's vertices (from corkscrew_steps) as canvas pixels on a square canvas `side` pixels across, and
+    the length of every segment in pixels: the one length that puts the farthest vertex (along either axis) a margin
+    short of the edge, the start being at the centre."""
+    half = side / 2.0
+    margin = max(CORKSCREW_MARGIN_MIN, side * CORKSCREW_MARGIN)
+    reach = float(np.abs(vertices).max())
+    segment = (half - margin) / reach if reach > 0 else 0.0
+    return np.column_stack((half + vertices[:, 0] * segment, half - vertices[:, 1] * segment)), segment
+
+
+def corkscrew_side(tab_width, tab_height):
+    """How many pixels across the (square) corkscrew canvas is: as tall as the tab allows, but never so wide that the
+    description beside it has no room."""
+    return max(CORKSCREW_SIDE_MIN, min(tab_height - 2 * PAD - 2, tab_width - CORKSCREW_TEXT_W - 3 * PAD))
 
 
 class LayoutMixin:
@@ -124,8 +157,8 @@ class LayoutMixin:
                 row=len(items), column=0, sticky="w", padx=10, pady=(2, 6))
 
     def build_info_quadrant(self):
-        """Bottom left: the previewed ray, in Numbers and Graphics tabs."""
-        info = ttk.LabelFrame(self.root, text="Ray preview", width=SIZE, height=BOTTOM_H)
+        """Bottom left: the previewed sequence, in Numbers, Bar graph and Corkscrew tabs."""
+        info = ttk.LabelFrame(self.root, text="Sequence preview", width=SIZE, height=BOTTOM_H)
         info.grid(row=1, column=0, sticky="nsew",
                   padx=(PAD, PAD // 2), pady=(PAD // 2, PAD))
         info.grid_propagate(False)
@@ -135,14 +168,17 @@ class LayoutMixin:
         notebook = ttk.Notebook(info)
         notebook.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         numbers_tab = ttk.Frame(notebook)
-        graphics_tab = ttk.Frame(notebook)
+        bar_graph_tab = ttk.Frame(notebook)
+        corkscrew_tab = ttk.Frame(notebook)
         notebook.add(numbers_tab, text="Numbers")
-        notebook.add(graphics_tab, text="Graphics")
+        notebook.add(bar_graph_tab, text="Bar graph")
+        notebook.add(corkscrew_tab, text="Corkscrew")
         numbers_tab.columnconfigure(0, weight=1)
-        graphics_tab.columnconfigure(0, weight=1)
+        bar_graph_tab.columnconfigure(0, weight=1)
 
         self.build_numbers_tab(numbers_tab)
-        self.build_graphics_tab(graphics_tab)
+        self.build_bar_graph_tab(bar_graph_tab)
+        self.build_corkscrew_tab(corkscrew_tab)
 
     def build_numbers_tab(self, tab):
         """Every detail and metric of the previewed ray."""
@@ -198,8 +234,8 @@ class LayoutMixin:
         rows.grid_remove()
         self.update_stat_tags()
 
-    def build_graphics_tab(self, tab):
-        """A plot of the previewed ray's segment lengths, earliest on the left."""
+    def build_bar_graph_tab(self, tab):
+        """A plot of the previewed sequence's segment lengths, earliest on the left."""
         legend = ttk.Frame(tab)
         legend.grid(row=0, column=0, sticky="w", padx=6, pady=(8, 2))
         ttk.Label(legend, text="Every segment, earliest to latest, as a bar "
@@ -218,6 +254,80 @@ class LayoutMixin:
                                     bd=0, highlightthickness=1,
                                     highlightbackground="#444", bg="black")
         self.seg_canvas.grid(row=1, column=0, sticky="w", padx=6, pady=(2, 8))
+
+    def build_corkscrew_tab(self, tab):
+        """The previewed sequence as a corkscrew: a black square canvas as tall as the tab (kept square when the tab is
+        resized), with the description - and the colour key - to its left."""
+        tab.rowconfigure(0, weight=1)
+        tab.columnconfigure(0, weight=1)
+        text = ttk.Frame(tab)
+        text.grid(row=0, column=0, sticky="nw", padx=(6, 4), pady=8)
+        ttk.Label(text, justify="left", wraplength=CORKSCREW_TEXT_W,
+                  text="Every segment of the sequence, earliest first, drawn the same length and laid end "
+                       "to end from the centre, each pointing the way the real segment points. The length "
+                       "is chosen to keep the farthest point just inside the edge. A segment fades from "
+                       "its start point's colour to its end point's:").pack(anchor="w")
+        for rgb, label in [(KIND_COLOR[KIND_START], "start/cut"),
+                           (KIND_COLOR[KIND_BOUNDARY], "boundary bounce"),
+                           (KIND_COLOR[KIND_SELF], "self bounce"),
+                           (KIND_COLOR[KIND_OBSTACLE_TERM], "edge end"),
+                           (KIND_COLOR[KIND_ESCAPED], "escape")]:
+            row = ttk.Frame(text)
+            row.pack(anchor="w", pady=(2, 0))
+            tk.Label(row, text="  ", bg=lerp_color(rgb, rgb, 0.0)).pack(side="left", padx=(0, 4))
+            ttk.Label(row, text=label).pack(side="left")
+        self.corkscrew_side = corkscrew_side(SIZE, BOTTOM_H - 70)
+        self.corkscrew_canvas = tk.Canvas(tab, width=self.corkscrew_side, height=self.corkscrew_side,
+                                          bd=0, highlightthickness=1, highlightbackground="#444",
+                                          bg="black")
+        self.corkscrew_canvas.grid(row=0, column=1, sticky="n", padx=(0, PAD), pady=PAD)
+        self.clear_corkscrew()
+        tab.bind("<Configure>", self.on_corkscrew_tab_resized)
+
+    def clear_corkscrew(self):
+        """Show no corkscrew (no sequence is being previewed)."""
+        self.corkscrew_canvas.delete("all")
+        self.corkscrew_data = corkscrew_steps(np.zeros((0, 2)), np.zeros(0), 0)
+
+    def on_corkscrew_tab_resized(self, event):
+        """Keep the canvas square and as tall as the tab, and redraw what it shows."""
+        side = corkscrew_side(event.width, event.height)
+        if side != self.corkscrew_side:
+            self.corkscrew_side = side
+            self.corkscrew_canvas.configure(width=side, height=side)
+            self.redraw_corkscrew()
+
+    def draw_corkscrew(self, pts, kinds, n):
+        """Redraw the corkscrew of the ray pts[0..n-1]."""
+        self.corkscrew_data = corkscrew_steps(pts, kinds, n)
+        self.redraw_corkscrew()
+
+    def redraw_corkscrew(self):
+        """Draw the stored corkscrew (see corkscrew_steps) to fit the canvas as it is now: one line a segment,
+        colored with the same start-kind -> end-kind gradient as the bar graph's bars."""
+        cv = self.corkscrew_canvas
+        cv.delete("all")
+        vertices, start_kinds, end_kinds = self.corkscrew_data
+        if len(start_kinds) == 0:
+            return
+        xy, segment = corkscrew_fit(vertices, self.corkscrew_side)
+        for k in range(len(start_kinds)):
+            x0, y0 = xy[k]
+            x1, y1 = xy[k + 1]
+            start_rgb = KIND_COLOR[float(start_kinds[k])]
+            end_rgb = KIND_COLOR[float(end_kinds[k])]
+            if start_rgb == end_rgb:
+                cv.create_line(x0, y0, x1, y1, fill=lerp_color(start_rgb, start_rgb, 0.0),
+                               width=CORKSCREW_LINE_WIDTH, capstyle="round")
+                continue
+            steps = max(2, min(64, int(segment)))
+            for s in range(steps):
+                t0 = s / steps
+                t1 = (s + 1) / steps
+                cv.create_line(x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0,
+                               x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1,
+                               fill=lerp_color(start_rgb, end_rgb, (t0 + t1) / 2.0),
+                               width=CORKSCREW_LINE_WIDTH, capstyle="round")
 
     def draw_segments(self, pts, kinds, n):
         """Redraw the segment-lengths graphic for the ray pts[0..n-1], bars

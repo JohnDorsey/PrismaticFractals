@@ -180,6 +180,7 @@ class PreviewMixin:
         compute_sequences(pts, n, kinds, int(raw[RAW_BOUNCES]), pn.max_iter, vec, sp)
         vals = self.component_values(vec, sp, x, y)
         self.draw_segments(pts, kinds, n)
+        self.draw_corkscrew(pts, kinds, n)
 
         # ---- overlay on the canvas (never part of the image) ----
         half = SIZE / 2.0
@@ -277,3 +278,4 @@ class PreviewMixin:
         self.info_rows.grid_remove()
         self.info_placeholder.grid()
         self.seg_canvas.delete("all")
+        self.clear_corkscrew()

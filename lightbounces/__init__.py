@@ -233,7 +233,7 @@ Window layout (six panels, in three columns)
                  Revert settings are always visible
   top right      Timeline: the keyframe list, each
                  keyframe's settings, and the selected keyframe's controls
-  bottom left    Ray preview: the previewed ray, in Numbers and Graphics tabs
+  bottom left    Sequence preview: the previewed ray, in Numbers, Bar graph and Corkscrew tabs
   bottom middle  the Export designer, and Export
   bottom right   Video: render settings (size, starting frame), encoding
                  settings (fps, format, bitrate, downsampling), a preview of

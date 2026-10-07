@@ -28,6 +28,7 @@ def _fake_preview_app(pinned):
     app.hover_sp = np.empty((m.N_POINTS, 2))
     app.component_values = lambda vec, sp, x, y: (0.1, 0.2, 0.3)
     app.draw_segments = lambda pts, kinds, n: None
+    app.draw_corkscrew = lambda pts, kinds, n: None
     app.deco = {k: _StubVar(k != "samples") for k in
                 ("pending", "outline", "ray_path", "ray_start", "ray_end", "guides", "samples")}
     app.canvas = _StubWidget()
@@ -454,3 +455,168 @@ def test_write_with_both_margins_composes_correctly():
     expected_h = m.SIZE + m.SIZE // 4
     expected_w = m.SIZE + m.SIZE // 2
     assert img.shape == (expected_h, expected_w, 3)
+
+
+# --------------------------------------------------------------------------- #
+# The sequence preview's Corkscrew tab
+# --------------------------------------------------------------------------- #
+def _corkscrew_path():
+    """A path of five points: right, up (a segment of no length between), left, down-left."""
+    pts = np.array([[0.0, 0.0], [0.5, 0.0], [0.5, 0.0], [0.5, 2.0], [-1.5, 2.0], [-2.5, 0.0]])
+    kinds = np.array([m.KIND_START, m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_SELF, m.KIND_BOUNDARY, m.KIND_ESCAPED])
+    return pts, kinds
+
+
+def test_the_corkscrew_has_every_segment_one_unit_long_pointing_the_way_the_real_segment_points():
+    pts, kinds = _corkscrew_path()
+    vertices, start_kinds, end_kinds = m.corkscrew_steps(pts, kinds, len(pts))
+    steps = np.diff(vertices, axis=0)
+    assert len(steps) == 4, "the segment of no length has no direction, so it is left out"
+    assert np.allclose(np.hypot(steps[:, 0], steps[:, 1]), 1.0)
+    real = np.diff(pts, axis=0)
+    real = real[np.hypot(real[:, 0], real[:, 1]) > 1e-12]
+    assert np.allclose(steps, real / np.hypot(real[:, 0], real[:, 1])[:, None])
+    assert np.allclose(vertices[0], 0.0)
+    assert list(start_kinds) == [m.KIND_START, m.KIND_SELF, m.KIND_SELF, m.KIND_BOUNDARY]
+    assert list(end_kinds) == [m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_BOUNDARY, m.KIND_ESCAPED]
+
+
+def test_the_corkscrew_of_a_sequence_with_no_segment_is_empty():
+    for n in (0, 1):
+        vertices, start_kinds, end_kinds = m.corkscrew_steps(np.zeros((3, 2)), np.zeros(3), n)
+        assert vertices.shape == (1, 2) and len(start_kinds) == len(end_kinds) == 0
+    vertices, start_kinds, _end = m.corkscrew_steps(np.array([[1.0, 1.0], [1.0, 1.0]]), np.zeros(2), 2)
+    assert len(start_kinds) == 0, "a sequence that never moves has no direction to draw"
+
+
+def test_the_corkscrew_starts_at_the_centre_and_stops_just_short_of_the_edge_at_any_canvas_size():
+    rng = np.random.RandomState(4)
+    for side in (80, 301, 640):
+        for trial in range(20):
+            n = int(rng.randint(2, 60))
+            pts = np.cumsum(rng.normal(size=(n, 2)) * rng.choice([0.01, 1.0, 300.0]), axis=0)
+            vertices, _s, _e = m.corkscrew_steps(pts, np.zeros(n), n)
+            xy, segment = m.corkscrew_fit(vertices, side)
+            margin = max(m.CORKSCREW_MARGIN_MIN, side * m.CORKSCREW_MARGIN)
+            assert np.allclose(xy[0], side / 2.0), "starts at the centre"
+            assert xy.min() >= margin - 1e-9 and xy.max() <= side - margin + 1e-9, "never touches the edge"
+            assert abs(max(np.abs(xy - side / 2.0).max(), 0.0) - (side / 2.0 - margin)) < 1e-9, \
+                "and goes almost to it: the farthest point is exactly a margin short"
+            lengths = np.hypot(*np.diff(xy, axis=0).T)
+            assert np.allclose(lengths, segment), "every segment the same length, in pixels"
+
+
+def test_a_segment_pointing_up_in_the_sequence_points_up_on_the_canvas():
+    xy, _segment = m.corkscrew_fit(np.array([[0.0, 0.0], [0.0, 1.0]]), 200)
+    assert xy[1][1] < xy[0][1] and xy[1][0] == xy[0][0]
+
+
+def test_the_corkscrew_canvas_is_square_as_tall_as_the_tab_allows_and_leaves_room_for_the_text():
+    tall = m.corkscrew_side(512, 330)
+    assert tall == 330 - 2 * m.PAD - 2, "as tall as the tab"
+    assert m.corkscrew_side(512, 330) > m.corkscrew_side(512, 250)
+    assert m.corkscrew_side(300, 600) == 300 - m.CORKSCREW_TEXT_W - 3 * m.PAD, "a narrow tab keeps the text's room"
+    assert m.corkscrew_side(10, 10) == m.CORKSCREW_SIDE_MIN
+
+
+def test_the_sequence_preview_has_a_bar_graph_and_a_corkscrew_tab_with_the_text_left_of_the_canvas():
+    import inspect
+    layout = inspect.getsource(m.App.build_info_quadrant)
+    assert 'text="Sequence preview"' in layout and "Ray preview" not in layout
+    assert 'text="Numbers"' in layout and 'text="Bar graph"' in layout and 'text="Corkscrew"' in layout
+    assert '"Graphics"' not in layout
+    tab = inspect.getsource(m.App.build_corkscrew_tab)
+    assert tab.index("text.grid(row=0, column=0") < tab.index("self.corkscrew_canvas.grid(row=0, column=1")
+    assert 'bg="black"' in tab and "tab.rowconfigure(0, weight=1)" in tab and '"<Configure>"' in tab
+
+
+class _RecordingCanvas:
+    def __init__(self):
+        self.lines = []
+
+    def delete(self, _tag):
+        self.lines = []
+
+    def create_line(self, x0, y0, x1, y1, **options):
+        self.lines.append(((x0, y0, x1, y1), options))
+
+    def configure(self, **options):
+        self.options = options
+
+
+def _fake_corkscrew_app(side=300):
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.corkscrew_side = side
+    app.corkscrew_canvas = _RecordingCanvas()
+    for name in ("draw_corkscrew", "redraw_corkscrew", "clear_corkscrew", "on_corkscrew_tab_resized"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    app.clear_corkscrew()
+    return app
+
+
+def test_drawing_a_corkscrew_lays_the_lines_end_to_end_from_the_centre_in_the_bar_graphs_colours():
+    app = _fake_corkscrew_app(300)
+    pts, kinds = _corkscrew_path()
+    app.draw_corkscrew(pts, kinds, len(pts))
+    lines = app.corkscrew_canvas.lines
+    ends = [(l[0][:2], l[0][2:]) for l in lines]
+    assert np.allclose(ends[0][0], (150, 150)), "the first line starts at the centre"
+    for (_a, end), (start, _b) in zip(ends, ends[1:]):
+        assert np.allclose(end, start), "each line starts where the one before ended"
+    assert all(0 < x < 300 and 0 < y < 300 for line in lines for x, y in (line[0][:2], line[0][2:]))
+    colors = [l[1]["fill"] for l in lines]
+    boundary, self_, escaped = (m.lerp_color(m.KIND_COLOR[k], m.KIND_COLOR[k], 0.0)
+                                for k in (m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_ESCAPED))
+    assert self_ in colors, "a segment between two points of the same kind is one solid colour"
+    assert any(c not in (boundary, self_, escaped) and c != m.lerp_color(m.KIND_COLOR[m.KIND_START], m.KIND_COLOR[m.KIND_START], 0.0)
+               for c in colors), "a segment between two kinds fades from one colour to the other"
+    assert lines[0][1]["width"] == m.CORKSCREW_LINE_WIDTH
+
+
+def test_a_segment_fades_from_its_start_kinds_colour_to_its_end_kinds_colour():
+    app = _fake_corkscrew_app(300)
+    pts = np.array([[0.0, 0.0], [1.0, 0.0]])
+    app.draw_corkscrew(pts, np.array([m.KIND_START, m.KIND_ESCAPED]), 2)
+    colors = [l[1]["fill"] for l in app.corkscrew_canvas.lines]
+    assert len(colors) >= 2
+    start, end = m.KIND_COLOR[m.KIND_START], m.KIND_COLOR[m.KIND_ESCAPED]
+    channel = lambda c, i: int(c[1 + 2 * i:3 + 2 * i], 16)
+    assert abs(channel(colors[0], 1) - start[1]) < abs(channel(colors[-1], 1) - start[1])
+    assert abs(channel(colors[-1], 1) - end[1]) < abs(channel(colors[0], 1) - end[1])
+
+
+def test_resizing_the_tab_keeps_the_canvas_square_and_redraws_the_corkscrew_to_fit():
+    import types
+    app = _fake_corkscrew_app(300)
+    pts, kinds = _corkscrew_path()
+    app.draw_corkscrew(pts, kinds, len(pts))
+    before = list(app.corkscrew_canvas.lines)
+    app.on_corkscrew_tab_resized(types.SimpleNamespace(width=512, height=200))
+    side = m.corkscrew_side(512, 200)
+    assert app.corkscrew_side == side and app.corkscrew_canvas.options == {"width": side, "height": side}
+    after = app.corkscrew_canvas.lines
+    assert len(after) == len(before) and after != before
+    assert np.allclose(after[0][0][:2], side / 2.0)
+    app.on_corkscrew_tab_resized(types.SimpleNamespace(width=512, height=200))      # no change: nothing redrawn
+    assert app.corkscrew_canvas.lines == after
+
+
+def test_clearing_the_preview_clears_the_corkscrew_too():
+    app = _fake_corkscrew_app(300)
+    pts, kinds = _corkscrew_path()
+    app.draw_corkscrew(pts, kinds, len(pts))
+    assert app.corkscrew_canvas.lines
+    app.clear_corkscrew()
+    assert app.corkscrew_canvas.lines == []
+    app.on_corkscrew_tab_resized(__import__("types").SimpleNamespace(width=512, height=150))   # a resize still draws nothing
+    assert app.corkscrew_canvas.lines == []
+
+
+def test_previewing_a_ray_draws_its_corkscrew():
+    app = _fake_preview_app(pinned=(100, 100))
+    app.corkscrews = []
+    app.draw_corkscrew = lambda pts, kinds, n: app.corkscrews.append((pts[:n].copy(), kinds[:n].copy(), n))
+    app.update_preview(100, 100)
+    assert len(app.corkscrews) == 1 and app.corkscrews[0][2] >= 1
