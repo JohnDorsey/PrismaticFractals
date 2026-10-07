@@ -125,8 +125,8 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.next_tick = 0.0
         self.hover_px = None
         self.pinned_px = None             # pixel pinned by a click, or None
-        self.fuzz_tk_widgets = []         # classic Tk widgets on the Fuzzing tab
-        self.fuzz_ttk_widgets = []        # ttk widgets on the Fuzzing tab
+        self.fuzz_tk_widgets = []         # classic Tk widgets in the Fuzzing section of the Mutations tab
+        self.fuzz_ttk_widgets = []        # ttk widgets in the Fuzzing section of the Mutations tab
         self.hover_pts = np.empty((ITER_LIMIT_MAX + 2, 2))
         self.hover_kinds = np.empty(ITER_LIMIT_MAX + 2)
         self.hover_raw = np.empty(N_RAW)

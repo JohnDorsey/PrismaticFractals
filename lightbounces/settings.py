@@ -112,7 +112,7 @@ class NaturalStopSettings:
     engine today; an escape-time iteration could take the same limits): how many points (`max_iter`), how long a path
     (`max_dist`), how far from the origin (`escape_radius`), and when it has stopped getting anywhere (the three
     confinement settings). It is a record of its own, held beside a RaySettings and a BuddhaBlurSettings (never inside
-    either) by everything that holds them - the controls, a keyframe's data, a project - and what the Simulation
+    either) by everything that holds them - the controls, a keyframe's data, a project - and what the Termination
     tab's "Stopping limits" and "Confinement" sections show."""
     max_iter: int
     max_dist: float                                  # 0 = no limit; see effective_dist
@@ -237,54 +237,54 @@ def _spec(path, control, widget, kind, tab, label, names=()):
 # them within each tab. run_self_checks() makes sure these rows and the record's fields are the same set.
 NATURAL_STOP_SETTING_SPECS = {
     "iter": _spec(("max_iter",), "iter_var", "iter_entry", "text",
-                  "Simulation", "Iteration limit"),
+                  "Termination", "Iteration limit"),
     "dist": _spec(("max_dist",), "dist_var", "dist_entry", "text",
-                  "Simulation", "Distance limit"),
+                  "Termination", "Distance limit"),
     "escape_radius": _spec(("escape_radius",), "escape_radius_var", "escape_radius_entry",
-                           "float_text", "Simulation", "Escape radius"),
+                           "float_text", "Termination", "Escape radius"),
     "confine_window": _spec(("confine_window",), "confine_window_var", "confine_window_entry",
-                            "int_text", "Simulation", "Confinement window"),
+                            "int_text", "Termination", "Confinement window"),
     "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
-                            "choice", "Simulation", "Confinement method", CONFINE_METHOD_NAMES),
+                            "choice", "Termination", "Confinement method", CONFINE_METHOD_NAMES),
     "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
-                               "confine_threshold_entry", "float_text", "Simulation",
+                               "confine_threshold_entry", "float_text", "Termination",
                                "Confinement threshold"),
 }
 
 # Every setting of the ray-bouncing engine itself (a RaySettings), the same way.
 RAY_SETTING_SPECS = {
     "seg_mult": _spec(("seg_mult",), "seg_mult_scale", "seg_mult_scale", "number",
-                      "Simulation", "Segment length multiplier"),
+                      "Mutations", "Segment length multiplier"),
     "emit_mode": _spec(("emit_mode",), "emit_mode_var", "emit_mode_combo", "choice",
-                       "Simulation", "Emission direction", EMIT_MODE_NAMES),
+                       "Emissions", "Emission direction", EMIT_MODE_NAMES),
     "emit_target_r": _spec(("emit_target_r",), "emit_target_r_var", "emit_target_r_entry",
-                           "float_text", "Simulation", "Emission target distance (r)"),
+                           "float_text", "Emissions", "Emission target distance (r)"),
     "emit_target_theta": _spec(("emit_target_theta",), "emit_target_theta_var",
-                               "emit_target_theta_entry", "float_text", "Simulation",
+                               "emit_target_theta_entry", "float_text", "Emissions",
                                "Emission target angle (\u03b8)"),
     "emit_target_cx": _spec(("emit_target_cx",), "emit_target_cx_var", "emit_target_cx_entry",
-                            "float_text", "Simulation", "Emission target offset X"),
+                            "float_text", "Emissions", "Emission target offset X"),
     "emit_target_cy": _spec(("emit_target_cy",), "emit_target_cy_var", "emit_target_cy_entry",
-                            "float_text", "Simulation", "Emission target offset Y"),
+                            "float_text", "Emissions", "Emission target offset Y"),
     "emit_offset": _spec(("emit_offset",), "emit_offset_scale", "emit_offset_scale", "number",
-                         "Simulation", "Emission angle offset"),
+                         "Emissions", "Emission angle offset"),
     "fuzz_on": _spec(("fuzz", "enabled"), "fuzz_enabled_var", "fuzz_enable_check", "bool",
-                     "Fuzzing", "Enabled"),
+                     "Mutations", "Enabled"),
     "emit_jitter": _spec(("fuzz", "emit_jitter"), "emit_jitter_scale", "emit_jitter_scale",
-                         "number", "Fuzzing", "Emission jitter"),
+                         "number", "Mutations", "Emission jitter"),
     "bnd_offset": _spec(("fuzz", "bnd_offset"), "bnd_offset_scale", "bnd_offset_scale",
-                        "number", "Fuzzing", "Boundary offset"),
+                        "number", "Mutations", "Boundary offset"),
     "bnd_jitter": _spec(("fuzz", "bnd_jitter"), "bnd_jitter_scale", "bnd_jitter_scale",
-                        "number", "Fuzzing", "Boundary jitter"),
+                        "number", "Mutations", "Boundary jitter"),
     "bnd_mult": _spec(("fuzz", "bnd_mult"), "bnd_mult_scale", "bnd_mult_scale", "number",
-                      "Fuzzing", "Boundary multiplier"),
+                      "Mutations", "Boundary multiplier"),
     "self_offset": _spec(("fuzz", "self_offset"), "self_offset_scale", "self_offset_scale",
-                         "number", "Fuzzing", "Self offset"),
+                         "number", "Mutations", "Self offset"),
     "self_jitter": _spec(("fuzz", "self_jitter"), "self_jitter_scale", "self_jitter_scale",
-                         "number", "Fuzzing", "Self jitter"),
+                         "number", "Mutations", "Self jitter"),
     "self_mult": _spec(("fuzz", "self_mult"), "self_mult_scale", "self_mult_scale", "number",
-                       "Fuzzing", "Self multiplier"),
-    "seed": _spec(("fuzz", "seed"), "seed_var", "seed_entry", "text", "Fuzzing", "Seed"),
+                       "Mutations", "Self multiplier"),
+    "seed": _spec(("fuzz", "seed"), "seed_var", "seed_entry", "text", "Mutations", "Seed"),
 }
 
 # The same for the Buddha blur (a BuddhaBlurSettings), which is a record of its own.
@@ -314,7 +314,7 @@ SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in
 # then the one decoration that is not part of any record of settings.
 SETTING_INFO = ([(key, spec.tab, spec.label) for key, spec in SETTING_SPECS.items()]
                 + [("outline", "Decorations", "Outline")])
-SETTING_TABS_ORDER = ["Simulation", "Fuzzing", "Buddha blur", "Decorations"]
+SETTING_TABS_ORDER = ["Emissions", "Termination", "Mutations", "Buddha blur", "Decorations"]
 SETTING_LABEL = {key: label for key, _tab, label in SETTING_INFO}
 SETTING_TAB = {key: tab for key, tab, _label in SETTING_INFO}
 

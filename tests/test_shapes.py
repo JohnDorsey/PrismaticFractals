@@ -571,7 +571,7 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
                     "emit_target_cy", "emit_offset"}
     assert keys == set(m.DEFAULT_SETTING_VALUES)
     tabs = {tab for _k, tab, _label in m.SETTING_INFO}
-    assert tabs == {"Simulation", "Fuzzing", "Buddha blur", "Decorations"}
+    assert tabs == {"Emissions", "Termination", "Mutations", "Buddha blur", "Decorations"}
 
 
 def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():

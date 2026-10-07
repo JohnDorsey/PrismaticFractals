@@ -459,7 +459,10 @@ def test_setting_info_is_derived_from_the_spec_rows_so_every_setting_has_a_label
     assert all(spec.label and spec.tab in m.SETTING_TABS_ORDER
                for spec in m.SETTING_SPECS.values())
     assert m.SETTING_LABEL["emit_offset"] == "Emission angle offset"
-    assert m.SETTING_TAB["seed"] == "Fuzzing"
+    assert m.SETTING_TAB["seed"] == "Mutations" and m.SETTING_TAB["seg_mult"] == "Mutations"
+    assert m.SETTING_TAB["emit_mode"] == "Emissions" and m.SETTING_TAB["emit_jitter"] == "Mutations"
+    assert m.SETTING_TAB["iter"] == "Termination"
+    assert m.SETTING_TABS_ORDER[:3] == ["Emissions", "Termination", "Mutations"]
 
 
 def _ring_app(generated):
@@ -517,7 +520,7 @@ def test_the_natural_stop_and_ray_settings_hold_disjoint_settings_that_together_
     assert set(m.NATURAL_STOP_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_window",
                                                 "confine_method", "confine_threshold"}
     assert not (set(m.NATURAL_STOP_SETTING_SPECS) & set(m.RAY_SETTING_SPECS))
-    assert all(spec.tab == "Simulation" for spec in m.NATURAL_STOP_SETTING_SPECS.values())
+    assert all(spec.tab == "Termination" for spec in m.NATURAL_STOP_SETTING_SPECS.values())
 
 
 def test_the_kernel_tuples_are_built_from_the_records():

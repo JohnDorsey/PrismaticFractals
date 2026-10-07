@@ -42,7 +42,7 @@ class LayoutMixin:
             self.hline_img = self.vline_img = None   # fall back to stippled lines
 
     def build_controls_quadrant(self):
-        """Top middle: four tabs of controls, with Start / Revert below them."""
+        """Top middle: the tabs of controls, with Start / Revert below them."""
         ctl = ttk.LabelFrame(self.root, text="Controls", width=RIGHT_W, height=SIZE)
         ctl.grid(row=0, column=1, sticky="nsew",
                  padx=(PAD // 2, PAD // 2), pady=(PAD, PAD // 2))
@@ -52,30 +52,37 @@ class LayoutMixin:
 
         notebook = ttk.Notebook(ctl)
         notebook.grid(row=0, column=0, sticky="nsew", padx=8, pady=(6, 4))
-        sim_tab = ttk.Frame(notebook)
-        fuzz_tab = ttk.Frame(notebook)
+        emissions_tab = ttk.Frame(notebook)
+        termination_tab = ttk.Frame(notebook)
+        mutations_tab = ttk.Frame(notebook)
         color_tab = ttk.Frame(notebook)
         buddha_blur_tab = ttk.Frame(notebook)
         deco_tab = ttk.Frame(notebook)
         obst_tab = ttk.Frame(notebook)
-        notebook.add(sim_tab, text="Simulation")
-        notebook.add(fuzz_tab, text="Fuzzing")
+        sim_tab = ttk.Frame(notebook)             # empty for now: the settings that were in it have moved out
+        notebook.add(emissions_tab, text="Emissions")
+        notebook.add(termination_tab, text="Termination")
+        notebook.add(mutations_tab, text="Mutations")
         notebook.add(color_tab, text="Coloration")
         notebook.add(buddha_blur_tab, text="Buddha blur")
         notebook.add(deco_tab, text="Decorations")
         notebook.add(obst_tab, text="Obstacles")
-        for tab in (sim_tab, fuzz_tab, color_tab, buddha_blur_tab, deco_tab, obst_tab):
+        notebook.add(sim_tab, text="Simulation")
+        for tab in (emissions_tab, termination_tab, mutations_tab, color_tab, buddha_blur_tab,
+                    deco_tab, obst_tab, sim_tab):
             tab.columnconfigure(0, weight=1)
 
-        # The Simulation and Obstacles tabs hold more than fits in their height
-        # (and how much depends on the user's font size and display scaling), so
+        # The Emissions, Termination, Mutations and Obstacles tabs can hold more than fits in their
+        # height (and how much depends on the user's font size and display scaling), so
         # they scroll, like the Coloration tab's channel editor.
-        self.sim_canvas, sim_inner = make_scrollable_tab(sim_tab)
-        self.build_limits_controls(sim_inner)
-        self.build_segment_mult_controls(sim_inner)
-        self.build_confinement_controls(sim_inner)
-        self.build_emission_controls(sim_inner)
-        self.build_fuzzing_controls(fuzz_tab)
+        self.emissions_canvas, emissions_inner = make_scrollable_tab(emissions_tab)
+        self.build_emission_controls(emissions_inner)
+        self.termination_canvas, termination_inner = make_scrollable_tab(termination_tab)
+        self.build_limits_controls(termination_inner)
+        self.build_confinement_controls(termination_inner)
+        self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)
+        self.build_fuzzing_controls(mutations_inner)
+        self.build_segment_mult_controls(mutations_inner)
         self.build_color_controls(color_tab)
         self.build_buddha_blur_controls(buddha_blur_tab)
         self.build_decoration_controls(deco_tab)

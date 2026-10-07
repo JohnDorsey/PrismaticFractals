@@ -331,6 +331,6 @@ DECO_PREVIEW = [    # drawn over the image on screen only: never saved, never in
     ("ray_path", "Ray path", True),
     ("ray_start", "Ray start marker", True),
     ("ray_end", "Ray endpoint marker", True),
-    ("guides", "Endpoint guide lines", True),
+    ("guides", "Termination point guide lines", True),
     ("samples", "Color sample points (one ring per point-based channel)", False),
 ]

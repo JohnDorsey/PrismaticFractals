@@ -14,11 +14,16 @@ def test_make_scrollable_tab_returns_a_canvas_and_a_separate_inner_frame():
     assert canvas is not inner, "widgets go in the inner frame, not the canvas itself"
 
 
-def test_the_simulation_and_obstacles_tabs_are_built_inside_scrollable_frames():
+def test_the_emissions_termination_mutations_and_obstacles_tabs_are_built_inside_scrollable_frames():
     import inspect
     source = inspect.getsource(m.App.build_controls_quadrant)
-    assert "self.sim_canvas, sim_inner = make_scrollable_tab(sim_tab)" in source
-    assert "self.build_limits_controls(sim_inner)" in source
+    assert "self.emissions_canvas, emissions_inner = make_scrollable_tab(emissions_tab)" in source
+    assert "self.build_emission_controls(emissions_inner)" in source
+    assert "self.termination_canvas, termination_inner = make_scrollable_tab(termination_tab)" in source
+    assert "self.build_limits_controls(termination_inner)" in source
+    assert "self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)" in source
+    assert "self.build_fuzzing_controls(mutations_inner)" in source
+    assert "self.build_segment_mult_controls(mutations_inner)" in source
     assert "self.obst_canvas, obst_inner = make_scrollable_tab(obst_tab)" in source
     assert "self.build_obstacles_controls(obst_inner)" in source
 

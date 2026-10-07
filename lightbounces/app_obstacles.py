@@ -20,7 +20,7 @@ class ObstaclesMixin:
         position (r, theta) with an x/y offset, incoming and outgoing ray-effect
         dropdowns, and a "fire rays inside" checkbox. Every one of an obstacle's
         settings can be animated between keyframes, just like the main
-        Simulation/Fuzzing/Coloration settings. `self.obs_widgets` maps
+        Emissions/Termination/Mutations/Coloration settings. `self.obs_widgets` maps
         (Shape, field) to the control of a field every kind has, and (a kind,
         field) to the control of one of that kind's own."""
         self._obst_editor_loading = False

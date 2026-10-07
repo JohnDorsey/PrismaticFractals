@@ -702,7 +702,7 @@ def test_the_threshold_field_accepts_partial_typing_of_any_valid_number():
 def test_confinement_settings_are_registered_and_only_the_threshold_interpolates():
     keys = {k: tab for k, tab, _label in m.SETTING_INFO}
     for key in ("confine_window", "confine_method", "confine_threshold"):
-        assert keys[key] == "Simulation" and key in m.DEFAULT_SETTING_VALUES
+        assert keys[key] == "Termination" and key in m.DEFAULT_SETTING_VALUES
     assert "confine_threshold" in m.SETTING_FLOAT_KEYS
     assert "confine_window" not in m.SETTING_FLOAT_KEYS
     assert "confine_method" not in m.SETTING_FLOAT_KEYS
@@ -857,9 +857,9 @@ def test_the_threshold_label_follows_the_method():
     assert "Path length" in app.confine_threshold_label_var.get()
 
 
-def test_the_simulation_tab_has_a_confinement_section_with_all_three_controls():
+def test_the_termination_tab_has_a_confinement_section_with_all_three_controls():
     import inspect
-    assert "self.build_confinement_controls(sim_inner)" in \
+    assert "self.build_confinement_controls(termination_inner)" in \
         inspect.getsource(m.App.build_controls_quadrant)
     source = inspect.getsource(m.App.build_confinement_controls)
     assert 'text="Confinement"' in source
@@ -1087,7 +1087,7 @@ def test_emission_settings_are_registered_and_the_right_ones_interpolate():
     keys = {k: tab for k, tab, _label in m.SETTING_INFO}
     target = ["emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy"]
     for key in ["emit_mode", *target, "emit_offset"]:
-        assert keys[key] == "Simulation" and key in m.DEFAULT_SETTING_VALUES
+        assert keys[key] == "Emissions" and key in m.DEFAULT_SETTING_VALUES
     for key in [*target, "emit_offset"]:
         assert key in m.SETTING_FLOAT_KEYS
     assert "emit_mode" not in m.SETTING_FLOAT_KEYS
@@ -1186,9 +1186,9 @@ def test_current_ray_settings_reads_the_emission_controls_and_is_none_when_a_tar
     assert app.current_ray_settings() is None
 
 
-def test_the_simulation_tab_has_a_ray_emission_section_with_all_its_controls():
+def test_the_emissions_tab_has_a_ray_emission_section_with_all_its_controls():
     import inspect
-    assert "self.build_emission_controls(sim_inner)" in \
+    assert "self.build_emission_controls(emissions_inner)" in \
         inspect.getsource(m.App.build_controls_quadrant)
     source = inspect.getsource(m.App.build_emission_controls)
     assert 'text="Ray emission"' in source

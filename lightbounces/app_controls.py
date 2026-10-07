@@ -1,4 +1,4 @@
-"""The Simulation and Fuzzing tabs: building the limit, segment, confinement, emission and fuzzing controls, validating and committing what is typed, reading the controls into a RaySettings, and the Start / Revert button states."""
+"""The Termination, Emissions and Mutations tabs: building the limit, confinement, emission, fuzzing and segment-length controls, validating and committing what is typed, reading the controls into a RaySettings, and the Start / Revert button states."""
 import random
 import re
 import tkinter as tk
@@ -95,7 +95,7 @@ class ControlsMixin:
         CONFINE_BOX / CONFINE_PATH). The threshold accepts any number above
         zero, however small."""
         cf = ttk.LabelFrame(parent, text="Confinement")
-        cf.grid(row=2, column=0, sticky="ew", padx=6, pady=(0, 6))
+        cf.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
         cf.columnconfigure(0, weight=1)
         window_vcmd = (self.root.register(self.validate_window_digits), "%P")
         threshold_vcmd = (self.root.register(self.validate_positive_float), "%P")
@@ -153,7 +153,7 @@ class ControlsMixin:
         the angle offset added to that direction (positive = more
         counterclockwise)."""
         em = ttk.LabelFrame(parent, text="Ray emission")
-        em.grid(row=3, column=0, sticky="ew", padx=6, pady=(0, 6))
+        em.grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 6))
         em.columnconfigure(0, weight=1)
         coord_vcmd = (self.root.register(self.validate_signed_float), "%P")
 
@@ -321,7 +321,7 @@ class ControlsMixin:
             row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 4))
         ttk.Label(fz, foreground="#666", wraplength=RIGHT_W - 70,
                   text="Perturbs the ray's angles. Emission jitter is added to the "
-                       "ray's starting direction (set in the Simulation tab). Each "
+                       "ray's starting direction (set in the Emissions tab). Each "
                        "bounce group perturbs the "
                        "deflection angle at that kind of bounce: Offset always "
                        "added, Jitter a fresh random amount within \u00b1 the range "
