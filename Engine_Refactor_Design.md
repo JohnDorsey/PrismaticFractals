@@ -36,3 +36,19 @@ colorations read (`lightbounces.color_pipeline.demand_layout`), which was measur
 3840x2160 export from about 2.9 GB to about 0.9 GB for the default coloration. A per-engine layout is the same
 object built from a different source: an engine's own layout (the sequences it has), of which a render keeps the part
 its colorations need.
+
+## D4. No tab or control disappears when the engine changes; unusable ones are greyed out
+
+Outside the tab that controls which engine is in use, no tab disappears depending on the engine in use, and no control
+disappears depending on the engine in use. A control the engine in use cannot make use of is greyed out instead.
+
+## D5. What the Mandelbrot engine uses
+
+The Mandelbrot path engine has the entire contents of the Emissions tab and of the Mutations tab greyed out. It makes
+use of all the settings in all the other tabs.
+
+## D6. The Simulation tab chooses the engine
+
+The Simulation tab holds a dropdown box that chooses between two path engines. Its options are "Ray Bouncing" and
+"Mandelbrot". Underneath this control, engine-specific settings may appear, if they do not have a tab of their own
+somewhere else.
