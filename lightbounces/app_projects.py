@@ -8,11 +8,7 @@ from .projects import (
     EXPORT_OPTIONS, PROJECT_EXTENSION, PROJECT_FILE_TYPES, Project, ProjectError, _is_number,
     load_project, project_signature, save_project, coloration_config_from_snapshot
 )
-from .settings import (
-    DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_TERMINATION_DEFAULT, fuzz_rule, ray_args,
-    settings_to_dict, snapshot_keyframes
-)
-from .shapes import build_obstacle_arrays
+from .settings import settings_to_dict, snapshot_keyframes
 from .colorations import snapshot_coloration
 from .framings import framing_config_from_snapshot, snapshot_framing
 
@@ -104,14 +100,7 @@ class ProjectsMixin:
             self.tick_id = None
         self.running = False
         self.done = False
-        self.generated_settings = None
-        self.generated_natural_termination = None
-        self.gen_termination = NATURAL_TERMINATION_DEFAULT
-        self.gen_engine_args = ray_args(DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,
-                                build_obstacle_arrays([]))
-        self.gen_obstacles_sig = ()
-        self.gen_obstacle_snapshots = []
-        self.gen_obstacles_by_id = {}
+        self.generated = None
         self.set_image_framing(self.selected_framing_snapshot())    # (a blank image of the selected framing)
         self.batch_rows = 1
         self.thumb_sims = {}

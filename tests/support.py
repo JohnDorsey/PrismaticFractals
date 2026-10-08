@@ -102,6 +102,24 @@ def _give_image_geometry(app, framing=None):
     return app
 
 
+def _give_generated(app, generated=True, ray=None, natural_termination=None, obstacles=(), **replace):
+    """Give a fake app the GeneratedFigure of a Start (`app.generated`; None, the state before the first Start, when
+    `generated` is False) and the methods that read it. `ray` and `natural_termination` default to the defaults,
+    `obstacles` are live shapes the figure is made from, and `replace` overrides fields of the figure (termination,
+    engine_args, obstacle_snapshots...)."""
+    import dataclasses
+    if generated:
+        figure = m.generated_figure(m.DEFAULT_RAY_SETTINGS if ray is None else ray,
+                                    m.DEFAULT_NATURAL_TERMINATION_SETTINGS if natural_termination is None else natural_termination,
+                                    list(obstacles))
+        app.generated = dataclasses.replace(figure, **replace) if replace else figure
+    else:
+        app.generated = None
+    for name in ("current_figure", "settings_of_current_image", "natural_termination_of_current_image"):
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    return app
+
+
 def _give_framings(app):
     """Give a fake app the list of framings the real App holds (the whole-world framing, selected) and the methods
     that find the selected one."""
@@ -237,8 +255,6 @@ def _fake_export_app():
     app.color_info_location_var = _StubVar("None")
     app.figure_info_location_var = _StubVar("None")
     app.framing_info_location_var = _StubVar("None")
-    app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
     app.live_coloration = m.App.live_coloration.__get__(app)
     app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
@@ -298,19 +314,16 @@ def _fake_current_image_app():
     app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
-    app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
-    app.natural_termination_of_current_image = m.App.natural_termination_of_current_image.__get__(app)
-    app.gen_termination = m.NATURAL_TERMINATION_DEFAULT
     empty_i = np.empty(0, dtype=np.int64)
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
     empty_bool = np.empty(0, dtype=bool)
-    app.gen_engine_args = _engine_args(m.ObstacleArrays(
+    _give_generated(app, engine_args=_engine_args(m.ObstacleArrays(
         shapes=empty_i, bounds=empty_b, cx=empty_f, cy=empty_f,
-        effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))
+        effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)),
+        obstacle_snapshots=(m.default_starting_obstacle(0).snapshot(),))
     app.gx, app.gy = m.make_grid(m.PREVIEW_BOX, m.PREVIEW_BOX)
     app.obstacle_ring_specs = lambda: []
-    app.gen_obstacle_snapshots = [m.default_starting_obstacle(0).snapshot()]
     app.image_for_export = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
     app.render_current_image = m.App.render_current_image.__get__(app)

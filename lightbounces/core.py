@@ -14,18 +14,14 @@ import numpy as np
 
 
 from .framings import FramingConfig, snapshot_framing
-from .kernels import N_POINTS, N_RAW, N_STATS, ObstacleArrays
+from .kernels import N_POINTS, N_RAW, N_STATS
 from .constants import (
-    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
-    DEFAULT_ESCAPE_RADIUS,
+    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
-    ITER_LIMIT_MAX, OBST_BOUND_LEN, REFRESH_HZ
+    ITER_LIMIT_MAX, REFRESH_HZ
 )
-from .settings import (
-    DEFAULT_FUZZ, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_TERMINATION_DEFAULT,
-    fuzz_rule, ray_args
-)
+from .settings import DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
 from .colorations import ColorationConfig
@@ -78,16 +74,12 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.ready = False                # numba kernels compiled?
         self.running = False              # generation in progress?
         self.done = False                 # image fully generated?
-        self.generated_settings = None    # ray settings the current image was started with
-        self.generated_natural_termination = None    # ...and its natural termination settings (None together)
+        # What the current image was generated from is ONE GeneratedFigure (figure.py), made by Start: None until then
+        # (see current_figure for what stands in). The Buddha blur is not part of it: it is applied whenever Buddha
+        # channels are colored, so the image always uses the blur controls' current values.
+        self.generated = None
         self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
         self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
-        # What the current image was generated with is generated_settings and
-        # generated_natural_termination (see settings_of_current_image); gen_termination and gen_engine_args are only
-        # the kernel-ready tuples made from them (and from the obstacles, see below).
-        # The Buddha blur is not part of that: it is applied whenever Buddha channels are
-        # colored, so the image always uses the blur controls' current values.
-        self.gen_termination = NATURAL_TERMINATION_DEFAULT
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
         self.last_escape_radius = DEFAULT_ESCAPE_RADIUS
@@ -156,19 +148,6 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.obstacles = [default_starting_obstacle(0)]   # list[Shape], in list order
         self._obst_counter = 1
         self.selected_obstacle = self.obstacles[0]
-        empty_i64 = np.empty(0, dtype=np.int64)
-        empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
-        empty_f64 = np.empty(0, dtype=np.float64)
-        empty_bool = np.empty(0, dtype=np.bool_)
-        self.gen_engine_args = ray_args(              # the ray engine's arguments as generated (see start), with the
-            DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,   # obstacles as generated
-            ObstacleArrays(shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
-                           effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))
-        self.gen_obstacles_sig = ()
-        self.gen_obstacle_snapshots = []   # frozen copies of the obstacles as generated,
-                                           # for the export's figure settings text
-        self.gen_obstacles_by_id = {}      # obstacle id -> frozen settings, for the
-                                           # dashed "changed since last generation" guide
 
         # ---- framings ---- (the camera: where it is and how far it sees; the selected one is what the image on
         # screen and every export are of, and the first one, "framing 0", is what every coloration's thumbnail shows)

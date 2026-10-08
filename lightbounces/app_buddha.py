@@ -7,7 +7,7 @@ from .constants import (
     DEFAULT_BUDDHA_SEED_Y_START, DEFAULT_BUDDHA_SEED_Y_STOP, BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN,
     DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_BLUR_TYPE, RIGHT_W
 )
-from .kernels import PIXEL_TRACED, ST_TERMINATION
+from .kernels import PIXEL_TRACED
 from .parsing import parse_target_coordinate
 from .metrics import BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, CHAN_SRC_BUDDHA
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
@@ -218,15 +218,15 @@ class BuddhaMixin:
             return
         seeds = self.current_buddha_seed_settings()
         fired = self.pixel_state[r0:r1] == PIXEL_TRACED
-        term_stat = self.stats[r0:r1, :, ST_TERMINATION]
+        stats = self.stats[r0:r1]
         characteristic_points = self.characteristic_points[r0:r1]
-        rng_seed = self.settings_of_current_image().fuzz.rng_seed
+        figure = self.current_figure()
         for c in range(3):
             if coloration.chan_src[c] != CHAN_SRC_BUDDHA or self.buddha_counts[c] is None:
                 continue
             if scatter_buddha_channel(self.buddha_counts[c], coloration.buddha_points[c], r0, r1, self.image_world_rect,
-                                      seeds, fired, term_stat, characteristic_points, self.gen_termination,
-                                      self.gen_engine_args, rng_seed):
+                                      seeds, fired, stats, characteristic_points, figure.termination,
+                                      figure.engine_args, figure.rng_seed):
                 self.buddha_counts_blurred[c] = None
 
     def blurred_buddha_counts(self, c):

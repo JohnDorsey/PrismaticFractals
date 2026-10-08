@@ -164,7 +164,7 @@ A numba limitation shapes the drivers: a `parallel=True` function cannot use a t
 | `buddha_counts_blurred` | list of 3 | each `None` or float64 (h, w) | cached blurred copy |
 | `hover_path_points`, `hover_path_point_tags`, `hover_raw`, `hover_vec`, `hover_ray_characteristic_points` | float64 | (10001, 2), (10001,), (11,), (24,), (28, 2) | scratch for the hovered ray; 10001 = `ITER_LIMIT_MAX` + 2 |
 
-**Stored bytes per pixel = 321** (96 + 224 + 1). At 512×512 that is 84 MB; at 1920×1080, 666 MB; at 3840×2160, 2,663 MB **[V]**. `lightbounces.app_render.RenderMixin.render_full_image` allocates these whole for an export, then adds one `float64 (h, w)` counts array per Buddha channel (66 MB each at 4K) and the FFT's complex padded copies (not measured).
+**Stored bytes per pixel = 321** (96 + 224 + 1). At 512×512 that is 84 MB; at 1920×1080, 666 MB; at 3840×2160, 2,663 MB **[V]**. That is the **full layout** (`lightbounces.stored_layout.FULL_LAYOUT`) the live image keeps. Since FILE_VERSION 151 `lightbounces.app_render.RenderMixin.render_full_image` allocates only the `lightbounces.color_pipeline.demand_layout` of its colorations (21 bytes per pixel for the default coloration, 174 MB at 3840×2160 **[V]**; the measured peaks of whole exports are in the status list of section 2.4), then adds one `float64 (h, w)` counts array per Buddha channel (66 MB each at 4K) and the FFT's complex padded copies (not measured).
 
 ### E. Code spaces: the integers and floats that mean things
 
@@ -190,9 +190,9 @@ Termination codes are not in the order of their stored metric values: `ST_TERMIN
 
 ## 1.5 Stage 1: from settings to kernel arguments
 
-`lightbounces.app_generation.GenerationMixin.start` (button) and `begin_generation` (also run by a framing change) turn the live controls into the kernel arguments and keep them on the `App` as `gen_termination` (a `NaturalTerminationRule`) and `gen_engine_args` (a `RayArgs` whose `obstacles` are the scene *as generated*). Two consequences:
+`lightbounces.app_generation.GenerationMixin.start` (button) and `begin_generation` (also run by a framing change) turn the live controls into the kernel arguments and keep them on the `App` in one `lightbounces.figure.GeneratedFigure`, `App.generated` (its `termination` is a `NaturalTerminationRule`, its `engine_args` a `RayArgs` whose `obstacles` are the scene *as generated*). Two consequences:
 
-- Editing a control afterwards changes nothing on screen until Start: the image is of `generated_settings`, `generated_natural_termination` and the frozen obstacles.
+- Editing a control afterwards changes nothing on screen until Start: the image is of `App.generated`: its settings, its natural termination settings and the frozen obstacles.
 - A new framing re-runs `begin_generation` with those same kept arguments: a new image of the *same figure*, no Start needed.
 
 The world rectangle comes from `lightbounces.app_preview.PreviewMixin.set_image_framing`, which also reallocates (or clears) the per-image arrays when the framing changes.
@@ -500,7 +500,7 @@ A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) wr
 | `lightbounces.kernels.scatter_trace_points` and the four multi options | hard-wired to the self-bounce sequence, segment midpoints and progressive means; **no option exists for "every point of a sequence, for orbits that ended with reason T"**, which is a Buddhabrot | medium |
 | `lightbounces.metrics.SEQUENCE_LABELS` ..., `BUDDHA_POINT_CATALOG`, `CONSTANT_POINT_COORDS` | one global table of labels built at import from the ray engine's sequences | medium: per-engine tables, plus a channel naming a sequence its engine lacks needs a defined behaviour |
 | `lightbounces.projects.CAT_SEQUENCE`, `CAT_POINT`, `CAT_METRIC`, `CAT_BUDDHA_POINT` | the permanent file keys are the union of one engine's names (`self_bounces_mean`...) | medium: keys across engines must be a union, added without renaming |
-| `lightbounces.core.App.gen_engine_args`, `gen_termination`, `generated_settings`, `settings_of_current_image`; `lightbounces.app_generation.GenerationMixin.tick` | the app holds one engine's arguments under ray names and calls its kernel directly | medium |
+| `lightbounces.core.App.generated` (a `lightbounces.figure.GeneratedFigure`), `current_figure`, `settings_of_current_image`; `lightbounces.app_generation.GenerationMixin.tick` | the app holds one engine's arguments under ray names and calls its kernel directly | medium |
 | `lightbounces.app_preview.PreviewMixin.update_preview`, the Sequence preview panel (`lightbounces.app_layout.LayoutMixin.build_info_quadrant`), `lightbounces.settings.RaySettings`, the Emissions, Mutations and Obstacles tabs | ray-only UI and preview; the empty Simulation tab is the obvious engine selector | medium-high |
 
 ### Mandelbrot-specific needs, one by one
@@ -514,7 +514,7 @@ A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) wr
 | Julia sets | one extra engine setting (c) and a start rule |
 | Buddhabrot | needs the "all points of a sequence, filtered by termination" option; and the seed grid is one seed per output pixel, far less sampling than the usual random c over many millions (a design property of the seeding as specified) |
 | deep zoom | stored `characteristic_points` are float32 (limit about 6.6×10⁴× the default world rectangle's width, section 1.3); `stats` (escape time) are unaffected, so only point-based features (Buddha simple options, distance metrics) degrade; float64 storage would add 224 bytes per pixel at 28 points (448 instead of 224 for `characteristic_points`, 545 in all) |
-| memory | a one-sequence engine pays 321 bytes per pixel for a layout built for four sequences (believed about 90 bytes would do; not measured) |
+| memory | a one-sequence engine pays 321 bytes per pixel for a layout built for four sequences (about 76 would do: 7 points × 8 + 5 metrics × 4 = 76, calculated). Exports already keep only what their colorations read (`lightbounces.stored_layout.StoredLayout`, FILE_VERSION 151), which is the mechanism a per-engine layout would build on |
 
 ### The numba cache rule
 
@@ -536,7 +536,7 @@ My view (medium confidence): readiness is good for a **Mandelbrot image behind a
 
 Classification of cost: **internal** = identifiers and comments only; **key** = also a permanent project-file key, so it needs a format migration (the project is at format 6) and should normally be left alone, renaming only the attribute; **UI** = user-visible text.
 
-### Status after FILE_VERSION 149
+### Status after FILE_VERSION 151
 
 Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (partly), 9 and the medium-value rows 12, 13, 14, 15, 16, 17**. Not done, by decision: rows 4 (done earlier, in 145), 10, the rest of row 8, and the medium-value rows 19 and 22.
 
@@ -557,6 +557,10 @@ Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (par
 - Row 17: a coloration's color model is `color_model` (formerly `mode`): `ColorationConfig.color_model`, `COLOR_MODELS` / `COLOR_MODEL_NAMES` / `DEFAULT_COLOR_MODEL`, `color_model_var` / `color_model_combo`, `on_color_model_changed`, and the project keys `color_model` (in a coloration) and `coloration:<id>:color_model` (in a keyframe), through the same format-8 migration as `natural_termination` (no format 9: no format-8 file exists yet). The export margin line still reads "Mode:RGB".
 
 - Rows 20 and 21 (done in 149 with the colour-chain unification): the Buddha tabs, a channel's Buddha choices and the visit-count buffers moved to `lightbounces.app_buddha.BuddhaMixin`; the pure parts became two modules, `lightbounces.buddha` (counts: scatter, blur, compress; the former `metrics` blur and scatter functions moved there) and `lightbounces.color_pipeline` (the colour chain, once). `RecolorMixin` stayed in `app_recolor.py`, now only the Colorations tab's handlers and thin `recolor` / `component_values` / `map_color`; `PreviewMixin.update_seed_zone_outline` was left where it is.
+
+- Row 18 (done in 150): `lightbounces.figure.GeneratedFigure` (`App.generated`, None before the first Start) replaced `generated_settings`, `generated_natural_termination`, `gen_termination`, `gen_engine_args`, `gen_obstacles_sig`, `gen_obstacles_by_id` and `gen_obstacle_snapshots`; `current_figure()` supplies the `PLACEHOLDER_FIGURE` where something must be read before a Start. No compatibility properties were left behind.
+
+- Demand-driven export storage (FILE_VERSION 151, not a rename): `lightbounces.stored_layout.StoredLayout` and `lightbounces.kernels.trace_rows_stored`; exports keep only the slots their colorations read. **[V]** Real exports at 3840×2160, peak working set of the process (207 MB of which is the interpreter), identical images: default coloration 2,918 -> 860 MB; three point-pair channels 3,024 -> 1,111 MB; Buddha with two simple options 2,976 -> 973 MB; Buddha with all 28 simple points (the worst case) 2,975 -> 2,323 MB. What remains in the default case is the colouring's float64 temporaries (about 470 MB at that size), which banded colouring would remove (not done, by decision).
 
 ### High value
 

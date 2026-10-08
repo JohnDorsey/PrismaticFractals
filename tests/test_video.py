@@ -194,8 +194,7 @@ def _fake_save_app(fmt, lossless, quality):
     app.save_format_var = _StubVar(fmt)
     app.save_jxl_mode_var = _StubVar("Lossless" if lossless else "Lossy")
     app.save_jxl_quality_scale = _StubVar(quality)
-    app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
+    _give_generated(app)
     app.written = []
     app._write = lambda path: app.written.append(os.path.basename(path))
     app.save = m.App.save.__get__(app)

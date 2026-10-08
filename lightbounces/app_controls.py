@@ -13,6 +13,7 @@ from .constants import (
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
     FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
+from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
 from .parsing import (
     parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
@@ -588,7 +589,7 @@ class ControlsMixin:
 
     def refresh_outline(self):
         self.outline_job = None
-        if self.generated_settings is None:       # nothing generated yet: live preview
+        if self.generated is None:                # nothing generated yet: live preview
             self.draw()
 
     # ---- settings, Start and Revert ---------------------------------------- #
@@ -658,14 +659,14 @@ class ControlsMixin:
         is never useful, so the button explains what to do instead."""
         cur = self.current_generation_settings()
         start_ok = (self.ready and cur is not None
-                    and (self.generated_settings is None
-                         or cur != (self.generated_settings, self.generated_natural_termination)
-                         or obstacles_signature(self.obstacles) != self.gen_obstacles_sig))
+                    and (self.generated is None
+                         or cur != settings_of(self.generated)
+                         or obstacles_signature(self.obstacles) != self.generated.obstacles_signature))
         revert_ok = cur is None or cur != (self.baseline, self.baseline_natural_termination)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
-            has_image = (self.generated_settings is not None and not self.running
+            has_image = (self.generated is not None and not self.running
                          and self.rows_done >= self.img_h)
             self.save_btn.state(["!disabled"] if has_image else ["disabled"])
             self.save_as_btn.state(["!disabled"] if has_image else ["disabled"])

@@ -311,7 +311,7 @@ class ObstaclesMixin:
         what was last generated."""
         if o.in_effect == OBSTACLE_EFFECT_PASS and o.out_effect == OBSTACLE_EFFECT_PASS:
             return True
-        frozen = self.gen_obstacles_by_id.get(o.id)
+        frozen = None if self.generated is None else self.generated.obstacle_states.get(o.id)
         return frozen is None or o.state() != frozen
 
     def update_pending_outline(self):
@@ -320,8 +320,7 @@ class ObstaclesMixin:
         self.canvas.delete("pending")
         if not self.deco["pending"].get():
             return
-        g = self.generated_settings
-        if g is None:
+        if self.generated is None:
             return                                 # nothing generated yet: nothing "pending"
         for o in self.obstacles:
             if self.obstacle_is_pending(o):

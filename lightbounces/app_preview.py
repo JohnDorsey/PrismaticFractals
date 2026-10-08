@@ -88,8 +88,8 @@ class PreviewMixin:
         """[ObstacleRing, ...] for obstacles to draw a solid two-layer outline for:
         the frozen set if an image has been generated (matching what was actually
         simulated/saved), else the live (current) set."""
-        if self.generated_settings is not None:
-            g = self.gen_engine_args.obstacles
+        if self.generated is not None:
+            g = self.generated.engine_args.obstacles
             return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
                                  cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
                                  out_effect=int(g.effects[i, 1]))
@@ -147,8 +147,8 @@ class PreviewMixin:
     def preview_settings(self):
         """Settings for previews: those of the image being generated, or the
         current entries/controls (last valid values) if nothing has been started."""
-        if self.generated_settings is not None:
-            return self.generated_settings
+        if self.generated is not None:
+            return self.generated.ray
         return RaySettings(seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
                         emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
                         emit_target_r=self.last_emit_target_r,
@@ -160,8 +160,8 @@ class PreviewMixin:
     def preview_natural_termination_settings(self):
         """The natural termination settings for previews, chosen the same way as preview_settings():
         those of the image being generated, or the controls' last valid values."""
-        if self.generated_natural_termination is not None:
-            return self.generated_natural_termination
+        if self.generated is not None:
+            return self.generated.natural_termination
         return NaturalTerminationSettings(
             max_iter=self.last_iter, max_dist=self.last_dist, escape_radius=self.last_escape_radius,
             confine_lookback=self.last_confine_lookback,
@@ -173,7 +173,7 @@ class PreviewMixin:
         before the first Start. A pinned preview is recomputed immediately (so
         it tracks the new settings even though the mouse hasn't moved); a live
         hover is just cleared, to be recomputed on the next mouse move."""
-        if self.generated_settings is not None:
+        if self.generated is not None:
             return                                 # preview is frozen to the image
         self.hover_px = None
         if self.pinned_px is not None:

@@ -9,7 +9,8 @@ from .constants import (
     BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC_INNER_RATIO, BUDDHA_BLUR_GAUSSIAN,
     BUDDHA_BLUR_GAUSSIAN_TRUNCATE, BUDDHA_BLUR_TRIANGULAR, TERM_STAT_VALUE
 )
-from .kernels import WorldRect, scatter_from_seeds, scatter_multi_buddha
+from .kernels import ST_TERMINATION, WorldRect, scatter_from_seeds, scatter_multi_buddha
+from .stored_layout import FULL_LAYOUT
 from .metrics import (
     BUDDHA_ARCTAN_SCALE, BUDDHA_COMPRESS_ARCTAN, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG
@@ -145,12 +146,13 @@ def blur_kernel(blur, out_w, out_h):
     return build_buddha_blur_kernel(world_radius_to_pixels(blur.radius, out_w, out_h), blur.type)
 
 
-def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, term_stat, characteristic_points):
+def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout=FULL_LAYOUT):
     """Scatter into `counts` (in place; the whole image's visit counts, covering `world_rect`) the characteristic
     points that rows [row0, row1) already stored, for the "simple" options in `chosen` (a channel's tuple of flags, one
     per entry of BUDDHA_POINT_CATALOG): one point per ray that fired, and for an option restricted to a termination
-    reason only for rays that ended that way. `fired` and `term_stat` are the rows' pixel masks and termination metric,
-    `characteristic_points` their stored points. Returns whether any point was scattered."""
+    reason only for rays that ended that way. `fired` is the rows' pixel mask, `stats` and `characteristic_points` their
+    stored metrics and points (kept as `layout`, a stored_layout.StoredLayout, says; the termination metric is read only
+    for an option that asks for a termination reason). Returns whether any point was scattered."""
     h, w = counts.shape
     touched = False
     for index, on in enumerate(chosen):
@@ -161,11 +163,13 @@ def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, term_st
             continue
         mask = fired
         if term_filter is not None:
+            term_stat = stats[..., layout.stat_position(ST_TERMINATION)]
             mask = mask & (np.abs(term_stat - TERM_STAT_VALUE[term_filter]) < 0.01)
         if not mask.any():
             continue
-        xs = characteristic_points[..., ref, 0][mask]
-        ys = characteristic_points[..., ref, 1][mask]
+        position = layout.point_position(ref)
+        xs = characteristic_points[..., position, 0][mask]
+        ys = characteristic_points[..., position, 1][mask]
         col = np.floor((xs - world_rect.x_start) * (w / (world_rect.x_stop - world_rect.x_start))).astype(np.int64)
         row = np.floor((world_rect.y_stop - ys) * (h / (world_rect.y_stop - world_rect.y_start))).astype(np.int64)
         valid = (col >= 0) & (col < w) & (row >= 0) & (row < h)
@@ -174,13 +178,13 @@ def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, term_st
     return touched
 
 
-def scatter_buddha_channel(counts, chosen, row0, row1, world_rect, seeds, fired, term_stat, characteristic_points,
-                           termination, engine_args, rng_seed_base):
+def scatter_buddha_channel(counts, chosen, row0, row1, world_rect, seeds, fired, stats, characteristic_points,
+                           termination, engine_args, rng_seed_base, layout=FULL_LAYOUT):
     """Add to `counts` (in place; one Buddha channel's visit counts for the whole image, covering `world_rect`) the
     contribution of rows [row0, row1), for the options `chosen` (a tuple of flags, one per entry of
     BUDDHA_POINT_CATALOG). `seeds` (a BuddhaSeedSettings, or None for the camera pixels) says where the rays start:
     from the pixels of the image itself (the "simple" options then read the characteristic points the rows already
-    stored - `fired`, `term_stat` and `characteristic_points` are those rows' - and the "multi" options trace the rays
+    stored - `fired`, `stats` and `characteristic_points` are those rows', kept as `layout` says - and the "multi" options trace the rays
     again), or from a seed grid over the seeding zone (every option is then made from rays traced there).
     `termination`, `engine_args` and `rng_seed_base` are the simulation's own, for tracing again. Returns whether
     `counts` may have changed."""
@@ -188,7 +192,7 @@ def scatter_buddha_channel(counts, chosen, row0, row1, world_rect, seeds, fired,
         return scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base)
     if not fired.any():
         return False
-    touched = scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, term_stat, characteristic_points)
+    touched = scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout)
     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
                   BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
     for index, on in enumerate(chosen):

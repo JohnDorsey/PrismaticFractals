@@ -11,15 +11,19 @@ from .metrics import (
     point_comparison_metric
 )
 from .buddha import buddha_compress
+from .kernels import ST_TERMINATION
+from .metrics import BUDDHA_MULTI, BUDDHA_POINT_CATALOG, CONSTANT_POINT_COORDS, make_mapping
+from .stored_layout import FULL_LAYOUT, StoredLayout
 
 
-def channel_values(coloration, mapping, stats, characteristic_points, computed, blurred_counts):
+def channel_values(coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout=FULL_LAYOUT):
     """The three channels' values (each an array of 0..1 values, one per pixel in `computed`) of a coloration (a
     ColorationSettings or a ColorationConfig). `mapping` is what each channel uses (metrics.make_mapping), `stats` and
     `characteristic_points` the stored data of the pixels (any leading shape, which `computed` - a bool array of that
     shape: the pixels that have data - selects from), and `blurred_counts` a list of three arrays of the same leading
     shape: the blurred Buddha visit counts of each Buddha channel (None for any other, or when it has none: that
-    channel is 0)."""
+    channel is 0). `layout` (a stored_layout.StoredLayout) says which slots `stats` and `characteristic_points` keep;
+    the default is all of them."""
     n = int(computed.sum())
     vals = []
     for c in range(3):
@@ -36,27 +40,27 @@ def channel_values(coloration, mapping, stats, characteristic_points, computed, 
         elif s == NONE_ONE:
             vals.append(np.ones(n))
         elif s in POINT_METRICS:
-            x1, y1 = extract_point_xy(characteristic_points, coloration.point1_choice[c], computed, n)
-            x2, y2 = extract_point_xy(characteristic_points, coloration.point2_choice[c], computed, n)
+            x1, y1 = extract_point_xy(characteristic_points, coloration.point1_choice[c], computed, n, layout)
+            x2, y2 = extract_point_xy(characteristic_points, coloration.point2_choice[c], computed, n, layout)
             vals.append(point_comparison_metric(s, x1, y1, x2, y2))
         else:
-            vals.append(np.clip(stats[..., s][computed].astype(np.float64), 0.0, 1.0))
+            vals.append(np.clip(stats[..., layout.stat_position(s)][computed].astype(np.float64), 0.0, 1.0))
     return vals
 
 
-def color_pixels(coloration, mapping, stats, characteristic_points, computed, blurred_counts):
+def color_pixels(coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout=FULL_LAYOUT):
     """The colours, an (n, 3) uint8 array, of the n pixels in `computed` (see channel_values for the arguments)."""
     r, g, b = channels_to_rgb(coloration.color_model,
-                              *channel_values(coloration, mapping, stats, characteristic_points, computed, blurred_counts))
+                              *channel_values(coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout))
     return np.clip(np.rint(np.stack((r, g, b), axis=-1)), 0, 255).astype(np.uint8)
 
 
-def paint(out, coloration, mapping, stats, characteristic_points, computed, blurred_counts):
+def paint(out, coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout=FULL_LAYOUT):
     """Fill `out` (an (h, w, 3) uint8 image) with the background colour, and the pixels in `computed` with their
     colours (see channel_values for the arguments)."""
     out[:] = BACKGROUND
     if computed.any():
-        out[computed] = color_pixels(coloration, mapping, stats, characteristic_points, computed, blurred_counts)
+        out[computed] = color_pixels(coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout)
 
 
 def ray_values(coloration, mapping, metrics, ray_characteristic_points, blurred_counts_at_pixel):
@@ -68,3 +72,36 @@ def ray_values(coloration, mapping, metrics, ray_characteristic_points, blurred_
     counts = [None if count is None else np.full((1, 1), count, dtype=np.float64) for count in blurred_counts_at_pixel]
     return [float(v[0]) for v in channel_values(coloration, mapping, np.asarray(metrics, dtype=np.float64)[None, None, :],
                                                 np.asarray(ray_characteristic_points)[None, None, :, :], computed, counts)]
+
+
+def demand_layout(colorations, seeds=None):
+    """The StoredLayout that keeps exactly the slots the colorations (ColorationSettings, as an export renders them) read,
+    for Buddha seeding `seeds` (a BuddhaSeedSettings; None means the camera's pixels): the characteristic points and
+    metrics of the channels that read them (channel_values), and what a Buddha channel scatters
+    (buddha.scatter_stored_points: its simple options' points, and the termination metric for an option restricted to a
+    termination reason - the "multi" options and a seed grid read nothing that is stored). Whatever channel_values or
+    scatter_stored_points reads must be listed here;
+    test_a_demand_layout_keeps_everything_the_colour_chain_reads compares the two on random colorations."""
+    stat_slots, point_slots = set(), set()
+    camera = seeds is None or seeds.camera_pixels
+    for v in colorations:
+        mapping = make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
+        for c in range(3):
+            s = mapping[c]
+            if s == CHAN_BUDDHA:
+                if not camera:
+                    continue
+                for index, on in enumerate(v.buddha_points[c]):
+                    if on:
+                        _label, style, ref, term_filter = BUDDHA_POINT_CATALOG[index]
+                        if style != BUDDHA_MULTI:
+                            point_slots.add(ref)
+                            if term_filter is not None:
+                                stat_slots.add(ST_TERMINATION)
+            elif s in (NONE_ZERO, NONE_ONE):
+                continue
+            elif s in POINT_METRICS:
+                point_slots.update(p for p in (v.point1_choice[c], v.point2_choice[c]) if p not in CONSTANT_POINT_COORDS)
+            else:
+                stat_slots.add(s)
+    return StoredLayout.of(stat_slots, point_slots)

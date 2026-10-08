@@ -219,7 +219,7 @@ def _fake_framing_app(generated=False):
                  "apply_selected_framing", "refresh_framing_controls_for_selected_framing", "on_framing_commit"):
         setattr(app, name, getattr(m.App, name).__get__(app))
     app.canvas = app.photo = _StubWidget()
-    app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
+    _give_generated(app, generated=generated)
     app.pinned_px = (3, 4) if generated else None
     app.calls = []
     app.purged = []
@@ -338,10 +338,11 @@ def test_begin_generation_makes_an_image_of_the_selected_framing_of_the_figure_a
     app.running = False
     app.start_time = app.elapsed = app.next_tick = 0.0
     settings = m.DEFAULT_RAY_SETTINGS.replace(seg_mult=0.5)
-    app.generated_settings = settings
+    _give_generated(app, ray=settings)
+    figure = app.generated
     m.App.begin_generation(app)
     assert (app.img_w, app.img_h) == (512, 256) and app.rows_done == 0
-    assert app.generated_settings is settings, "a new image, not a new figure"
+    assert app.generated is figure, "a new image, not a new figure"
     assert app.thumb_sims == {} and app.coloration_thumb_cache == {}
     assert app.running and not app.done and app.calls[-1] == "tick"
 
@@ -356,10 +357,8 @@ def _thumbnail_app(generated=True):
     app.simulated_thumbnail_data = m.App.simulated_thumbnail_data.__get__(app)
     app.render_thumbnail = m.App.render_thumbnail.__get__(app)
     app.render_framing_thumbnail = m.App.render_framing_thumbnail.__get__(app)
-    app.gen_engine_args = _engine_args(m.build_obstacle_arrays(_start_scene()))
-    app.gen_termination = _termination(20)
-    app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
-    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS if generated else None
+    _give_generated(app, generated=generated, termination=_termination(20),
+                    engine_args=_engine_args(m.build_obstacle_arrays(_start_scene())))
     return app
 
 

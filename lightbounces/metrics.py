@@ -224,16 +224,17 @@ def point_comparison_metric(metric_slot, p1x, p1y, p2x, p2y):
     return np.clip(v, 0.0, 1.0)
 
 
-def extract_point_xy(characteristic_points, point_idx, computed, n):
-    """(x, y) arrays of length n holding the chosen point's coordinates for
-    every computed pixel: read from `points_arr` (an (H, W, N_POINTS, 2)
-    array of the characteristic points) for a real simulation point, or a constant-filled array for
-    CHOICE_ORIGIN/CHOICE_TOP_LEFT_CORNER, which was never written into
-    `points_arr` at all."""
+def extract_point_xy(characteristic_points, point_idx, computed, n, layout=None):
+    """(x, y) arrays of length n holding the chosen point's coordinates for every computed pixel: read from
+    `characteristic_points` (an (H, W, K, 2) array of the characteristic points the image keeps: all N_POINTS of them,
+    or - when `layout`, a stored_layout.StoredLayout, says which are kept - only those) for a real simulation point, or
+    a constant-filled array for CHOICE_ORIGIN/CHOICE_TOP_LEFT_CORNER, which was never written into
+    `characteristic_points` at all."""
     if point_idx in CONSTANT_POINT_COORDS:
         cx, cy = CONSTANT_POINT_COORDS[point_idx]
         return np.full(n, cx), np.full(n, cy)
-    xy = characteristic_points[..., point_idx, :][computed].astype(np.float64)
+    position = point_idx if layout is None else layout.point_position(point_idx)
+    xy = characteristic_points[..., position, :][computed].astype(np.float64)
     return xy[:, 0], xy[:, 1]
 
 

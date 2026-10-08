@@ -2419,10 +2419,26 @@ def scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_s
 # rules whole, like trace_path, and hands their pieces to _trace_rows_parallel, which
 # rebuilds them for each pixel's trace_path. Any other engine's driver has the same constraint.
 @njit(nogil=True, cache=True)
+def trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args,
+                      rng_seed_base, stat_ids, point_ids):
+    """
+    trace_rows storing only some of what it computes: slot k of the last axis of `stats` receives metric
+    stat_ids[k] of each traced ray, and slot k of the points axis of `characteristic_points` receives characteristic
+    point point_ids[k] (the shapes are (out_h, out_w, len(stat_ids)) and (out_h, out_w, len(point_ids), 2)). Every
+    reduction of every sequence is still computed for each ray; what is not asked for is not kept, which is what
+    makes an export of a large image affordable (see StoredLayout in stored_layout.py: a coloration needs only some of the
+    slots). With every slot, in order, it is exactly trace_rows.
+    """
+    _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination.max_iter,
+                         termination.max_dist, termination.escape_radius, termination.confine, engine_args.seg_mult,
+                         engine_args.fuzz, engine_args.emission, engine_args.obstacles, rng_seed_base, stat_ids, point_ids)
+
+
+@njit(nogil=True, cache=True)
 def trace_rows(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args, rng_seed_base):
     """
     Simulate rows [row0, row1) of an out_w x out_h output grid (the preview image, an exported image, a video frame,
-    a thumbnail). For each pixel that actually fires a ray, fill in stats[j, i, :] and points[j, i, :, :] and set
+    a thumbnail). For each pixel that actually fires a ray, fill in stats[j, i, :] and characteristic_points[j, i, :, :] and set
     pixel_state[j, i] = PIXEL_TRACED; for each that does not, set PIXEL_NO_RAY (so no PIXEL_PENDING is left in the
     rows rendered); a ray starts at its pixel's centre. The grid covers the world rectangle `world_rect` (a WorldRect), so an
     output whose shape differs from the rectangle's stretches the picture to fit; the "confined to less than a pixel"
@@ -2430,15 +2446,14 @@ def trace_rows(stats, characteristic_points, pixel_state, row0, row1, out_w, out
     whatever resolution or world rectangle it's sampled with. When fuzzing is enabled, each pixel's ray gets its own
     reproducible seed. `termination` is a NaturalTerminationRule and `engine_args` a RayArgs (see trace_path).
     """
-    _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination.max_iter,
-                             termination.max_dist, termination.escape_radius, termination.confine, engine_args.seg_mult,
-                             engine_args.fuzz, engine_args.emission, engine_args.obstacles, rng_seed_base)
+    trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args,
+                      rng_seed_base, np.arange(N_STATS), np.arange(N_POINTS))
 
 
 @njit(nogil=True, parallel=True, cache=True)
 def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, max_iter, max_dist,
                              escape_radius, confine, seg_mult, fuzz, emission, obstacles,
-                             rng_seed_base):
+                             rng_seed_base, stat_ids, point_ids):
     """trace_rows with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
     x_start = world_rect.x_start
@@ -2466,9 +2481,9 @@ def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, 
                                 RayArgs(seg_mult, fuzz, emission, obstacles), raw)
         compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out)
         compute_sequences(path_points, npts, path_point_tags, int(raw[RAW_BOUNCES]), max_iter, out, ray_characteristic_points)
-        for s in range(N_STATS):
-            stats[j, i, s] = out[s]
-        for p in range(N_POINTS):
-            characteristic_points[j, i, p, 0] = ray_characteristic_points[p, 0]
-            characteristic_points[j, i, p, 1] = ray_characteristic_points[p, 1]
+        for k in range(len(stat_ids)):
+            stats[j, i, k] = out[stat_ids[k]]
+        for k in range(len(point_ids)):
+            characteristic_points[j, i, k, 0] = ray_characteristic_points[point_ids[k], 0]
+            characteristic_points[j, i, k, 1] = ray_characteristic_points[point_ids[k], 1]
         pixel_state[j, i] = PIXEL_TRACED

@@ -167,10 +167,8 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
         emit_mode=m.EMIT_TOWARDS, emit_target_r=0.5, emit_target_theta=30.0, emit_offset=12.0)
     blur = m.BuddhaBlurSettings(radius=0.2, type=m.BUDDHA_BLUR_TRIANGULAR)
     app = _fake_current_image_app()
-    app.generated_settings = generated
-    app.generated_natural_termination = generated_termination
-    app.gen_termination = m.settings_natural_termination(generated_termination)
-    app.gen_engine_args = m.settings_ray_args(generated, app.gen_engine_args.obstacles)
+    _give_generated(app, ray=generated, natural_termination=generated_termination,
+                    engine_args=m.settings_ray_args(generated, app.generated.engine_args.obstacles))
     app.current_blur_settings = lambda: blur
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     seen = []
@@ -180,7 +178,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
         return np.zeros((h, w, 3), dtype=np.uint8)
     app.apply_coloration = fake_colorize
     app.render_current_image([m.ColorationConfig(0), m.ColorationConfig(1)])
-    expected = (blur, app.gen_termination, app.gen_engine_args, generated.fuzz.rng_seed)
+    expected = (blur, app.generated.termination, app.generated.engine_args, generated.fuzz.rng_seed)
     assert seen == [expected] * 2
     assert seen[0][1].confine == m.ConfineRule(lookback=9, method=m.CONFINE_PATH, threshold=0.123)
     assert seen[0][2].emission.offset == 12.0
@@ -196,8 +194,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     app.coloration_thumb_cache = {}
     app.render_current_image([m.ColorationConfig(0), m.ColorationConfig(1)])
     assert seen == [expected] * 2                                # the same generated image, the new blur
-    app.generated_settings = None                                # before the first Start
-    app.generated_natural_termination = None
+    _give_generated(app, generated=False)                        # before the first Start
     assert app.settings_of_current_image() is m.DEFAULT_RAY_SETTINGS
     assert app.natural_termination_of_current_image() is m.DEFAULT_NATURAL_TERMINATION_SETTINGS
 
@@ -494,8 +491,7 @@ def _ring_app(generated):
     o2.r, o2.theta, o2.cx, o2.in_effect, o2.out_effect = 0.5, 90.0, 0.25, m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS
     app.obstacles = [o, o2]
     arrays = m.build_obstacle_arrays(app.obstacles)
-    app.gen_engine_args = _engine_args(arrays)
-    app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
+    _give_generated(app, generated=generated, engine_args=_engine_args(arrays))
     return app
 
 
@@ -561,3 +557,49 @@ def test_the_kernel_tuples_are_built_from_the_records():
     assert isinstance(engine_args, m.RayArgs) and engine_args._fields == ("seg_mult", "fuzz", "emission", "obstacles")
     assert engine_args.seg_mult == 0.8 and engine_args.fuzz == m.fuzz_rule(_varied_ray_settings().fuzz)
     assert engine_args.emission == m.settings_emission(_varied_ray_settings()) and engine_args.obstacles is arrays
+
+
+# --------------------------------------------------------------------------- #
+# What an image was generated from: one GeneratedFigure
+# --------------------------------------------------------------------------- #
+def test_a_generated_figure_holds_the_settings_the_kernel_arguments_and_the_obstacles_as_they_were():
+    import dataclasses
+    ray, termination = _varied_ray_settings(), _varied_natural_termination_settings()
+    scene = [m.default_starting_obstacle(0), m.EllipseShape(3)]
+    figure = m.generated_figure(ray, termination, scene)
+    assert figure.ray is ray and figure.natural_termination is termination
+    assert figure.termination == m.settings_natural_termination(termination)
+    assert figure.engine_args.obstacles.shapes.tolist() == m.build_obstacle_arrays(scene).shapes.tolist()
+    assert figure.engine_args.seg_mult == ray.seg_mult and figure.rng_seed == ray.fuzz.rng_seed
+    assert figure.obstacles_signature == m.obstacles_signature(scene)
+    assert figure.obstacle_states == {0: scene[0].state(), 3: scene[1].state()}
+    assert [o.id for o in figure.obstacle_snapshots] == [0, 3]
+    scene[0].r = 0.5                                              # the scene moves on: the figure does not
+    assert figure.obstacles_signature != m.obstacles_signature(scene)
+    assert _raises(dataclasses.FrozenInstanceError, lambda: setattr(figure, "ray", m.DEFAULT_RAY_SETTINGS))
+
+
+def test_the_placeholder_figure_is_the_defaults_with_no_obstacle():
+    figure = m.PLACEHOLDER_FIGURE
+    assert figure.ray is m.DEFAULT_RAY_SETTINGS and figure.natural_termination is m.DEFAULT_NATURAL_TERMINATION_SETTINGS
+    assert figure.termination == m.NATURAL_TERMINATION_DEFAULT
+    assert figure.engine_args.seg_mult == m.DEFAULT_RAY_SETTINGS.seg_mult and figure.engine_args.emission == m.EMISSION_DEFAULT
+    assert figure.engine_args.fuzz == m.fuzz_rule(m.DEFAULT_FUZZ) and len(figure.engine_args.obstacles.shapes) == 0
+    assert figure.obstacles_signature == () and figure.obstacle_snapshots == () and figure.obstacle_states == {}
+    assert m.settings_of(None) == (None, None) and m.settings_of(figure) == (figure.ray, figure.natural_termination)
+
+
+def test_start_makes_the_whole_figure_at_once():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    ray, termination = _varied_ray_settings(), _varied_natural_termination_settings()
+    app.current_generation_settings = lambda: (ray, termination)
+    app.tick_id = None
+    app.obstacles = [m.default_starting_obstacle(0)]
+    app.begin_generation = lambda: app.__dict__.setdefault("began", []).append(app.generated)
+    assert getattr(app, "generated", None) is None
+    m.App.start(app)
+    assert app.began == [app.generated] and app.generated.ray is ray and app.generated.natural_termination is termination
+    assert app.baseline is ray and app.baseline_natural_termination is termination        # Revert returns to them
+    assert app.generated.obstacles_signature == m.obstacles_signature(app.obstacles)

@@ -995,7 +995,7 @@ def test_a_hovered_ray_is_coloured_by_the_chain_of_an_image_of_one_pixel():
     blur = m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_GAUSSIAN)
     counts = np.zeros((n, n))
     m.scatter_buddha_channel(counts, v.buddha_points[2], 0, n, m.WORLD_RECT_DEFAULT, None, pixel_state == m.PIXEL_TRACED,
-                             stats[..., m.ST_TERMINATION], characteristic_points, termination, engine_args, 3)
+                             stats, characteristic_points, termination, engine_args, 3)
     counts = m.blur_counts_image(counts, m.blur_kernel(blur, n, n))
     computed = pixel_state == m.PIXEL_TRACED
     blurred = [None, None, counts]
@@ -1031,7 +1031,6 @@ def test_scattering_a_channels_rows_in_pieces_gives_the_counts_of_scattering_the
     termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
     n = stats.shape[0]
     fired = pixel_state == m.PIXEL_TRACED
-    term_stat = stats[..., m.ST_TERMINATION]
     zone = m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.8, y_start=-0.6, y_stop=0.5)
     labels = m.BUDDHA_POINT_LABELS
     choices = {"stored": _buddha_choice(m.POINT_ALL_MEAN, labels.index("Path: Last point (confined)")),
@@ -1040,15 +1039,15 @@ def test_scattering_a_channels_rows_in_pieces_gives_the_counts_of_scattering_the
     for name, chosen in choices.items():
         for seeds in (None, zone):
             whole, pieces = np.zeros((n, n)), np.zeros((n, n))
-            m.scatter_buddha_channel(whole, chosen, 0, n, m.WORLD_RECT_DEFAULT, seeds, fired, term_stat, characteristic_points,
+            m.scatter_buddha_channel(whole, chosen, 0, n, m.WORLD_RECT_DEFAULT, seeds, fired, stats, characteristic_points,
                                      termination, engine_args, 3)
             for r0, r1 in ((0, 5), (5, 17), (17, n)):
-                m.scatter_buddha_channel(pieces, chosen, r0, r1, m.WORLD_RECT_DEFAULT, seeds, fired[r0:r1], term_stat[r0:r1],
+                m.scatter_buddha_channel(pieces, chosen, r0, r1, m.WORLD_RECT_DEFAULT, seeds, fired[r0:r1], stats[r0:r1],
                                          characteristic_points[r0:r1], termination, engine_args, 3)
             assert whole.sum() > 0 and np.array_equal(whole, pieces), (name, seeds)
     nothing = np.zeros((n, n))
     assert not m.scatter_buddha_channel(nothing, choices["stored"], 0, n, m.WORLD_RECT_DEFAULT, None, np.zeros_like(fired),
-                                        term_stat, characteristic_points, termination, engine_args, 3)
+                                        stats, characteristic_points, termination, engine_args, 3)
     assert nothing.sum() == 0, "no ray fired in the rows: nothing to scatter, and nothing reported"
 
 
@@ -1077,8 +1076,8 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
         app.mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
         app.current_blur_settings = lambda: blur
         app.current_buddha_seed_settings = lambda seeds=seeds: seeds
-        app.settings_of_current_image = lambda: m.DEFAULT_RAY_SETTINGS.replace(fuzz=m.DEFAULT_RAY_SETTINGS.fuzz.replace(rng_seed=3))
-        app.gen_termination, app.gen_engine_args = termination, engine_args
+        _give_generated(app, ray=m.DEFAULT_RAY_SETTINGS.replace(fuzz=m.DEFAULT_RAY_SETTINGS.fuzz.replace(rng_seed=3)),
+                        termination=termination, engine_args=engine_args)
         for name in ("scatter_buddha_rows", "blurred_buddha_counts", "rebuild_buddha_counts", "recolor"):
             setattr(app, name, getattr(m.App, name).__get__(app))
         app.rebuild_buddha_counts()
@@ -1090,3 +1089,151 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
                                         n, n, blur, termination, engine_args, 3, seeds)
         assert np.array_equal(app.img, export), seeds.camera_pixels
         assert (app.img != m.BACKGROUND).any()
+
+
+# --------------------------------------------------------------------------- #
+# Stored layouts: an image keeps only the slots its colorations read
+# --------------------------------------------------------------------------- #
+def test_a_stored_layout_names_the_slots_kept_and_refuses_the_others():
+    layout = m.StoredLayout.of({m.ST_BOUNCE_COUNT, m.ST_TERMINATION}, [m.POINT_END, m.POINT_START, m.POINT_END])
+    assert layout.stat_ids.tolist() == sorted([m.ST_BOUNCE_COUNT, m.ST_TERMINATION])
+    assert layout.point_ids.tolist() == sorted([m.POINT_START, m.POINT_END])
+    assert layout.stat_position(m.ST_TERMINATION) == layout.stat_ids.tolist().index(m.ST_TERMINATION)
+    assert layout.point_position(m.POINT_END) == layout.point_ids.tolist().index(m.POINT_END)
+    assert _raises(KeyError, lambda: layout.point_position(m.POINT_TOP)), "a slot that is not kept is never read as zeros"
+    assert _raises(KeyError, lambda: layout.stat_position(m.ST_ANGLES))
+    assert _raises(ValueError, lambda: m.StoredLayout.of([m.N_STATS], []))
+    assert _raises(ValueError, lambda: m.StoredLayout.of([], [-1]))
+    stats, points = layout.allocate(5, 7)
+    assert stats.shape == (5, 7, 2) and points.shape == (5, 7, 2, 2) and stats.dtype == points.dtype == np.float32
+    assert layout.bytes_per_pixel == 2 * 4 + 2 * 8 + 1
+    other = m.StoredLayout.of([m.ST_ANGLES], [m.POINT_TOP])
+    both = layout.union(other)
+    assert both.stat_ids.tolist() == sorted({m.ST_BOUNCE_COUNT, m.ST_TERMINATION, m.ST_ANGLES})
+    assert both.point_ids.tolist() == sorted({m.POINT_START, m.POINT_END, m.POINT_TOP})
+
+
+def test_the_full_layout_keeps_every_slot_in_order_which_is_321_bytes_a_pixel():
+    assert m.FULL_LAYOUT.stat_ids.tolist() == list(range(m.N_STATS))
+    assert m.FULL_LAYOUT.point_ids.tolist() == list(range(m.N_POINTS))
+    assert all(m.FULL_LAYOUT.stat_position(s) == s for s in range(m.N_STATS))
+    assert all(m.FULL_LAYOUT.point_position(p) == p for p in range(m.N_POINTS))
+    assert m.FULL_LAYOUT.bytes_per_pixel == 321
+
+
+def test_trace_rows_stored_keeps_only_the_slots_asked_for_and_all_of_them_is_trace_rows():
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    n = stats.shape[0]
+
+    def traced(layout):
+        s, p = layout.allocate(n, n)
+        state = np.zeros((n, n), dtype=np.uint8)
+        m.trace_rows_stored(s, p, state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 3, layout.stat_ids,
+                            layout.point_ids)
+        return s, p, state
+    s, p, state = traced(m.FULL_LAYOUT)
+    assert np.array_equal(s, stats) and np.array_equal(p, characteristic_points) and np.array_equal(state, pixel_state)
+    some = m.StoredLayout.of([m.ST_TERMINATION, m.ST_BOUNCE_COUNT, m.ST_LOOP_AREA], [m.POINT_END, m.POINT_SELF_MEAN, m.POINT_START])
+    s, p, state = traced(some)
+    assert np.array_equal(s, stats[..., some.stat_ids]) and np.array_equal(p, characteristic_points[..., some.point_ids, :])
+    assert np.array_equal(state, pixel_state)
+    none = m.StoredLayout.of([], [])
+    s, p, state = traced(none)
+    assert s.shape == (n, n, 0) and p.shape == (n, n, 0, 2) and np.array_equal(state, pixel_state)
+
+
+def test_a_demand_layout_keeps_what_the_colorations_read_and_nothing_else():
+    default = _coloration_settings_from_config(m.ColorationConfig(0))      # two point pairs and a count of bounces
+    layout = m.demand_layout([default])
+    assert layout.stat_ids.tolist() == [m.ST_BOUNCE_COUNT] and layout.point_ids.tolist() == [m.POINT_START, m.POINT_END]
+    assert layout.bytes_per_pixel == 21
+    v = m.ColorationConfig(0)
+    v.point1_choice[0], v.point2_choice[0] = m.CHOICE_ORIGIN, m.POINT_TOP           # a fixed point is not stored
+    v.chan_src[1] = m.CHAN_SRC_CONSTANT
+    v.chan_src[2] = m.CHAN_SRC_BUDDHA
+    v.buddha_points[2] = _buddha_choice(m.BUDDHA_POINT_LABELS.index("All self bounces"))   # a multi option stores nothing
+    only_top = m.demand_layout([_coloration_settings_from_config(v)])
+    assert only_top.stat_ids.tolist() == [] and only_top.point_ids.tolist() == [m.POINT_TOP]
+    v.buddha_points[2] = _buddha_choice(m.POINT_SELF_MEAN, m.BUDDHA_POINT_LABELS.index("Path: Last point (confined)"))
+    settings = _coloration_settings_from_config(v)
+    assert m.demand_layout([settings]).point_ids.tolist() == sorted([m.POINT_TOP, m.POINT_SELF_MEAN, m.POINT_END])
+    assert m.demand_layout([settings]).stat_ids.tolist() == [m.ST_TERMINATION], "a termination filter needs that metric"
+    zone = m.DEFAULT_BUDDHA_SEED.replace(camera_pixels=False)
+    assert m.demand_layout([settings], zone).point_ids.tolist() == [m.POINT_TOP], "a seed grid reads no stored point"
+    both = m.demand_layout([default, settings])
+    assert both.stat_ids.tolist() == sorted([m.ST_BOUNCE_COUNT, m.ST_TERMINATION])
+    assert both.point_ids.tolist() == sorted([m.POINT_START, m.POINT_END, m.POINT_TOP, m.POINT_SELF_MEAN])
+
+
+def _random_coloration(rng):
+    v = m.ColorationConfig(0)
+    v.color_model = str(rng.choice(m.COLOR_MODEL_NAMES))
+    other_metrics, point_metrics = sorted(m.OTHER_METRICS), sorted(m.POINT_METRICS)
+    for c in range(3):
+        v.chan_src[c] = int(rng.choice([m.CHAN_SRC_QUERY, m.CHAN_SRC_QUERY, m.CHAN_SRC_BUDDHA, m.CHAN_SRC_CONSTANT]))
+        v.metric_types[c] = int(rng.choice([m.METRIC_TYPE_POINT_PAIR, m.METRIC_TYPE_OTHER]))
+        v.point_metric[c] = int(rng.choice(point_metrics))
+        v.other_metric[c] = int(rng.choice(other_metrics))
+        v.point1_choice[c] = int(rng.randint(m.N_POINT_CHOICES))
+        v.point2_choice[c] = int(rng.randint(m.N_POINT_CHOICES))
+        v.buddha_points[c] = tuple(bool(rng.rand() < 0.12) for _ in range(m.N_BUDDHA_POINTS))
+        v.buddha_compression[c] = int(rng.randint(2))
+        v.buddha_brightness[c] = int(rng.randint(4))
+        v.constant_choice[c] = int(rng.choice([m.NONE_ZERO, m.NONE_ONE]))
+    return v
+
+
+def test_a_demand_layout_keeps_everything_the_colour_chain_reads():
+    """Random colorations (every source, metric and point choice, Buddha options of every sort) and both kinds of
+    seeding: the image made from the slots a demand layout keeps is the image made from all of them. A channel source
+    whose reads demand_layout forgot would fail here (or raise: an unkept slot is never read as zeros)."""
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    n = stats.shape[0]
+    blur = m.BuddhaBlurSettings(radius=0.02, type=m.BUDDHA_BLUR_BOKEH)
+    zone = m.DEFAULT_BUDDHA_SEED.replace(camera_pixels=False, x_start=-0.5, x_stop=0.8, y_start=-0.6, y_stop=0.5)
+    rng = np.random.RandomState(11)
+    apply = m.App.apply_coloration.__get__(type("A", (), {})())
+    checked = 0
+    for trial in range(60):
+        settings = [_coloration_settings_from_config(_random_coloration(rng)) for _ in range(1 + trial % 2)]
+        seeds = zone if trial % 3 == 2 else None
+        layout = m.demand_layout(settings, seeds)
+        kept_stats, kept_points = stats[..., layout.stat_ids], characteristic_points[..., layout.point_ids, :]
+        for v in settings:
+            want = apply(v, stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 3, seeds)
+            got = apply(v, kept_stats, kept_points, pixel_state, n, n, blur, termination, engine_args, 3, seeds,
+                        m.WORLD_RECT_DEFAULT, layout)
+            assert np.array_equal(want, got), (trial, v)
+            checked += 1
+    assert checked > 60
+
+
+def test_a_large_export_keeps_only_what_its_colorations_read():
+    """render_full_image allocates the demand layout, not 321 bytes for every pixel: the same picture as the full
+    layout, in a fraction of the memory (measured with tracemalloc, which sees numpy's arrays)."""
+    import tracemalloc
+    app = _fake_render_app()
+    data = m.resolve_frame_settings([m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))], 0).replace(outline=False)
+    obst_arrays = _starting_obst_arrays()
+    n = 256
+    buddha = m.ColorationConfig(1)
+    buddha.chan_src[1] = m.CHAN_SRC_BUDDHA
+    buddha.buddha_points[1] = _buddha_choice(m.POINT_ALL_MEAN, m.POINT_END)
+    colorations = (_coloration_settings_from_config(m.ColorationConfig(0)), _coloration_settings_from_config(buddha))
+    termination, engine_args = m.settings_natural_termination(data.natural_termination), m.settings_ray_args(data.ray, obst_arrays)
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.zeros((n, n), dtype=np.uint8)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, data.ray.fuzz.rng_seed)
+    want = np.concatenate([app.apply_coloration(v, stats, characteristic_points, pixel_state, n, n, data.buddha_blur, termination,
+                                                engine_args, data.ray.fuzz.rng_seed, data.buddha_seed) for v in colorations], axis=1)
+    full_bytes = n * n * m.FULL_LAYOUT.bytes_per_pixel
+    del stats, characteristic_points
+    tracemalloc.start()
+    try:
+        got = app.render_full_image(data, n, n, obst_arrays, colorations, m.DEFAULT_FRAMING)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert np.array_equal(got, want)
+    assert peak < 0.4 * full_bytes, (peak, full_bytes)

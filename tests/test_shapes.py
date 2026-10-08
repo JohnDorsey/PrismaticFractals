@@ -509,10 +509,11 @@ def test_a_pass_through_both_ways_obstacle_counts_as_pending_even_if_unchanged()
     o = m.EllipseShape(0)
     o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_PASS
     app.obstacle_is_pending = m.App.obstacle_is_pending.__get__(app)
-    app.gen_obstacles_by_id = {0: o.state()}     # unchanged since generation
+    app.generated = type("Generated", (), {})()
+    app.generated.obstacle_states = {0: o.state()}     # unchanged since generation
     assert app.obstacle_is_pending(o)
     o.out_effect = m.OBSTACLE_EFFECT_REFLECT
-    app.gen_obstacles_by_id = {0: o.state()}
+    app.generated.obstacle_states = {0: o.state()}
     assert not app.obstacle_is_pending(o)
 
 

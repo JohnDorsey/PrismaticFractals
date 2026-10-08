@@ -12,10 +12,10 @@ from .kernels import (
 )
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
-    CONFINE_DEFAULT, DEFAULT_FUZZ, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT,
-    fuzz_rule, natural_termination_rule, ray_args, settings_natural_termination, settings_ray_args
+    CONFINE_DEFAULT, DEFAULT_FUZZ, EMISSION_DEFAULT, fuzz_rule, natural_termination_rule,
+    ray_args
 )
-from .shapes import build_obstacle_arrays, obstacles_signature
+from .figure import PLACEHOLDER_FIGURE, generated_figure
 
 
 class GenerationMixin:
@@ -58,20 +58,14 @@ class GenerationMixin:
             self.tick_id = None
 
         settings, natural_termination = snap
-        self.generated_settings = settings
-        self.generated_natural_termination = natural_termination
+        self.generated = generated_figure(settings, natural_termination, self.obstacles)
         self.baseline = settings                   # Revert now returns to these values
         self.baseline_natural_termination = natural_termination
-        self.gen_termination = settings_natural_termination(natural_termination)
-        self.gen_engine_args = settings_ray_args(settings, build_obstacle_arrays(self.obstacles))
-        self.gen_obstacles_sig = obstacles_signature(self.obstacles)
-        self.gen_obstacles_by_id = {o.id: o.state() for o in self.obstacles}
-        self.gen_obstacle_snapshots = [o.snapshot() for o in self.obstacles]
         self.begin_generation()
 
     def begin_generation(self):
-        """Generate, from its first row, an image of the figure this program holds (generated_settings,
-        generated_natural_termination, gen_termination and gen_engine_args: set by start, which is what makes a new figure) as seen by the
+        """Generate, from its first row, an image of the figure this program holds (the GeneratedFigure
+        `generated`: set by start, which is what makes a new figure) as seen by the
         selected framing - which is also what a change of framing does, with the same figure."""
         if self.tick_id is not None:
             self.root.after_cancel(self.tick_id)
@@ -100,13 +94,13 @@ class GenerationMixin:
         budget = self.PERIOD * COMPUTE_FRACTION
         target = budget / 3.0                      # aim for ~3 batches per tick
         rows_before = self.rows_done
-        g = self.settings_of_current_image()
+        figure = self.current_figure()
 
         while self.rows_done < self.img_h:
             t0 = time.perf_counter()
             row1 = min(self.rows_done + self.batch_rows, self.img_h)
             trace_rows(self.stats, self.characteristic_points, self.pixel_state, self.rows_done, row1, self.img_w, self.img_h,
-                           self.image_world_rect, self.gen_termination, self.gen_engine_args, g.fuzz.rng_seed)
+                           self.image_world_rect, figure.termination, figure.engine_args, figure.rng_seed)
             self.rows_done = row1
             now = time.perf_counter()
 
@@ -151,18 +145,18 @@ class GenerationMixin:
                                                     # simulation that just finished, even
                                                     # if the Colorations tab isn't showing
 
+    def current_figure(self):
+        """The GeneratedFigure the image on screen was generated from (the PLACEHOLDER_FIGURE - the defaults and no
+        obstacle - before the first Start). Coloring a coloration from the stored data needs all of it, not just the
+        limits: Buddha coloration re-traces rays with the generated emission rule, fuzzing and obstacles."""
+        return PLACEHOLDER_FIGURE if self.generated is None else self.generated
+
     def settings_of_current_image(self):
-        """The RaySettings the current image was generated with (the defaults, for
-        the placeholder image before the first Start). Coloring a coloration from the
-        stored data needs all of them, not just the limits: Buddha coloration
-        re-traces rays with the generated emission rule and fuzzing."""
-        if self.generated_settings is not None:
-            return self.generated_settings
-        return DEFAULT_RAY_SETTINGS
+        """The RaySettings the current image was generated with (the defaults, for the placeholder image before the
+        first Start)."""
+        return self.current_figure().ray
 
     def natural_termination_of_current_image(self):
-        """The NaturalTerminationSettings the current image was generated with (the defaults, for
-        the placeholder image before the first Start)."""
-        if self.generated_natural_termination is not None:
-            return self.generated_natural_termination
-        return DEFAULT_NATURAL_TERMINATION_SETTINGS
+        """The NaturalTerminationSettings the current image was generated with (the defaults, for the placeholder
+        image before the first Start)."""
+        return self.current_figure().natural_termination

@@ -101,7 +101,7 @@ class FramingMixin:
             return
         self.pinned_px = None
         self.canvas.configure(cursor="crosshair")
-        if self.generated_settings is not None:
+        if self.generated is not None:
             self.begin_generation()
             return
         self.set_image_framing(snapshot)
