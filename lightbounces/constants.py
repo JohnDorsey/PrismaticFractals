@@ -16,7 +16,7 @@ DIST_LIMIT_MIN = 0         # allowed range for the distance limit; 0 = no limit
 DIST_LIMIT_MAX = 9999
 DEFAULT_ITER = 256         # default iteration limit (bounces)
 DEFAULT_DIST = 0           # default distance limit (units): 0 = no limit
-DEFAULT_ESCAPE_RADIUS = 2.0     # an escaping ray stops this far from the origin (any number above 0)
+DEFAULT_ESCAPE_RADIUS = 2.0     # an escaping ray terminates this far from the origin (any number above 0)
 SEGMENT_MULT_MIN = 0.01    # how much of each bounce's true segment length is
 SEGMENT_MULT_MAX = 1.0     # actually travelled before continuing in the newly
 DEFAULT_SEGMENT_MULT = 1.0 # -calculated (bounced) direction; 1 = no effect

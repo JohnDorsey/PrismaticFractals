@@ -16,7 +16,7 @@ The figure
   below - like the Mandelbrot set or the Buddhabrot are the results of their
   own rules. It can never be generated whole; this program generates views of
   it, detailed and accurate enough to learn about it. What defines the figure
-  is the stopping limits, the segment length, the emission direction, the
+  is the termination limits, the segment length, the emission direction, the
   confinement rule, the fuzzing and the obstacles.
   Coloration, decorations and the Buddha blur are not part of it: they only
   process or decorate the data generated from it.
@@ -59,7 +59,7 @@ Ray effects
   effect", going out from inside its "outgoing ray effect". Each is one of
 
     Reflect       a mirror (using the boundary's fuzzing settings),
-    Terminate     the ray stops the instant it reaches the edge,
+    Terminate     the ray ends the instant it reaches the edge,
     Pass through  the ray carries on across the edge. This is neither a bounce
                   nor a recorded path point, and it doesn't cut the segment
                   short: the ray simply becomes inside (or outside) that shape.
@@ -77,7 +77,7 @@ Rays
   to the right, at 45 degrees - and it starts out inside every shape that
   contains its start point. It reflects, terminates or passes through at each shape's
   edge as described above, and it reflects off any earlier segment of its own
-  path. A ray stops when
+  path. A ray terminates when
 
   * it becomes confined (see below),
   * it has bounced as many times as the iteration limit allows (1 to 9999),
@@ -86,7 +86,7 @@ Rays
     limit is reached part-way along a segment, the segment is cut off there,
   * it reaches an edge whose effect for that direction is Terminate,
   * it strikes a reflective surface at exactly perpendicular incidence (which
-    side it would retrace along is undefined, so it stops there), or
+    side it would retrace along is undefined, so it terminates there), or
   * it escapes: nothing is left ahead for it to hit, so its last point is
     where it is the escape radius (a setting; default 2) from the origin -
     or the last edge it passed through, if that is further out.
@@ -110,7 +110,7 @@ Rays
 
   A segment length multiplier (0.01 to 1; 1 means no effect) shortens every
   ordinary bounce's segment to that fraction of its true length, after which
-  the ray continues in the newly bounced direction from where it stopped. A
+  the ray continues in the newly bounced direction from where it ended. A
   segment includes any edges the ray passed through on the way.
 
 Fuzzing
@@ -127,7 +127,7 @@ Coloration
   that compare two chosen sample points (horizontal, vertical, Manhattan and
   Euclidean distance) and nine others (bounce counts and fractions, loop area,
   bounce angles, path length, last-segment direction and length, and why the
-  ray stopped - one of six reasons, spaced evenly from 0 to 1). Fifteen sample points can be chosen: thirteen picked out of the
+  ray terminated - one of six reasons, spaced evenly from 0 to 1). Fifteen sample points can be chosen: thirteen picked out of the
   ray's path (its start and end, the means of its bounce points, its
   uppermost/lowermost/rightmost/leftmost bounces overall and among only its
   self-bounces) plus two fixed ones (the origin and the top-left corner).
@@ -233,7 +233,7 @@ Exporting a still image
   Export designer: whether the export includes all colorations or only the selected
   one, where to put the coloration description (none, overlaid on the image,
   or in a bottom margin), where to put the figure settings (none, or a left
-  margin listing every setting that defines the figure: the stopping limits,
+  margin listing every setting that defines the figure: the termination limits,
   segment length, fuzzing and every obstacle's own fields; the margin grows
   extra columns if they need the room) and where to put the framing settings
   (none, or the same left margin, below the figure's with a line of dashes

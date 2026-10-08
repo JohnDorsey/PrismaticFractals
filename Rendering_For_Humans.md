@@ -26,8 +26,8 @@ A guide to how Light Bounces turns settings into pixels, followed by assessments
  settings records        scene (Shape objects)        framing (x, y, diagonal, aspect)
         |                        |                               |
         |  settings_ray_args     |  build_obstacle_arrays        |  framing_world_rect
-        v  settings_natural_stop v                               v
- kernel arguments:  RayArgs, NaturalStopRule, ObstacleArrays, WorldRect     (namedtuples / numpy arrays)
+        v  settings_natural_termination v                               v
+ kernel arguments:  RayArgs, NaturalTerminationRule, ObstacleArrays, WorldRect     (namedtuples / numpy arrays)
         |
         v   once per pixel, in parallel:  kernels._trace_rows_parallel
  pixel centre (x, y) --emits_ray?--no--> pixel_state = PIXEL_NO_RAY (2)
@@ -36,7 +36,7 @@ A guide to how Light Bounces turns settings into pixels, followed by assessments
  trace_path ---> path_points (max_iter+2, 2) f64   path_point_tags (max_iter+2,) f64   raw (11,) f64   term, npts     [one ray, thrown away]
         v
  compute_run_measurements      ---> out (24,) f64   (the ray's own run measurements)
- compute_sequences  ---> out (24,) f64   (sequence scalars)     sp (28, 2) f64  (sequence points)    [one ray, thrown away]
+ compute_sequences  ---> out (24,) f64   (sequence scalars)     ray_characteristic_points (28, 2) f64  (sequence points)    [one ray, thrown away]
         v   copied, narrowed to float32
  stats (h, w, 24) f32   characteristic_points (h, w, 28, 2) f32   pixel_state (h, w) u8                    [kept: the stored image data]
         v
@@ -53,7 +53,7 @@ A guide to how Light Bounces turns settings into pixels, followed by assessments
 Three things the diagram does not say:
 
 1. **The whole path of a ray is never kept.** Only reductions of it survive into `stats` and `characteristic_points`. That is why some Buddha options must trace their rays a second time (section 1.10).
-2. **Everything after `pixel_state`, `stats` and `characteristic_points` is cheap and repeatable.** Changing a coloration, the Buddha blur or the Buddha seeding never re-runs `trace_path` for the image's own rays; it only re-reads the stored arrays. Changing a framing re-runs it automatically; changing a ray setting, a stopping limit or an obstacle re-runs it when you press Start.
+2. **Everything after `pixel_state`, `stats` and `characteristic_points` is cheap and repeatable.** Changing a coloration, the Buddha blur or the Buddha seeding never re-runs `trace_path` for the image's own rays; it only re-reads the stored arrays. Changing a framing re-runs it automatically; changing a ray setting, a termination limit or an obstacle re-runs it when you press Start.
 3. **There are three separate implementations of "stored numbers to colour"** (live rows, whole image, single hovered ray) and **three decoders of the Buddha option list**. They agree today; section 2.1 lists them as the main duplication.
 
 ## 1.2 Vocabulary
@@ -71,7 +71,7 @@ Three things the diagram does not say:
 | reduction | a fixed summary of a sequence: 7 point reductions (`PRED_*`), 4 scalar reductions (`SRED_*`) | `lightbounces.kernels.sequence_summary` |
 | slot | an index into a ray's stored array: 28 point slots, 24 metric slots | `lightbounces.kernels.POINT_SLOT`, `STAT_SLOT` |
 | run measurement | a number about the ray's own run, not about any sequence (loop area, bounce angles, termination reason, last-segment ratio, and four placeholder distances) | `lightbounces.kernels.compute_run_measurements` |
-| metric | the UI word for a metric slot (`stats[..., slot]`); always scaled to 0..1 | `lightbounces.metrics.STAT_LABELS` |
+| metric | the UI word for a metric slot (`stats[..., slot]`); always scaled to 0..1 | `lightbounces.metrics.METRIC_LABELS` |
 | coloration | colour model (`"RGB"`/`"HSV"`) + three channels | `lightbounces.colorations.ColorationConfig` |
 | channel | one of the three colour components, with a *source*: Query, Constant or Buddha | `lightbounces.metrics.CHAN_SRC_*` |
 | counts | `float64 (h, w)` histogram of where Buddha points landed | `lightbounces.core.App.buddha_counts` |
@@ -115,7 +115,7 @@ All are `lightbounces.settings.strict_record` dataclasses: frozen, slotted, keyw
 | Record | Holds | Module |
 |---|---|---|
 | `RaySettings` | segment multiplier, `fuzz: FuzzParams`, emission mode / target / offset | `lightbounces.settings` |
-| `NaturalStopSettings` | `max_iter`, `max_dist` (0 = none), `escape_radius`, three confinement settings | `lightbounces.settings` |
+| `NaturalTerminationSettings` | `max_iter`, `max_dist` (0 = none), `escape_radius`, three confinement settings | `lightbounces.settings` |
 | `BuddhaBlurSettings`, `BuddhaSeedSettings` | blur radius/type; camera-pixels flag and zone | `lightbounces.settings` |
 | `FramingSnapshot` | `id`, `x`, `y`, `diagonal`, `aspect` (all float except id) | `lightbounces.framings` |
 | `ColorationSettings` | resolved coloration: `mode: str`, then ten per-channel **tuples** (section 1.9) | `lightbounces.colorations` |
@@ -129,7 +129,7 @@ Built only by their builders, read in kernels only by field name.
 
 | Type | Fields (type) | Builder |
 |---|---|---|
-| `lightbounces.kernels.NaturalStopRule` | `max_iter` (int), `max_dist` (float; `inf` = no limit), `escape_radius` (float), `confine` (`ConfineRule`) | `lightbounces.settings.natural_stop_rule`, `settings_natural_stop` |
+| `lightbounces.kernels.NaturalTerminationRule` | `max_iter` (int), `max_dist` (float; `inf` = no limit), `escape_radius` (float), `confine` (`ConfineRule`) | `lightbounces.settings.natural_termination_rule`, `settings_natural_termination` |
 | `lightbounces.kernels.ConfineRule` | `lookback` (int: how many recent path points), `method` (int), `threshold` (float, world units) | `lightbounces.settings.confine_rule` |
 | `lightbounces.kernels.RayArgs` | `seg_mult` (float), `fuzz` (`FuzzRule`: `enabled` bool + 7 floats), `emission` (`EmissionRule`: `mode` int, `target_x`, `target_y`, `offset` floats), `obstacles` (`ObstacleArrays`) | `lightbounces.settings.ray_args`, `settings_ray_args` |
 | `lightbounces.kernels.ObstacleArrays` | `shapes` int64 (n,), `bounds` float64 (n, 205), `cx`, `cy` float64 (n,), `effects` int64 (n, 2), `fire_inside` bool (n,) | `lightbounces.shapes.build_obstacle_arrays` |
@@ -137,7 +137,7 @@ Built only by their builders, read in kernels only by field name.
 
 `bounds` has 205 columns because `lightbounces.constants.OBST_BOUND_LEN` is sized for the largest packing (the snail of Pythagoras, 100 segments).
 
-A numba limitation shapes the drivers: a `parallel=True` function cannot use a tuple that contains other tuples inside its `prange` loop. `lightbounces.kernels.trace_rows` is therefore a plain wrapper that takes `stop` and `ray` whole and passes their one-level pieces to `lightbounces.kernels._trace_rows_parallel` (which has **17 parameters**), where the whole tuples are rebuilt per pixel **[R]**.
+A numba limitation shapes the drivers: a `parallel=True` function cannot use a tuple that contains other tuples inside its `prange` loop. `lightbounces.kernels.trace_rows` is therefore a plain wrapper that takes `termination` and `engine_args` whole and passes their one-level pieces to `lightbounces.kernels._trace_rows_parallel` (which has **17 parameters**), where the whole tuples are rebuilt per pixel **[R]**.
 
 ### C. Per-ray scratch arrays (inside the kernels, one ray at a time) **[V]**
 
@@ -147,8 +147,8 @@ A numba limitation shapes the drivers: a `parallel=True` function cannot use a t
 | `path_point_tags` | float64 | (`max_iter` + 2,) | a *tag* per path point (`TAG_START` 0.0 ... `TAG_PERPENDICULAR` 6.0) |
 | `raw` | float64 | (11,) | `RAW_*` run measurements (bounce count, termination code, deflection sum, ...); integers are stored as floats |
 | `out` | float64 | (24,) | the ray's 24 metric slots, filled by `compute_run_measurements` and `compute_sequences` |
-| `sp` | float64 | (28, 2) | the ray's 28 stored sample points |
-| `term`, `npts` | int | scalar | why it stopped (`TERM_*`), how many valid rows of `path_points` |
+| `ray_characteristic_points` | float64 | (28, 2) | the ray's 28 stored sample points |
+| `term`, `npts` | int | scalar | why it terminated (`TERM_*`), how many valid rows of `path_points` |
 
 ### D. Per-image arrays (kept) **[V]**
 
@@ -162,7 +162,7 @@ A numba limitation shapes the drivers: a `parallel=True` function cannot use a t
 | `gx`, `gy` | float64 | (h, w) | world coordinates of every pixel centre |
 | `buddha_counts` | list of 3 | each `None` or float64 (h, w) | raw Buddha histograms per channel |
 | `buddha_counts_blurred` | list of 3 | each `None` or float64 (h, w) | cached blurred copy |
-| `hover_path_points`, `hover_kinds`, `hover_raw`, `hover_vec`, `hover_sp` | float64 | (10001, 2), (10001,), (11,), (24,), (28, 2) | scratch for the hovered ray; 10001 = `ITER_LIMIT_MAX` + 2 |
+| `hover_path_points`, `hover_path_point_tags`, `hover_raw`, `hover_vec`, `hover_ray_characteristic_points` | float64 | (10001, 2), (10001,), (11,), (24,), (28, 2) | scratch for the hovered ray; 10001 = `ITER_LIMIT_MAX` + 2 |
 
 **Stored bytes per pixel = 321** (96 + 224 + 1). At 512×512 that is 84 MB; at 1920×1080, 666 MB; at 3840×2160, 2,663 MB **[V]**. `lightbounces.app_render.RenderMixin.render_full_image` allocates these whole for an export, then adds one `float64 (h, w)` counts array per Buddha channel (66 MB each at 4K) and the FFT's complex padded copies (not measured).
 
@@ -190,16 +190,16 @@ Termination codes are not in the order of their stored metric values: `ST_TERMIN
 
 ## 1.5 Stage 1: from settings to kernel arguments
 
-`lightbounces.app_generation.GenerationMixin.start` (button) and `begin_generation` (also run by a framing change) turn the live controls into the kernel arguments and keep them on the `App` as `gen_stop` (a `NaturalStopRule`) and `gen_ray` (a `RayArgs` whose `obstacles` are the scene *as generated*). Two consequences:
+`lightbounces.app_generation.GenerationMixin.start` (button) and `begin_generation` (also run by a framing change) turn the live controls into the kernel arguments and keep them on the `App` as `gen_termination` (a `NaturalTerminationRule`) and `gen_engine_args` (a `RayArgs` whose `obstacles` are the scene *as generated*). Two consequences:
 
-- Editing a control afterwards changes nothing on screen until Start: the image is of `generated_settings`, `generated_natural_stop` and the frozen obstacles.
+- Editing a control afterwards changes nothing on screen until Start: the image is of `generated_settings`, `generated_natural_termination` and the frozen obstacles.
 - A new framing re-runs `begin_generation` with those same kept arguments: a new image of the *same figure*, no Start needed.
 
 The world rectangle comes from `lightbounces.app_preview.PreviewMixin.set_image_framing`, which also reallocates (or clears) the per-image arrays when the framing changes.
 
 ## 1.6 Stage 2: tracing one ray, `lightbounces.kernels.trace_path`
 
-Signature: `trace_path(x0, y0, path_points, path_point_tags, stop, ray, raw)` returns `(term, npts)`. It is one 365-line function **[V]** (the longest in the package).
+Signature: `trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw)` returns `(term, npts)`. It is one 365-line function **[V]** (the longest in the package).
 
 What goes in `path_points`:
 
@@ -225,7 +225,7 @@ A *sequence* is a rule for which path points count. `lightbounces.kernels.in_seq
 | `SEQ_BOUNDARY` (2) | Boundary bounces | `path_point_tags[k] == TAG_BOUNDARY` |
 | `SEQ_SELF` (3) | Self bounces | `path_point_tags[k] == TAG_SELF` |
 
-`lightbounces.kernels.sequence_summary` walks the path once per sequence and writes **every** reduction of it. `lightbounces.kernels.compute_sequences` loops over the four. Both write into the ray's `sp` and `out`.
+`lightbounces.kernels.sequence_summary` walks the path once per sequence and writes **every** reduction of it. `lightbounces.kernels.compute_sequences` loops over the four. Both write into the ray's `ray_characteristic_points` and `out`.
 
 **Point reductions** (each yields one (x, y); an empty sequence reports the path's end point for every one): `PRED_FIRST`, `PRED_LAST`, `PRED_MEAN`, `PRED_TOP` (largest y, first on a tie), `PRED_BOTTOM`, `PRED_RIGHT`, `PRED_LEFT`.
 
@@ -281,9 +281,9 @@ The 28 point slots plus the two fixed choices (`POINT_ORIGIN` = (0, 0) and `POIN
 1. Compute the pixel centre (section 1.3).
 2. `emits_ray(x, y, obstacles)`; if false, set `pixel_state[j, i] = PIXEL_NO_RAY` and `continue`.
 3. If fuzzing, seed numba's RNG with `rng_seed_base + i * 1000003 + j * 97`, so every pixel's ray is reproducible and a re-trace elsewhere gives the same ray.
-4. Allocate `path_points`, `path_point_tags`, `raw`, `out`, `sp` (fresh `np.empty` per pixel).
+4. Allocate `path_points`, `path_point_tags`, `raw`, `out`, `ray_characteristic_points` (fresh `np.empty` per pixel).
 5. `trace_path`, `compute_run_measurements`, `compute_sequences`.
-6. Copy `out` into `stats[j, i, :]` and `sp` into `characteristic_points[j, i, :, :]`: **the float64 to float32 narrowing happens here**. Set `pixel_state[j, i] = PIXEL_TRACED`.
+6. Copy `out` into `stats[j, i, :]` and `ray_characteristic_points` into `characteristic_points[j, i, :, :]`: **the float64 to float32 narrowing happens here**. Set `pixel_state[j, i] = PIXEL_TRACED`.
 
 **Row batching.** `lightbounces.app_generation.GenerationMixin.tick` runs on the Tk main loop. Its budget is `PERIOD` × `COMPUTE_FRACTION` = 0.1 s × 0.55 per refresh; it aims for about three batches and rescales `batch_rows` by 0.5 to 2 after each. After the rows it calls `scatter_buddha_rows` for just those rows and `recolor`, then `draw`. If the live coloration has a Buddha channel it recolours **all** rows computed so far (a new count can change any pixel already drawn), otherwise only the new rows.
 
@@ -329,7 +329,7 @@ So a sequence's *scalars* (count, length, last direction, share) are colours as 
 
 - `lightbounces.app_recolor.RecolorMixin.recolor(r0, r1)`: the live image, rows `[r0, r1)`, writes into `self.img`.
 - `lightbounces.app_render.RenderMixin.apply_coloration(...)`: a whole image of any size (exports, non-live thumbnails, framing thumbnails); returns a new `uint8 (h, w, 3)`.
-- `lightbounces.app_recolor.RecolorMixin.component_values(vec, sp, x0, y0)`: one hovered ray, returns three floats.
+- `lightbounces.app_recolor.RecolorMixin.component_values(vec, ray_characteristic_points, x0, y0)`: one hovered ray, returns three floats.
 
 ## 1.10 Stage 6: Buddha scattering (and what holds sequences before it)
 
@@ -351,8 +351,8 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 |---|---|---|---|---|---|
 | 1 | `path_points` | float64 | (`max_iter` + 2, 2) | **the whole sequence**: every path point in order | one ray; the only place the full path exists |
 | 2 | `path_point_tags` | float64 | (`max_iter` + 2,) | the tag of each point, which makes sequences (`in_sequence`) | one ray |
-| 3 | `sp` | float64 | (28, 2) | each of the 4 sequences **reduced to 7 points** | one ray |
-| 4 | `characteristic_points` | float32 | (h, w, 28, 2) | `sp` of every fired pixel, narrowed | the image |
+| 3 | `ray_characteristic_points` | float64 | (28, 2) | each of the 4 sequences **reduced to 7 points** | one ray |
+| 4 | `characteristic_points` | float32 | (h, w, 28, 2) | `ray_characteristic_points` of every fired pixel, narrowed | the image |
 | 5 | `stats[..., 11]` | float32 | (h, w) | termination reason (0.0, 0.2, ... 1.0), used to select rays for options 28-30 | the image |
 | 6 | `pixel_state` | uint8 | (h, w) | which pixels have data (and which were reached) | the image |
 | 7 | `xs`, `ys` | float32 | (n,) | the chosen point of each selected pixel, pulled from #4 (a temporary) | one scatter call |
@@ -394,7 +394,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 
 - `trace_rows` is `nogil=True`; its inner driver is a numba `prange` across pixels, so one batch of rows uses all cores. It runs on the Tk main thread during generation, in the time slices described in section 1.8.
 - Buddha scattering, blur, recolour and all export colouring are single-threaded numpy or numba. Exports and videos run on a background `threading.Thread` and touch no Tk widget.
-- Measured throwaway for orientation **[V]**, a Mandelbrot orbit using the shared `NaturalStopRule` checks, 512×512, parallel: 16 ms at 256 iterations for the orbit alone, 43 ms with all four sequences reduced; 41 and 103 ms at 1000 iterations. Reducing all four sequences therefore multiplies the cost of the orbit by about 2.5 to 3.7 (the shorter the orbit, the larger the factor; 9 to 33 ms at 64 iterations), and when rays are long the cost is dominated by `trace_path` itself.
+- Measured throwaway for orientation **[V]**, a Mandelbrot orbit using the shared `NaturalTerminationRule` checks, 512×512, parallel: 16 ms at 256 iterations for the orbit alone, 43 ms with all four sequences reduced; 41 and 103 ms at 1000 iterations. Reducing all four sequences therefore multiplies the cost of the orbit by about 2.5 to 3.7 (the shorter the orbit, the larger the factor; 9 to 33 ms at 64 iterations), and when rays are long the cost is dominated by `trace_path` itself.
 
 ## 1.13 Index: where to look
 
@@ -453,13 +453,13 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 - **That implicit coupling has a measurable price.** This session, adding a framing list meant editing about two dozen test fake apps by hand (`_give_image_geometry`, `_give_framings` in `tests/support.py` now exist to stop that).
 - **Long parameter lists** invite ordering mistakes: `kernels._trace_rows_parallel` 17, `app_export.ExportMixin._save_new_image_worker` 14 (plus `self`), `kernels.scatter_from_seeds` 14, `app_render.RenderMixin.apply_coloration` 12 (plus `self`), `app_video.VideoMixin._render_worker` 11 (plus `self`), `export_text.apply_info_locations` 11. The four booleans `want_all_self, want_all_mid, want_prog_bounce, want_prog_mid` always travel together and would be one small tuple or bit mask.
 - **`lightbounces.kernels` is 2,466 lines, 17% of the package.** About 1,350 of them (lines 279-1634) are shape geometry; `trace_path` starts at 1713. The size is a consequence of the numba cache rule, not of poor structure.
-- **A parameter is shadowed.** `lightbounces.kernels.trace_path(x0, y0, path_points, path_point_tags, stop, ray, raw)` receives a `NaturalStopRule` named `stop`, unpacks it at the top, then reuses `stop` as a boolean flag inside the loop. It works only because the fields were copied first.
+- **A parameter is shadowed.** `lightbounces.kernels.trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw)` receives a `NaturalTerminationRule` named `stop`, unpacks it at the top, then reused `stop` as a boolean flag inside the loop (**fixed in FILE_VERSION 147: the parameter is `termination`, the flag `ended`**). It works only because the fields were copied first.
 - **Stale comments and user-visible text** (found while writing this guide; none is a bug in computation; **all six items below were corrected in FILE_VERSION 143**, the text shown is what they said before):
   - `lightbounces.app_coloration.ColorationMixin.build_buddha_blur_controls`: the hint text says "A multiple of the view's smallest dimension (2 units): 0.1 means a blur radius of 0.2 units". The radius is `radius × min(w, h)` pixels, i.e. a fraction of the image's shorter side. This is wrong for every non-default framing and **is visible to the user**.
   - `lightbounces.__init__` docstring (lines 3-6): "the simulation itself always runs in that fixed square"; and `lightbounces.constants` (lines 26-31) about the blur radius being "always 2.0".
   - `lightbounces.metrics` (the "Constant source" comment): "Stored in the same slot other_metric[c] already occupies"; true before `constant_choice` existed, false now.
   - `lightbounces.metrics.POINT_TOP_LEFT_CORNER` and its description: "the top-left corner of the simulation's [-1, 1] square". With framings it is a world point, not the image's corner.
-  - `lightbounces.kernels` module docstring lists the kernel argument types as `FuzzRule, ConfineRule, EmissionRule, ObstacleArrays`; `NaturalStopRule`, `RayArgs` and `Window` (now `WorldRect`) were missing. `kernels.SIZE`'s comment says "image size in pixels".
+  - `lightbounces.kernels` module docstring lists the kernel argument types as `FuzzRule, ConfineRule, EmissionRule, ObstacleArrays`; `NaturalTerminationRule`, `RayArgs` and `Window` (now `WorldRect`) were missing. `kernels.SIZE`'s comment says "image size in pixels".
   - `lightbounces.metrics.buddha_compress`'s docstring says "non-negative int"; it receives blurred floats.
 - **Performance footnote.** `np.add.at` in `scatter_points_raw` (section 1.10) and a fresh `np.empty` set of five arrays per pixel inside the `prange` loop (**[R]**, believed cheap relative to a trace; not measured).
 
@@ -483,7 +483,7 @@ The largest blocker then, a fixed [-1, 1] world rectangle hard-coded in about te
 
 ### What already fits a second engine **[V]**
 
-A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) written in about 25 lines against the **existing** `lightbounces.kernels.NaturalStopRule`, `beyond_escape_radius`, `is_confined` and `compute_sequences`, in a `prange` over 512×512: it ran at 16 ms (256 iterations) and 43 ms with all four sequences reduced. 83% of the pixels escaped; `Path: Point count / limit` (slot 13) is already the normalised escape time (0.008 to 1.0); every pixel fires. The default escape radius, 2.0, equals the Mandelbrot bailout. Confinement worked as a convergence test for interior points.
+A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) written in about 25 lines against the **existing** `lightbounces.kernels.NaturalTerminationRule`, `beyond_escape_radius`, `is_confined` and `compute_sequences`, in a `prange` over 512×512: it ran at 16 ms (256 iterations) and 43 ms with all four sequences reduced. 83% of the pixels escaped; `Path: Point count / limit` (slot 13) is already the normalised escape time (0.008 to 1.0); every pixel fires. The default escape radius, 2.0, equals the Mandelbrot bailout. Confinement worked as a convergence test for interior points.
 
 ### What is ray-specific but sits where an engine-neutral thing would be
 
@@ -498,7 +498,7 @@ A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) wr
 | `lightbounces.kernels.scatter_trace_points` and the four multi options | hard-wired to the self-bounce sequence, segment midpoints and progressive means; **no option exists for "every point of a sequence, for orbits that ended with reason T"**, which is a Buddhabrot | medium |
 | `lightbounces.metrics.SEQUENCE_LABELS` ..., `BUDDHA_POINT_CATALOG`, `CONSTANT_POINT_COORDS` | one global table of labels built at import from the ray engine's sequences | medium: per-engine tables, plus a channel naming a sequence its engine lacks needs a defined behaviour |
 | `lightbounces.projects.CAT_SEQUENCE`, `CAT_POINT`, `CAT_METRIC`, `CAT_BUDDHA_POINT` | the permanent file keys are the union of one engine's names (`self_bounces_mean`...) | medium: keys across engines must be a union, added without renaming |
-| `lightbounces.core.App.gen_ray`, `gen_stop`, `generated_settings`, `settings_of_current_image`; `lightbounces.app_generation.GenerationMixin.tick` | the app holds one engine's arguments under ray names and calls its kernel directly | medium |
+| `lightbounces.core.App.gen_engine_args`, `gen_termination`, `generated_settings`, `settings_of_current_image`; `lightbounces.app_generation.GenerationMixin.tick` | the app holds one engine's arguments under ray names and calls its kernel directly | medium |
 | `lightbounces.app_preview.PreviewMixin.update_preview`, the Sequence preview panel (`lightbounces.app_layout.LayoutMixin.build_info_quadrant`), `lightbounces.settings.RaySettings`, the Emissions, Mutations and Obstacles tabs | ray-only UI and preview; the empty Simulation tab is the obvious engine selector | medium-high |
 
 ### Mandelbrot-specific needs, one by one
@@ -534,16 +534,18 @@ My view (medium confidence): readiness is good for a **Mandelbrot image behind a
 
 Classification of cost: **internal** = identifiers and comments only; **key** = also a permanent project-file key, so it needs a format migration (the project is at format 6) and should normally be left alone, renaming only the attribute; **UI** = user-visible text.
 
-### Status after FILE_VERSION 146
+### Status after FILE_VERSION 147
 
-Done, by your decisions on this table: **rows 1, 2, 3, 6, 7 and 9** (only `sp` of row 6 keeps its name).
+Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (partly) and 9**. Not done, by decision: rows 4 (done earlier, in 145), 10 and the rest of row 8.
 
 - Row 1: point tags are `TAG_*` (`TAG_START` ... `TAG_PERPENDICULAR`, `TAG_COLOR`); a channel's metric type is `METRIC_TYPE_POINT_PAIR` / `METRIC_TYPE_OTHER` / `METRIC_TYPE_LABELS` / `DEFAULT_METRIC_TYPES`, `ColorationConfig.metric_types`, `ChannelSettings.metric_type`, `CAT_METRIC_TYPE` (the project file's key `kind` is unchanged). `Shape.KIND` is untouched.
 - Row 2: `FuzzParams.rng_seed`, `rng_seed_base`, `rng_seed_var` / `rng_seed_entry`, `last_rng_seed`, `randomize_rng_seed`, `parse_rng_seed`, `DEFAULT_RNG_SEED`. The setting key `seed` is unchanged. "Seed" keeps meaning a Buddha start point.
 - Row 3: `ConfineRule.window` is `lookback`; the setting and project key `confine_window` is `confine_lookback` (**project format 7**, migration `_migrate_project_6_to_7`); the UI says "Lookback". `Window` is `WorldRect`, `WINDOW_DEFAULT` is `WORLD_RECT_DEFAULT`, `image_window` / `framing_window` are `image_world_rect` / `framing_world_rect`, and the parameters are `world_rect`.
-- Row 6: `pts` is `path_points`, `kinds` (tags) is `path_point_tags`, the (h, w, 28, 2) array is `characteristic_points` (`App.characteristic_points`); `sp` is unchanged.
+- Row 5 (slimmed): "stat" is the stored side (`stats`, `ST_*`, `STAT_SLOT`, `N_STATS`, `STAT_ALIASES`, `STAT_REDUCTION_*`, `TERM_STAT_VALUE`); "metric" is the chosen side (`METRIC_LABELS`, `METRIC_SHORT`, `METRIC_DESCRIPTIONS`, `POINT_METRICS`, `OTHER_METRICS`, `RUN_METRIC_INFO`, `constant_label_to_metric`..., and the field `ChannelSettings.metric_slot`, formerly `stat`).
+- Row 6: `pts` is `path_points`, `kinds` (tags) is `path_point_tags`, the (h, w, 28, 2) array is `characteristic_points` (`App.characteristic_points`), and one ray's (28, 2) float64 array `sp` is `ray_characteristic_points` (`App.hover_ray_characteristic_points`; inside `recolor` the whole-image slice is just `characteristic_points`).
 - Row 7: `compute_run_measurements`. Row 9: `trace_rows` / `_trace_rows_parallel`.
-- No action by decision: rows 4 (already done in 145), 5, 8, 10.
+- Row 8 (partly): the `RayArgs` bundle is passed around as `engine_args` (`gen_engine_args`, the tests' `_engine_args`); `RayArgs`, `ray_args` and `settings_ray_args` keep their names, and `ray` stays what it is for the `RaySettings` of a project or export. The flag in `trace_path` is `ended`.
+- Termination is never shortened to "stop" any more (your instruction in 147): the rule is `NaturalTerminationRule` (parameter `termination`, `gen_termination`), the settings `NaturalTerminationSettings` (`natural_termination`, `generated_natural_termination`, `NATURAL_TERMINATION_SETTING_SPECS`...), the UI section is "Termination limits", and the project file's section is `natural_termination` (**project format 8**, migration `_migrate_project_7_to_8`). The words "stops" / "stopped" in running text that does not name one of these (and `x_stop` / `y_stop`, the end of a range) were left alone.
 
 ### High value
 
@@ -596,14 +598,14 @@ The code uses "color" in identifiers and a mix of "color" and "colour" in commen
 import numpy as np
 from tests.support import m                        # the loaded package
 arrays = m.build_obstacle_arrays([m.default_starting_obstacle(0)])
-stop = m.natural_stop_rule(40, float("inf"), 2.0, m.CONFINE_DEFAULT)
-ray = m.ray_args(1.0, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, arrays)
+termination = m.natural_termination_rule(40, float("inf"), 2.0, m.CONFINE_DEFAULT)
+engine_args = m.ray_args(1.0, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, arrays)
 
 w, h = 64, 48
 stats = np.zeros((h, w, m.N_STATS), dtype=np.float32)
 characteristic_points = np.zeros((h, w, m.N_POINTS, 2), dtype=np.float32)
 pixel_state = np.zeros((h, w), dtype=np.uint8)
-m.trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+m.trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
 
 print(stats.itemsize * m.N_STATS + characteristic_points.itemsize * m.N_POINTS * 2 + pixel_state.itemsize)   # 321 bytes per pixel
 print(m.POINT_SLOT)                                # the (4, 7) point slot table

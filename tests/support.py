@@ -53,7 +53,7 @@ def _make_fake_app_for_snapshot():
     app = FakeApp()
     app.read_fuzz_controls = m.App.read_fuzz_controls.__get__(app)
     app.current_ray_settings = m.App.current_ray_settings.__get__(app)
-    app.current_natural_stop_settings = m.App.current_natural_stop_settings.__get__(app)
+    app.current_natural_termination_settings = m.App.current_natural_termination_settings.__get__(app)
     app.current_generation_settings = m.App.current_generation_settings.__get__(app)
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
@@ -238,7 +238,7 @@ def _fake_export_app():
     app.figure_info_location_var = _StubVar("None")
     app.framing_info_location_var = _StubVar("None")
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
     app.live_coloration = m.App.live_coloration.__get__(app)
     app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
@@ -260,7 +260,7 @@ def _fake_export_app():
     app.obstacles = []
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
-    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(False)}
@@ -299,13 +299,13 @@ def _fake_current_image_app():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
-    app.natural_stop_of_current_image = m.App.natural_stop_of_current_image.__get__(app)
-    app.gen_stop = m.NATURAL_STOP_DEFAULT
+    app.natural_termination_of_current_image = m.App.natural_termination_of_current_image.__get__(app)
+    app.gen_termination = m.NATURAL_TERMINATION_DEFAULT
     empty_i = np.empty(0, dtype=np.int64)
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
     empty_bool = np.empty(0, dtype=bool)
-    app.gen_ray = _ray(m.ObstacleArrays(
+    app.gen_engine_args = _engine_args(m.ObstacleArrays(
         shapes=empty_i, bounds=empty_b, cx=empty_f, cy=empty_f,
         effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))
     app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
@@ -331,29 +331,29 @@ def _settings(**overrides):
     return m.DEFAULT_RAY_SETTINGS.replace(**overrides)
 
 
-def _stop_settings(**overrides):
-    """A NaturalStopSettings: the defaults, with 64 iterations and a distance limit of 0,
+def _termination_settings(**overrides):
+    """A NaturalTerminationSettings: the defaults, with 64 iterations and a distance limit of 0,
     then `overrides` (any fields, by name)."""
-    return m.DEFAULT_NATURAL_STOP_SETTINGS.replace(**{"max_iter": 64, "max_dist": 0.0, **overrides})
+    return m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(**{"max_iter": 64, "max_dist": 0.0, **overrides})
 
 
 def _generation(**overrides):
-    """(RaySettings, NaturalStopSettings) - the two records that, with the obstacles, define a figure - from
+    """(RaySettings, NaturalTerminationSettings) - the two records that, with the obstacles, define a figure - from
     `overrides` naming fields of either, by name (see _settings and _stop_settings)."""
-    stop_fields = {f.name for f in dataclasses.fields(m.NaturalStopSettings)}
-    return (_settings(**{k: v for k, v in overrides.items() if k not in stop_fields}),
-            _stop_settings(**{k: v for k, v in overrides.items() if k in stop_fields}))
+    termination_fields = {f.name for f in dataclasses.fields(m.NaturalTerminationSettings)}
+    return (_settings(**{k: v for k, v in overrides.items() if k not in termination_fields}),
+            _termination_settings(**{k: v for k, v in overrides.items() if k in termination_fields}))
 
 
-def _stop(max_iter, max_dist=0.0, escape_radius=None, confine=None):
-    """The kernels' NaturalStopRule: `max_dist` 0 = no limit, the other defaults the program's."""
-    return m.natural_stop_rule(
+def _termination(max_iter, max_dist=0.0, escape_radius=None, confine=None):
+    """The kernels' NaturalTerminationRule: `max_dist` 0 = no limit, the other defaults the program's."""
+    return m.natural_termination_rule(
         max_iter, m.effective_dist(max_dist),
         m.DEFAULT_ESCAPE_RADIUS if escape_radius is None else escape_radius,
         m.CONFINE_DEFAULT if confine is None else confine)
 
 
-def _ray(obstacles, seg_mult=1.0, fuzz=None, emission=None):
+def _engine_args(obstacles, seg_mult=1.0, fuzz=None, emission=None):
     """The kernels' RayArgs for an ObstacleArrays; `fuzz` is a FuzzParams (default: fuzzing off)."""
     return m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz),
                       m.EMISSION_DEFAULT if emission is None else emission, obstacles)
@@ -424,7 +424,7 @@ def _first_direction(x0, y0, emission, fuzz=None, seed=0):
     raw = np.empty(m.N_RAW)
     fz = m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz)
     _seed_kernel_rng(seed)
-    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _stop(4),
+    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(4),
                               m.ray_args(1.0, fz, emission, arrays), raw)
     assert term == m.TERM_ESCAPED and npts == 2
     delta = path_points[1] - path_points[0]

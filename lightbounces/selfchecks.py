@@ -16,11 +16,11 @@ from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT,
     CHAN_CONSTANT_LABELS, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, CHAN_SRC_QUERY,
     CONSTANT_POINT_COORDS, DEFAULT_BUDDHA_POINTS, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO,
-    N_BUDDHA_POINTS, N_POINT_CHOICES, OTHER_STATS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_MENU_ORDER,
+    N_BUDDHA_POINTS, N_POINT_CHOICES, OTHER_METRICS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_MENU_ORDER,
     POINT_ORIGIN, POINT_OF_SLOT, POINT_REDUCTION_DESCRIPTIONS, POINT_REDUCTION_LABELS, POINT_REDUCTION_SHORT,
-    POINT_SHORT, POINT_STATS, POINT_TOP_LEFT_CORNER, RUN_STAT_INFO, SEQUENCE_DESCRIPTIONS, SEQUENCE_LABELS,
-    SEQUENCE_SHORT, STAT_DESCRIPTIONS, STAT_LABELS, STAT_OF_SLOT, STAT_REDUCTION_DESCRIPTIONS,
-    STAT_REDUCTION_LABELS, STAT_REDUCTION_SHORT, STAT_SHORT
+    POINT_SHORT, POINT_METRICS, POINT_TOP_LEFT_CORNER, RUN_METRIC_INFO, SEQUENCE_DESCRIPTIONS, SEQUENCE_LABELS,
+    SEQUENCE_SHORT, METRIC_DESCRIPTIONS, METRIC_LABELS, STAT_OF_SLOT, STAT_REDUCTION_DESCRIPTIONS,
+    STAT_REDUCTION_LABELS, STAT_REDUCTION_SHORT, METRIC_SHORT
 )
 from .projects import (
     CAT_BUDDHA_BRIGHTNESS, CAT_BUDDHA_COMPRESSION, CAT_BUDDHA_POINT, CAT_METRIC_TYPE,
@@ -131,8 +131,8 @@ def run_self_checks():
             ("STAT_REDUCTION_LABELS", STAT_REDUCTION_LABELS, N_SRED),
             ("STAT_REDUCTION_SHORT", STAT_REDUCTION_SHORT, N_SRED),
             ("STAT_REDUCTION_DESCRIPTIONS", STAT_REDUCTION_DESCRIPTIONS, N_SRED),
-            ("STAT_LABELS", STAT_LABELS, N_STATS), ("STAT_SHORT", STAT_SHORT, N_STATS),
-            ("STAT_DESCRIPTIONS", STAT_DESCRIPTIONS, N_STATS)):
+            ("METRIC_LABELS", METRIC_LABELS, N_STATS), ("METRIC_SHORT", METRIC_SHORT, N_STATS),
+            ("METRIC_DESCRIPTIONS", METRIC_DESCRIPTIONS, N_STATS)):
         if len(_lst) != _want:
             raise AssertionError(f"{_name} has {len(_lst)} entries but there are {_want} of what it describes")
     legacy_points = [POINT_START, POINT_END, POINT_ALL_MEAN, POINT_BOUNDARY_MEAN, POINT_SELF_MEAN, POINT_TOP,
@@ -152,11 +152,11 @@ def run_self_checks():
     for stat_id, (seq, red) in STAT_ALIASES.items():
         if STAT_SLOT[seq, red] != stat_id:
             raise AssertionError(f"metric {stat_id} is not the slot of its own (sequence, reduction) {(seq, red)}")
-    if set(RUN_STAT_INFO) & set(STAT_OF_SLOT) or set(RUN_STAT_INFO) | set(STAT_OF_SLOT) != set(range(N_STATS)):
-        raise AssertionError("every stored metric must be either one of RUN_STAT_INFO (a measurement of the ray's "
+    if set(RUN_METRIC_INFO) & set(STAT_OF_SLOT) or set(RUN_METRIC_INFO) | set(STAT_OF_SLOT) != set(range(N_STATS)):
+        raise AssertionError("every stored metric must be either one of RUN_METRIC_INFO (a measurement of the ray's "
                              "own run) or one reduction of a sequence (STAT_OF_SLOT), not both")
-    if sorted(OTHER_STATS + POINT_STATS) != list(range(N_STATS)):
-        raise AssertionError("OTHER_STATS and POINT_STATS must between them list every metric exactly once")
+    if sorted(OTHER_METRICS + POINT_METRICS) != list(range(N_STATS)):
+        raise AssertionError("OTHER_METRICS and POINT_METRICS must between them list every metric exactly once")
     if set(POINT_OF_SLOT) != set(range(N_POINTS)):
         raise AssertionError("POINT_OF_SLOT must name the owner of every stored point")
     if len(CHAN_SRC_LABELS) != 3:

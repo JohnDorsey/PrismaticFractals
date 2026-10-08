@@ -156,7 +156,7 @@ STAT_OF_SLOT = _slot_owners(STAT_SLOT)
 
 # The measurements of a ray's own run (compute_run_measurements writes them; they are no reduction of a sequence):
 # slot -> (label, short name for the ray-preview panel, description)
-RUN_STAT_INFO = {
+RUN_METRIC_INFO = {
     ST_HDIST: ("Horizontal distance", "H dist",
                "horizontal distance between point 1 and point 2 (|x1 - x2|), divided by 2 and clipped to 0..1."),
     ST_VDIST: ("Vertical distance", "V dist",
@@ -174,7 +174,7 @@ RUN_STAT_INFO = {
                 "the average deflection angle over all bounces (the angle in degrees between incoming and outgoing "
                 "directions), divided by 180 (i.e. angle sum / (180 \u00d7 bounces))."),
     ST_TERMINATION: ("Termination reason", "Termination reason",
-                     "why the ray stopped: 0 = iteration limit, 0.2 = confined to less than a pixel, 0.4 = distance "
+                     "why the ray terminated: 0 = iteration limit, 0.2 = confined to less than a pixel, 0.4 = distance "
                      "limit, 0.6 = reached an edge set to \"terminate\", 0.8 = hit a reflective surface perfectly "
                      "perpendicularly, 1 = escaped (nothing left to hit)."),
     ST_LAST_RATIO: ("Last segment / uncut length", "Last seg / uncut",
@@ -187,27 +187,27 @@ def _sequence_note(seq):
     return f" The sequence is {SEQUENCE_LABELS[seq].lower()}: {SEQUENCE_DESCRIPTIONS[seq]}"
 
 
-STAT_LABELS = []             # shown in the color-mapping table
-STAT_SHORT = []              # compact names for the ray-preview panel (end-point values)
-STAT_DESCRIPTIONS = []
+METRIC_LABELS = []             # shown in the color-mapping table
+METRIC_SHORT = []              # compact names for the ray-preview panel (end-point values)
+METRIC_DESCRIPTIONS = []
 for _slot in range(N_STATS):
-    if _slot in RUN_STAT_INFO:
-        _label, _short, _description = RUN_STAT_INFO[_slot]
+    if _slot in RUN_METRIC_INFO:
+        _label, _short, _description = RUN_METRIC_INFO[_slot]
     else:
         _seq, _red = STAT_OF_SLOT[_slot]
         _label = f"{SEQUENCE_LABELS[_seq]}: {STAT_REDUCTION_LABELS[_red]}"
         _short = f"{SEQUENCE_SHORT[_seq]} {STAT_REDUCTION_SHORT[_red]}"
         _description = STAT_REDUCTION_DESCRIPTIONS[_red] + _sequence_note(_seq)
-    STAT_LABELS.append(_label)
-    STAT_SHORT.append(_short)
-    STAT_DESCRIPTIONS.append(_description)
+    METRIC_LABELS.append(_label)
+    METRIC_SHORT.append(_short)
+    METRIC_DESCRIPTIONS.append(_description)
 
 # Metrics that compare two sample points (the others ignore the point choices).
 # They are evaluated at coloring time from the characteristic points; the copies stored
 # in the metrics array are for the end of the ray and feed the preview list.
-POINT_STATS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
+POINT_METRICS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
 # every other metric, in the order the "Other" dropdown lists them: the run's own measurements, then each sequence's
-OTHER_STATS = (tuple(slot for slot in RUN_STAT_INFO if slot not in POINT_STATS)
+OTHER_METRICS = (tuple(slot for slot in RUN_METRIC_INFO if slot not in POINT_METRICS)
                + tuple(stat_slot(seq, red) for seq in range(N_SEQS) for red in range(N_SRED)))
 
 # Two fixed reference points, unrelated to any ray - always the same regardless of
@@ -250,14 +250,14 @@ POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
 NONE_ZERO = -1
 NONE_ONE = -2
 CHAN_BUDDHA = -3          # self.mapping[c] sentinel: channel c uses Buddha
-                         # coloration, not a Query stat at all
+                         # coloration, not a Query metric at all
 
 # Dropdown contents for the coloration table
 METRIC_TYPE_POINT_PAIR = 0         # the channel uses a point-comparison metric (+ two points)
 METRIC_TYPE_OTHER = 1         # the channel uses any other metric
 METRIC_TYPE_LABELS = ["Point comparison", "Other"]
-POINT_METRIC_LABELS = [STAT_LABELS[s] for s in POINT_STATS]
-OTHER_LABELS = [STAT_LABELS[s] for s in OTHER_STATS]
+POINT_METRIC_LABELS = [METRIC_LABELS[s] for s in POINT_METRICS]
+OTHER_LABELS = [METRIC_LABELS[s] for s in OTHER_METRICS]
 
 # Each channel's coloration source: "Query" (the system above - a metric is
 # evaluated once per ray, for the pixel it was emitted from), "Buddha" (named
@@ -278,33 +278,33 @@ CHAN_SRC_LABELS = ["Query", "Buddha", "Constant"]
 CHAN_CONSTANT_LABELS = ["Always 0", "Always 1"]
 
 
-def constant_label_to_stat(label):
+def constant_label_to_metric(label):
     return NONE_ZERO if label == CHAN_CONSTANT_LABELS[0] else NONE_ONE
 
 
-def constant_stat_to_label(stat):
-    return CHAN_CONSTANT_LABELS[0] if stat == NONE_ZERO else CHAN_CONSTANT_LABELS[1]
+def constant_metric_to_label(metric_slot):
+    return CHAN_CONSTANT_LABELS[0] if metric_slot == NONE_ZERO else CHAN_CONSTANT_LABELS[1]
 
 
-def other_label_to_stat(label):
+def other_label_to_metric(label):
     """'Other' dropdown text -> metric index."""
-    return OTHER_STATS[OTHER_LABELS.index(label)]
+    return OTHER_METRICS[OTHER_LABELS.index(label)]
 
 
-def other_stat_to_label(stat):
-    return STAT_LABELS[stat]
+def other_metric_to_label(metric_slot):
+    return METRIC_LABELS[metric_slot]
 
 
-def point_comparison_metric(stat, p1x, p1y, p2x, p2y):
+def point_comparison_metric(metric_slot, p1x, p1y, p2x, p2y):
     """Value (0..1) of a point-comparison metric between sample points 1 and
     2. Works on scalars or arrays."""
     dx = p1x - p2x
     dy = p1y - p2y
-    if stat == ST_HDIST:
+    if metric_slot == ST_HDIST:
         v = np.abs(dx) * 0.5
-    elif stat == ST_VDIST:
+    elif metric_slot == ST_VDIST:
         v = np.abs(dy) * 0.5
-    elif stat == ST_MANHATTAN:
+    elif metric_slot == ST_MANHATTAN:
         v = (np.abs(dx) + np.abs(dy)) * 0.5
     else:                                           # ST_EUCLIDEAN
         v = np.hypot(dx, dy) * 0.5
@@ -324,13 +324,13 @@ def extract_point_xy(characteristic_points, point_idx, computed, n):
     return xy[:, 0], xy[:, 1]
 
 
-def resolve_point_xy(sp, point_idx):
-    """(x, y) for a single ray's chosen point: read from `sp` (that ray's
+def resolve_point_xy(ray_characteristic_points, point_idx):
+    """(x, y) for a single ray's chosen point: read from `ray_characteristic_points` (that ray's
     own (N_POINTS, 2) characteristic points) for a real simulation point, or one of
     the two fixed constant points."""
     if point_idx in CONSTANT_POINT_COORDS:
         return CONSTANT_POINT_COORDS[point_idx]
-    return float(sp[point_idx, 0]), float(sp[point_idx, 1])
+    return float(ray_characteristic_points[point_idx, 0]), float(ray_characteristic_points[point_idx, 1])
 
 
 # Buddha coloration: the points a channel can choose to scatter into its
@@ -366,7 +366,7 @@ BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(per
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 
-def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, stop, ray, rng_seed_base):
+def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base):
     """Scatter, into `counts` (in place; it covers the world rectangle `world_rect`), the Buddha points `chosen` (a channel's tuple
     of flags, one per entry of BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a
     BuddhaSeedSettings: its zone, laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen
@@ -388,7 +388,7 @@ def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, stop, r
     if not (slots or end_terms or any(want_multi.values())):
         return False
     scatter_from_seeds(row0, row1, WorldRect(seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop), world_rect,
-                       stop, ray, rng_seed_base,
+                       termination, engine_args, rng_seed_base,
                        np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
                        want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                        want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)

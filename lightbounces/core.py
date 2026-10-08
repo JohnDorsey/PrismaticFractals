@@ -23,7 +23,7 @@ from .constants import (
     ITER_LIMIT_MAX, OBST_BOUND_LEN, REFRESH_HZ
 )
 from .settings import (
-    DEFAULT_FUZZ, DEFAULT_NATURAL_STOP_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_STOP_DEFAULT,
+    DEFAULT_FUZZ, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_TERMINATION_DEFAULT,
     fuzz_rule, ray_args
 )
 from .shapes import default_starting_obstacle
@@ -78,15 +78,15 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.running = False              # generation in progress?
         self.done = False                 # image fully generated?
         self.generated_settings = None    # ray settings the current image was started with
-        self.generated_natural_stop = None    # ...and its natural stopping settings (None together)
+        self.generated_natural_termination = None    # ...and its natural termination settings (None together)
         self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
-        self.baseline_natural_stop = DEFAULT_NATURAL_STOP_SETTINGS
+        self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
         # What the current image was generated with is generated_settings and
-        # generated_natural_stop (see settings_of_current_image); gen_stop and gen_ray are only
+        # generated_natural_termination (see settings_of_current_image); gen_termination and gen_engine_args are only
         # the kernel-ready tuples made from them (and from the obstacles, see below).
         # The Buddha blur is not part of that: it is applied whenever Buddha channels are
         # colored, so the image always uses the blur controls' current values.
-        self.gen_stop = NATURAL_STOP_DEFAULT
+        self.gen_termination = NATURAL_TERMINATION_DEFAULT
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
         self.last_escape_radius = DEFAULT_ESCAPE_RADIUS
@@ -130,10 +130,10 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.fuzz_tk_widgets = []         # classic Tk widgets in the Fuzzing section of the Mutations tab
         self.fuzz_ttk_widgets = []        # ttk widgets in the Fuzzing section of the Mutations tab
         self.hover_path_points = np.empty((ITER_LIMIT_MAX + 2, 2))
-        self.hover_kinds = np.empty(ITER_LIMIT_MAX + 2)
+        self.hover_path_point_tags = np.empty(ITER_LIMIT_MAX + 2)
         self.hover_raw = np.empty(N_RAW)
         self.hover_vec = np.empty(N_STATS)
-        self.hover_sp = np.empty((N_POINTS, 2))
+        self.hover_ray_characteristic_points = np.empty((N_POINTS, 2))
 
         # ---- timeline / video state ----
         self.keyframes = []               # list[Keyframe], in the order shown
@@ -159,7 +159,7 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         empty_bounds = np.empty((0, OBST_BOUND_LEN), dtype=np.float64)
         empty_f64 = np.empty(0, dtype=np.float64)
         empty_bool = np.empty(0, dtype=np.bool_)
-        self.gen_ray = ray_args(              # the ray engine's arguments as generated (see start), with the
+        self.gen_engine_args = ray_args(              # the ray engine's arguments as generated (see start), with the
             DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,   # obstacles as generated
             ObstacleArrays(shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
                            effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))

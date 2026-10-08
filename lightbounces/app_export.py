@@ -32,7 +32,7 @@ class ExportMixin:
         else:
             fmt = self.save_format_var.get()
             self._write(os.path.join(ensure_export_dir(), image_filename(
-                self.generated_settings, self.generated_natural_stop, fmt,
+                self.generated_settings, self.generated_natural_termination, fmt,
                 self.save_jxl_mode_var.get() == "Lossless",
                 int(round(float(self.save_jxl_quality_scale.get()))))))
 
@@ -46,7 +46,7 @@ class ExportMixin:
                 parent=self.root, title="Save image as",
                 initialdir=ensure_export_dir(),
                 initialfile=image_filename(
-                    self.generated_settings, self.generated_natural_stop, fmt,
+                    self.generated_settings, self.generated_natural_termination, fmt,
                     self.save_jxl_mode_var.get() == "Lossless",
                     int(round(float(self.save_jxl_quality_scale.get())))),
                 defaultextension="." + fmt, filetypes=[(label, f"*.{fmt}")])
@@ -72,7 +72,7 @@ class ExportMixin:
         rgb = self.frame if len(colorations) == 1 else self.render_current_image(colorations)
         rgb = apply_info_locations(
             rgb, colorations, rgb.shape[1] // len(colorations), self.generated_settings,
-            self.generated_natural_stop, self.gen_obstacle_snapshots, self.color_info_location_var.get(),
+            self.generated_natural_termination, self.gen_obstacle_snapshots, self.color_info_location_var.get(),
             self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
             mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.frame
@@ -88,7 +88,7 @@ class ExportMixin:
         fmt = self.save_format_var.get()
         label = {"png": "PNG image", "qoi": "QOI image", "jxl": "JPEG XL image"}[fmt]
         initial = image_filename(
-            self.generated_settings, self.generated_natural_stop, fmt,
+            self.generated_settings, self.generated_natural_termination, fmt,
             self.save_jxl_mode_var.get() == "Lossless",
             int(round(float(self.save_jxl_quality_scale.get()))))
         path = filedialog.asksaveasfilename(
@@ -132,7 +132,7 @@ class ExportMixin:
         framing_location = self.framing_info_location_var.get()
         if path_or_none is None:
             path = os.path.join(ensure_export_dir(),
-                                image_filename(data.ray, data.natural_stop, fmt, jxl_lossless,
+                                image_filename(data.ray, data.natural_termination, fmt, jxl_lossless,
                                                jxl_quality))
         else:
             path = path_or_none
@@ -152,7 +152,7 @@ class ExportMixin:
         only via self.root.after(0, ...)."""
         try:
             rgb = self.render_full_image(data, w, h, obst_arrays, colorations, framing)
-            rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_stop,
+            rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_termination,
                                        obst_values, color_location, figure_location,
                                        framing, framing_location, mutate_ok=True)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)

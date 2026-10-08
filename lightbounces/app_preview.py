@@ -13,8 +13,8 @@ from .kernels import (
     RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, emits_ray,
     in_sequence, trace_path
 )
-from .metrics import POINT_STATS, resolve_point_xy
-from .settings import NaturalStopSettings, RaySettings, settings_natural_stop, settings_ray_args
+from .metrics import POINT_METRICS, resolve_point_xy
+from .settings import NaturalTerminationSettings, RaySettings, settings_natural_termination, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .colorations import MODES
 
@@ -89,7 +89,7 @@ class PreviewMixin:
         the frozen set if an image has been generated (matching what was actually
         simulated/saved), else the live (current) set."""
         if self.generated_settings is not None:
-            g = self.gen_ray.obstacles
+            g = self.gen_engine_args.obstacles
             return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
                                  cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
                                  out_effect=int(g.effects[i, 1]))
@@ -157,12 +157,12 @@ class PreviewMixin:
                         emit_target_cy=self.last_emit_target_cy,
                         emit_offset=round(float(self.emit_offset_scale.get()), 2))
 
-    def preview_natural_stop_settings(self):
-        """The natural stopping settings for previews, chosen the same way as preview_settings():
+    def preview_natural_termination_settings(self):
+        """The natural termination settings for previews, chosen the same way as preview_settings():
         those of the image being generated, or the controls' last valid values."""
-        if self.generated_natural_stop is not None:
-            return self.generated_natural_stop
-        return NaturalStopSettings(
+        if self.generated_natural_termination is not None:
+            return self.generated_natural_termination
+        return NaturalTerminationSettings(
             max_iter=self.last_iter, max_dist=self.last_dist, escape_radius=self.last_escape_radius,
             confine_lookback=self.last_confine_lookback,
             confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
@@ -222,16 +222,16 @@ class PreviewMixin:
             return
 
         self.hover_px = (i, j)
-        pn = self.preview_natural_stop_settings()
+        pn = self.preview_natural_termination_settings()
         if ps.fuzz.enabled:
             np.random.seed(ps.fuzz.rng_seed + i * 1000003 + j * 97)
         path_points, path_point_tags = self.hover_path_points, self.hover_path_point_tags
-        raw, vec, sp = self.hover_raw, self.hover_vec, self.hover_sp
-        term, n = trace_path(x, y, path_points, path_point_tags, settings_natural_stop(pn),
+        raw, vec, ray_characteristic_points = self.hover_raw, self.hover_vec, self.hover_ray_characteristic_points
+        term, n = trace_path(x, y, path_points, path_point_tags, settings_natural_termination(pn),
                              settings_ray_args(ps, obstacles), raw)
         compute_run_measurements(path_points, n, raw, pn.max_iter, ps.seg_mult, vec)
-        compute_sequences(path_points, n, path_point_tags, int(raw[RAW_BOUNCES]), pn.max_iter, vec, sp)
-        vals = self.component_values(vec, sp, x, y)
+        compute_sequences(path_points, n, path_point_tags, int(raw[RAW_BOUNCES]), pn.max_iter, vec, ray_characteristic_points)
+        vals = self.component_values(vec, ray_characteristic_points, x, y)
         self.draw_segments(path_points, path_point_tags, n)
         self.draw_corkscrew(path_points, path_point_tags, n)
 
@@ -276,11 +276,11 @@ class PreviewMixin:
         if show["samples"]:
             live_coloration = self.live_coloration()
             for c in range(3):
-                if self.mapping[c] in POINT_STATS:
+                if self.mapping[c] in POINT_METRICS:
                     base_rad = 8 - 2 * c
                     for p, rad in ((live_coloration.point1_choice[c], base_rad),
                                   (live_coloration.point2_choice[c], base_rad + 3)):
-                        px, py = resolve_point_xy(sp, p)
+                        px, py = resolve_point_xy(ray_characteristic_points, p)
                         cx, cy = self.world_to_canvas(px, py)
                         cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, width=2,
                                       outline=SAMPLE_COLORS[live_coloration.mode][c], tags="ray")

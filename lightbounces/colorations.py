@@ -80,9 +80,9 @@ class ColorationConfig:
         self.chan_src[c] = channel.chan_src
         self.metric_types[c] = channel.metric_type
         if channel.metric_type == METRIC_TYPE_POINT_PAIR:
-            self.point_metric[c] = channel.stat
+            self.point_metric[c] = channel.metric_slot
         else:
-            self.other_metric[c] = channel.stat
+            self.other_metric[c] = channel.metric_slot
         self.point1_choice[c] = channel.point1
         self.point2_choice[c] = channel.point2
         self.buddha_points[c] = channel.buddha_points
@@ -137,11 +137,11 @@ class ChannelSettings:
     """One color channel of a coloration, as a keyframe stores it (the value of a
     "coloration:<id>:chan<c>" key). `constant` is a field of its own even though it only
     means something when chan_src is CHAN_SRC_CONSTANT - it is never packed into
-    `stat`, whose meaning already depends on `kind`, so reading it never requires
+    `metric_slot`, whose meaning already depends on `metric_type`, so reading it never requires
     guessing which of several interpretations currently applies."""
     chan_src: int
     metric_type: int
-    stat: int                  # the point metric if kind is KIND_POINT, else the other metric
+    metric_slot: int                  # the point metric if kind is KIND_POINT, else the other metric
     point1: int
     point2: int
     buddha_points: tuple
@@ -153,9 +153,9 @@ class ChannelSettings:
 def coloration_channel_value(v, c):
     """Channel c's current setting for a ColorationConfig or ColorationSnapshot `v`, as
     stored in a keyframe (a ChannelSettings)."""
-    stat = v.point_metric[c] if v.metric_types[c] == METRIC_TYPE_POINT_PAIR else v.other_metric[c]
+    metric_slot = v.point_metric[c] if v.metric_types[c] == METRIC_TYPE_POINT_PAIR else v.other_metric[c]
     return ChannelSettings(
-        chan_src=v.chan_src[c], metric_type=v.metric_types[c], stat=stat, point1=v.point1_choice[c],
+        chan_src=v.chan_src[c], metric_type=v.metric_types[c], metric_slot=metric_slot, point1=v.point1_choice[c],
         point2=v.point2_choice[c], buddha_points=v.buddha_points[c],
         buddha_compression=v.buddha_compression[c], buddha_brightness=v.buddha_brightness[c],
         constant=v.constant_choice[c])
@@ -201,9 +201,9 @@ def decompose_chans(mode, chans):
     return ColorationSettings(
         mode=mode,
         metric_types=tuple(c.metric_type for c in chans),
-        point_metric=tuple(c.stat if c.metric_type == METRIC_TYPE_POINT_PAIR else DEFAULT_POINT_METRICS[i]
+        point_metric=tuple(c.metric_slot if c.metric_type == METRIC_TYPE_POINT_PAIR else DEFAULT_POINT_METRICS[i]
                            for i, c in enumerate(chans)),
-        other_metric=tuple(c.stat if c.metric_type == METRIC_TYPE_OTHER else DEFAULT_OTHER_METRICS[i]
+        other_metric=tuple(c.metric_slot if c.metric_type == METRIC_TYPE_OTHER else DEFAULT_OTHER_METRICS[i]
                            for i, c in enumerate(chans)),
         point1_choice=tuple(c.point1 for c in chans),
         point2_choice=tuple(c.point2 for c in chans),

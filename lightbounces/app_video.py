@@ -583,7 +583,7 @@ class VideoMixin:
                 # the fixed video_w/video_h and the number of obstacles, so every
                 # frame still comes out the same size.
                 rgb = apply_info_locations(rgb, colorations, rs["video_w"],
-                                           data.ray, data.natural_stop, obst_values,
+                                           data.ray, data.natural_termination, obst_values,
                                            color_location, figure_location, framing, framing_location,
                                            mutate_ok=True)
                 path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo + file_offset:05d}.png")

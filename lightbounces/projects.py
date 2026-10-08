@@ -1,6 +1,6 @@
 """Projects: saving and loading everything the user has set up.
 
-A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the controls' simulation settings (the ray engine's and the natural stopping limits, each its own section), the Buddha blur, the
+A project file is pretty-printed, versioned JSON (PROJECT_EXTENSION). It holds the controls' simulation settings (the ray engine's and the natural termination limits, each its own section), the Buddha blur, the
 decorations, every obstacle, coloration and keyframe, and the Export designer and video panel choices - not the generated image, which Start
 makes again (fuzzing is seeded, so the same settings give the same image).
 
@@ -30,11 +30,11 @@ from .kernels import (
 from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
-    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_STATS, POINT_ORIGIN,
-    POINT_STATS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
+    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, POINT_ORIGIN,
+    POINT_METRICS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalStopSettings, RaySettings, SETTING_TABLES,
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalTerminationSettings, RaySettings, SETTING_TABLES,
     settings_from_dict, settings_to_dict, strict_record
 )
 from .shapes import SHAPE_CLASSES
@@ -47,7 +47,7 @@ from .framings import (
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 7
+PROJECT_FORMAT_VERSION = 8
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
 
@@ -212,7 +212,7 @@ class Project:
     """Everything a project file holds, as plain values (the obstacles, colorations and keyframes
     are independent frozen copies). Made by App.capture_project or project_from_dict."""
     ray: RaySettings                    # the ray-bouncing engine's controls
-    natural_stop: NaturalStopSettings   # the limits that end a sequence of points, beside them
+    natural_termination: NaturalTerminationSettings   # the limits that end a sequence of points, beside them
     buddha_blur: BuddhaBlurSettings     # the Buddha blur's, beside them (not inside)
     buddha_seed: BuddhaSeedSettings     # where the rays Buddha channels scatter start, beside them
     decorations: dict                   # decoration key -> bool
@@ -264,7 +264,7 @@ def _channel_to_json(channel):
     out = {"source": CAT_CHAN_SOURCE.key(channel.chan_src)}
     if channel.chan_src == CHAN_SRC_QUERY:
         out["kind"] = CAT_METRIC_TYPE.key(channel.metric_type)
-        out["metric"] = CAT_METRIC.key(channel.stat)
+        out["metric"] = CAT_METRIC.key(channel.metric_slot)
         if channel.metric_type == METRIC_TYPE_POINT_PAIR:
             out["point1"] = CAT_POINT.key(channel.point1)
             out["point2"] = CAT_POINT.key(channel.point2)
@@ -295,7 +295,7 @@ def _setting_to_json(key, value):
 
 
 def _settings_to_json(record):
-    """A settings record (a RaySettings, a NaturalStopSettings...) as the file's section for it:
+    """A settings record (a RaySettings, a NaturalTerminationSettings...) as the file's section for it:
     {setting key: value}, choices as their keys."""
     return {key: _setting_to_json(key, value) for key, value in settings_to_dict(record).items()}
 
@@ -321,7 +321,7 @@ def project_to_dict(project):
         "format_version": PROJECT_FORMAT_VERSION,
         "program_version": FILE_VERSION,
         "simulation": _settings_to_json(project.ray),
-        "natural_stop": _settings_to_json(project.natural_stop),
+        "natural_termination": _settings_to_json(project.natural_termination),
         "buddha_blur": _settings_to_json(project.buddha_blur),
         "buddha_seeding": _settings_to_json(project.buddha_seed),
         "decorations": dict(project.decorations),
@@ -400,12 +400,12 @@ def _channel_from_json(data, where, c):
     _expect("source" in data, f"{where}: the channel has no 'source'")
     default = coloration_channel_value(ColorationConfig(0), c)
     source = CAT_CHAN_SOURCE.code(data["source"], where)
-    values = {"chan_src": source, "metric_type": default.metric_type, "stat": default.stat,
+    values = {"chan_src": source, "metric_type": default.metric_type, "metric_slot": default.metric_slot,
               "point1": default.point1, "point2": default.point2,
               "buddha_points": default.buddha_points,
               "buddha_compression": default.buddha_compression,
               "buddha_brightness": default.buddha_brightness, "constant": default.constant}
-    for name, field, catalog in (("kind", "metric_type", CAT_METRIC_TYPE), ("metric", "stat", CAT_METRIC),
+    for name, field, catalog in (("kind", "metric_type", CAT_METRIC_TYPE), ("metric", "metric_slot", CAT_METRIC),
                                  ("point1", "point1", CAT_POINT), ("point2", "point2", CAT_POINT),
                                  ("buddha_compression", "buddha_compression", CAT_BUDDHA_COMPRESSION),
                                  ("buddha_brightness", "buddha_brightness", CAT_BUDDHA_BRIGHTNESS),
@@ -424,7 +424,7 @@ def _channel_from_json(data, where, c):
     for name in needed:
         _expect(name in data, f"{where}: the channel has no {name!r}")
     if source == CHAN_SRC_QUERY:
-        _expect(values["stat"] in (POINT_STATS if values["metric_type"] == METRIC_TYPE_POINT_PAIR else OTHER_STATS),
+        _expect(values["metric_slot"] in (POINT_METRICS if values["metric_type"] == METRIC_TYPE_POINT_PAIR else OTHER_METRICS),
                 f"{where}: the metric {data['metric']!r} does not suit a {data['kind']!r} channel")
     return ChannelSettings(**values)
 
@@ -624,7 +624,7 @@ def _migrate_project_2_to_3(data):
 
 
 def _migrate_project_3_to_4(data):
-    """Format 3 kept the natural stopping settings (the iteration, distance and escape-radius limits and the
+    """Format 3 kept the natural termination settings (the iteration, distance and escape-radius limits and the
     three confinement settings) in the "simulation" section; format 4 has a section of their own for them (they are
     not specific to the ray-bouncing engine). Converts a parsed format-3 file: the settings that are there move,
     unchanged, to the new "natural_stop" section."""
@@ -718,14 +718,14 @@ def _migrate_project_5_to_6(data):
 
 def _migrate_project_6_to_7(data):
     """Format 6 called how many of the most recent path points the confinement rule judges "confine_window" (the
-    natural stopping setting of that name and the keyframe setting of that name); format 7 calls it
+    natural termination setting of that name and the keyframe setting of that name); format 7 calls it
     "confine_lookback" (a "window" is a rectangle of the world, in this program). The values are unchanged.
     Converts a parsed format-6 file."""
     import copy
     data = copy.deepcopy(data)
-    natural_stop = data.get("natural_stop")
-    if isinstance(natural_stop, dict) and "confine_window" in natural_stop:
-        natural_stop["confine_lookback"] = natural_stop.pop("confine_window")
+    natural_termination = data.get("natural_stop")
+    if isinstance(natural_termination, dict) and "confine_window" in natural_termination:
+        natural_termination["confine_lookback"] = natural_termination.pop("confine_window")
     for kf in data.get("keyframes", []):
         settings = kf.get("settings") if isinstance(kf, dict) else None
         if isinstance(settings, dict) and "confine_window" in settings:
@@ -735,12 +735,25 @@ def _migrate_project_6_to_7(data):
     return data
 
 
+def _migrate_project_7_to_8(data):
+    """Format 7 called the section of the natural termination settings (the iteration, distance and escape-radius
+    limits and the three confinement settings) "natural_stop"; format 8 calls it "natural_termination" (a ray ends
+    by termination, never by "stop"). The settings in it are unchanged. Converts a parsed format-7 file."""
+    import copy
+    data = copy.deepcopy(data)
+    if "natural_stop" in data:
+        data["natural_termination"] = data.pop("natural_stop")
+    data["format_version"] = 8
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
                       2: _migrate_project_2_to_3,
                       3: _migrate_project_3_to_4,
                       4: _migrate_project_4_to_5,
                       5: _migrate_project_5_to_6,
-                      6: _migrate_project_6_to_7}
+                      6: _migrate_project_6_to_7,
+                      7: _migrate_project_7_to_8}
 
 
 def project_from_dict(data):
@@ -771,8 +784,8 @@ def _project_from_dict(data):
         version += 1
 
     ray = _settings_from_section(data, "simulation", RaySettings, "the simulation settings")
-    natural_stop = _settings_from_section(data, "natural_stop", NaturalStopSettings,
-                                          "the natural stopping settings")
+    natural_termination = _settings_from_section(data, "natural_termination", NaturalTerminationSettings,
+                                          "the natural termination settings")
     buddha_blur = _settings_from_section(data, "buddha_blur", BuddhaBlurSettings,
                                          "the Buddha blur settings")
     buddha_seed = _settings_from_section(data, "buddha_seeding", BuddhaSeedSettings,
@@ -805,7 +818,7 @@ def _project_from_dict(data):
     selected_coloration = selected.get("coloration")
     selected_framing = selected.get("framing")
     return Project(
-        ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, buddha_seed=buddha_seed,
+        ray=ray, natural_termination=natural_termination, buddha_blur=buddha_blur, buddha_seed=buddha_seed,
         decorations=decorations, obstacles=obstacles, colorations=colorations, framings=framings,
         keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),

@@ -18,7 +18,7 @@ def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     path_points = np.empty((max_iter + 2, 2))
     path_point_tags = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _stop(max_iter),
+    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(max_iter),
                               m.ray_args(seg_mult, fz, m.EMISSION_DEFAULT, arrays), raw)
     return path_points[:npts], path_point_tags[:npts], term, raw, bound
 
@@ -149,7 +149,7 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     path_points = np.empty((max_iter + 2, 2))
     path_point_tags = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
-    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _stop(max_iter, max_dist, escape_radius, confine),
+    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(max_iter, max_dist, escape_radius, confine),
                               m.ray_args(seg_mult, fz, emission, arrays), raw)
     return path_points[:npts].copy(), path_point_tags[:npts].copy(), term, raw
 
@@ -186,16 +186,16 @@ def test_enter_but_never_exit_traps_a_ray_that_started_outside():
 
 
 def test_incoming_terminate_stops_a_ray_at_the_edge_it_meets_from_outside():
-    stop = _circle_obstacle(0.5, 0.0, 0.3, T, P)
-    path_points, path_point_tags, term, _raw = _kernel_trace(0.6, -0.7, 90.0, [stop])
+    terminating_obstacle = _circle_obstacle(0.5, 0.0, 0.3, T, P)
+    path_points, path_point_tags, term, _raw = _kernel_trace(0.6, -0.7, 90.0, [terminating_obstacle])
     assert term == m.TERM_OBSTACLE
     assert np.allclose(path_points[-1], (0.6, -np.sqrt(0.09 - 0.01)))
     assert path_point_tags[-1] == m.TAG_OBSTACLE_TERM
 
 
 def test_outgoing_terminate_stops_a_ray_fired_inside_at_the_edge_it_reaches():
-    stop = _circle_obstacle(0.5, 0.0, 0.3, R, T, fire=True)
-    path_points, path_point_tags, term, _raw = _kernel_trace(0.6, -0.1, 90.0, [stop], circle=None)
+    terminating_obstacle = _circle_obstacle(0.5, 0.0, 0.3, R, T, fire=True)
+    path_points, path_point_tags, term, _raw = _kernel_trace(0.6, -0.1, 90.0, [terminating_obstacle], circle=None)
     assert term == m.TERM_OBSTACLE
     assert np.allclose(path_points[-1], (0.6, np.sqrt(0.09 - 0.01)))
     assert path_point_tags[-1] == m.TAG_OBSTACLE_TERM
@@ -308,17 +308,17 @@ def test_termination_tables_cover_escaped_and_are_evenly_spaced():
 def test_stats_and_points_are_sane_for_an_escaped_ray():
     path_points, path_point_tags, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P))
     out = np.empty(m.N_STATS)
-    sp = np.empty((m.N_POINTS, 2))
+    ray_characteristic_points = np.empty((m.N_POINTS, 2))
     m.compute_run_measurements(path_points, len(path_points), raw, 12, 1.0, out)
-    m.compute_sequences(path_points, len(path_points), path_point_tags, int(raw[m.RAW_BOUNCES]), 12, out, sp)
+    m.compute_sequences(path_points, len(path_points), path_point_tags, int(raw[m.RAW_BOUNCES]), 12, out, ray_characteristic_points)
     assert out[m.ST_TERMINATION] == 1.0
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
-    assert np.allclose(sp[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
-    assert np.allclose(sp[m.POINT_START], (0.0, -0.5))
+    assert np.allclose(ray_characteristic_points[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
+    assert np.allclose(ray_characteristic_points[m.POINT_START], (0.0, -0.5))
     assert out[m.ST_BOUNCES] == 0.0
 
 
-def test_every_termination_reason_maps_to_its_own_stat_value_in_compute_stats():
+def test_every_termination_reason_maps_to_its_own_stat_value_in_compute_run_measurements():
     seen = {}
     for term, value in m.TERM_STAT_VALUE.items():
         path_points = np.array([[0.0, 0.0], [0.5, 0.1], [0.6, 0.3]])
@@ -340,7 +340,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.SIZE, m.SIZE, m.SIZE, m.WORLD_RECT_DEFAULT, _stop(8), _ray(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.SIZE, m.SIZE, m.SIZE, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(arrays), 0)
     ys, xs = np.nonzero(pixel_state == m.PIXEL_TRACED)
     wx = (xs + 0.5) * m.PIXEL - 1.0
     wy = 1.0 - (ys + 0.5) * m.PIXEL
@@ -355,7 +355,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
 def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.SIZE, m.SIZE))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
-    m.scatter_multi_buddha(250, 252, m.WORLD_RECT_DEFAULT, _stop(8), _ray(m.build_obstacle_arrays([circle])), 0,
+    m.scatter_multi_buddha(250, 252, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(m.build_obstacle_arrays([circle])), 0,
                            False, True, False, False, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
@@ -462,9 +462,9 @@ def test_loop_area_metric_is_still_zero_when_the_segment_multiplier_is_active():
 
 
 def test_loop_area_metric_is_described_as_relative_to_a_same_perimeter_circle():
-    label = m.STAT_LABELS[m.ST_LOOP_AREA].lower()
+    label = m.METRIC_LABELS[m.ST_LOOP_AREA].lower()
     assert "circle" in label and "boundary" not in label
-    assert "perimeter" in m.STAT_DESCRIPTIONS[m.ST_LOOP_AREA]
+    assert "perimeter" in m.METRIC_DESCRIPTIONS[m.ST_LOOP_AREA]
 
 
 # --------------------------------------------------------------------------- #
@@ -532,8 +532,8 @@ def _render_scene(scene, n):
     pixel_state = np.zeros((n, n), dtype=np.uint8)
     arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
     m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT,
-                     _stop(scene["iters"], scene.get("dist", 0.0)),
-                     _ray(arrays, scene.get("seg_mult", 1.0), fuzz), fuzz.rng_seed)
+                     _termination(scene["iters"], scene.get("dist", 0.0)),
+                     _engine_args(arrays, scene.get("seg_mult", 1.0), fuzz), fuzz.rng_seed)
     return stats, characteristic_points, pixel_state
 
 
@@ -576,7 +576,7 @@ def test_the_default_confinement_rule_is_the_one_that_was_built_in():
     assert m.DEFAULT_CONFINE_THRESHOLD == m.PIXEL == 2.0 / 512
     assert m.CONFINE_METHOD_NAMES == ["Box", "Path length"]
     assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=0, threshold=2.0 / 512)
-    s = m.DEFAULT_NATURAL_STOP_SETTINGS
+    s = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     assert (s.confine_lookback, s.confine_method, s.confine_threshold) == (4, BOX, 2.0 / 512)
     assert m.settings_confine(s) == m.CONFINE_DEFAULT
 
@@ -720,7 +720,7 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert data["confine_lookback"] == 9 and data["confine_method"] == PATH
     assert data["confine_threshold"] == 1e-12
-    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).natural_stop
+    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).natural_termination
     assert (resolved.confine_lookback, resolved.confine_method, resolved.confine_threshold) \
         == (9, PATH, 1e-12)
 
@@ -730,10 +730,10 @@ def test_confinement_threshold_interpolates_but_lookback_and_method_hold():
                             "confine_threshold": 0.0})
     kf1 = m.Keyframe(1, 10, {"confine_lookback": 20, "confine_method": PATH,
                              "confine_threshold": 1.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).natural_stop
+    mid = m.resolve_frame_settings([kf0, kf1], 5).natural_termination
     assert mid.confine_lookback == 4 and mid.confine_method == BOX
     assert np.isclose(mid.confine_threshold, 0.5)
-    end = m.resolve_frame_settings([kf0, kf1], 10).natural_stop
+    end = m.resolve_frame_settings([kf0, kf1], 10).natural_termination
     assert end.confine_lookback == 20 and end.confine_method == PATH
 
 
@@ -745,10 +745,10 @@ def test_short_value_text_for_the_confinement_settings():
 
 
 def test_a_changed_confinement_rule_makes_the_settings_differ():
-    a = m.DEFAULT_NATURAL_STOP_SETTINGS
+    a = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     for change in (dict(confine_lookback=5), dict(confine_method=PATH),
                    dict(confine_threshold=0.5)):
-        assert m.DEFAULT_NATURAL_STOP_SETTINGS.replace(**change) != a
+        assert m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(**change) != a
 
 
 # ---- the entry handlers ---------------------------------------------------------------------
@@ -826,21 +826,21 @@ def test_committing_tidies_a_valid_threshold_without_changing_its_value():
     assert float(app.confine_threshold_var.get()) == 0.004
 
 
-def test_the_natural_stop_settings_are_none_while_a_confinement_entry_is_invalid():
+def test_the_natural_termination_settings_are_none_while_a_confinement_entry_is_invalid():
     for field, bad in (("confine_lookback_var", "1"), ("confine_threshold_var", "0")):
         app = _make_fake_app_for_snapshot()
         setattr(app, field, _StubVar(bad))
-        assert app.current_natural_stop_settings() is None, field
+        assert app.current_natural_termination_settings() is None, field
         assert app.current_generation_settings() is None, field
         assert app.current_ray_settings() is not None, "the ray engine's own settings are unaffected"
 
 
-def test_the_natural_stop_settings_read_the_confinement_controls():
+def test_the_natural_termination_settings_read_the_confinement_controls():
     app = _make_fake_app_for_snapshot()
     app.confine_lookback_var = _StubVar("7")
     app.confine_method_var = _StubVar("Path length")
     app.confine_threshold_var = _StubVar("2.5e-9")
-    snap = app.current_natural_stop_settings()
+    snap = app.current_natural_termination_settings()
     assert (snap.confine_lookback, snap.confine_method, snap.confine_threshold) == (7, PATH, 2.5e-9)
 
 
@@ -1012,7 +1012,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
     up = _emission(UP, offset=0.0)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _stop(1), _ray(arrays, emission=up), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(1), _engine_args(arrays, emission=up), 0)
     fired = pixel_state == m.PIXEL_TRACED
     xs = ((np.arange(n) + 0.5) * (2.0 / n) - 1.0)[None, :].repeat(n, axis=0)
     ys = (1.0 - (np.arange(n) + 0.5) * (2.0 / n))[:, None].repeat(n, axis=1)
@@ -1021,7 +1021,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert np.allclose(ends[..., 0][fired], xs[fired], atol=1e-6), "straight up keeps x"
     assert (ends[..., 1][fired] > ys[fired]).all(), "and goes up"
     toward = _emission(TOWARDS, 0.0, 0.0, 0.0)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _stop(1), _ray(arrays, emission=toward), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(1), _engine_args(arrays, emission=toward), 0)
     ends = characteristic_points[..., m.POINT_END, :]
     fired = pixel_state == m.PIXEL_TRACED
     start_r = np.hypot(xs, ys)[fired]
@@ -1270,9 +1270,9 @@ def test_the_rule_builders_give_named_typed_fields():
     e = m.emission_rule(1, 2, 3, 4)
     assert e == m.EmissionRule(mode=1, target_x=2.0, target_y=3.0, offset=4.0)
     assert all(type(v) is float for v in (e.target_x, e.target_y, e.offset))
-    settings, stop = _generation(emit_mode=m.EMIT_TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
+    settings, termination = _generation(emit_mode=m.EMIT_TOWARDS, emit_target_r=2.0, emit_target_theta=90.0,
                                  emit_offset=7.0, confine_lookback=6, confine_threshold=0.5)
-    assert m.settings_confine(stop) == m.ConfineRule(lookback=6, method=stop.confine_method,
+    assert m.settings_confine(termination) == m.ConfineRule(lookback=6, method=termination.confine_method,
                                                      threshold=0.5)
     rule = m.settings_emission(settings)
     assert (rule.mode, rule.offset) == (m.EMIT_TOWARDS, 7.0) and abs(rule.target_y - 2.0) < 1e-9
@@ -1305,7 +1305,7 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
     totals, densities = {}, {}
     for w in (64, 128, 256):
         counts = np.zeros((w, w))
-        m.scatter_multi_buddha(0, w, m.WORLD_RECT_DEFAULT, _stop(40), _ray(arrays), 0, False, True, False, False, counts)
+        m.scatter_multi_buddha(0, w, m.WORLD_RECT_DEFAULT, _termination(40), _engine_args(arrays), 0, False, True, False, False, counts)
         gx, gy = m.make_grid(w, w)
         inside = int((np.hypot(gx, gy) < 1.0).sum())
         totals[w], densities[w] = counts.sum(), counts.sum() / inside
@@ -1398,7 +1398,7 @@ def _fired_from_the_pixel_grid(shape, n=24, max_iter=12):
     shape.in_effect = shape.out_effect = m.OBSTACLE_EFFECT_REFLECT
     shape.fire_inside = True
     arrays = m.build_obstacle_arrays([shape])
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _stop(max_iter), _ray(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(max_iter), _engine_args(arrays), 0)
     return stats, characteristic_points, pixel_state
 
 
@@ -1505,7 +1505,7 @@ def test_rays_fired_inside_a_closed_sine_flower_never_escape_it():
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _stop(60), _ray(m.build_obstacle_arrays([o])), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(60), _engine_args(m.build_obstacle_arrays([o])), 0)
     fired = pixel_state == m.PIXEL_TRACED
     assert fired.sum() > 1000
     assert not (stats[:, :, m.ST_TERMINATION][fired] == m.TERM_STAT_VALUE[m.TERM_ESCAPED]).any()
@@ -1527,7 +1527,7 @@ def test_an_invalid_escape_radius_is_flagged_and_the_last_good_value_restored_on
 
 
 # --------------------------------------------------------------------------- #
-# The natural stop rule and its shared checks: what any engine that makes sequences of points can use
+# The natural termination rule and its shared checks: what any engine that makes sequences of points can use
 # --------------------------------------------------------------------------- #
 def test_is_confined_judges_the_last_lookback_of_the_points_by_box_or_by_path_length():
     path_points = np.array([[5.0, 5.0], [9.0, 9.0], [0.0, 0.0], [0.001, 0.0], [0.0, 0.001], [0.001, 0.001]])
@@ -1557,38 +1557,38 @@ _TERM_ESCAPED, _TERM_CONFINED, _TERM_ITER = m.TERM_ESCAPED, m.TERM_CONFINED, m.T
 
 
 @m.njit
-def _escape_time_orbit(c_re, c_im, path_points, stop):
+def _escape_time_orbit(c_re, c_im, path_points, termination):
     """A different kind of sequence engine, as small as can be - the orbit of 0 under z -> z^2 + c - that ends
-    by the shared NaturalStopRule and the shared checks alone. Returns (why it ended, number of points)."""
+    by the shared NaturalTerminationRule and the shared checks alone. Returns (why it ended, number of points)."""
     x = 0.0
     y = 0.0
     path_points[0, 0] = x
     path_points[0, 1] = y
     n = 1
-    for _ in range(stop.max_iter):
+    for _ in range(termination.max_iter):
         x, y = x * x - y * y + c_re, 2.0 * x * y + c_im
         path_points[n, 0] = x
         path_points[n, 1] = y
         n += 1
-        if _beyond_escape_radius(x, y, stop.escape_radius):
+        if _beyond_escape_radius(x, y, termination.escape_radius):
             return _TERM_ESCAPED, n
-        if _is_confined(path_points, n, stop.confine):
+        if _is_confined(path_points, n, termination.confine):
             return _TERM_CONFINED, n
     return _TERM_ITER, n
 
 
-def test_another_engine_can_be_ended_by_the_same_natural_stop_rule_and_checks():
+def test_another_engine_can_be_ended_by_the_same_natural_termination_rule_and_checks():
     path_points = np.empty((300, 2))
-    stop = _stop(256)
-    term, n = _escape_time_orbit(1.0, 0.0, path_points, stop)                    # 0, 1, 2: out at the third point
+    termination = _termination(256)
+    term, n = _escape_time_orbit(1.0, 0.0, path_points, termination)                    # 0, 1, 2: out at the third point
     assert (term, n) == (m.TERM_ESCAPED, 3) and np.allclose(path_points[:3, 0], [0.0, 1.0, 2.0])
-    term, n = _escape_time_orbit(-0.1, 0.0, path_points, stop)                   # settles on a fixed point
+    term, n = _escape_time_orbit(-0.1, 0.0, path_points, termination)                   # settles on a fixed point
     assert term == m.TERM_CONFINED and 4 < n < 100
-    term, n = _escape_time_orbit(-1.0, 0.0, path_points, _stop(20))              # a cycle of 0 and -1: it never settles
+    term, n = _escape_time_orbit(-1.0, 0.0, path_points, _termination(20))              # a cycle of 0 and -1: it never settles
     assert (term, n) == (m.TERM_ITER, 21)
-    term, n = _escape_time_orbit(1.0, 0.0, path_points, _stop(256, escape_radius=100.0))   # a larger radius: later
+    term, n = _escape_time_orbit(1.0, 0.0, path_points, _termination(256, escape_radius=100.0))   # a larger radius: later
     assert term == m.TERM_ESCAPED and n == 6 and path_points[5, 0] == 677.0      # 0, 1, 2, 5, 26, 677
-    assert _escape_time_orbit(1.0, 0.0, path_points, _stop(256, escape_radius=1.5))[1] == 3
+    assert _escape_time_orbit(1.0, 0.0, path_points, _termination(256, escape_radius=1.5))[1] == 3
 
 
 def test_the_ray_engine_still_ends_by_the_same_shared_checks_as_its_own_inline_ones_did():
@@ -1648,20 +1648,20 @@ def _stored_for_path(path_points, path_point_tags, nb, max_iter=20):
     raw[m.RAW_SELF_K] = -1
     raw[m.RAW_TERM] = m.TERM_ITER
     out = np.full(m.N_STATS, np.nan)
-    sp = np.full((m.N_POINTS, 2), np.nan)
+    ray_characteristic_points = np.full((m.N_POINTS, 2), np.nan)
     m.compute_run_measurements(path_points, npts, raw, max_iter, 1.0, out)
-    m.compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, sp)
-    return sp, out
+    m.compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
+    return ray_characteristic_points, out
 
 
 def _check_stored_against_reference(path_points, path_point_tags, nb, max_iter=20, label=""):
     npts = len(path_points)
-    sp, out = _stored_for_path(path_points, path_point_tags, nb, max_iter)
-    assert np.isfinite(sp).all() and np.isfinite(out).all(), f"a slot was never written {label}"
+    ray_characteristic_points, out = _stored_for_path(path_points, path_point_tags, nb, max_iter)
+    assert np.isfinite(ray_characteristic_points).all() and np.isfinite(out).all(), f"a slot was never written {label}"
     for seq in range(m.N_SEQS):
         for red in range(m.N_PRED):
             want = _reference_point(seq, red, path_points, path_point_tags, nb, npts)
-            got = sp[m.point_slot(seq, red)]
+            got = ray_characteristic_points[m.point_slot(seq, red)]
             assert np.allclose(got, want, rtol=0, atol=1e-12), (label, "point", seq, red, got, want)
         for red in range(m.N_SRED):
             want = _reference_scalar(seq, red, path_points, path_point_tags, nb, npts, max_iter)
@@ -1705,11 +1705,11 @@ def test_membership_by_tag_alone_equals_the_bounce_count_rule_on_every_ray_of_a_
     arrays = m.build_obstacle_arrays(_start_scene() + [ellipse])
     n, checked, perpendicular = 64, 0, 0
     for seg_mult in (1.0, 0.7):
-        stop, ray = _stop(80), _ray(arrays, seg_mult=seg_mult)
+        termination, engine_args = _termination(80), _engine_args(arrays, seg_mult=seg_mult)
         for j in range(n):
             for i in range(n):
                 path_points, path_point_tags, raw = np.empty((82, 2)), np.empty(82), np.empty(m.N_RAW)
-                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, stop, ray, raw)
+                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args, raw)
                 nb = int(raw[m.RAW_BOUNCES])
                 for seq in range(m.N_SEQS):
                     got = [k for k in range(npts) if m.in_sequence(seq, k, path_point_tags)]
@@ -1727,7 +1727,7 @@ def test_every_path_point_tag_has_a_colour_for_the_segment_graphics():
 def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_what_they_always_picked():
     """The 13 sample points and the metrics that are reductions of a sequence, on a path small enough to work out by
     hand - independent of the alias tables, which they must agree with."""
-    sp, out = _stored_for_path(_HAND_PTS, _HAND_KINDS, 4, max_iter=20)
+    ray_characteristic_points, out = _stored_for_path(_HAND_PTS, _HAND_KINDS, 4, max_iter=20)
     expected = {m.POINT_START: (0, 0), m.POINT_END: (3, 3), m.POINT_ALL_MEAN: (0.5, 1.0),
                 m.POINT_BOUNDARY_MEAN: (0.0, 1.5), m.POINT_SELF_MEAN: (1.0, 0.5),
                 m.POINT_TOP: (2, 3), m.POINT_BOTTOM: (0, -2), m.POINT_RIGHT: (2, 3), m.POINT_LEFT: (-1, 2),
@@ -1735,7 +1735,7 @@ def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_
                 m.POINT_SELF_LEFT: (0, -2)}
     assert len(expected) == m.N_LEGACY_POINTS
     for point, xy in expected.items():
-        assert np.allclose(sp[point], xy), (point, sp[point], xy)
+        assert np.allclose(ray_characteristic_points[point], xy), (point, ray_characteristic_points[point], xy)
     assert out[m.ST_BOUNCES] == 4 / 20
     path_length = np.hypot(*np.diff(_HAND_PTS, axis=0).T).sum()
     assert np.isclose(out[m.ST_LENGTH], np.arctan(path_length / 5.0) * 2.0 / np.pi)
@@ -1743,13 +1743,13 @@ def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_
     # no self bounce: every self choice is the end point, the boundary ones are still the boundary's
     path_point_tags = _HAND_KINDS.copy()
     path_point_tags[[2, 4]] = m.TAG_BOUNDARY
-    sp, _out = _stored_for_path(_HAND_PTS, path_point_tags, 4)
+    ray_characteristic_points, _out = _stored_for_path(_HAND_PTS, path_point_tags, 4)
     for point in (m.POINT_SELF_MEAN, m.POINT_SELF_TOP, m.POINT_SELF_BOTTOM, m.POINT_SELF_RIGHT, m.POINT_SELF_LEFT):
-        assert np.allclose(sp[point], (3, 3)), point
-    assert np.allclose(sp[m.POINT_BOUNDARY_MEAN], (0.5, 1.0))
+        assert np.allclose(ray_characteristic_points[point], (3, 3)), point
+    assert np.allclose(ray_characteristic_points[m.POINT_BOUNDARY_MEAN], (0.5, 1.0))
     # no bounce at all: every bounce choice is the end point
-    sp, out = _stored_for_path(_HAND_PTS[[0, 5]], _HAND_KINDS[[0, 5]], 0)
-    assert all(np.allclose(sp[p], (3, 3)) for p in range(m.N_LEGACY_POINTS) if p != m.POINT_START)
+    ray_characteristic_points, out = _stored_for_path(_HAND_PTS[[0, 5]], _HAND_KINDS[[0, 5]], 0)
+    assert all(np.allclose(ray_characteristic_points[p], (3, 3)) for p in range(m.N_LEGACY_POINTS) if p != m.POINT_START)
     assert out[m.ST_BOUNCES] == 0.0
 
 
@@ -1770,10 +1770,10 @@ def test_every_stored_point_and_scalar_is_its_sequences_reduction_by_an_independ
 
 def test_a_sequence_with_fewer_than_two_points_has_no_direction_and_an_empty_one_reports_the_end_point():
     path_points = np.array([[0.0, 0.0], [0.25, -0.5]])
-    sp, out = _stored_for_path(path_points, np.array([m.TAG_START, m.TAG_ESCAPED]), 0)
+    ray_characteristic_points, out = _stored_for_path(path_points, np.array([m.TAG_START, m.TAG_ESCAPED]), 0)
     assert out[m.stat_slot(m.SEQ_BOUNCES, m.SRED_LAST_DIR)] == 0.5 and out[m.stat_slot(m.SEQ_SELF, m.SRED_COUNT)] == 0.0
     assert out[m.stat_slot(m.SEQ_SELF, m.SRED_LENGTH)] == 0.0
-    assert np.allclose(sp[m.point_slot(m.SEQ_SELF, m.PRED_FIRST)], (0.25, -0.5))
+    assert np.allclose(ray_characteristic_points[m.point_slot(m.SEQ_SELF, m.PRED_FIRST)], (0.25, -0.5))
     assert out[m.stat_slot(m.SEQ_PATH, m.SRED_COUNT)] == 2 / 20
 
 
@@ -1782,15 +1782,15 @@ def test_a_pixel_is_pending_until_its_row_is_rendered_then_traced_or_has_no_ray(
     outside every firing shape is PIXEL_NO_RAY (it used to be 0, the same as pending), and one that fires is
     PIXEL_TRACED, with its stats stored. A finished render leaves no pixel pending."""
     arrays = m.build_obstacle_arrays(_start_scene())           # the unit circle: the image's corners are outside it
-    stop, ray, n = _stop(8), _ray(arrays), 16
+    termination, engine_args, n = _termination(8), _engine_args(arrays), 16
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.full((n, n), m.PIXEL_PENDING, dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, 6, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, 6, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
     assert (pixel_state[6:] == m.PIXEL_PENDING).all()
     assert not (pixel_state[:6] == m.PIXEL_PENDING).any()
     assert pixel_state[0, 0] == m.PIXEL_NO_RAY and pixel_state[5, 8] == m.PIXEL_TRACED
-    m.trace_rows(stats, characteristic_points, pixel_state, 6, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 6, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
     assert set(np.unique(pixel_state)) == {m.PIXEL_TRACED, m.PIXEL_NO_RAY}
     centre_x = (np.arange(n) + 0.5) * 2.0 / n - 1.0
     inside = centre_x[None, :] ** 2 + centre_x[::-1][:, None] ** 2 < 1.0
@@ -1804,18 +1804,18 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
     arrays = m.build_obstacle_arrays(_start_scene() + [ellipse])
-    stop, ray, n = _stop(60), _ray(arrays, seg_mult=0.9), 24
+    termination, engine_args, n = _termination(60), _engine_args(arrays, seg_mult=0.9), 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
     checked = 0
     for j in range(0, n, 2):
         for i in range(0, n, 2):
             if pixel_state[j, i] != m.PIXEL_TRACED:
                 continue
             path_points, path_point_tags, raw = np.empty((62, 2)), np.empty(62), np.empty(m.N_RAW)
-            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, stop, ray, raw)
+            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args, raw)
             nb = int(raw[m.RAW_BOUNCES])
             for seq in range(m.N_SEQS):
                 for red in range(m.N_PRED):
@@ -1841,7 +1841,7 @@ def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequen
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _stop(400), _ray(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(400), _engine_args(arrays), 0)
     fired = pixel_state == m.PIXEL_TRACED
     perpendicular = fired & (np.abs(stats[..., m.ST_TERMINATION] - m.TERM_STAT_VALUE[m.TERM_PERPENDICULAR]) < 0.01)
     assert perpendicular.sum() > 10, "the scene must include rays that end perpendicularly"
@@ -1870,16 +1870,16 @@ def _seeding_scene():
     """A closed scene with self bounces (a circle and an ellipse), traced with a few iterations so the test is quick."""
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
-    return _stop(40), _ray(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
+    return _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
 
 
 _NO_SLOTS = np.empty(0, dtype=np.int64)
 
 
 def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, False), rows=None, fuzz_seed=0):
-    stop, ray = _seeding_scene()
+    termination, engine_args = _seeding_scene()
     counts = np.zeros((n, n))
-    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.WorldRect(*zone), m.WORLD_RECT_DEFAULT, stop, ray,
+    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.WorldRect(*zone), m.WORLD_RECT_DEFAULT, termination, engine_args,
                          fuzz_seed,
                          np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, counts)
     return counts
@@ -1888,11 +1888,11 @@ def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, 
 def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_covering_it():
     """The camera pixels' seeding is the zone (-1, 1, -1, 1): scatter_multi_buddha is that, and so is a seeding of the
     same options through the general kernel."""
-    stop, ray = _seeding_scene()
+    termination, engine_args = _seeding_scene()
     n = 24
     for multi in [(True, False, False, False), (False, True, False, False), (False, False, True, True)]:
         old = np.zeros((n, n))
-        m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, stop, ray, 0, *multi, old)
+        m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, *multi, old)
         assert old.sum() > 0
         assert np.array_equal(old, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), multi=multi))
 
@@ -1900,12 +1900,12 @@ def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_coveri
 def test_seeding_the_stored_points_equals_scattering_those_stored_points_of_an_image_made_from_the_same_rays():
     """With the camera zone, a seeded scatter of the stored point of a slot is the counts of that slot's points as
     trace_rows stored them for the same pixels - so the tethered and the seeded way agree."""
-    stop, ray = _seeding_scene()
+    termination, engine_args = _seeding_scene()
     n = 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
     for slot in (m.POINT_ALL_MEAN, m.point_slot(m.SEQ_SELF, m.PRED_LAST), m.POINT_END):
         xs, ys = characteristic_points[..., slot, 0][pixel_state == m.PIXEL_TRACED], characteristic_points[..., slot, 1][pixel_state == m.PIXEL_TRACED]
         col = np.floor((xs + 1.0) * (n / 2.0)).astype(np.int64)
@@ -1931,7 +1931,7 @@ def test_seeding_the_stored_points_equals_scattering_those_stored_points_of_an_i
 
 def test_a_smaller_zone_has_the_same_number_of_seeds_closer_together_and_a_seed_outside_a_shape_fires_nothing():
     n = 16
-    stop, ray = _seeding_scene()
+    termination, engine_args = _seeding_scene()
     def seed_points(zone):
         h = w = n
         xs = zone[0] + (np.arange(w) + 0.5) * ((zone[1] - zone[0]) / w)

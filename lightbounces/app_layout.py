@@ -12,7 +12,7 @@ from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
     TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, SIZE
 )
-from .metrics import STAT_SHORT
+from .metrics import METRIC_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
 
 
@@ -258,7 +258,7 @@ class LayoutMixin:
         self.stat_vars = []
         self.stat_tags = []
         for s in range(N_STATS):
-            ttk.Label(right, text=STAT_SHORT[s], font=self.small_font).grid(
+            ttk.Label(right, text=METRIC_SHORT[s], font=self.small_font).grid(
                 row=s, column=0, sticky="w", padx=(0, 10))
             var = tk.StringVar()
             self.stat_vars.append(var)

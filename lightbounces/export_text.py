@@ -8,19 +8,19 @@ from .image_io import jxl_quality_tag, render_text_line
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, SIZE
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
-    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_STATS, STAT_LABELS,
-    constant_stat_to_label
+    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_METRICS, METRIC_LABELS,
+    constant_metric_to_label
 )
 from .colorations import MODES
 from .framings import framing_info_block
 from . import paths
 
 
-def settings_suffix(ray, natural_stop):
-    """Simulation settings (a RaySettings and a NaturalStopSettings) as a filename fragment: plain
+def settings_suffix(ray, natural_termination):
+    """Simulation settings (a RaySettings and a NaturalTerminationSettings) as a filename fragment: plain
     characters, no spaces, e.g. 'iter32-distNONE'."""
-    parts = [f"iter{natural_stop.max_iter}",
-             "distNONE" if natural_stop.max_dist == 0 else f"dist{natural_stop.max_dist}"]
+    parts = [f"iter{natural_termination.max_iter}",
+             "distNONE" if natural_termination.max_dist == 0 else f"dist{natural_termination.max_dist}"]
     f = ray.fuzz
     if f.enabled:
         parts += ["fuzz",
@@ -44,22 +44,22 @@ FIGURE_INFO_LOCATIONS = ["None", "Left margin"]
 FRAMING_INFO_LOCATIONS = ["None", "Left margin"]
 
 
-def default_filename(ray=None, natural_stop=None, ext="png", quality_tag=None):
+def default_filename(ray=None, natural_termination=None, ext="png", quality_tag=None):
     """programname-YYYYMMDD-hhmmss-<settings>[.<quality_tag>].<ext>, stamped with the
     current time (no <settings> part without both records)."""
     name = f"{paths.PROGRAM_NAME}-{time.strftime('%Y%m%d-%H%M%S')}"
-    if ray is not None and natural_stop is not None:
-        name += "-" + settings_suffix(ray, natural_stop)
+    if ray is not None and natural_termination is not None:
+        name += "-" + settings_suffix(ray, natural_termination)
     if quality_tag:
         name += "." + quality_tag
     return f"{name}.{ext}"
 
 
-def image_filename(ray, natural_stop, fmt, jxl_lossless, jxl_quality):
+def image_filename(ray, natural_termination, fmt, jxl_lossless, jxl_quality):
     """The default name of a saved still image: a JPEG XL file also says its quality
     right before the extension (name.q90.jxl; q100 for lossless)."""
     tag = jxl_quality_tag(jxl_lossless, jxl_quality) if fmt == "jxl" else None
-    return default_filename(ray, natural_stop, fmt, tag)
+    return default_filename(ray, natural_termination, fmt, tag)
 
 
 # The "Include coloration info" export overlay: pure black background (per
@@ -95,16 +95,16 @@ def coloration_info_lines(coloration):
             lines.append(f"  {comp} {bright}")
         elif coloration.chan_src[c] == CHAN_SRC_CONSTANT:
             lines.append(f"{letter}:Constant")
-            lines.append(f"  {constant_stat_to_label(coloration.constant_choice[c])}")
+            lines.append(f"  {constant_metric_to_label(coloration.constant_choice[c])}")
         else:
-            stat = coloration.point_metric[c] if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR else coloration.other_metric[c]
-            if stat in (NONE_ZERO, NONE_ONE):
+            metric_slot = coloration.point_metric[c] if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR else coloration.other_metric[c]
+            if metric_slot in (NONE_ZERO, NONE_ONE):
                 raise ValueError(
-                    f"channel {c} has stat={stat} (a Constant-only sentinel) but "
+                    f"channel {c} has metric_slot={metric_slot} (a Constant-only sentinel) but "
                     f"chan_src is {coloration.chan_src[c]}, not CHAN_SRC_CONSTANT")
-            name = STAT_LABELS[stat]
+            name = METRIC_LABELS[metric_slot]
             lines.append(f"{letter}:{name}")
-            if stat in POINT_STATS:
+            if metric_slot in POINT_METRICS:
                 p1 = POINT_SHORT[coloration.point1_choice[c]]
                 p2 = POINT_SHORT[coloration.point2_choice[c]]
                 lines.append(f"  P1:{p1} P2:{p2}")
@@ -115,20 +115,20 @@ FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines u
 FIGURE_INFO_SEPARATOR = "-" * FIGURE_INFO_COLUMN_CHARS   # the line between the figure's settings and the framing's
 
 
-def figure_info_blocks(ray, natural_stop, obstacles):
+def figure_info_blocks(ray, natural_termination, obstacles):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
-    coloration - as a list of blocks of text lines: the stopping limits and segment
+    coloration - as a list of blocks of text lines: the termination limits and segment
     length, the emission direction, the confinement rule, the fuzzing, and every
     obstacle. (Coloration, decorations and the
     Buddha blur only process or decorate the generated data, so they aren't
     part of it.) The blocks' sizes depend only on how many obstacles there
     are, never on the settings' values - so a video's frames, whose settings
     may be animated, all lay out identically."""
-    limits = [f"Iter limit:{natural_stop.max_iter}",
-              "Dist limit:" + ("none" if natural_stop.max_dist == 0
-                               else f"{natural_stop.max_dist:.2f}"),
-              f"Escape r:{natural_stop.escape_radius:.9g}",
+    limits = [f"Iter limit:{natural_termination.max_iter}",
+              "Dist limit:" + ("none" if natural_termination.max_dist == 0
+                               else f"{natural_termination.max_dist:.2f}"),
+              f"Escape r:{natural_termination.escape_radius:.9g}",
               f"Segment:x{ray.seg_mult:.2f}"]
     toward = ray.emit_mode == EMIT_TOWARDS
     emission = [f"Emit:{EMIT_MODE_NAMES[ray.emit_mode]}",
@@ -137,10 +137,10 @@ def figure_info_blocks(ray, natural_stop, obstacles):
                 f"  offset x {ray.emit_target_cx:.9g}" if toward else " ",
                 f"  offset y {ray.emit_target_cy:.9g}" if toward else " ",
                 f"  angle offset {ray.emit_offset:+.2f}\u00b0"]
-    confinement = [f"Confine:{CONFINE_METHOD_NAMES[natural_stop.confine_method]}",
-                   f"  lookback {natural_stop.confine_lookback}",
-                   ("  box size " if natural_stop.confine_method == CONFINE_BOX
-                    else "  path length ") + f"{natural_stop.confine_threshold:.9g}"]
+    confinement = [f"Confine:{CONFINE_METHOD_NAMES[natural_termination.confine_method]}",
+                   f"  lookback {natural_termination.confine_lookback}",
+                   ("  box size " if natural_termination.confine_method == CONFINE_BOX
+                    else "  path length ") + f"{natural_termination.confine_threshold:.9g}"]
     f = ray.fuzz
     if not f.enabled:
         fuzz = ["Fuzz:Off"] + [" "] * 4
@@ -160,9 +160,9 @@ def figure_info_blocks(ray, natural_stop, obstacles):
     return blocks
 
 
-def figure_info_lines(ray, natural_stop, obstacles):
+def figure_info_lines(ray, natural_termination, obstacles):
     """figure_info_blocks(), flattened into one list of lines."""
-    return [line for block in figure_info_blocks(ray, natural_stop, obstacles) for line in block]
+    return [line for block in figure_info_blocks(ray, natural_termination, obstacles) for line in block]
 
 
 def layout_info_columns(blocks, lines_per_column):
@@ -264,7 +264,7 @@ def add_bottom_color_margin(img, colorations, coloration_width):
     return out
 
 
-def left_margin_blocks(ray, natural_stop, obstacles, framing, figure_location, framing_location):
+def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location):
     """The blocks of text lines of the left margin, as the Export designer's two "settings location" choices have
     it: the figure's settings (figure_info_blocks) if that location is "Left margin", then the framing's
     (framing_info_block) if its location is, below them with a line of dashes between (just the framing's, with
@@ -272,7 +272,7 @@ def left_margin_blocks(ray, natural_stop, obstacles, framing, figure_location, f
     depend only on how many obstacles there are."""
     blocks = []
     if figure_location == "Left margin":
-        blocks += figure_info_blocks(ray, natural_stop, obstacles)
+        blocks += figure_info_blocks(ray, natural_termination, obstacles)
     if framing_location == "Left margin":
         block = framing_info_block(framing)
         blocks.append([FIGURE_INFO_SEPARATOR] + block if blocks else block)
@@ -305,14 +305,14 @@ def add_left_info_margin(img, blocks):
     return out
 
 
-def apply_info_locations(rgb, colorations, coloration_width, ray, natural_stop, obstacles, color_location,
+def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termination, obstacles, color_location,
                          figure_location, framing, framing_location, mutate_ok):
     """Applies the Export designer's Color info location, Figure settings
     location and Framing settings location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
     module-level function, safe to call from a background thread, since it
     never reads a Tk variable directly (callers capture the locations
-    on the main thread first). `ray`, `natural_stop` and `obstacles` are
+    on the main thread first). `ray`, `natural_termination` and `obstacles` are
     what defines the figure being exported (see figure_info_blocks), `framing` the framing it is an image
     of (see framing_info_block). mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
@@ -324,7 +324,7 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_stop, 
         draw_coloration_info(rgb, colorations, coloration_width)
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, colorations, coloration_width)
-    blocks = left_margin_blocks(ray, natural_stop, obstacles, framing, figure_location, framing_location)
+    blocks = left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location)
     if blocks:
         rgb = add_left_info_margin(rgb, blocks)
     return rgb

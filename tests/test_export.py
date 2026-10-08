@@ -230,10 +230,10 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     app.characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
-    app.gen_stop = m.NATURAL_STOP_DEFAULT
-    app.gen_ray = _ray(m.build_obstacle_arrays([]))
+    app.gen_termination = m.NATURAL_TERMINATION_DEFAULT
+    app.gen_engine_args = _engine_args(m.build_obstacle_arrays([]))
     app.generated_settings = None                     # the placeholder image: default settings
-    app.generated_natural_stop = None
+    app.generated_natural_termination = None
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
@@ -473,7 +473,7 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
 def test_add_left_info_margin_does_not_mutate_input():
     img = np.full((40, 60, 3), 33, dtype=np.uint8)
     original = img.copy()
-    m.add_left_info_margin(img, m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS, _start_scene()))
+    m.add_left_info_margin(img, m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, _start_scene()))
     assert np.array_equal(img, original)
 
 
@@ -576,7 +576,7 @@ def test_export_writes_the_current_image_into_the_export_dir():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     written = []
     app._write = lambda path: written.append(path)
     app.save = m.App.save.__get__(app)
@@ -605,7 +605,7 @@ def test_export_as_dialog_opens_in_the_export_dir():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app._write = lambda path: None
     app.save_as = m.App.save_as.__get__(app)
     seen = {}
@@ -669,13 +669,13 @@ def _fake_button_gating_app():
     app = FakeApp()
     _give_image_geometry(app)
     app.ready = True
-    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.generated_settings = None
-    app.generated_natural_stop = None
+    app.generated_natural_termination = None
     app.gen_obstacles_sig = None
     app.obstacles = []
     app.baseline = m.DEFAULT_RAY_SETTINGS
-    app.baseline_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.baseline_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.running = False
     app.rows_done = 0
     app.start_btn = _RecordingButton()
@@ -699,18 +699,18 @@ def test_start_and_revert_follow_the_ray_settings_and_never_look_at_the_buddha_b
     app = _fake_button_gating_app()
     assert not hasattr(app, "current_blur_settings")
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.gen_obstacles_sig = m.obstacles_signature([])
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, False)      # nothing changed
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS.replace(seg_mult=0.5),
-                                               m.DEFAULT_NATURAL_STOP_SETTINGS)
+                                               m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)        # a ray setting changed
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS,
-                                               m.DEFAULT_NATURAL_STOP_SETTINGS.replace(max_iter=99))
+                                               m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(max_iter=99))
     app.update_buttons()
-    assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)        # so did a stopping limit
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)        # so did a termination limit
     app.current_generation_settings = lambda: None
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, True)       # an entry is invalid
@@ -725,7 +725,7 @@ def test_export_disabled_before_any_generation():
 def test_export_enabled_after_generation_finishes():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.rows_done = m.SIZE
     app.running = False
     app.update_buttons()
@@ -735,7 +735,7 @@ def test_export_enabled_after_generation_finishes():
 def test_export_disabled_while_still_generating():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.rows_done = m.SIZE // 2
     app.running = True
     app.update_buttons()

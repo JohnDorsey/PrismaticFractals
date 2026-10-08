@@ -1,0 +1,463 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 7,
+  "program_version": 146,
+  "simulation": {
+    "seg_mult": 0.8,
+    "emit_mode": "towards_point",
+    "emit_target_r": 0.3,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": 12.5,
+    "fuzz_on": true,
+    "emit_jitter": 2.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 99
+  },
+  "natural_stop": {
+    "iter": 77,
+    "dist": 3.5,
+    "escape_radius": 2.0,
+    "confine_lookback": 6,
+    "confine_method": "box",
+    "confine_threshold": 0.00390625
+  },
+  "buddha_blur": {
+    "buddha_blur_radius": 0.03,
+    "buddha_blur_type": "bokeh"
+  },
+  "buddha_seeding": {
+    "buddha_seed_camera": true,
+    "buddha_seed_x_start": -1.0,
+    "buddha_seed_x_stop": 1.0,
+    "buddha_seed_y_start": -1.0,
+    "buddha_seed_y_stop": 1.0
+  },
+  "decorations": {
+    "outline": false,
+    "pending": true
+  },
+  "obstacles": [
+    {
+      "kind": "ellipse",
+      "id": 1,
+      "fields": {
+        "rotation": 10.0,
+        "width": 1.0,
+        "height": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "regular_polygon",
+      "id": 3,
+      "fields": {
+        "rotation": 11.0,
+        "sides": 5,
+        "radius": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "moss_egg",
+      "id": 5,
+      "fields": {
+        "rotation": 12.0,
+        "moss_angle": 90.0,
+        "moss_size": 0.9,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "circular_sector",
+      "id": 7,
+      "fields": {
+        "rotation": 13.0,
+        "radius": 1.0,
+        "sector_span": 90.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "circular_segment",
+      "id": 9,
+      "fields": {
+        "rotation": 14.0,
+        "radius": 1.0,
+        "segment_span": 120.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "two_circle_lens",
+      "id": 11,
+      "fields": {
+        "rotation": 15.0,
+        "lens_radius1": 1.0,
+        "lens_radius2": 1.0,
+        "lens_sep": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "reuleaux_polygon",
+      "id": 13,
+      "fields": {
+        "rotation": 16.0,
+        "reuleaux_sides": 3,
+        "radius": 1.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "capsule",
+      "id": 15,
+      "fields": {
+        "rotation": 17.0,
+        "capsule_length": 1.0,
+        "capsule_radius": 0.5,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "trefoil",
+      "id": 17,
+      "fields": {
+        "rotation": 18.0,
+        "radius": 1.0,
+        "lobe_size": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "quatrefoil",
+      "id": 19,
+      "fields": {
+        "rotation": 19.0,
+        "radius": 1.0,
+        "lobe_size": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "lune",
+      "id": 21,
+      "fields": {
+        "rotation": 20.0,
+        "radius": 1.0,
+        "cut_radius": 0.8,
+        "cut_offset": 0.6,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "arbelos",
+      "id": 23,
+      "fields": {
+        "rotation": 21.0,
+        "radius": 1.0,
+        "split": 0.35,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "superelliptical_squircle",
+      "id": 25,
+      "fields": {
+        "rotation": 22.0,
+        "width": 1.0,
+        "height": 1.0,
+        "exponent": 4.0,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "fernandez_guasti_squircle",
+      "id": 27,
+      "fields": {
+        "rotation": 23.0,
+        "radius": 1.0,
+        "squareness": 0.7,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "archimedean_spiral",
+      "id": 29,
+      "fields": {
+        "rotation": 24.0,
+        "radius": 1.0,
+        "spiral_pitch": 0.25,
+        "spiral_fill": 0.5,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "snail_of_pythagoras",
+      "id": 31,
+      "fields": {
+        "rotation": 25.0,
+        "snail_segments": 17,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "terminate",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "hugelschaffer_egg",
+      "id": 33,
+      "fields": {
+        "rotation": 26.0,
+        "egg_a": 1.0,
+        "egg_b": 0.7,
+        "egg_shift": 0.4,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "terminate",
+        "out_effect": "pass_through",
+        "fire_inside": false
+      }
+    },
+    {
+      "kind": "sine_flower",
+      "id": 35,
+      "fields": {
+        "rotation": 27.0,
+        "radius": 1.0,
+        "flower_petals": 6,
+        "flower_amplitude": 0.3,
+        "r": 0.25,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    }
+  ],
+  "colorations": [
+    {
+      "id": 0,
+      "mode": "RGB",
+      "channels": [
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "horizontal_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        },
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "vertical_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        },
+        {
+          "source": "query",
+          "kind": "other_metric",
+          "metric": "bounces_count"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "mode": "HSV",
+      "channels": [
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "horizontal_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "boundary_bounces_mean",
+            "self_bounces_mean"
+          ],
+          "buddha_compression": "modulus",
+          "buddha_brightness": "8x"
+        },
+        {
+          "source": "query",
+          "kind": "other_metric",
+          "metric": "bounces_count"
+        }
+      ]
+    }
+  ],
+  "framings": [
+    {
+      "id": 0,
+      "x": 0.0,
+      "y": 0.0,
+      "diagonal": 2.8284271247461903,
+      "aspect": 1.0
+    }
+  ],
+  "keyframes": [
+    {
+      "id": 2,
+      "frame_index": 0,
+      "settings": {
+        "iter": 40,
+        "dist": 2.5,
+        "outline": false,
+        "obst:1:rotation": 15.0,
+        "coloration:5:mode": "HSV",
+        "coloration:5:chan1": {
+          "source": "buddha",
+          "buddha_points": [
+            "boundary_bounces_mean",
+            "self_bounces_mean"
+          ],
+          "buddha_compression": "modulus",
+          "buddha_brightness": "8x"
+        },
+        "coloration:0:chan0": {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "horizontal_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "frame_index": 30,
+      "settings": {
+        "obst:3:r": 0.5,
+        "emit_mode": "towards_point"
+      }
+    }
+  ],
+  "export": {
+    "include_all_colorations": false,
+    "color_info_location": "overlay",
+    "image_format": "png",
+    "image_jxl_quality": 85,
+    "image_width": "640",
+    "video_fps": "24",
+    "video_format": "jxl",
+    "video_quality": 60.5,
+    "video_jxl_mode": "lossy"
+  },
+  "counters": {
+    "obstacle": 40,
+    "coloration": 9,
+    "framing": 1,
+    "keyframe": 12
+  },
+  "selected": {
+    "obstacle": 5,
+    "coloration": 5,
+    "framing": 0
+  }
+}

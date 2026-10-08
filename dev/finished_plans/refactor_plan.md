@@ -118,7 +118,7 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 8. `settings.py` - strict_record, records, RAY_SETTING_SPECS, resolve_* (value/setting/frame/obstacles/views), Keyframe.
 9. `geometry.py` - bound builders (ellipse_bound... arbelos_bound), pack_*, region_arcs, estimate_area_numeric...
 10. `shapes.py` - Shape and its 12 subclasses, make_bound, offset_bound, ring_layer_masks, thumbnails, build_obstacle_arrays.
-11. `metrics.py` - STAT_LABELS, POINT catalogs, Buddha point catalog, make_mapping, point metrics.
+11. `metrics.py` - METRIC_LABELS, POINT catalogs, Buddha point catalog, make_mapping, point metrics.
 12. `views.py` - ViewConfig, ViewSnapshot, ChannelSettings, ViewSettings, resolve_views.
 13. `export_text.py` - coloration/figure info text, margins, layout_info_columns.
 14. `projects.py` - Catalogs, Project, project_to_dict/from_dict, migrations, EXPORT_OPTIONS.

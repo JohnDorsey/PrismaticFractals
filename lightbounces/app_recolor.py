@@ -8,9 +8,9 @@ from .metrics import (
     BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, BUDDHA_POINT_LABELS, CHAN_BUDDHA,
     CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, METRIC_TYPE_POINT_PAIR, NONE_ONE,
     NONE_ZERO, OTHER_LABELS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_METRIC_LABELS, POINT_NOTE,
-    POINT_STATS, STAT_DESCRIPTIONS, STAT_LABELS, blur_counts_image, buddha_compress,
-    build_buddha_blur_kernel, constant_label_to_stat, constant_stat_to_label, extract_point_xy,
-    make_mapping, other_label_to_stat, other_stat_to_label, point_comparison_metric,
+    POINT_METRICS, METRIC_DESCRIPTIONS, METRIC_LABELS, blur_counts_image, buddha_compress,
+    build_buddha_blur_kernel, constant_label_to_metric, constant_metric_to_label, extract_point_xy,
+    make_mapping, other_label_to_metric, other_metric_to_label, point_comparison_metric,
     resolve_point_xy, scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
 )
 from .ui_text import default_map_help
@@ -58,18 +58,18 @@ class RecolorMixin:
             return
         if src == CHAN_SRC_CONSTANT:
             self.constant_frames[c].grid()
-            self.constant_vars[c].set(constant_stat_to_label(coloration.constant_choice[c]))
+            self.constant_vars[c].set(constant_metric_to_label(coloration.constant_choice[c]))
             return
         self.query_frames[c].grid()
         self.metric_type_vars[c].set(METRIC_TYPE_LABELS[coloration.metric_types[c]])
         if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR:
             self.map_combos[c].configure(values=POINT_METRIC_LABELS)
-            self.map_vars[c].set(STAT_LABELS[coloration.point_metric[c]])
+            self.map_vars[c].set(METRIC_LABELS[coloration.point_metric[c]])
             self.point1_combos[c].grid()
             self.point2_combos[c].grid()
         else:
             self.map_combos[c].configure(values=OTHER_LABELS)
-            self.map_vars[c].set(other_stat_to_label(coloration.other_metric[c]))
+            self.map_vars[c].set(other_metric_to_label(coloration.other_metric[c]))
             self.point1_combos[c].grid_remove()
             self.point2_combos[c].grid_remove()
 
@@ -102,7 +102,7 @@ class RecolorMixin:
         coloration = self.selected_coloration_obj()
         if coloration is None:
             return
-        coloration.constant_choice[c] = constant_label_to_stat(self.constant_vars[c].get())
+        coloration.constant_choice[c] = constant_label_to_metric(self.constant_vars[c].get())
         self.constant_combos[c].selection_clear()
         self.apply_mapping_change(c)
 
@@ -126,9 +126,9 @@ class RecolorMixin:
             return
         label = self.map_vars[c].get()
         if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR:
-            coloration.point_metric[c] = POINT_STATS[POINT_METRIC_LABELS.index(label)]
+            coloration.point_metric[c] = POINT_METRICS[POINT_METRIC_LABELS.index(label)]
         else:
-            coloration.other_metric[c] = other_label_to_stat(label)
+            coloration.other_metric[c] = other_label_to_metric(label)
         self.apply_mapping_change(c)
 
     def on_point_selected(self, c):
@@ -200,14 +200,14 @@ class RecolorMixin:
             else:
                 text = f"{name}: Buddha coloration, but no points are selected - always 0."
         else:
-            stat = coloration_mapping[c]
-            if stat == NONE_ZERO:
+            metric_slot = coloration_mapping[c]
+            if metric_slot == NONE_ZERO:
                 text = f"{name}: always 0."
-            elif stat == NONE_ONE:
+            elif metric_slot == NONE_ONE:
                 text = f"{name}: always 1."
             else:
-                text = f"{name}: {STAT_DESCRIPTIONS[stat]}"
-                if stat in POINT_STATS:
+                text = f"{name}: {METRIC_DESCRIPTIONS[metric_slot]}"
+                if metric_slot in POINT_METRICS:
                     text += (f" Point 1: {POINT_DESCRIPTIONS[coloration.point1_choice[c]]} "
                             f"Point 2: {POINT_DESCRIPTIONS[coloration.point2_choice[c]]}"
                             + POINT_NOTE)
@@ -266,7 +266,7 @@ class RecolorMixin:
                 # seeded from their own grid: every chosen point comes from rays fired there (rows of the grid
                 # correspond to the rows of the image as they are done)
                 if scatter_seeded_buddha(self.buddha_counts[c], world_rect, seeds, r0, r1, coloration.buddha_points[c],
-                                         self.gen_stop, self.gen_ray,
+                                         self.gen_termination, self.gen_engine_args,
                                          self.settings_of_current_image().fuzz.rng_seed):
                     self.buddha_counts_blurred[c] = None
                 continue
@@ -296,7 +296,7 @@ class RecolorMixin:
             if any(want_multi.values()):
                 g = self.settings_of_current_image()
                 scatter_multi_buddha(
-                    r0, r1, world_rect, self.gen_stop, self.gen_ray, g.fuzz.rng_seed,
+                    r0, r1, world_rect, self.gen_termination, self.gen_engine_args, g.fuzz.rng_seed,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                     want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
                     self.buddha_counts[c])
@@ -337,7 +337,7 @@ class RecolorMixin:
             return
         coloration = self.live_coloration()
         st = self.stats[r0:r1]
-        sp = self.characteristic_points[r0:r1]
+        characteristic_points = self.characteristic_points[r0:r1]
         computed = self.pixel_state[r0:r1] == PIXEL_TRACED
         out = self.img[r0:r1]
         out[:] = BACKGROUND
@@ -358,9 +358,9 @@ class RecolorMixin:
                     vals.append(np.zeros(n))
                 elif s == NONE_ONE:
                     vals.append(np.ones(n))
-                elif s in POINT_STATS:
-                    x1, y1 = extract_point_xy(sp, coloration.point1_choice[c], computed, n)
-                    x2, y2 = extract_point_xy(sp, coloration.point2_choice[c], computed, n)
+                elif s in POINT_METRICS:
+                    x1, y1 = extract_point_xy(characteristic_points, coloration.point1_choice[c], computed, n)
+                    x2, y2 = extract_point_xy(characteristic_points, coloration.point2_choice[c], computed, n)
                     vals.append(point_comparison_metric(s, x1, y1, x2, y2))
                 else:
                     vals.append(np.clip(st[..., s][computed].astype(np.float64),
@@ -369,9 +369,9 @@ class RecolorMixin:
             rgb = np.stack((r, g, b), axis=-1)
             out[computed] = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
 
-    def component_values(self, vec, sp, x0, y0):
+    def component_values(self, vec, ray_characteristic_points, x0, y0):
         """The three channel values (0..1) for one ray under the current
-        mapping. vec: its metrics, sp: its sample points, (x0, y0): the
+        mapping. vec: its metrics, ray_characteristic_points: its sample points, (x0, y0): the
         pixel it was emitted from (used to look up a Buddha channel's
         already-accumulated count at that same pixel)."""
         coloration = self.live_coloration()
@@ -395,9 +395,9 @@ class RecolorMixin:
                 v = 0.0
             elif s == NONE_ONE:
                 v = 1.0
-            elif s in POINT_STATS:
-                x1, y1 = resolve_point_xy(sp, coloration.point1_choice[c])
-                x2, y2 = resolve_point_xy(sp, coloration.point2_choice[c])
+            elif s in POINT_METRICS:
+                x1, y1 = resolve_point_xy(ray_characteristic_points, coloration.point1_choice[c])
+                x2, y2 = resolve_point_xy(ray_characteristic_points, coloration.point2_choice[c])
                 v = float(point_comparison_metric(s, x1, y1, x2, y2))
             else:
                 v = min(max(float(vec[s]), 0.0), 1.0)

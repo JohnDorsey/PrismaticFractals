@@ -20,7 +20,7 @@ from .parsing import (
     parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, FuzzParams, NaturalStopSettings, RaySettings,
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, FuzzParams, NaturalTerminationSettings, RaySettings,
     settings_to_dict
 )
 from .shapes import obstacles_signature
@@ -30,7 +30,7 @@ from .widgets import FloatEntryHandle
 class ControlsMixin:
     def build_limits_controls(self, parent):
         """Three validated number-entry fields: iteration limit, distance limit and escape radius."""
-        lim = ttk.LabelFrame(parent, text="Stopping limits")
+        lim = ttk.LabelFrame(parent, text="Termination limits")
         lim.grid(row=0, column=0, sticky="ew", padx=6, pady=(8, 6))
         lim.columnconfigure(0, weight=1)
         iter_vcmd = (self.root.register(self.validate_digits), "%P")
@@ -60,9 +60,9 @@ class ControlsMixin:
                   wraplength=RIGHT_W - 70).grid(
             row=3, column=0, columnspan=2, sticky="w", padx=8)
         ttk.Label(lim, foreground="#666", wraplength=RIGHT_W - 70,
-                  text="A ray also stops when it is confined (see Confinement below), "
+                  text="A ray also terminates when it is confined (see Confinement below), "
                        "or when it escapes (has nothing left to hit): an escaping ray "
-                       "stops where it is that escape radius from the origin (the "
+                       "terminates where it is that escape radius from the origin (the "
                        "image's edge is 1 unit from the origin along each axis). "
                        "One unit is half the image width; a segment that would pass "
                        "the distance limit is cut off where it is reached. A "
@@ -138,7 +138,7 @@ class ControlsMixin:
                   wraplength=RIGHT_W - 70).grid(row=3, column=0, columnspan=2,
                                                 sticky="w", padx=8)
         ttk.Label(cf, foreground="#666", wraplength=RIGHT_W - 70,
-                  text="A ray stops as confined when its last few path points (the "
+                  text="A ray terminates as confined when its last few path points (the "
                        "lookback) show it is going nowhere. Box: they fit in a box "
                        "smaller than the threshold in both directions. Path length: "
                        "the segments between them add up to less than the threshold. "
@@ -605,8 +605,8 @@ class ControlsMixin:
                            emit_target_cx=target[2], emit_target_cy=target[3],
                            emit_offset=round(float(self.emit_offset_scale.get()), 2))
 
-    def current_natural_stop_settings(self):
-        """The stopping limits' and confinement controls' values (a NaturalStopSettings), or
+    def current_natural_termination_settings(self):
+        """The termination limits' and confinement controls' values (a NaturalTerminationSettings), or
         None if one of their entries is invalid."""
         it = parse_iter_limit(self.iter_var.get())
         ds = parse_dist_limit(self.dist_var.get())
@@ -615,19 +615,19 @@ class ControlsMixin:
         ct = parse_confine_threshold(self.confine_threshold_var.get())
         if it is None or ds is None or er is None or cw is None or ct is None:
             return None
-        return NaturalStopSettings(
+        return NaturalTerminationSettings(
             max_iter=it, max_dist=ds, escape_radius=er, confine_lookback=cw,
             confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
             confine_threshold=ct)
 
     def current_generation_settings(self):
-        """(RaySettings, NaturalStopSettings) - everything that, with the obstacles, determines
+        """(RaySettings, NaturalTerminationSettings) - everything that, with the obstacles, determines
         the generated image - or None if any entry of either is invalid."""
         ray = self.current_ray_settings()
-        natural_stop = self.current_natural_stop_settings()
-        if ray is None or natural_stop is None:
+        natural_termination = self.current_natural_termination_settings()
+        if ray is None or natural_termination is None:
             return None
-        return ray, natural_stop
+        return ray, natural_termination
 
     def current_blur_settings(self):
         """The Buddha blur controls' values (a BuddhaBlurSettings; a slider and a list of
@@ -659,9 +659,9 @@ class ControlsMixin:
         cur = self.current_generation_settings()
         start_ok = (self.ready and cur is not None
                     and (self.generated_settings is None
-                         or cur != (self.generated_settings, self.generated_natural_stop)
+                         or cur != (self.generated_settings, self.generated_natural_termination)
                          or obstacles_signature(self.obstacles) != self.gen_obstacles_sig))
-        revert_ok = cur is None or cur != (self.baseline, self.baseline_natural_stop)
+        revert_ok = cur is None or cur != (self.baseline, self.baseline_natural_termination)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
@@ -677,7 +677,7 @@ class ControlsMixin:
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
         program started, or when the last generation was started."""
-        for key, value in settings_to_dict(self.baseline, self.baseline_natural_stop).items():
+        for key, value in settings_to_dict(self.baseline, self.baseline_natural_termination).items():
             self.set_setting_control(key, value)
         self.on_limit_var_changed()
         self.on_shape_param_changed()

@@ -322,7 +322,7 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
     app.current_ray_settings = lambda: m.DEFAULT_RAY_SETTINGS
-    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(True)}
@@ -556,7 +556,7 @@ def test_snapshot_and_settings_hold_only_the_simulation_controls():
         "seg_mult", "fuzz",
         "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy",
         "emit_offset"]
-    assert [f.name for f in dataclasses.fields(m.NaturalStopSettings)] == [
+    assert [f.name for f in dataclasses.fields(m.NaturalTerminationSettings)] == [
         "max_iter", "max_dist", "escape_radius",
         "confine_lookback", "confine_method", "confine_threshold"]
     assert [f.name for f in dataclasses.fields(m.BuddhaBlurSettings)] == ["radius", "type"]
@@ -584,7 +584,7 @@ def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():
 
 
 def test_settings_suffix_is_only_the_limits_and_fuzzing():
-    assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS) == "iter256-distNONE"
+    assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS) == "iter256-distNONE"
     limited = _generation(max_iter=10, max_dist=2.5)
     assert m.settings_suffix(*limited) == "iter10-dist2.5"
     fuzzed = _generation(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, rng_seed=9))
@@ -751,7 +751,7 @@ def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_e
             x, y = rng.uniform(-1, 1, 2)
             if not m.inside_boundary(x, y, cls.KIND, bound):
                 continue
-            term, npts = m.trace_path(x, y, path_points, path_point_tags, _stop(30), _ray(arrays), raw)
+            term, npts = m.trace_path(x, y, path_points, path_point_tags, _termination(30), _engine_args(arrays), raw)
             for k in range(1, npts):
                 if path_point_tags[k] != m.TAG_BOUNDARY:                # (a bounce off the ray's own path
                     continue                                   # is not on the shape's edge)

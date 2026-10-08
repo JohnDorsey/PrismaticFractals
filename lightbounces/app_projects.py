@@ -9,7 +9,7 @@ from .projects import (
     load_project, project_signature, save_project, coloration_config_from_snapshot
 )
 from .settings import (
-    DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_STOP_DEFAULT, fuzz_rule, ray_args,
+    DEFAULT_FUZZ, DEFAULT_RAY_SETTINGS, EMISSION_DEFAULT, NATURAL_TERMINATION_DEFAULT, fuzz_rule, ray_args,
     settings_to_dict, snapshot_keyframes
 )
 from .shapes import build_obstacle_arrays
@@ -81,10 +81,10 @@ class ProjectsMixin:
             if show_error:
                 messagebox.showerror("Invalid settings", "Fix the highlighted entries first.")
             return None
-        ray, natural_stop = current
+        ray, natural_termination = current
         selected = self.selected_obstacle
         return Project(
-            ray=ray, natural_stop=natural_stop, buddha_blur=self.current_blur_settings(),
+            ray=ray, natural_termination=natural_termination, buddha_blur=self.current_blur_settings(),
             buddha_seed=self.current_buddha_seed_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
@@ -105,9 +105,9 @@ class ProjectsMixin:
         self.running = False
         self.done = False
         self.generated_settings = None
-        self.generated_natural_stop = None
-        self.gen_stop = NATURAL_STOP_DEFAULT
-        self.gen_ray = ray_args(DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,
+        self.generated_natural_termination = None
+        self.gen_termination = NATURAL_TERMINATION_DEFAULT
+        self.gen_engine_args = ray_args(DEFAULT_RAY_SETTINGS.seg_mult, fuzz_rule(DEFAULT_FUZZ), EMISSION_DEFAULT,
                                 build_obstacle_arrays([]))
         self.gen_obstacles_sig = ()
         self.gen_obstacle_snapshots = []
@@ -127,11 +127,11 @@ class ProjectsMixin:
         self.discard_generated_image()
         self.kf_applying = True
         try:
-            for key, value in settings_to_dict(project.ray, project.natural_stop, project.buddha_blur,
+            for key, value in settings_to_dict(project.ray, project.natural_termination, project.buddha_blur,
                                                project.buddha_seed).items():
                 self.set_setting_control(key, value)
             self.baseline = project.ray
-            self.baseline_natural_stop = project.natural_stop
+            self.baseline_natural_termination = project.natural_termination
             for key, value in project.decorations.items():
                 if key in self.deco:
                     self.deco[key].set(value)

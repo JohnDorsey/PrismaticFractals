@@ -96,7 +96,7 @@ def test_every_ray_of_a_panned_and_zoomed_window_starts_at_the_centre_of_its_pix
     stats = np.zeros((h, w, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((h, w, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((h, w), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, _stop(3), _ray(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, _termination(3), _engine_args(arrays), 0)
     assert (pixel_state == m.PIXEL_TRACED).all()
     gx, gy = m.make_grid(w, h, world_rect)
     assert np.allclose(characteristic_points[..., m.POINT_START, 0], gx, atol=1e-6) and np.allclose(characteristic_points[..., m.POINT_START, 1], gy, atol=1e-6)
@@ -129,22 +129,22 @@ def test_a_buddha_point_is_counted_in_the_pixel_of_the_window_it_falls_in_and_no
 
 def test_the_camera_pixels_seeds_of_a_window_are_the_pixels_of_that_window():
     """scatter_multi_buddha is the seeding of the camera's pixels: the zone is the world rectangle the counts cover."""
-    stop = _stop(40)
-    ray = _ray(m.build_obstacle_arrays([_circle_obstacle(0.5, 0.0, 0.6, R, R, fire=True)]))
+    termination = _termination(40)
+    engine_args = _engine_args(m.build_obstacle_arrays([_circle_obstacle(0.5, 0.0, 0.6, R, R, fire=True)]))
     world_rect = m.WorldRect(0.2, 0.9, -0.3, 0.3)
     n = 20
     multi = (False, True, False, False)
     mine = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, world_rect, stop, ray, 0, *multi, mine)
+    m.scatter_multi_buddha(0, n, world_rect, termination, engine_args, 0, *multi, mine)
     general = np.zeros((n, n))
     none = np.empty(0, dtype=np.int64)
-    m.scatter_from_seeds(0, n, world_rect, world_rect, stop, ray, 0, none, none, *multi, general)
+    m.scatter_from_seeds(0, n, world_rect, world_rect, termination, engine_args, 0, none, none, *multi, general)
     assert mine.sum() > 0 and np.array_equal(mine, general)
     whole = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, stop, ray, 0, *multi, whole)
+    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, *multi, whole)
     assert not np.array_equal(mine, whole), "another world rectangle, other seeds and another image"
     elsewhere = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, m.WORLD_RECT_DEFAULT, world_rect, stop, ray, 0, none, none, *multi, elsewhere)
+    m.scatter_from_seeds(0, n, m.WORLD_RECT_DEFAULT, world_rect, termination, engine_args, 0, none, none, *multi, elsewhere)
     assert not np.array_equal(elsewhere, general), "a zone of its own is not the world rectangle"
 
 
@@ -356,10 +356,10 @@ def _thumbnail_app(generated=True):
     app.simulated_thumbnail_data = m.App.simulated_thumbnail_data.__get__(app)
     app.render_thumbnail = m.App.render_thumbnail.__get__(app)
     app.render_framing_thumbnail = m.App.render_framing_thumbnail.__get__(app)
-    app.gen_ray = _ray(m.build_obstacle_arrays(_start_scene()))
-    app.gen_stop = _stop(20)
+    app.gen_engine_args = _engine_args(m.build_obstacle_arrays(_start_scene()))
+    app.gen_termination = _termination(20)
     app.generated_settings = m.DEFAULT_RAY_SETTINGS if generated else None
-    app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS if generated else None
+    app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS if generated else None
     return app
 
 
@@ -592,7 +592,7 @@ def test_a_framings_four_numbers_are_keyframe_fields_that_glide_between_keyframe
 def test_capture_all_settings_lists_every_framings_numbers_under_keys_of_its_own():
     app = _fake_render_app()
     app.capture_all_settings = m.App.capture_all_settings.__get__(app)
-    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
+    app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.deco = {"outline": _StubVar(True)}

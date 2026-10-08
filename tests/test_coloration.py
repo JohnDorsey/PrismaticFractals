@@ -28,9 +28,9 @@ def test_extract_point_xy_still_reads_real_points_from_the_array():
 def test_resolve_point_xy_handles_both_constant_and_real_points():
     assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.POINT_ORIGIN) == (0.0, 0.0)
     assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.POINT_TOP_LEFT_CORNER) == (-1.0, 1.0)
-    sp = np.zeros((m.N_POINTS, 2))
-    sp[m.POINT_END] = [0.3, -0.4]
-    assert m.resolve_point_xy(sp, m.POINT_END) == (0.3, -0.4)
+    ray_characteristic_points = np.zeros((m.N_POINTS, 2))
+    ray_characteristic_points[m.POINT_END] = [0.3, -0.4]
+    assert m.resolve_point_xy(ray_characteristic_points, m.POINT_END) == (0.3, -0.4)
 
 
 def test_point_lists_include_the_two_new_fixed_points():
@@ -53,7 +53,7 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
     v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
     img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
-                            m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
+                            m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == img[0, 0, 0]).all()
     assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
 
@@ -73,7 +73,7 @@ def test_coloration_info_lines_shows_the_new_point_names():
 def test_other_labels_no_longer_offer_the_constant_options():
     assert "None (always 0)" not in m.OTHER_LABELS
     assert "None (always 1)" not in m.OTHER_LABELS
-    assert len(m.OTHER_LABELS) == len(m.OTHER_STATS)
+    assert len(m.OTHER_LABELS) == len(m.OTHER_METRICS)
 
 
 def test_chan_src_labels_include_constant():
@@ -81,11 +81,11 @@ def test_chan_src_labels_include_constant():
     assert len(m.CHAN_SRC_LABELS) == 3
 
 
-def test_constant_label_stat_round_trip():
-    assert m.constant_label_to_stat("Always 0") == m.NONE_ZERO
-    assert m.constant_label_to_stat("Always 1") == m.NONE_ONE
-    assert m.constant_stat_to_label(m.NONE_ZERO) == "Always 0"
-    assert m.constant_stat_to_label(m.NONE_ONE) == "Always 1"
+def test_constant_label_metric_round_trip():
+    assert m.constant_label_to_metric("Always 0") == m.NONE_ZERO
+    assert m.constant_label_to_metric("Always 1") == m.NONE_ONE
+    assert m.constant_metric_to_label(m.NONE_ZERO) == "Always 0"
+    assert m.constant_metric_to_label(m.NONE_ONE) == "Always 1"
 
 
 def test_coloration_config_has_a_dedicated_constant_choice_field():
@@ -141,7 +141,7 @@ def test_apply_coloration_renders_constant_channels_correctly():
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ZERO
     img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
-                            m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
+                            m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == 255).all()
     assert (img[..., 1] == 0).all()
 
@@ -157,7 +157,7 @@ def test_coloration_info_lines_describes_a_constant_channel():
         m.render_text_line(line, scale=1)   # every line must actually render
 
 
-def test_coloration_info_lines_raises_if_stat_is_a_constant_sentinel_outside_constant_source():
+def test_coloration_info_lines_raises_if_the_metric_is_a_constant_sentinel_outside_constant_source():
     """The other half of the safety property: if other_metric somehow ends
     up holding a Constant-only sentinel while chan_src is Query, that must
     crash loudly rather than render as if it were a real metric."""
@@ -180,7 +180,7 @@ def test_short_value_text_describes_a_constant_channel():
     assert text == "Const:0"
 
 
-def test_short_value_text_raises_if_stat_is_a_constant_sentinel_outside_constant_source():
+def test_short_value_text_raises_if_the_metric_is_a_constant_sentinel_outside_constant_source():
     v = m.ColorationConfig(0)
     v.metric_types[0] = m.METRIC_TYPE_OTHER
     v.other_metric[0] = m.NONE_ONE       # chan_src[0] is still CHAN_SRC_QUERY
@@ -380,14 +380,14 @@ def test_apply_coloration_spreads_a_buddha_point_with_blur_enabled():
     # the entry of BUDDHA_POINT_CATALOG that is a stored point has that point's own number
     v.buddha_points[0] = _buddha_choice(m.POINT_ALL_MEAN)
 
-    stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
+    termination, engine_args = _termination(30), _engine_args(m.build_obstacle_arrays([]))
 
     no_blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    img_no_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, no_blur, stop, ray, 0)
+    img_no_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, no_blur, termination, engine_args, 0)
     lit_no_blur = (img_no_blur[8:13, 8:13, 0] > 0).sum()
 
     blur = m.BuddhaBlurSettings(radius=0.1, type=m.BUDDHA_BLUR_BOKEH)
-    img_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, stop, ray, 0)
+    img_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, termination, engine_args, 0)
     lit_blur = (img_blur[8:13, 8:13, 0] > 0).sum()
 
     assert lit_no_blur == 1, f"with no blur, exactly one pixel should be nonzero, got {lit_no_blur}"
@@ -532,10 +532,10 @@ def test_large_blur_radius_completes_quickly():
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
-    stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
+    termination, engine_args = _termination(30), _engine_args(m.build_obstacle_arrays([]))
     blur = m.BuddhaBlurSettings(radius=0.15, type=m.BUDDHA_BLUR_GAUSSIAN)     # a large, expensive-looking radius
     t0 = time.time()
-    app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, stop, ray, 0)
+    app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, termination, engine_args, 0)
     elapsed = time.time() - t0
     assert elapsed < 3.0, f"large-radius blur took {elapsed:.2f}s - performance regression?"
 
@@ -671,7 +671,7 @@ def test_load_value_skips_buddha_rebuild_for_unrelated_channel_field():
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     app.load_value = m.App.load_value.__get__(app)
     chan1_value = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_POINT_PAIR, stat=m.ST_HDIST, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_HDIST, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan1", chan1_value)
@@ -682,7 +682,7 @@ def test_load_value_rebuilds_when_the_loaded_channel_is_buddha():
     app = _fake_color_editor_app()
     app.load_value = m.App.load_value.__get__(app)
     chan0_value = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCES, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan0", chan0_value)
@@ -733,34 +733,34 @@ def test_buddha_confined_channel_present():
 
 
 def test_every_metric_and_point_a_dropdown_can_choose_is_a_plain_int():
-    """Regression: OTHER_STATS was built from the numpy slot table, so choosing a sequence's metric from the
+    """Regression: OTHER_METRICS was built from the numpy slot table, so choosing a sequence's metric from the
     dropdown stored a numpy integer, which the strict ChannelSettings record (and so saving a project) refuses."""
-    for table in (m.OTHER_STATS, m.POINT_STATS, m.POINT_MENU_ORDER):
+    for table in (m.OTHER_METRICS, m.POINT_METRICS, m.POINT_MENU_ORDER):
         assert all(type(value) is int for value in table), table
     for label in m.OTHER_LABELS:
-        assert type(m.other_label_to_stat(label)) is int, label
+        assert type(m.other_label_to_metric(label)) is int, label
     v = m.ColorationConfig(0)
     v.metric_types[1] = m.METRIC_TYPE_OTHER
-    v.other_metric[1] = m.other_label_to_stat("Boundary bounces: Length (arctan)")
+    v.other_metric[1] = m.other_label_to_metric("Boundary bounces: Length (arctan)")
     v.point1_choice[0] = m.POINT_LABELS.index("Self bounces: Last point")
     channels = [m.coloration_channel_value(v, c) for c in range(3)]
-    assert channels[1].stat == m.stat_slot(m.SEQ_BOUNDARY, m.SRED_LENGTH)
+    assert channels[1].metric_slot == m.stat_slot(m.SEQ_BOUNDARY, m.SRED_LENGTH)
     assert m._channel_to_json(channels[1]) == {"source": "query", "kind": "other_metric", "metric": "boundary_bounces_length"}
     assert m._channel_to_json(channels[0])["point1"] == "self_bounces_last"
 
 
 def test_every_choice_a_coloration_can_make_has_its_own_label_and_a_working_key():
-    assert len(set(m.STAT_LABELS)) == m.N_STATS and len(set(m.POINT_LABELS)) == m.N_POINT_CHOICES
-    assert len(set(m.BUDDHA_POINT_LABELS)) == m.N_BUDDHA_POINTS and len(set(m.STAT_SHORT)) == m.N_STATS
-    for stat in range(m.N_STATS):
-        assert m.CAT_METRIC.by_key[m.CAT_METRIC.key(stat)] == stat
+    assert len(set(m.METRIC_LABELS)) == m.N_STATS and len(set(m.POINT_LABELS)) == m.N_POINT_CHOICES
+    assert len(set(m.BUDDHA_POINT_LABELS)) == m.N_BUDDHA_POINTS and len(set(m.METRIC_SHORT)) == m.N_STATS
+    for metric_slot in range(m.N_STATS):
+        assert m.CAT_METRIC.by_key[m.CAT_METRIC.key(metric_slot)] == metric_slot
     for point in range(m.N_POINT_CHOICES):
         assert m.CAT_POINT.by_key[m.CAT_POINT.key(point)] == point
     for index in range(m.N_BUDDHA_POINTS):
         assert m.CAT_BUDDHA_POINT.by_key[m.CAT_BUDDHA_POINT.key(index)] == index
     assert m.POINT_LABELS[m.point_slot(m.SEQ_SELF, m.PRED_TOP)] == "Self bounces: Uppermost point"
-    assert m.STAT_LABELS[m.stat_slot(m.SEQ_BOUNDARY, m.SRED_SHARE)] == "Boundary bounces: Share of the bounces"
-    assert m.STAT_LABELS[m.ST_TERMINATION] == "Termination reason"          # a measurement of the run, written out by hand
+    assert m.METRIC_LABELS[m.stat_slot(m.SEQ_BOUNDARY, m.SRED_SHARE)] == "Boundary bounces: Share of the bounces"
+    assert m.METRIC_LABELS[m.ST_TERMINATION] == "Termination reason"          # a measurement of the run, written out by hand
     slot = m.point_slot(m.SEQ_SELF, m.PRED_LAST)
     assert m.BUDDHA_POINT_CATALOG[slot][1:] == (m.BUDDHA_SIMPLE, slot, None)
 
@@ -888,18 +888,18 @@ def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_th
 
 
 def _buddha_image(app, points_choice, seeds, zone_scene=None):
-    stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()), seg_mult=0.9)
+    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene()), seg_mult=0.9)
     n = 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
     v = m.ColorationConfig(0)
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = _buddha_choice(*points_choice)
     v.buddha_brightness[0] = 3
     blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    return app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, n, n, blur, stop, ray, 0, seeds)
+    return app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 0, seeds)
 
 
 def test_a_buddha_image_seeded_from_the_whole_world_zone_is_the_camera_pixels_image_whatever_the_options():
@@ -924,17 +924,17 @@ def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_ho
     # every seed's start point is the seed itself: one count per seed that fires, in the zone - so the same total
     # in both (all of them fire inside the unit circle's disc here), packed into the middle for the small zone
     n = 24
-    stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()))
+    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene()))
     for zone, expected_rows in ((whole, (0, n)), (small, (n // 4, 3 * n // 4))):
         counts = np.zeros((n, n))
         m.scatter_from_seeds(0, n, m.WorldRect(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), m.WORLD_RECT_DEFAULT,
-                             stop, ray, 0,
+                             termination, engine_args, 0,
                              np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                              False, False, False, False, counts)
         assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
     full = np.zeros((n, n))
     m.scatter_from_seeds(0, n, m.WorldRect(small.x_start, small.x_stop, small.y_start, small.y_stop), m.WORLD_RECT_DEFAULT,
-                         stop, ray, 0,
+                         termination, engine_args, 0,
                          np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                          False, False, False, False, full)
     assert full.sum() == n * n, "all n x n seeds of the shrunken zone fire, and all are scattered"

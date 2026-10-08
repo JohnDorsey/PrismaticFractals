@@ -21,13 +21,13 @@ def _fake_preview_app(pinned):
     app.hover_px = None
     app.obstacles = []                              # nothing at all fires a ray
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
-    app.preview_natural_stop_settings = lambda: m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.hover_path_points = np.empty((m.ITER_LIMIT_MAX + 2, 2))
     app.hover_path_point_tags = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
     app.hover_vec = np.empty(m.N_STATS)
-    app.hover_sp = np.empty((m.N_POINTS, 2))
-    app.component_values = lambda vec, sp, x, y: (0.1, 0.2, 0.3)
+    app.hover_ray_characteristic_points = np.empty((m.N_POINTS, 2))
+    app.component_values = lambda vec, ray_characteristic_points, x, y: (0.1, 0.2, 0.3)
     app.draw_segments = lambda path_points, path_point_tags, n: None
     app.draw_corkscrew = lambda path_points, path_point_tags, n: None
     app.deco = {k: _StubVar(k != "samples") for k in
@@ -69,7 +69,7 @@ def _fake_click_app(pinned, obstacles):
     app.hover_px = "stale"
     app.obstacles = obstacles
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
-    app.preview_natural_stop_settings = lambda: m.DEFAULT_NATURAL_STOP_SETTINGS
+    app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.canvas = _StubWidget()
     app.previews = []
     app.update_preview = lambda i, j: app.previews.append((i, j))
@@ -123,7 +123,7 @@ def test_font_5x7_covers_every_character_any_coloration_label_could_use():
     for mode in m.MODE_NAMES:
         strings += [name for name, _color in m.MODES[mode]]
     strings += m.CHAN_SRC_LABELS
-    strings += m.STAT_LABELS
+    strings += m.METRIC_LABELS
     strings += m.POINT_SHORT
     strings += m.BUDDHA_POINT_LABELS
     strings += m.BUDDHA_COMPRESSION_LABELS
@@ -153,7 +153,7 @@ def test_coloration_info_lines_omits_metric_kind_and_shows_the_metric_name():
     assert not any("Point comparison" in l or "Other" in l for l in lines), \
         "the metric's kind must never be shown - it's implied by the metric's name"
     letter = m.MODES[v.mode][0][0][0]
-    expected_metric = m.STAT_LABELS[v.point_metric[0]]
+    expected_metric = m.METRIC_LABELS[v.point_metric[0]]
     assert f"{letter}:{expected_metric}" in lines
 
 
@@ -167,7 +167,7 @@ def test_coloration_info_lines_uses_long_names_not_short_ones():
 
 
 def test_point_comparison_metric_names_no_longer_say_between_points():
-    for label in m.STAT_LABELS[:4]:      # the four point-comparison metrics
+    for label in m.METRIC_LABELS[:4]:      # the four point-comparison metrics
         assert "between points" not in label
     assert all("between points" not in label for label in m.POINT_METRIC_LABELS)
 
@@ -178,7 +178,7 @@ def test_coloration_info_lines_shows_points_only_for_point_comparison_metrics():
     v.other_metric[2] = m.ST_BOUNCES
     lines = m.coloration_info_lines(v)
     letter2 = m.MODES[v.mode][2][0][0]
-    idx = lines.index(f"{letter2}:{m.STAT_LABELS[m.ST_BOUNCES]}")
+    idx = lines.index(f"{letter2}:{m.METRIC_LABELS[m.ST_BOUNCES]}")
     # the very next line (if any - this may be the last line) must NOT be a
     # Point 1/2 line for this channel
     assert idx + 1 == len(lines) or not lines[idx + 1].strip().startswith("P1:")
@@ -371,7 +371,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations, m.DEFAULT_FRAMING)
-    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop, [],
+    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_termination, [],
                                  "Overlay", "None", m.DEFAULT_FRAMING, "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
@@ -388,7 +388,7 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
 
     rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations, m.DEFAULT_FRAMING)
     original_width = rgb.shape[1]
-    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop,
+    rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_termination,
                                  _start_scene(), "None", "Left margin", m.DEFAULT_FRAMING, "None", mutate_ok=True)
     assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()

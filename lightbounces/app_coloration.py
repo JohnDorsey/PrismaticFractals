@@ -14,7 +14,7 @@ from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_CONSTANT_LABELS,
     CHAN_SRC_BUDDHA, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, N_BUDDHA_POINTS, POINT_LABELS, POINT_MENU_LABELS,
-    POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_stat_to_label, make_mapping
+    POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_metric_to_label, make_mapping
 )
 from .ui_text import default_map_help
 from .colorations import MODES, MODE_NAMES, ColorationConfig
@@ -347,7 +347,7 @@ class ColorationMixin:
             cnf.grid(row=1, column=0, columnspan=3, sticky="ew", padx=(6, 6), pady=(0, 4))
             ttk.Label(cnf, text="Value:").pack(side="left", padx=(0, 4))
             const_var = tk.StringVar(
-                value=constant_stat_to_label(coloration.constant_choice[c]))
+                value=constant_metric_to_label(coloration.constant_choice[c]))
             const_combo = ttk.Combobox(cnf, textvariable=const_var,
                                        values=CHAN_CONSTANT_LABELS, state="readonly", width=9)
             const_combo.pack(side="left")

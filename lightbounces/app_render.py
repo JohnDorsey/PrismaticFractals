@@ -9,11 +9,11 @@ from .kernels import (
 from .metrics import (
     BUDDHA_BRIGHTNESS_VALUES, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_BUDDHA,
-    NONE_ONE, NONE_ZERO, POINT_STATS, blur_counts_image, buddha_compress,
+    NONE_ONE, NONE_ZERO, POINT_METRICS, blur_counts_image, buddha_compress,
     build_buddha_blur_kernel, extract_point_xy, make_mapping, point_comparison_metric,
     scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
 )
-from .settings import settings_natural_stop, settings_ray_args
+from .settings import settings_natural_termination, settings_ray_args
 from .shapes import draw_obstacle_outline, ring_layer_masks
 from .colorations import channels_to_rgb
 
@@ -31,7 +31,7 @@ class RenderMixin:
         for v in colorations:
             images.append(self.apply_coloration(v.settings(), self.stats, self.characteristic_points, self.pixel_state,
                                              self.img_w, self.img_h, self.current_blur_settings(),
-                                             self.gen_stop, self.gen_ray,
+                                             self.gen_termination, self.gen_engine_args,
                                              self.settings_of_current_image().fuzz.rng_seed,
                                              self.current_buddha_seed_settings(), self.image_world_rect))
         outline = self.deco.get("outline")
@@ -57,17 +57,17 @@ class RenderMixin:
         is (out_h, out_w * len(colorations), 3). With a single coloration (the ordinary
         case before this feature existed), this is exactly the one image
         it's always been."""
-        stop = settings_natural_stop(data.natural_stop)
-        ray = settings_ray_args(data.ray, obst_arrays)
+        termination = settings_natural_termination(data.natural_termination)
+        engine_args = settings_ray_args(data.ray, obst_arrays)
         rng_seed = data.ray.fuzz.rng_seed
         stats = np.zeros((out_h, out_w, N_STATS), dtype=np.float32)
         characteristic_points = np.zeros((out_h, out_w, N_POINTS, 2), dtype=np.float32)
         pixel_state = np.zeros((out_h, out_w), dtype=np.uint8)
         world_rect = framing_world_rect(framing)
-        trace_rows(stats, characteristic_points, pixel_state, 0, out_h, out_w, out_h, world_rect, stop, ray, rng_seed)
+        trace_rows(stats, characteristic_points, pixel_state, 0, out_h, out_w, out_h, world_rect, termination, engine_args, rng_seed)
 
         images = [self.apply_coloration(v, stats, characteristic_points, pixel_state, out_w, out_h, data.buddha_blur,
-                                     stop, ray, rng_seed, data.buddha_seed, world_rect)
+                                     termination, engine_args, rng_seed, data.buddha_seed, world_rect)
                  for v in colorations]
 
         if data.outline:
@@ -85,14 +85,14 @@ class RenderMixin:
 
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def apply_coloration(self, v, stats, characteristic_points, pixel_state, out_w, out_h, blur, stop, ray, rng_seed_base, seeds=None,
+    def apply_coloration(self, v, stats, characteristic_points, pixel_state, out_w, out_h, blur, termination, engine_args, rng_seed_base, seeds=None,
                          world_rect=WORLD_RECT_DEFAULT):
         """One coloration's (out_h, out_w, 3) uint8 image (background color where no
         ray was computed, no outline - that's applied uniformly afterwards)
         from already-traced stats/characteristic_points/pixel_state. `v` is a ColorationSettings: this
         is the same coloring computation every coloration goes through, whichever
         one it is. `blur` (a BuddhaBlurSettings) is how Buddha channels are blurred;
-        `stop` (a NaturalStopRule), `ray` (a RayArgs) and `rng_seed_base` (the fuzzing seed) are the
+        `termination` (a NaturalTerminationRule), `engine_args` (a RayArgs) and `rng_seed_base` (the fuzzing seed) are the
         simulation's own, used only to re-trace the rays for the "multi" Buddha point options. `seeds` (a
         BuddhaSeedSettings; None means the camera pixels) says where the rays that Buddha channels scatter start: by
         default the pixels of this very image, whose characteristic points serve the single-point options; otherwise a seed
@@ -113,7 +113,7 @@ class RenderMixin:
                 if s == CHAN_BUDDHA:
                     counts = np.zeros((out_h, out_w), dtype=np.float64)
                     if seeds is not None and not seeds.camera_pixels:
-                        scatter_seeded_buddha(counts, world_rect, seeds, 0, out_h, v.buddha_points[c], stop, ray, rng_seed_base)
+                        scatter_seeded_buddha(counts, world_rect, seeds, 0, out_h, v.buddha_points[c], termination, engine_args, rng_seed_base)
                         counts = blur_counts_image(counts, buddha_kernel)
                         sub = counts[computed].astype(np.float64)
                         mult = BUDDHA_BRIGHTNESS_VALUES[v.buddha_brightness[c]]
@@ -143,7 +143,7 @@ class RenderMixin:
                         scatter_points_raw(counts, row, col, valid)
                     if any(want_multi.values()):
                         scatter_multi_buddha(
-                            0, out_h, world_rect, stop, ray, rng_seed_base,
+                            0, out_h, world_rect, termination, engine_args, rng_seed_base,
                             want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                             want_multi[BUDDHA_MULTI_PROG_BOUNCE],
                             want_multi[BUDDHA_MULTI_PROG_MID], counts)
@@ -155,7 +155,7 @@ class RenderMixin:
                     vals.append(np.zeros(n))
                 elif s == NONE_ONE:
                     vals.append(np.ones(n))
-                elif s in POINT_STATS:
+                elif s in POINT_METRICS:
                     x1, y1 = extract_point_xy(characteristic_points, v.point1_choice[c], computed, n)
                     x2, y2 = extract_point_xy(characteristic_points, v.point2_choice[c], computed, n)
                     vals.append(point_comparison_metric(s, x1, y1, x2, y2))
@@ -200,7 +200,7 @@ class RenderMixin:
             return cached[1]
         v = coloration_obj.settings()
         full = self.apply_coloration(v, self.stats, self.characteristic_points, self.pixel_state, self.img_w, self.img_h,
-                                  self.current_blur_settings(), self.gen_stop, self.gen_ray,
+                                  self.current_blur_settings(), self.gen_termination, self.gen_engine_args,
                                   self.settings_of_current_image().fuzz.rng_seed,
                                   self.current_buddha_seed_settings(), self.image_world_rect)
         ys = (np.arange(size) * self.img_h / size).astype(np.int64)
@@ -221,7 +221,7 @@ class RenderMixin:
             stats = np.zeros((h, w, N_STATS), dtype=np.float32)
             characteristic_points = np.zeros((h, w, N_POINTS, 2), dtype=np.float32)
             pixel_state = np.zeros((h, w), dtype=np.uint8)
-            trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, self.gen_stop, self.gen_ray,
+            trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, self.gen_termination, self.gen_engine_args,
                            self.settings_of_current_image().fuzz.rng_seed)
             data = (stats, characteristic_points, pixel_state, world_rect, w, h)
             self.thumb_sims[key] = data
@@ -240,8 +240,8 @@ class RenderMixin:
             return picture
         stats, characteristic_points, pixel_state, world_rect, w, h = self.simulated_thumbnail_data(framing, size)
         picture[y0:y0 + h, x0:x0 + w] = self.apply_coloration(
-            coloration_settings, stats, characteristic_points, pixel_state, w, h, self.current_blur_settings(), self.gen_stop,
-            self.gen_ray, self.settings_of_current_image().fuzz.rng_seed, self.current_buddha_seed_settings(), world_rect)
+            coloration_settings, stats, characteristic_points, pixel_state, w, h, self.current_blur_settings(), self.gen_termination,
+            self.gen_engine_args, self.settings_of_current_image().fuzz.rng_seed, self.current_buddha_seed_settings(), world_rect)
         return picture
 
     def render_framing_thumbnail(self, framing_obj, size):
