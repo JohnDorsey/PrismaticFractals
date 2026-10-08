@@ -41,6 +41,7 @@ from .app_preview import PreviewMixin
 from .app_recolor import RecolorMixin
 from .app_obstacles import ObstaclesMixin
 from .app_coloration import ColorationMixin
+from .app_buddha import BuddhaMixin
 from .app_controls import ControlsMixin
 from .app_layout import LayoutMixin
 
@@ -49,7 +50,7 @@ from .app_layout import LayoutMixin
 # GUI
 # --------------------------------------------------------------------------- #
 class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, TimelineMixin, DebugMixin, GenerationMixin,
-          PreviewMixin, RecolorMixin, ObstaclesMixin, ColorationMixin, ControlsMixin, LayoutMixin):
+          PreviewMixin, RecolorMixin, BuddhaMixin, ObstaclesMixin, ColorationMixin, ControlsMixin, LayoutMixin):
     PERIOD = 1.0 / REFRESH_HZ
 
     def __init__(self, root):

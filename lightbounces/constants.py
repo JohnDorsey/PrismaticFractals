@@ -306,7 +306,7 @@ OBST_EFFECT_RGB = {OBSTACLE_EFFECT_REFLECT: OBST_REFLECT_RGB,
 THUMB_SIZE = 48            # small resolution, per pixel
 THUMB_BACKGROUND = (110, 110, 110)   # obstacle thumbnails: background and shape fill
 THUMB_FILL = (150, 150, 150)
-PREVIEW_SIZE = 150         # side length of the video-panel frame preview
+VIDEO_PREVIEW_SIZE = 150         # side length of the video-panel frame preview
 SELECTED_OUTLINE = "#ffeb3b"       # yellow
 SELECTED_OUTLINE_PX = 4
 

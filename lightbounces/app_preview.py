@@ -2,7 +2,7 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
+    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
     COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
@@ -77,9 +77,9 @@ class PreviewMixin:
         frame-preview box, or the 'preview will go here' placeholder if rgb
         is None (i.e. nothing is currently being rendered)."""
         if rgb is None:
-            small = preview_placeholder(PREVIEW_SIZE, PREVIEW_SIZE)
+            small = preview_placeholder(VIDEO_PREVIEW_SIZE, VIDEO_PREVIEW_SIZE)
         else:
-            small = bilinear_resize(rgb, PREVIEW_SIZE, PREVIEW_SIZE)
+            small = bilinear_resize(rgb, VIDEO_PREVIEW_SIZE, VIDEO_PREVIEW_SIZE)
         photo = tk.PhotoImage(data=encode_png_bytes(small), format="png")
         self.preview_label.configure(image=photo)
         self.preview_label.image = photo            # keep a reference alive

@@ -957,3 +957,136 @@ def test_refreshing_the_seeding_scatters_the_buddha_channels_again_and_recolours
     app.colorations[0].chan_src[1] = m.CHAN_SRC_BUDDHA
     app.refresh_buddha_seeds()
     assert app.calls == ["rebuild_buddha_counts", ("recolor", 0, 7), "draw", ("preview", 3, 4), "rebuild_coloration_list"]
+
+
+# --------------------------------------------------------------------------- #
+# The colour chain exists once (color_pipeline) and the Buddha counts are made by one function (buddha)
+# --------------------------------------------------------------------------- #
+def _chain_scene(n=24):
+    """(termination, engine_args, stats, characteristic_points, pixel_state) of an n x n render of a circle and an ellipse."""
+    ellipse = m.EllipseShape(1)
+    ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
+    termination = _termination(50)
+    engine_args = _engine_args(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.zeros((n, n), dtype=np.uint8)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 3)
+    return termination, engine_args, stats, characteristic_points, pixel_state
+
+
+def _chain_coloration():
+    """Channel 0 compares two points, channel 1 is a metric, channel 2 a Buddha channel (simple options and a multi one)."""
+    v = m.ColorationConfig(0)
+    v.color_model = "HSV"
+    v.chan_src[2] = m.CHAN_SRC_BUDDHA
+    v.buddha_points[2] = _buddha_choice(m.POINT_ALL_MEAN, m.POINT_END, m.BUDDHA_POINT_LABELS.index("All segment midpoints"))
+    v.buddha_brightness[2] = 1
+    return v
+
+
+def test_a_hovered_ray_is_coloured_by_the_chain_of_an_image_of_one_pixel():
+    """Regression test: the number panel of a hovered ray had a chain of its own, scalar by scalar, next to the one that
+    colours images. It is now the image chain on a 1 x 1 image, so the two cannot disagree."""
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    v = _coloration_settings_from_config(_chain_coloration())
+    mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
+    n = stats.shape[0]
+    blur = m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_GAUSSIAN)
+    counts = np.zeros((n, n))
+    m.scatter_buddha_channel(counts, v.buddha_points[2], 0, n, m.WORLD_RECT_DEFAULT, None, pixel_state == m.PIXEL_TRACED,
+                             stats[..., m.ST_TERMINATION], characteristic_points, termination, engine_args, 3)
+    counts = m.blur_counts_image(counts, m.blur_kernel(blur, n, n))
+    computed = pixel_state == m.PIXEL_TRACED
+    blurred = [None, None, counts]
+    whole = m.channel_values(v, mapping, stats, characteristic_points, computed, blurred)
+    where = np.argwhere(computed)
+    for j, i in where[::37]:
+        one = m.ray_values(v, mapping, stats[j, i].astype(np.float64), characteristic_points[j, i].astype(np.float64),
+                           [None, None, counts[j, i]])
+        index = int(np.flatnonzero((where[:, 0] == j) & (where[:, 1] == i))[0])
+        assert np.allclose(one, [whole[c][index] for c in range(3)], atol=1e-12), (i, j)
+    assert m.ray_values(v, mapping, stats[where[0][0], where[0][1]], characteristic_points[where[0][0], where[0][1]],
+                        [None, None, None])[2] == 0.0, "a Buddha channel with no counts is 0"
+
+
+def test_paint_fills_the_background_where_no_ray_was_traced_and_colours_the_rest_as_color_pixels_does():
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    v = _coloration_settings_from_config(m.ColorationConfig(0))
+    mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
+    computed = pixel_state == m.PIXEL_TRACED
+    assert 0 < computed.sum() < computed.size
+    out = np.zeros(stats.shape[:2] + (3,), dtype=np.uint8)
+    m.paint(out, v, mapping, stats, characteristic_points, computed, [None] * 3)
+    assert (out[~computed] == m.BACKGROUND).all()
+    assert np.array_equal(out[computed], m.color_pixels(v, mapping, stats, characteristic_points, computed, [None] * 3))
+    nothing = np.full(out.shape, 7, dtype=np.uint8)
+    m.paint(nothing, v, mapping, stats, characteristic_points, np.zeros_like(computed), [None] * 3)
+    assert (nothing == m.BACKGROUND).all(), "no pixel computed: the whole image is the background"
+
+
+def test_scattering_a_channels_rows_in_pieces_gives_the_counts_of_scattering_them_all_at_once():
+    """The live image scatters the rows as they are traced; an export scatters them all: the same function, so the same
+    counts - for the stored points (with a termination filter), the multi options, and a seed grid."""
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    n = stats.shape[0]
+    fired = pixel_state == m.PIXEL_TRACED
+    term_stat = stats[..., m.ST_TERMINATION]
+    zone = m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.8, y_start=-0.6, y_stop=0.5)
+    labels = m.BUDDHA_POINT_LABELS
+    choices = {"stored": _buddha_choice(m.POINT_ALL_MEAN, labels.index("Path: Last point (confined)")),
+               "multi": _buddha_choice(labels.index("All self bounces"), labels.index("Progressive means of bounce points")),
+               "both": _buddha_choice(m.POINT_END, labels.index("All segment midpoints"))}
+    for name, chosen in choices.items():
+        for seeds in (None, zone):
+            whole, pieces = np.zeros((n, n)), np.zeros((n, n))
+            m.scatter_buddha_channel(whole, chosen, 0, n, m.WORLD_RECT_DEFAULT, seeds, fired, term_stat, characteristic_points,
+                                     termination, engine_args, 3)
+            for r0, r1 in ((0, 5), (5, 17), (17, n)):
+                m.scatter_buddha_channel(pieces, chosen, r0, r1, m.WORLD_RECT_DEFAULT, seeds, fired[r0:r1], term_stat[r0:r1],
+                                         characteristic_points[r0:r1], termination, engine_args, 3)
+            assert whole.sum() > 0 and np.array_equal(whole, pieces), (name, seeds)
+    nothing = np.zeros((n, n))
+    assert not m.scatter_buddha_channel(nothing, choices["stored"], 0, n, m.WORLD_RECT_DEFAULT, None, np.zeros_like(fired),
+                                        term_stat, characteristic_points, termination, engine_args, 3)
+    assert nothing.sum() == 0, "no ray fired in the rows: nothing to scatter, and nothing reported"
+
+
+def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_data_makes():
+    """Two paths to the same picture - recolor() of the live image after its rows were scattered as they were traced,
+    and apply_coloration() of the finished data - now share the colour chain and the Buddha scatter, and must agree,
+    for the camera's pixels and for a seed grid."""
+    termination, engine_args, stats, characteristic_points, pixel_state = _chain_scene()
+    n = stats.shape[0]
+    blur = m.BuddhaBlurSettings(radius=0.04, type=m.BUDDHA_BLUR_TRIANGULAR)
+    camera = m.BuddhaSeedSettings(camera_pixels=True, x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+    zone = camera.replace(camera_pixels=False, x_start=-0.5, x_stop=0.8, y_start=-0.6, y_stop=0.5)
+    v = _chain_coloration()
+    v.buddha_points[1] = _buddha_choice(m.POINT_TOP)
+    v.chan_src[1] = m.CHAN_SRC_BUDDHA
+    for seeds in (camera, zone):
+        class LiveApp:
+            pass
+        app = LiveApp()
+        app.img_h = app.img_w = n
+        app.image_world_rect = m.WORLD_RECT_DEFAULT
+        app.stats, app.characteristic_points, app.pixel_state = stats, characteristic_points, pixel_state
+        app.img = np.zeros((n, n, 3), np.uint8)
+        app.rows_done = 0
+        app.live_coloration = lambda: v
+        app.mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
+        app.current_blur_settings = lambda: blur
+        app.current_buddha_seed_settings = lambda seeds=seeds: seeds
+        app.settings_of_current_image = lambda: m.DEFAULT_RAY_SETTINGS.replace(fuzz=m.DEFAULT_RAY_SETTINGS.fuzz.replace(rng_seed=3))
+        app.gen_termination, app.gen_engine_args = termination, engine_args
+        for name in ("scatter_buddha_rows", "blurred_buddha_counts", "rebuild_buddha_counts", "recolor"):
+            setattr(app, name, getattr(m.App, name).__get__(app))
+        app.rebuild_buddha_counts()
+        for r0, r1 in ((0, 6), (6, 15), (15, n)):
+            app.rows_done = r1
+            app.scatter_buddha_rows(r0, r1)
+        app.recolor(0, n)
+        export = m.App.apply_coloration(app, _coloration_settings_from_config(v), stats, characteristic_points, pixel_state,
+                                        n, n, blur, termination, engine_args, 3, seeds)
+        assert np.array_equal(app.img, export), seeds.camera_pixels
+        assert (app.img != m.BACKGROUND).any()

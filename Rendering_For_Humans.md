@@ -9,7 +9,7 @@ A guide to how Light Bounces turns settings into pixels, followed by assessments
 ## Conventions used in this document
 
 - **Fully qualified names.** `lightbounces.kernels.trace_path` is the function `trace_path` in the module `lightbounces/kernels.py`. The package also re-exports every name (so `lightbounces.trace_path` works), but the defining module is always given here.
-- **Methods of the window.** `lightbounces.core.App` has no methods of its own except `__init__`; it inherits 14 mixin classes, one per module. `lightbounces.app_render.RenderMixin.apply_coloration` is therefore called as `self.apply_coloration(...)` on the `App`. The name always carries the mixin so you can find the source.
+- **Methods of the window.** `lightbounces.core.App` has no methods of its own except `__init__`; it inherits 15 mixin classes, one per module. `lightbounces.app_render.RenderMixin.apply_coloration` is therefore called as `self.apply_coloration(...)` on the `App`. The name always carries the mixin so you can find the source.
 - **Verified vs read.** Every factual claim is tagged where it matters:
   **[V]** = I ran code in this session and observed it (dtypes, shapes, sizes, timings, the worked example);
   **[R]** = I read it in the source and did not run it.
@@ -54,7 +54,7 @@ Three things the diagram does not say:
 
 1. **The whole path of a ray is never kept.** Only reductions of it survive into `stats` and `characteristic_points`. That is why some Buddha options must trace their rays a second time (section 1.10).
 2. **Everything after `pixel_state`, `stats` and `characteristic_points` is cheap and repeatable.** Changing a coloration, the Buddha blur or the Buddha seeding never re-runs `trace_path` for the image's own rays; it only re-reads the stored arrays. Changing a framing re-runs it automatically; changing a ray setting, a termination limit or an obstacle re-runs it when you press Start.
-3. **There are three separate implementations of "stored numbers to colour"** (live rows, whole image, single hovered ray) and **three decoders of the Buddha option list**. They agree today; section 2.1 lists them as the main duplication.
+3. **There used to be three separate implementations of "stored numbers to colour"** (live rows, whole image, single hovered ray) and **three decoders of the Buddha option list**. Since FILE_VERSION 149 there is one of each (`lightbounces.color_pipeline` and `lightbounces.buddha`); section 2.1 records what was done.
 
 ## 1.2 Vocabulary
 
@@ -93,7 +93,7 @@ x = x_start + (i + 0.5) * ((x_stop - x_start) / w)
 y = y_stop  - (j + 0.5) * ((y_stop  - y_start) / h)        # row 0 is the top
 ```
 
-**World to pixel** (floor of the same thing, written out separately in `lightbounces.kernels.scatter_one_buddha_point`, `lightbounces.app_recolor.RecolorMixin.scatter_buddha_rows` and `lightbounces.app_render.RenderMixin.apply_coloration`; as floats in `lightbounces.app_preview.PreviewMixin.world_to_canvas` and `lightbounces.shapes.Shape.outline_coords`):
+**World to pixel** (floor of the same thing, written out separately in `lightbounces.kernels.scatter_one_buddha_point`, `lightbounces.buddha.scatter_stored_points`; as floats in `lightbounces.app_preview.PreviewMixin.world_to_canvas` and `lightbounces.shapes.Shape.outline_coords`):
 
 ```
 col = floor((x - x_start) * (w / (x_stop - x_start)))
@@ -327,9 +327,9 @@ So a sequence's *scalars* (count, length, last direction, share) are colours as 
 
 **Three implementations of this chain** (all produce the same numbers; none calls another):
 
-- `lightbounces.app_recolor.RecolorMixin.recolor(r0, r1)`: the live image, rows `[r0, r1)`, writes into `self.img`.
+- `lightbounces.app_recolor.RecolorMixin.recolor(r0, r1)`: the live image, rows `[r0, r1)`, writes into `self.img` (through `lightbounces.color_pipeline.paint`).
 - `lightbounces.app_render.RenderMixin.apply_coloration(...)`: a whole image of any size (exports, non-live thumbnails, framing thumbnails); returns a new `uint8 (h, w, 3)`.
-- `lightbounces.app_recolor.RecolorMixin.component_values(vec, ray_characteristic_points, x0, y0)`: one hovered ray, returns three floats.
+- `lightbounces.app_recolor.RecolorMixin.component_values(vec, ray_characteristic_points, x0, y0)`: one hovered ray, returns three floats (through `lightbounces.color_pipeline.ray_values`, which is `channel_values` on a 1 x 1 image).
 
 ## 1.10 Stage 6: Buddha scattering (and what holds sequences before it)
 
@@ -366,17 +366,17 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 
 | Route | When | Reads | Code | Parallel? |
 |---|---|---|---|---|
-| Stored points | camera pixels on, simple options | #4 (float32) | `lightbounces.app_recolor.RecolorMixin.scatter_buddha_rows` (live), `lightbounces.app_render.RenderMixin.apply_coloration` (export), then `lightbounces.metrics.scatter_points_raw` (`np.add.at`) | no (numpy) |
+| Stored points | camera pixels on, simple options | #4 (float32) | `lightbounces.app_buddha.BuddhaMixin.scatter_buddha_rows` (live), `lightbounces.app_render.RenderMixin.apply_coloration` (export), both through `lightbounces.buddha.scatter_buddha_channel`, then `lightbounces.buddha.scatter_points_raw` (`np.add.at`) | no (numpy) |
 | Re-trace, camera zone | camera pixels on, multi options | re-traced `path_points`, `path_point_tags` (float64) | `lightbounces.kernels.scatter_multi_buddha` = `scatter_from_seeds` with the world rectangle as zone | no (single thread by design: a point can land on any pixel) |
-| Re-trace, own zone | camera pixels off, **all** options | re-traced rays from a seed grid over the zone | `lightbounces.metrics.scatter_seeded_buddha` then `lightbounces.kernels.scatter_from_seeds` | no |
+| Re-trace, own zone | camera pixels off, **all** options | re-traced rays from a seed grid over the zone | `lightbounces.buddha.scatter_seeded_buddha` then `lightbounces.kernels.scatter_from_seeds` | no |
 | Export / thumbnail | any | same three as above, into a fresh array | `lightbounces.app_render.RenderMixin.apply_coloration` | no |
 
 `scatter_from_seeds(row0, row1, zone, world_rect, ...)` separates **where seeds are** (`zone`, a `WorldRect`; one seed per output pixel, laid at regular spacings) from **what `counts` covers** (`world_rect`). A seed fires only if `fires_ray` is true there. Because the stored-points route reads float32 points and the re-trace route float64, the two "should" agree but can differ by a point on a pixel edge: 2 of 262,144 cells in the default 512×512 image **[V, earlier session]**.
 
 ### After scattering
 
-1. **Blur.** `lightbounces.metrics.build_buddha_blur_kernel(radius_px, type)` makes a `(K, 3)` float64 table (row offset, column offset, weight); `lightbounces.metrics.blur_counts_image` turns it into a dense kernel and convolves the **whole** histogram once by FFT (`np.fft.rfft2` on arrays padded to (h + k - 1, w + k - 1)). Cost depends on the image size, not on the radius. The radius in pixels is `radius × min(w, h)` (`lightbounces.metrics.world_radius_to_pixels`, which is not about world units despite its name).
-2. **Compress** (`lightbounces.metrics.buddha_compress`): arctangent, (2/π)·atan(count / 8) (8 maps to 0.5, 80 to 0.9365 **[V]**), or modulus, (count % 256) / 255 (300 maps to 0.1725 **[V]**). After the blur the counts are floats, though the docstring says "non-negative int".
+1. **Blur.** `lightbounces.buddha.build_buddha_blur_kernel(radius_px, type)` makes a `(K, 3)` float64 table (row offset, column offset, weight); `lightbounces.buddha.blur_counts_image` turns it into a dense kernel and convolves the **whole** histogram once by FFT (`np.fft.rfft2` on arrays padded to (h + k - 1, w + k - 1)). Cost depends on the image size, not on the radius. The radius in pixels is `radius × min(w, h)` (`lightbounces.buddha.world_radius_to_pixels`, which is not about world units despite its name).
+2. **Compress** (`lightbounces.buddha.buddha_compress`): arctangent, (2/π)·atan(count / 8) (8 maps to 0.5, 80 to 0.9365 **[V]**), or modulus, (count % 256) / 255 (300 maps to 0.1725 **[V]**). After the blur the counts are floats, though the docstring says "non-negative int".
 3. **Brightness**: multiply by 1, 2, 4, 8 or 16, clip to 1.
 4. **Colour**: the value is read at `counts[row, col]` **only for fired pixels**, then it joins the other two channels in `channels_to_rgb`. Consequence: a Buddha image is visible only inside the shapes that fire rays, even where counts exist elsewhere.
 
@@ -405,11 +405,13 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 | sequences and reductions | `lightbounces.kernels.in_sequence`, `sequence_summary`, `compute_sequences`, `compute_run_measurements` |
 | per-pixel driver | `lightbounces.kernels._trace_rows_parallel` |
 | generated labels and choice tables | `lightbounces.metrics` (from `SEQUENCE_LABELS` down) |
-| the Buddha catalog and compression | `lightbounces.metrics.BUDDHA_POINT_CATALOG`, `buddha_compress` |
+| the Buddha catalog and compression | `lightbounces.metrics.BUDDHA_POINT_CATALOG`; `lightbounces.buddha.buddha_compress` |
 | colour models and the coloration records | `lightbounces.colorations` |
 | camera | `lightbounces.framings`, `lightbounces.app_preview.PreviewMixin.set_image_framing` |
 | live generation | `lightbounces.app_generation.GenerationMixin.tick` |
-| live recolouring and Buddha counts | `lightbounces.app_recolor.RecolorMixin` |
+| the colour chain | `lightbounces.color_pipeline` |
+| live recolouring (the Colorations tab's handlers) | `lightbounces.app_recolor.RecolorMixin` |
+| Buddha counts: making, blurring, compressing | `lightbounces.buddha`; the live buffers and the Buddha tabs: `lightbounces.app_buddha.BuddhaMixin` |
 | whole-image colouring, exports, thumbnails | `lightbounces.app_render.RenderMixin` |
 
 ---
@@ -422,14 +424,14 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 |---|---|---|
 | Code cleanliness | Strong foundations (strict records, import-time self-checks, 727 tests, a bit-identical-refactor habit). Four hot spots hold most of the debt (section 2.1). | high: measured |
 | Consistency | Very good in the settings layer, weakest in the sequence/colour layer, where code spaces mix types and several words mean two or three things. | medium-high |
-| Readiness for multiple sequence engines | **Medium; roughly 5 on a 10-point difficulty scale.** The camera/world-rectangle blocker named in the last report is gone. What remains is a set of well-contained, mostly mechanical global tables and three duplicated drivers. | medium (my estimate, one prototype) |
+| Readiness for multiple sequence engines | **Medium; roughly 5 on a 10-point difficulty scale.** The camera/world-rectangle blocker named in the last report is gone. What remains is a set of well-contained, mostly mechanical global tables and (until FILE_VERSION 149, which unified the colour chain and the Buddha scatter) three duplicated drivers. | medium (my estimate, one prototype) |
 | Naming | About 14 renames would remove real confusion; roughly half are internal-only and cheap. | high |
 
 ## 2.1 Code cleanliness
 
 ### Measured **[V]**
 
-- 14,558 lines in `lightbounces/` (36 modules); 746 functions and classes, **64% with a docstring** (475). `lightbounces.kernels` has 51 of 58; `lightbounces.shapes` only 33 of 129 (many one-line methods).
+- 14,558 lines in `lightbounces/` (36 modules) when this was measured; 14,658 lines in 39 modules after FILE_VERSION 149; 746 functions and classes, **64% with a docstring** (475). `lightbounces.kernels` has 51 of 58; `lightbounces.shapes` only 33 of 129 (many one-line methods).
 - No `TODO`/`FIXME` markers. 74 lines longer than 120 characters, 19 longer than 160 (the project has no linter or limit, so this is information, not a violation). Spelling: "color" 201 times, "colour" 35 times, in comments and strings.
 - Three unused imports (`lightbounces.app_render`, `lightbounces.geometry`, `lightbounces.projects`) were found; **removed in FILE_VERSION 143**.
 
@@ -442,8 +444,8 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 
 ### Hot spots (in order of how much cleanup they would buy)
 
-1. **Duplication of the colour chain.** `RecolorMixin.recolor`, `RenderMixin.apply_coloration` and `RecolorMixin.component_values` each re-implement "channel source to value". Any new channel source or metric type must be added three times. A single function `channel_values(coloration, stats, characteristic_points, selection)` would serve all three.
-2. **Duplication of the Buddha option decoder.** Three places decode `BUDDHA_POINT_CATALOG` into "slots, termination filters, multi flags": `RecolorMixin.scatter_buddha_rows`, `RenderMixin.apply_coloration`, `lightbounces.metrics.scatter_seeded_buddha`. The first two identify rays ended by a given reason by comparing the stored float metric to `TERM_STAT_VALUE[...]` within 0.01 (`np.abs(term_stat - target) < 0.01`); the third and the kernels compare the integer `term`. Two mechanisms for one question.
+1. **Duplication of the colour chain. Fixed in FILE_VERSION 149.** `RecolorMixin.recolor`, `RenderMixin.apply_coloration` and `RecolorMixin.component_values` each re-implemented "channel source to value". They now all call `lightbounces.color_pipeline.channel_values` (live rows through `paint`, a whole image through `paint`, a hovered ray through `ray_values`, which runs the same function on a 1 x 1 image), so a new channel source or metric type is added once. Verified: the images, the incrementally built live counts and the hovered values are bit-identical to before.
+2. **Duplication of the Buddha option decoder. Fixed in FILE_VERSION 149, except the last sentence.** `RecolorMixin.scatter_buddha_rows` and `RenderMixin.apply_coloration` each decoded `BUDDHA_POINT_CATALOG` into "slots, termination filters, multi flags" next to `scatter_seeded_buddha`. The first two are now one function, `lightbounces.buddha.scatter_buddha_channel`, which uses `scatter_stored_points` (camera pixels, simple options), `scatter_multi_buddha` (multi options) or `scatter_seeded_buddha` (a seed grid). Still true: the stored-points route identifies rays ended by a given reason by comparing the stored float metric to `TERM_STAT_VALUE[...]` within 0.01 (`np.abs(term_stat - target) < 0.01`), while the seed-grid route and the kernels compare the integer `term`. Two mechanisms for one question.
 3. **The per-ray chain is repeated.** `trace_path`, then `compute_run_measurements`, then `compute_sequences` appear together in `lightbounces.kernels._trace_rows_parallel` and `lightbounces.app_preview.PreviewMixin.update_preview` (and `warm_up`), and `scatter_from_seeds` has a partial copy. A `trace_and_reduce` kernel would be the natural unit, and is the natural point to put an engine switch (section 2.3).
 4. **Four representations of one coloration.** `ColorationConfig` (12 slots, lists), `ColorationSnapshot` (12 fields, tuples), `ColorationSettings` (11 fields, tuples), `ChannelSettings` (9 fields), with `decompose_chans` and `set_channel` converting between them, and ten parallel per-channel sequences instead of three channel records. A `Channel` record in a 3-tuple would remove most of the glue. (Opinion; medium confidence, because the keyframe format stores `ChannelSettings` and a change here needs care.)
 
@@ -455,7 +457,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 - **`lightbounces.kernels` is 2,466 lines, 17% of the package.** About 1,350 of them (lines 279-1634) are shape geometry; `trace_path` starts at 1713. The size is a consequence of the numba cache rule, not of poor structure.
 - **A parameter is shadowed.** `lightbounces.kernels.trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw)` receives a `NaturalTerminationRule` named `stop`, unpacks it at the top, then reused `stop` as a boolean flag inside the loop (**fixed in FILE_VERSION 147: the parameter is `termination`, the flag `ended`**). It works only because the fields were copied first.
 - **Stale comments and user-visible text** (found while writing this guide; none is a bug in computation; **all six items below were corrected in FILE_VERSION 143**, the text shown is what they said before):
-  - `lightbounces.app_coloration.ColorationMixin.build_buddha_blur_controls`: the hint text says "A multiple of the view's smallest dimension (2 units): 0.1 means a blur radius of 0.2 units". The radius is `radius × min(w, h)` pixels, i.e. a fraction of the image's shorter side. This is wrong for every non-default framing and **is visible to the user**.
+  - `lightbounces.app_buddha.BuddhaMixin.build_buddha_blur_controls`: the hint text says "A multiple of the view's smallest dimension (2 units): 0.1 means a blur radius of 0.2 units". The radius is `radius × min(w, h)` pixels, i.e. a fraction of the image's shorter side. This is wrong for every non-default framing and **is visible to the user**.
   - `lightbounces.__init__` docstring (lines 3-6): "the simulation itself always runs in that fixed square"; and `lightbounces.constants` (lines 26-31) about the blur radius being "always 2.0".
   - `lightbounces.metrics` (the "Constant source" comment): "Stored in the same slot other_metric[c] already occupies"; true before `constant_choice` existed, false now.
   - `lightbounces.metrics.CHOICE_TOP_LEFT_CORNER` and its description: "the top-left corner of the simulation's [-1, 1] square". With framings it is a world point, not the image's corner.
@@ -467,7 +469,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 
 1. **One kind of thing, several number types.** Point tags are *floats* (`TAG_BOUNDARY = 1.0`) because they live in a float64 array and are compared with `==`; every other code family is `int`; the four multi-point Buddha options are *strings* (`"all_self"`) while their siblings are ints; the colour model is the string `"RGB"`/`"HSV"`. A `uint8` tag array and ints everywhere would remove the float comparisons.
 2. **Sentinels share a field with real values.** `mapping[c]` and `ColorationConfig.other_metric` hold metric slots 0-23 *or* -1, -2, -3. Anything iterating over them must know to check the sentinels first (`lightbounces.metrics.make_mapping` and every consumer do).
-3. **Pixel-to-world and world-to-pixel arithmetic is written out nine times** (four forward, five inverse; section 1.3), always with the same formula. They agree today, and the framing work verified that with hashes; one `Window`-based helper per language (kernels and Python) would make that agreement structural.
+3. **Pixel-to-world and world-to-pixel arithmetic is written out nine times before FILE_VERSION 149 (eight since the two Buddha copies became one)** (four forward, five inverse; section 1.3), always with the same formula. They agree today, and the framing work verified that with hashes; one `Window`-based helper per language (kernels and Python) would make that agreement structural.
 4. **Two numeric paths for the same point.** Stored points are float32; re-traced points are float64. The difference is real (2 of 262,144 cells **[V]**) and is documented, but it means "camera pixels" is not exactly equal to "zone = world rectangle".
 5. **Normalisation constants are hard-wired to a 2-unit world.** `compute_run_measurements` and `point_comparison_metric` scale distances by 0.5 (a 2-unit world), and the length reduction uses `atan(length / 5)`. They are world-unit measures, so a zoomed framing yields small values: consistent, but arbitrary for an engine whose plane is a different size.
 6. **Three families named `KIND_*`, plus a local variable `kinds` that meant two things** (section 2.4). **Fixed in FILE_VERSION 146:** point tags are `TAG_*` and `path_point_tags`; a channel's metric type is `METRIC_TYPE_*` and `metric_types`; `Shape.KIND` is the one `KIND` left.
@@ -534,7 +536,7 @@ My view (medium confidence): readiness is good for a **Mandelbrot image behind a
 
 Classification of cost: **internal** = identifiers and comments only; **key** = also a permanent project-file key, so it needs a format migration (the project is at format 6) and should normally be left alone, renaming only the attribute; **UI** = user-visible text.
 
-### Status after FILE_VERSION 148
+### Status after FILE_VERSION 149
 
 Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (partly), 9 and the medium-value rows 12, 13, 14, 15, 16, 17**. Not done, by decision: rows 4 (done earlier, in 145), 10, the rest of row 8, and the medium-value rows 19 and 22.
 
@@ -553,6 +555,8 @@ Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (par
 - Row 15: `CHOICE_ORIGIN`, `CHOICE_TOP_LEFT_CORNER` (formerly `POINT_ORIGIN`, `POINT_TOP_LEFT_CORNER`).
 - Row 16: `fires_ray` (formerly `emits_ray`) and the comments that said a ray was "emitted" from a pixel now say "fired". "Emission" now means the direction only, except in one UI label (Buddha seeding: "use camera pixels as emission seed points") that I left for you to decide.
 - Row 17: a coloration's color model is `color_model` (formerly `mode`): `ColorationConfig.color_model`, `COLOR_MODELS` / `COLOR_MODEL_NAMES` / `DEFAULT_COLOR_MODEL`, `color_model_var` / `color_model_combo`, `on_color_model_changed`, and the project keys `color_model` (in a coloration) and `coloration:<id>:color_model` (in a keyframe), through the same format-8 migration as `natural_termination` (no format 9: no format-8 file exists yet). The export margin line still reads "Mode:RGB".
+
+- Rows 20 and 21 (done in 149 with the colour-chain unification): the Buddha tabs, a channel's Buddha choices and the visit-count buffers moved to `lightbounces.app_buddha.BuddhaMixin`; the pure parts became two modules, `lightbounces.buddha` (counts: scatter, blur, compress; the former `metrics` blur and scatter functions moved there) and `lightbounces.color_pipeline` (the colour chain, once). `RecolorMixin` stayed in `app_recolor.py`, now only the Colorations tab's handlers and thin `recolor` / `component_values` / `map_color`; `PreviewMixin.update_seed_zone_outline` was left where it is.
 
 ### High value
 

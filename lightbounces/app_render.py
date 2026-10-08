@@ -1,21 +1,14 @@
 """Turning the stored simulation data (or a freshly traced frame) into coloured images: a whole frame at any resolution, the current image composed from several colorations, one coloration's colours, and coloration thumbnails."""
 import numpy as np
-from .constants import BACKGROUND, OBST_EFFECT_RGB, TERM_STAT_VALUE, THUMB_BACKGROUND
+from .constants import BACKGROUND, OBST_EFFECT_RGB, THUMB_BACKGROUND
 from .image_io import make_grid
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect, same_framing
-from .kernels import (
-    N_POINTS, N_STATS, PIXEL_TRACED, ST_TERMINATION, WORLD_RECT_DEFAULT, trace_rows, scatter_multi_buddha
-)
-from .metrics import (
-    BUDDHA_BRIGHTNESS_VALUES, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
-    BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_BUDDHA,
-    NONE_ONE, NONE_ZERO, POINT_METRICS, blur_counts_image, buddha_compress,
-    build_buddha_blur_kernel, extract_point_xy, make_mapping, point_comparison_metric,
-    scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
-)
+from .kernels import N_POINTS, N_STATS, PIXEL_TRACED, ST_TERMINATION, WORLD_RECT_DEFAULT, trace_rows
+from .metrics import CHAN_BUDDHA, make_mapping
+from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
+from .color_pipeline import paint
 from .settings import settings_natural_termination, settings_ray_args
 from .shapes import draw_obstacle_outline, ring_layer_masks
-from .colorations import channels_to_rgb
 
 
 class RenderMixin:
@@ -101,70 +94,20 @@ class RenderMixin:
         mapping = make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
-        img[:] = BACKGROUND
         computed = pixel_state == PIXEL_TRACED
-        n = int(computed.sum())
-        if n:
-            radius_px = world_radius_to_pixels(blur.radius, out_w, out_h)
-            buddha_kernel = build_buddha_blur_kernel(radius_px, blur.type)
-            vals = []
+        blurred = [None] * 3
+        if computed.any():
+            kernel = None
+            term_stat = stats[..., ST_TERMINATION]
             for c in range(3):
-                s = mapping[c]
-                if s == CHAN_BUDDHA:
+                if mapping[c] == CHAN_BUDDHA:
+                    if kernel is None:
+                        kernel = blur_kernel(blur, out_w, out_h)
                     counts = np.zeros((out_h, out_w), dtype=np.float64)
-                    if seeds is not None and not seeds.camera_pixels:
-                        scatter_seeded_buddha(counts, world_rect, seeds, 0, out_h, v.buddha_points[c], termination, engine_args, rng_seed_base)
-                        counts = blur_counts_image(counts, buddha_kernel)
-                        sub = counts[computed].astype(np.float64)
-                        mult = BUDDHA_BRIGHTNESS_VALUES[v.buddha_brightness[c]]
-                        vals.append(buddha_compress(sub, v.buddha_compression[c], mult))
-                        continue
-                    want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
-                                 BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
-                    term_stat = stats[..., ST_TERMINATION]
-                    for i, on in enumerate(v.buddha_points[c]):
-                        if not on:
-                            continue
-                        _label, style, ref, term_filter = BUDDHA_POINT_CATALOG[i]
-                        if style == BUDDHA_MULTI:
-                            want_multi[ref] = True
-                            continue
-                        mask = computed
-                        if term_filter is not None:
-                            target = TERM_STAT_VALUE[term_filter]
-                            mask = mask & (np.abs(term_stat - target) < 0.01)
-                        if not mask.any():
-                            continue
-                        xs = characteristic_points[..., ref, 0][mask]
-                        ys = characteristic_points[..., ref, 1][mask]
-                        col = np.floor((xs - world_rect.x_start) * (out_w / (world_rect.x_stop - world_rect.x_start))).astype(np.int64)
-                        row = np.floor((world_rect.y_stop - ys) * (out_h / (world_rect.y_stop - world_rect.y_start))).astype(np.int64)
-                        valid = (col >= 0) & (col < out_w) & (row >= 0) & (row < out_h)
-                        scatter_points_raw(counts, row, col, valid)
-                    if any(want_multi.values()):
-                        scatter_multi_buddha(
-                            0, out_h, world_rect, termination, engine_args, rng_seed_base,
-                            want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
-                            want_multi[BUDDHA_MULTI_PROG_BOUNCE],
-                            want_multi[BUDDHA_MULTI_PROG_MID], counts)
-                    counts = blur_counts_image(counts, buddha_kernel)
-                    sub = counts[computed].astype(np.float64)
-                    mult = BUDDHA_BRIGHTNESS_VALUES[v.buddha_brightness[c]]
-                    vals.append(buddha_compress(sub, v.buddha_compression[c], mult))
-                elif s == NONE_ZERO:
-                    vals.append(np.zeros(n))
-                elif s == NONE_ONE:
-                    vals.append(np.ones(n))
-                elif s in POINT_METRICS:
-                    x1, y1 = extract_point_xy(characteristic_points, v.point1_choice[c], computed, n)
-                    x2, y2 = extract_point_xy(characteristic_points, v.point2_choice[c], computed, n)
-                    vals.append(point_comparison_metric(s, x1, y1, x2, y2))
-                else:
-                    vals.append(np.clip(stats[..., s][computed].astype(np.float64),
-                                        0.0, 1.0))
-            r, g, b = channels_to_rgb(v.color_model, *vals)
-            rgb = np.stack((r, g, b), axis=-1)
-            img[computed] = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
+                    scatter_buddha_channel(counts, v.buddha_points[c], 0, out_h, world_rect, seeds, computed, term_stat,
+                                           characteristic_points, termination, engine_args, rng_seed_base)
+                    blurred[c] = blur_counts_image(counts, kernel)
+        paint(img, v, mapping, stats, characteristic_points, computed, blurred)
         return img
 
     def render_coloration_thumbnail(self, coloration_obj, size):

@@ -2,99 +2,12 @@
 drive a colour component) with their labels, the sample points that can be picked out of a ray's path, the Buddha point catalog,
 compression and brightness options, the Buddha blur (the functions that spread scattered points over their neighbours), and make_mapping,
 which says what each colour channel is currently using. The numbers the kernels fill in (ST_*, POINT_*, ...) live in kernels.py."""
-from math import ceil, pi
 import numpy as np
-from .constants import (
-    BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC_INNER_RATIO, BUDDHA_BLUR_GAUSSIAN,
-    BUDDHA_BLUR_GAUSSIAN_TRUNCATE, BUDDHA_BLUR_TRIANGULAR
-)
 from .kernels import (
-    N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, WorldRect, scatter_from_seeds
+    N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT,
+    ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
 )
-
-
-def world_radius_to_pixels(radius_control, out_w, out_h):
-    """The blur radius control's value -> a radius in pixels for an out_w x
-    out_h output. The control is a multiple of the output's smallest
-    dimension (the framing's whole picture, whatever world it shows), which for
-    a same-scale (never-distorted) circular blur footprint is
-    radius_px = radius_control * min(out_w, out_h)."""
-    return radius_control * min(out_w, out_h)
-
-
-def build_buddha_blur_kernel(radius_px, blur_type):
-    """The (row_offset, col_offset, weight) neighborhood for scattering one
-    point's weight of 1 across nearby pixels instead of just its own, as a
-    float64 (K, 3) array with weights normalized to sum to 1 - or exactly
-    [[0, 0, 1.0]] when radius_px is negligible (no blur at all, the
-    original single-pixel behavior). Only Gaussian extends past radius_px
-    itself (truncated at BUDDHA_BLUR_GAUSSIAN_TRUNCATE standard
-    deviations); the other three kernels are exactly zero beyond it."""
-    if radius_px < 0.5:
-        return np.array([[0.0, 0.0, 1.0]])
-    extent_mult = BUDDHA_BLUR_GAUSSIAN_TRUNCATE if blur_type == BUDDHA_BLUR_GAUSSIAN else 1.0
-    extent = int(ceil(extent_mult * radius_px))
-    rows, cols = [], []
-    for dr in range(-extent, extent + 1):
-        for dc in range(-extent, extent + 1):
-            rows.append(dr)
-            cols.append(dc)
-    dr_arr = np.array(rows, dtype=np.float64)
-    dc_arr = np.array(cols, dtype=np.float64)
-    d = np.hypot(dr_arr, dc_arr)
-    if blur_type == BUDDHA_BLUR_GAUSSIAN:
-        w = np.exp(-(d * d) / (2.0 * radius_px * radius_px))
-        w[d > BUDDHA_BLUR_GAUSSIAN_TRUNCATE * radius_px] = 0.0
-    elif blur_type == BUDDHA_BLUR_TRIANGULAR:
-        w = np.clip(1.0 - d / radius_px, 0.0, None)
-    elif blur_type == BUDDHA_BLUR_BOKEH:
-        w = (d <= radius_px).astype(np.float64)
-    else:                                              # BUDDHA_BLUR_CATADIOPTRIC
-        inner = BUDDHA_BLUR_CATADIOPTRIC_INNER_RATIO * radius_px
-        w = ((d >= inner) & (d <= radius_px)).astype(np.float64)
-    keep = w > 0.0
-    total = w[keep].sum()
-    if total <= 0.0:
-        return np.array([[0.0, 0.0, 1.0]])      # degenerate (e.g. a sub-pixel ring) ->
-                                                # fall back to no blur rather than
-                                                # silently dropping the point entirely
-    return np.stack([dr_arr[keep], dc_arr[keep], w[keep] / total], axis=1)
-
-
-def scatter_points_raw(counts, rows, cols, valid):
-    """Scatters a plain +1 at each of the given integer pixel positions
-    (rows[valid], cols[valid]) into `counts` (in place) - cheap, no blur
-    kernel involved at all. Blur (if any) is applied once, afterwards, to
-    the whole accumulated histogram - see blur_counts_image - rather than
-    per point, since summing many individually-blurred points is
-    mathematically identical to blurring the sum once (convolution
-    distributes over sums), and the latter costs nothing extra per point
-    scattered."""
-    np.add.at(counts, (rows[valid], cols[valid]), 1)
-
-
-def blur_counts_image(counts, kernel):
-    """Blurs the whole `counts` array once with `kernel` (the same (K, 3)
-    offset+weight table build_buddha_blur_kernel returns), via FFT - so the
-    cost depends on the image size, not on the kernel size (a large blur
-    radius is no more expensive than a small one), unlike blurring each
-    scattered point individually. Returns a new array; never mutates
-    `counts`. The no-blur kernel ([[0, 0, 1.0]]) is a fast-path skip."""
-    if kernel.shape[0] == 1 and kernel[0, 0] == 0.0 and kernel[0, 1] == 0.0:
-        return counts
-    h, w = counts.shape
-    max_offset = int(np.max(np.abs(kernel[:, :2])))
-    ksize = 2 * max_offset + 1
-    dense = np.zeros((ksize, ksize))
-    for dr, dc, wt in kernel:
-        dense[int(dr) + max_offset, int(dc) + max_offset] = wt
-    fft_h = h + ksize - 1
-    fft_w = w + ksize - 1
-    freq_counts = np.fft.rfft2(counts, s=(fft_h, fft_w))
-    freq_kernel = np.fft.rfft2(dense, s=(fft_h, fft_w))
-    full = np.fft.irfft2(freq_counts * freq_kernel, s=(fft_h, fft_w))
-    return full[max_offset:max_offset + h, max_offset:max_offset + w]
 
 
 # --------------------------------------------------------------------------- #
@@ -366,35 +279,6 @@ BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(per
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 
-def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base):
-    """Scatter, into `counts` (in place; it covers the world rectangle `world_rect`), the Buddha points `chosen` (a channel's tuple
-    of flags, one per entry of BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a
-    BuddhaSeedSettings: its zone, laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen
-    option - the characteristic points too - is made from those rays, not from the image's own. Returns whether anything
-    was chosen."""
-    slots, end_terms = [], []
-    want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
-                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
-    for index, on in enumerate(chosen):
-        if not on:
-            continue
-        _label, style, ref, term_filter = BUDDHA_POINT_CATALOG[index]
-        if style == BUDDHA_MULTI:
-            want_multi[ref] = True
-        elif term_filter is None:
-            slots.append(ref)
-        else:
-            end_terms.append(term_filter)
-    if not (slots or end_terms or any(want_multi.values())):
-        return False
-    scatter_from_seeds(row0, row1, WorldRect(seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop), world_rect,
-                       termination, engine_args, rng_seed_base,
-                       np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
-                       want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
-                       want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)
-    return True
-
-
 # Buddha coloration: how a pixel's (unbounded, non-negative integer) visit
 # count maps down to the 0..255 a color channel needs.
 BUDDHA_COMPRESS_ARCTAN = 0
@@ -410,18 +294,6 @@ BUDDHA_ARCTAN_SCALE = 8.0   # count=8 maps to the arctan curve's midpoint (0.5);
 BUDDHA_BRIGHTNESS_OPTIONS = ["1x", "2x", "4x", "8x", "16x"]
 BUDDHA_BRIGHTNESS_VALUES = [1.0, 2.0, 4.0, 8.0, 16.0]
 DEFAULT_BUDDHA_BRIGHTNESS = 0    # index into the lists above: "1x", no change
-
-
-def buddha_compress(count, method, brightness_mult=1.0):
-    """A visit count (a non-negative number, or an array of them) -> 0..1 with `method` (BUDDHA_COMPRESS_ARCTAN or
-    _MODULUS), then multiplied by `brightness_mult` and clipped to 0..1 (a multiplier of 1 changes nothing)."""
-    if method == BUDDHA_COMPRESS_ARCTAN:
-        v = (2.0 / pi) * np.arctan(count / BUDDHA_ARCTAN_SCALE)
-    else:
-        v = (np.asarray(count) % 256) / 255.0          # BUDDHA_COMPRESS_MODULUS
-    if brightness_mult != 1.0:
-        v = np.clip(v * brightness_mult, 0.0, 1.0)
-    return v
 
 
 def make_mapping(metric_types, point_metrics, other_metrics, chan_src=None, constant_choices=None):
