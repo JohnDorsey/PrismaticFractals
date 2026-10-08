@@ -4,31 +4,31 @@ from tkinter import ttk
 import numpy as np
 from .constants import (
     BOTTOM_H, CORKSCREW_LINE_WIDTH, CORKSCREW_MARGIN, CORKSCREW_MARGIN_MIN, CORKSCREW_SIDE_MIN,
-    CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, KIND_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
+    CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, TAG_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
     SEG_CANVAS_W
 )
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
-    KIND_BOUNDARY, KIND_ESCAPED, KIND_OBSTACLE_TERM, KIND_SELF, KIND_START, N_STATS, SIZE
+    TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, SIZE
 )
 from .metrics import STAT_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
 
 
-def corkscrew_steps(pts, kinds, n):
-    """The path pts[0..n-1] with every segment made one unit long, in the direction it really points, laid end to end
-    from (0, 0): (the vertices, shape (m + 1, 2); the kind of each segment's start point; the kind of its end point).
+def corkscrew_steps(path_points, path_point_tags, n):
+    """The path path_points[0..n-1] with every segment made one unit long, in the direction it really points, laid end to end
+    from (0, 0): (the vertices, shape (m + 1, 2); the tag of each segment's start point; the tag of its end point).
     A segment of no length has no direction and is left out."""
     if n < 2:
         return np.zeros((1, 2)), np.zeros(0), np.zeros(0)
-    steps = np.diff(np.asarray(pts[:n], dtype=float), axis=0)
+    steps = np.diff(np.asarray(path_points[:n], dtype=float), axis=0)
     length = np.hypot(steps[:, 0], steps[:, 1])
     keep = length > 1e-12
     unit = steps[keep] / length[keep][:, None]
     vertices = np.vstack((np.zeros((1, 2)), np.cumsum(unit, axis=0)))
-    kinds = np.asarray(kinds[:n], dtype=float)
-    return vertices, kinds[:-1][keep], kinds[1:][keep]
+    path_point_tags = np.asarray(path_point_tags[:n], dtype=float)
+    return vertices, path_point_tags[:-1][keep], path_point_tags[1:][keep]
 
 
 def corkscrew_fit(vertices, side):
@@ -276,13 +276,14 @@ class LayoutMixin:
         legend.grid(row=0, column=0, sticky="w", padx=6, pady=(8, 2))
         ttk.Label(legend, text="Every segment, earliest to latest, as a bar "
                               "(one unit tall; longer segments are truncated). "
-                              "Color marks each end's kind: "
+                              "Color marks each end's tag: "
                   ).pack(side="left")
-        for rgb, text in [(KIND_COLOR[KIND_START], "start/distance-cut"),
-                          (KIND_COLOR[KIND_BOUNDARY], "boundary bounce"),
-                          (KIND_COLOR[KIND_SELF], "self bounce"),
-                          (KIND_COLOR[KIND_OBSTACLE_TERM], "edge termination"),
-                          (KIND_COLOR[KIND_ESCAPED], "escape")]:
+        for rgb, text in [(TAG_COLOR[TAG_START], "start/distance-cut"),
+                          (TAG_COLOR[TAG_BOUNDARY], "boundary bounce"),
+                          (TAG_COLOR[TAG_SELF], "self bounce"),
+                          (TAG_COLOR[TAG_OBSTACLE_TERM], "edge termination"),
+                          (TAG_COLOR[TAG_PERPENDICULAR], "perpendicular end"),
+                          (TAG_COLOR[TAG_ESCAPED], "escape")]:
             sw = tk.Label(legend, text="  ", bg=lerp_color(rgb, rgb, 0.0))
             sw.pack(side="left", padx=(4, 2))
             ttk.Label(legend, text=text).pack(side="left", padx=(0, 8))
@@ -303,11 +304,12 @@ class LayoutMixin:
                        "to end from the centre, each pointing the way the real segment points. The length "
                        "is chosen to keep the farthest point just inside the edge. A segment fades from "
                        "its start point's colour to its end point's:").pack(anchor="w")
-        for rgb, label in [(KIND_COLOR[KIND_START], "start/cut"),
-                           (KIND_COLOR[KIND_BOUNDARY], "boundary bounce"),
-                           (KIND_COLOR[KIND_SELF], "self bounce"),
-                           (KIND_COLOR[KIND_OBSTACLE_TERM], "edge end"),
-                           (KIND_COLOR[KIND_ESCAPED], "escape")]:
+        for rgb, label in [(TAG_COLOR[TAG_START], "start/cut"),
+                           (TAG_COLOR[TAG_BOUNDARY], "boundary bounce"),
+                           (TAG_COLOR[TAG_SELF], "self bounce"),
+                           (TAG_COLOR[TAG_OBSTACLE_TERM], "edge end"),
+                           (TAG_COLOR[TAG_PERPENDICULAR], "perpendicular end"),
+                           (TAG_COLOR[TAG_ESCAPED], "escape")]:
             row = ttk.Frame(text)
             row.pack(anchor="w", pady=(2, 0))
             tk.Label(row, text="  ", bg=lerp_color(rgb, rgb, 0.0)).pack(side="left", padx=(0, 4))
@@ -333,25 +335,25 @@ class LayoutMixin:
             self.corkscrew_canvas.configure(width=side, height=side)
             self.redraw_corkscrew()
 
-    def draw_corkscrew(self, pts, kinds, n):
-        """Redraw the corkscrew of the ray pts[0..n-1]."""
-        self.corkscrew_data = corkscrew_steps(pts, kinds, n)
+    def draw_corkscrew(self, path_points, path_point_tags, n):
+        """Redraw the corkscrew of the ray path_points[0..n-1]."""
+        self.corkscrew_data = corkscrew_steps(path_points, path_point_tags, n)
         self.redraw_corkscrew()
 
     def redraw_corkscrew(self):
         """Draw the stored corkscrew (see corkscrew_steps) to fit the canvas as it is now: one line a segment,
-        colored with the same start-kind -> end-kind gradient as the bar graph's bars."""
+        colored with the same start-tag -> end-tag gradient as the bar graph's bars."""
         cv = self.corkscrew_canvas
         cv.delete("all")
-        vertices, start_kinds, end_kinds = self.corkscrew_data
-        if len(start_kinds) == 0:
+        vertices, start_tags, end_tags = self.corkscrew_data
+        if len(start_tags) == 0:
             return
         xy, segment = corkscrew_fit(vertices, self.corkscrew_side)
-        for k in range(len(start_kinds)):
+        for k in range(len(start_tags)):
             x0, y0 = xy[k]
             x1, y1 = xy[k + 1]
-            start_rgb = KIND_COLOR[float(start_kinds[k])]
-            end_rgb = KIND_COLOR[float(end_kinds[k])]
+            start_rgb = TAG_COLOR[float(start_tags[k])]
+            end_rgb = TAG_COLOR[float(end_tags[k])]
             if start_rgb == end_rgb:
                 cv.create_line(x0, y0, x1, y1, fill=lerp_color(start_rgb, start_rgb, 0.0),
                                width=CORKSCREW_LINE_WIDTH, capstyle="round")
@@ -365,9 +367,9 @@ class LayoutMixin:
                                fill=lerp_color(start_rgb, end_rgb, (t0 + t1) / 2.0),
                                width=CORKSCREW_LINE_WIDTH, capstyle="round")
 
-    def draw_segments(self, pts, kinds, n):
-        """Redraw the segment-lengths graphic for the ray pts[0..n-1], bars
-        growing downward from the top, gradient-colored by each end's kind."""
+    def draw_segments(self, path_points, path_point_tags, n):
+        """Redraw the segment-lengths graphic for the ray path_points[0..n-1], bars
+        growing downward from the top, gradient-colored by each end's tag."""
         cv = self.seg_canvas
         cv.delete("all")
         nseg = n - 1
@@ -377,13 +379,13 @@ class LayoutMixin:
         colw = SEG_CANVAS_W / nseg
         halfw = max(colw / 2.0, 0.75)
         for k in range(nseg):
-            length = float(np.hypot(pts[k + 1, 0] - pts[k, 0], pts[k + 1, 1] - pts[k, 1]))
+            length = float(np.hypot(path_points[k + 1, 0] - path_points[k, 0], path_points[k + 1, 1] - path_points[k, 1]))
             h = min(length * px_per_unit, SEG_CANVAS_H)
             if h <= 0:
                 continue
             x = (k + 0.5) * colw
-            top_rgb = KIND_COLOR[float(kinds[k])]
-            bot_rgb = KIND_COLOR[float(kinds[k + 1])]
+            top_rgb = TAG_COLOR[float(path_point_tags[k])]
+            bot_rgb = TAG_COLOR[float(path_point_tags[k + 1])]
             if top_rgb == bot_rgb:
                 cv.create_rectangle(x - halfw, 0, x + halfw, h,
                                     fill=lerp_color(top_rgb, top_rgb, 0.0), width=0)

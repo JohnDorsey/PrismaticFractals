@@ -21,7 +21,7 @@ from .export_text import (
 )
 from .image_io import DOWNSAMPLE_FACTORS, DOWNSAMPLE_METHODS, JXL_MODES, SAVE_NEW_FORMATS
 from .kernels import (
-    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, N_POINTS, N_PRED, N_SEQS, N_SRED, OBSTACLE_EFFECT_PASS,
+    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, N_PRED, N_SEQS, N_SRED, OBSTACLE_EFFECT_PASS,
     OBSTACLE_EFFECT_REFLECT, OBSTACLE_EFFECT_TERMINATE, PRED_BOTTOM, PRED_FIRST, PRED_LAST, PRED_LEFT, PRED_MEAN,
     PRED_RIGHT, PRED_TOP, SEQ_BOUNCES, SEQ_BOUNDARY, SEQ_PATH, SEQ_SELF, SRED_COUNT, SRED_LAST_DIR, SRED_LENGTH,
     SRED_SHARE, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN, ST_TERMINATION,
@@ -30,7 +30,7 @@ from .kernels import (
 from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
-    CHAN_SRC_QUERY, KIND_OTHER, KIND_POINT, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_STATS, POINT_ORIGIN,
+    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_STATS, POINT_ORIGIN,
     POINT_STATS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
 )
 from .settings import (
@@ -47,7 +47,7 @@ from .framings import (
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 6
+PROJECT_FORMAT_VERSION = 7
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
 
@@ -94,7 +94,7 @@ def _string_catalog(name, keys, labels):
 
 CAT_CHAN_SOURCE = Catalog("channel source", [
     ("query", CHAN_SRC_QUERY), ("buddha", CHAN_SRC_BUDDHA), ("constant", CHAN_SRC_CONSTANT)])
-CAT_CHAN_KIND = Catalog("channel kind", [("point_metric", KIND_POINT), ("other_metric", KIND_OTHER)])
+CAT_METRIC_TYPE = Catalog("channel kind", [("point_metric", METRIC_TYPE_POINT_PAIR), ("other_metric", METRIC_TYPE_OTHER)])
 # The named sequences of points, and the reductions of them a channel can use (what the engine stores for
 # each ray). A point, a metric of a sequence and a Buddha point are each named by the sequence's key and the
 # reduction's: "self_bounces_uppermost", "path_length", "path_last_confined".
@@ -263,9 +263,9 @@ def _channel_to_json(channel):
     channel its points, compression and brightness, a constant channel its constant."""
     out = {"source": CAT_CHAN_SOURCE.key(channel.chan_src)}
     if channel.chan_src == CHAN_SRC_QUERY:
-        out["kind"] = CAT_CHAN_KIND.key(channel.kind)
+        out["kind"] = CAT_METRIC_TYPE.key(channel.metric_type)
         out["metric"] = CAT_METRIC.key(channel.stat)
-        if channel.kind == KIND_POINT:
+        if channel.metric_type == METRIC_TYPE_POINT_PAIR:
             out["point1"] = CAT_POINT.key(channel.point1)
             out["point2"] = CAT_POINT.key(channel.point2)
     elif channel.chan_src == CHAN_SRC_BUDDHA:
@@ -400,12 +400,12 @@ def _channel_from_json(data, where, c):
     _expect("source" in data, f"{where}: the channel has no 'source'")
     default = coloration_channel_value(ColorationConfig(0), c)
     source = CAT_CHAN_SOURCE.code(data["source"], where)
-    values = {"chan_src": source, "kind": default.kind, "stat": default.stat,
+    values = {"chan_src": source, "metric_type": default.metric_type, "stat": default.stat,
               "point1": default.point1, "point2": default.point2,
               "buddha_points": default.buddha_points,
               "buddha_compression": default.buddha_compression,
               "buddha_brightness": default.buddha_brightness, "constant": default.constant}
-    for name, field, catalog in (("kind", "kind", CAT_CHAN_KIND), ("metric", "stat", CAT_METRIC),
+    for name, field, catalog in (("kind", "metric_type", CAT_METRIC_TYPE), ("metric", "stat", CAT_METRIC),
                                  ("point1", "point1", CAT_POINT), ("point2", "point2", CAT_POINT),
                                  ("buddha_compression", "buddha_compression", CAT_BUDDHA_COMPRESSION),
                                  ("buddha_brightness", "buddha_brightness", CAT_BUDDHA_BRIGHTNESS),
@@ -418,13 +418,13 @@ def _channel_from_json(data, where, c):
         codes = {CAT_BUDDHA_POINT.code(key, where) for key in chosen}
         values["buddha_points"] = tuple(code in codes for code in range(N_BUDDHA_POINTS))
     needed = {CHAN_SRC_QUERY: ["kind", "metric"] + (["point1", "point2"]
-                                                    if values["kind"] == KIND_POINT else []),
+                                                    if values["metric_type"] == METRIC_TYPE_POINT_PAIR else []),
               CHAN_SRC_BUDDHA: ["buddha_points", "buddha_compression", "buddha_brightness"],
               CHAN_SRC_CONSTANT: ["constant"]}[source]
     for name in needed:
         _expect(name in data, f"{where}: the channel has no {name!r}")
     if source == CHAN_SRC_QUERY:
-        _expect(values["stat"] in (POINT_STATS if values["kind"] == KIND_POINT else OTHER_STATS),
+        _expect(values["stat"] in (POINT_STATS if values["metric_type"] == METRIC_TYPE_POINT_PAIR else OTHER_STATS),
                 f"{where}: the metric {data['metric']!r} does not suit a {data['kind']!r} channel")
     return ChannelSettings(**values)
 
@@ -496,7 +496,7 @@ def _framing_from_json(data, seen_ids):
                 f"framing {framing_id}: {field} must be a number")
         setattr(framing, field, float(value))
     _expect(framing.diagonal > 0.0 and framing.aspect > 0.0 and framing_is_usable(framing),
-            f"framing {framing_id}: its diagonal and aspect ratio must be above 0 and leave it a window to see through")
+            f"framing {framing_id}: its diagonal and aspect ratio must be above 0 and leave it a rectangle of the world to see")
     return snapshot_framing(framing)
 
 
@@ -561,9 +561,9 @@ def _migrate_project_1_to_2(data):
         _expect(isinstance(points, list), f"{where}: buddha_points must be a list")
         out = {"source": CAT_CHAN_SOURCE.key(old["chan_src"])}
         if old["chan_src"] == CHAN_SRC_QUERY:
-            out["kind"] = CAT_CHAN_KIND.key(old["kind"])
+            out["kind"] = CAT_METRIC_TYPE.key(old["kind"])
             out["metric"] = _FORMAT_1_METRICS[old["stat"]]
-            if old["kind"] == KIND_POINT:
+            if old["kind"] == METRIC_TYPE_POINT_PAIR:
                 out["point1"] = _FORMAT_1_POINTS[old["point1"]]
                 out["point2"] = _FORMAT_1_POINTS[old["point2"]]
         elif old["chan_src"] == CHAN_SRC_BUDDHA:
@@ -716,11 +716,31 @@ def _migrate_project_5_to_6(data):
     return data
 
 
+def _migrate_project_6_to_7(data):
+    """Format 6 called how many of the most recent path points the confinement rule judges "confine_window" (the
+    natural stopping setting of that name and the keyframe setting of that name); format 7 calls it
+    "confine_lookback" (a "window" is a rectangle of the world, in this program). The values are unchanged.
+    Converts a parsed format-6 file."""
+    import copy
+    data = copy.deepcopy(data)
+    natural_stop = data.get("natural_stop")
+    if isinstance(natural_stop, dict) and "confine_window" in natural_stop:
+        natural_stop["confine_lookback"] = natural_stop.pop("confine_window")
+    for kf in data.get("keyframes", []):
+        settings = kf.get("settings") if isinstance(kf, dict) else None
+        if isinstance(settings, dict) and "confine_window" in settings:
+            kf["settings"] = {("confine_lookback" if key == "confine_window" else key): value
+                              for key, value in settings.items()}
+    data["format_version"] = 7
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
                       2: _migrate_project_2_to_3,
                       3: _migrate_project_3_to_4,
                       4: _migrate_project_4_to_5,
-                      5: _migrate_project_5_to_6}
+                      5: _migrate_project_5_to_6,
+                      6: _migrate_project_6_to_7}
 
 
 def project_from_dict(data):

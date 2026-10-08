@@ -10,9 +10,9 @@ from .constants import (
     BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA,
     DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP, DEFAULT_BUDDHA_SEED_Y_START,
     DEFAULT_BUDDHA_SEED_Y_STOP, DEFAULT_BUDDHA_BLUR_TYPE, DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD,
-    DEFAULT_CONFINE_WINDOW, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
+    DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
-    DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
+    DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
     EMIT_MODE_NAMES
 )
 from .kernels import ConfineRule, EmissionRule, FuzzRule, NaturalStopRule, RayArgs
@@ -86,12 +86,12 @@ class FuzzParams:
     self_offset: float                               # bounces off the ray itself
     self_jitter: float
     self_mult: float
-    seed: int
+    rng_seed: int
 
 
 DEFAULT_FUZZ = FuzzParams(enabled=False, emit_jitter=0.0, bnd_offset=0.0, bnd_jitter=0.0,
                           bnd_mult=1.0, self_offset=0.0, self_jitter=0.0, self_mult=1.0,
-                          seed=DEFAULT_FUZZ_SEED)
+                          rng_seed=DEFAULT_RNG_SEED)
 
 
 @strict_record
@@ -139,14 +139,14 @@ class NaturalStopSettings:
     max_iter: int
     max_dist: float                                  # 0 = no limit; see effective_dist
     escape_radius: float                             # a sequence ends this far from the origin
-    confine_window: int
+    confine_lookback: int
     confine_method: int
     confine_threshold: float
 
 
 DEFAULT_NATURAL_STOP_SETTINGS = NaturalStopSettings(
     max_iter=DEFAULT_ITER, max_dist=DEFAULT_DIST, escape_radius=DEFAULT_ESCAPE_RADIUS,
-    confine_window=DEFAULT_CONFINE_WINDOW, confine_method=DEFAULT_CONFINE_METHOD,
+    confine_lookback=DEFAULT_CONFINE_LOOKBACK, confine_method=DEFAULT_CONFINE_METHOD,
     confine_threshold=DEFAULT_CONFINE_THRESHOLD)
 
 
@@ -265,8 +265,8 @@ NATURAL_STOP_SETTING_SPECS = {
                   "Termination", "Distance limit"),
     "escape_radius": _spec(("escape_radius",), "escape_radius_var", "escape_radius_entry",
                            "float_text", "Termination", "Escape radius"),
-    "confine_window": _spec(("confine_window",), "confine_window_var", "confine_window_entry",
-                            "int_text", "Termination", "Confinement window"),
+    "confine_lookback": _spec(("confine_lookback",), "confine_lookback_var", "confine_lookback_entry",
+                            "int_text", "Termination", "Confinement lookback"),
     "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
                             "choice", "Termination", "Confinement method", CONFINE_METHOD_NAMES),
     "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
@@ -307,7 +307,7 @@ RAY_SETTING_SPECS = {
                          "number", "Mutations", "Self jitter"),
     "self_mult": _spec(("fuzz", "self_mult"), "self_mult_scale", "self_mult_scale", "number",
                        "Mutations", "Self multiplier"),
-    "seed": _spec(("fuzz", "seed"), "seed_var", "seed_entry", "text", "Mutations", "Seed"),
+    "seed": _spec(("fuzz", "rng_seed"), "rng_seed_var", "rng_seed_entry", "text", "Mutations", "Seed"),
 }
 
 # The same for the Buddha blur (a BuddhaBlurSettings), which is a record of its own.
@@ -433,13 +433,13 @@ SETTING_WIDGET_ATTRS = {**{key: spec.widget for key, spec in SETTING_SPECS.items
 DEFAULT_SETTING_VALUES = {**settings_to_dict(*DEFAULT_SETTINGS.values()), "outline": True}
 
 
-def confine_rule(window, method, threshold):
+def confine_rule(lookback, method, threshold):
     """The confinement rule in the form the simulation kernels expect."""
-    return ConfineRule(window=int(window), method=int(method), threshold=float(threshold))
+    return ConfineRule(lookback=int(lookback), method=int(method), threshold=float(threshold))
 
 
-# What was always hard-wired (a 4-point window, the Box method, one pixel).
-CONFINE_DEFAULT = confine_rule(DEFAULT_CONFINE_WINDOW, DEFAULT_CONFINE_METHOD,
+# What was always hard-wired (a 4-point lookback, the Box method, one pixel).
+CONFINE_DEFAULT = confine_rule(DEFAULT_CONFINE_LOOKBACK, DEFAULT_CONFINE_METHOD,
                                DEFAULT_CONFINE_THRESHOLD)
 
 
@@ -474,7 +474,7 @@ def settings_emission(settings):
 
 def settings_confine(settings):
     """confine_rule() for a NaturalStopSettings."""
-    return confine_rule(settings.confine_window, settings.confine_method,
+    return confine_rule(settings.confine_lookback, settings.confine_method,
                         settings.confine_threshold)
 
 
@@ -508,7 +508,7 @@ def ray_args(seg_mult, fuzz, emission, obstacles):
 
 def settings_ray_args(settings, obstacles):
     """ray_args() for a RaySettings and the obstacles' ObstacleArrays. (The fuzzing seed is not part of
-    it: callers pass `settings.fuzz.seed` to the kernels themselves.)"""
+    it: callers pass `settings.fuzz.rng_seed` to the kernels themselves.)"""
     return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings), obstacles)
 
 

@@ -228,7 +228,7 @@ class TimelineMixin:
             if v is self.selected_coloration_obj():
                 self.refresh_color_controls_for_selected_coloration()
             if v is self.live_coloration():
-                self.mapping = make_mapping(v.kinds, v.point_metric, v.other_metric,
+                self.mapping = make_mapping(v.metric_types, v.point_metric, v.other_metric,
                                             v.chan_src, v.constant_choice)
                 if field != "mode" and v.chan_src[int(field[-1])] == CHAN_SRC_BUDDHA:
                     self.rebuild_buddha_counts()   # mode never affects Buddha scattering

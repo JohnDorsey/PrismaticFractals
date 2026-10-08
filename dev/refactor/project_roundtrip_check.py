@@ -69,7 +69,7 @@ app.iter_var.set("40")
 app.emit_offset_scale.set(-20.0)
 app.new_coloration()
 app.live_coloration().set_channel(0, lb.ChannelSettings(
-    chan_src=lb.CHAN_SRC_BUDDHA, kind=lb.KIND_OTHER, stat=lb.ST_BOUNCES, point1=0, point2=1,
+    chan_src=lb.CHAN_SRC_BUDDHA, metric_type=lb.METRIC_TYPE_OTHER, stat=lb.ST_BOUNCES, point1=0, point2=1,
     buddha_points=(False,) * 8 + (True,) + (False,) * (lb.N_BUDDHA_POINTS - 9),
     buddha_compression=0, buddha_brightness=1, constant=lb.NONE_ZERO))
 app.refresh_color_controls_for_selected_coloration()
@@ -86,7 +86,7 @@ check(app.is_dirty(), "edits make the project dirty")
 check(app.current_blur_settings() == BLUR, "the blur controls give a BuddhaBlurSettings beside the ray settings")
 
 first = generate()
-check(app.generated_settings is not None and int(app.status.sum()) > 0, "an image was generated")
+check(app.generated_settings is not None and int(app.pixel_state.sum()) > 0, "an image was generated")
 check(first == generate(), "generating twice in the same state gives the same image")
 stats_before = app.stats.copy()
 
@@ -97,14 +97,14 @@ app.new_project()
 check(lb.project_signature(app.capture_project()) == lb.project_signature(app.default_project)
       and len(app.obstacles) == 1 and len(app.colorations) == 1 and not app.keyframes,
       "New gives exactly the starting project")
-check(app.generated_settings is None and int(app.status.sum()) == 0, "New leaves a blank image")
+check(app.generated_settings is None and int(app.pixel_state.sum()) == 0, "New leaves a blank image")
 check(app.current_blur_settings() == lb.DEFAULT_BUDDHA_BLUR, "New puts the blur controls back to their defaults")
 
 lb.filedialog.askopenfilename = lambda *a, **k: path
 app.open_project()
 check(lb.project_signature(app.capture_project()) == saved and not app.is_dirty(),
       "Open restores exactly the saved project, without unsaved changes")
-check(app.generated_settings is None and int(app.status.sum()) == 0, "Open leaves a blank image")
+check(app.generated_settings is None and int(app.pixel_state.sum()) == 0, "Open leaves a blank image")
 check(app.current_blur_settings() == BLUR, "Open restores the Buddha blur controls")
 second = generate()
 check(second == first and np.array_equal(stats_before, app.stats),

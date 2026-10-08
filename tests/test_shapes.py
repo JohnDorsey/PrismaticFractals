@@ -558,7 +558,7 @@ def test_snapshot_and_settings_hold_only_the_simulation_controls():
         "emit_offset"]
     assert [f.name for f in dataclasses.fields(m.NaturalStopSettings)] == [
         "max_iter", "max_dist", "escape_radius",
-        "confine_window", "confine_method", "confine_threshold"]
+        "confine_lookback", "confine_method", "confine_threshold"]
     assert [f.name for f in dataclasses.fields(m.BuddhaBlurSettings)] == ["radius", "type"]
 
 
@@ -567,7 +567,7 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
     assert keys == {"iter", "dist", "escape_radius", "seg_mult", "fuzz_on", "emit_jitter",
                     "bnd_offset", "bnd_jitter", "bnd_mult", "self_offset", "self_jitter",
                     "self_mult", "seed", "buddha_blur_radius", "buddha_blur_type", "outline",
-                    "confine_window", "confine_method", "confine_threshold",
+                    "confine_lookback", "confine_method", "confine_threshold",
                     "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
                     "emit_target_cy", "emit_offset", "buddha_seed_camera", "buddha_seed_x_start",
                     "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop"}
@@ -587,7 +587,7 @@ def test_settings_suffix_is_only_the_limits_and_fuzzing():
     assert m.settings_suffix(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS) == "iter256-distNONE"
     limited = _generation(max_iter=10, max_dist=2.5)
     assert m.settings_suffix(*limited) == "iter10-dist2.5"
-    fuzzed = _generation(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, seed=9))
+    fuzzed = _generation(fuzz=m.DEFAULT_FUZZ.replace(enabled=True, rng_seed=9))
     suffix = m.settings_suffix(*fuzzed)
     assert suffix.startswith("iter64-distNONE-fuzz-") and suffix.endswith("-seed9")
     for word in ("ellipse", "polygon", "moss", "sector", "segment", "lens", "reuleaux",
@@ -742,8 +742,8 @@ def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_e
         o.rotation = 10.0
         bound = o.bound()
         arrays = m.build_obstacle_arrays([o])
-        pts = np.empty((40, 2))
-        kinds = np.empty(40)
+        path_points = np.empty((40, 2))
+        path_point_tags = np.empty(40)
         raw = np.empty(m.N_RAW)
         rng = np.random.RandomState(2)
         bounced = 0
@@ -751,11 +751,11 @@ def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_e
             x, y = rng.uniform(-1, 1, 2)
             if not m.inside_boundary(x, y, cls.KIND, bound):
                 continue
-            term, npts = m.trace_path(x, y, pts, kinds, _stop(30), _ray(arrays), raw)
+            term, npts = m.trace_path(x, y, path_points, path_point_tags, _stop(30), _ray(arrays), raw)
             for k in range(1, npts):
-                if kinds[k] != m.KIND_BOUNDARY:                # (a bounce off the ray's own path
+                if path_point_tags[k] != m.TAG_BOUNDARY:                # (a bounce off the ray's own path
                     continue                                   # is not on the shape's edge)
-                px, py = pts[k]
+                px, py = path_points[k]
                 around = [m.inside_boundary(px + 1e-5 * np.cos(a), py + 1e-5 * np.sin(a),
                                             cls.KIND, bound) for a in np.linspace(0, 6.28, 16)]
                 assert any(around) and not all(around), (cls.__name__, px, py)

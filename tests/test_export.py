@@ -228,8 +228,8 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.apply_coloration = m.App.apply_coloration.__get__(app)
     app.obstacles = []
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
-    app.points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
-    app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
+    app.characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
+    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
     app.gen_stop = m.NATURAL_STOP_DEFAULT
     app.gen_ray = _ray(m.build_obstacle_arrays([]))
     app.generated_settings = None                     # the placeholder image: default settings
@@ -337,7 +337,7 @@ def test_figure_info_lines_shows_none_for_unlimited_distance():
 def test_figure_info_lines_shows_fuzz_details_when_enabled_and_just_off_otherwise():
     off = m.figure_info_lines(*_generation(), _start_scene())
     assert "Fuzz:Off" in off and not any("Seed" in l for l in off)
-    fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=5.0, seed=12345)
+    fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=5.0, rng_seed=12345)
     on = m.figure_info_lines(*_generation(fuzz=fuzz), _start_scene())
     assert "Fuzz:On" in on
     assert any("Emit" in l and "5.0" in l for l in on)
@@ -399,7 +399,7 @@ def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
     fuzz = m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=179.9,
                                    bnd_offset=-179.9, bnd_jitter=179.9, bnd_mult=2.99,
                                    self_offset=-179.9, self_jitter=179.9, self_mult=2.99,
-                                   seed=999999999)
+                                   rng_seed=999999999)
     settings = _generation(max_iter=9999, max_dist=9999.0, seg_mult=0.01, fuzz=fuzz)
     for line in m.figure_info_lines(*settings, scene):
         assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line

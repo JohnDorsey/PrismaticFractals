@@ -157,7 +157,7 @@ class FramingMixin:
 
     def on_framing_commit(self, _event=None):
         """Enter pressed or focus left an entry: tidy every entry's text (nonsense, or numbers that would leave the
-        framing no window to see through, go back to the last valid values) and, if the selected framing changed,
+        framing no rectangle of the world to see, go back to the last valid values) and, if the selected framing changed,
         make the image an image of it."""
         framing = self.selected_framing_obj()
         if framing is None:

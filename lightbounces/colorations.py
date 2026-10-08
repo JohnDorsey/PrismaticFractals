@@ -5,7 +5,7 @@ import numpy as np
 from .kernels import POINT_END, POINT_START, ST_BOUNCES, ST_HDIST, ST_MANHATTAN, ST_VDIST
 from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, CHAN_SRC_QUERY, DEFAULT_BUDDHA_BRIGHTNESS, DEFAULT_BUDDHA_POINTS,
-    KIND_OTHER, KIND_POINT, NONE_ZERO
+    METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ZERO
 )
 from .settings import resolve_value, strict_record
 
@@ -13,7 +13,7 @@ from .settings import resolve_value, strict_record
 # Defaults per channel. Each channel remembers a point-comparison metric (plus
 # the two points it compares) and an "other" metric, so switching its Type
 # back and forth restores what was chosen.
-DEFAULT_KINDS = (KIND_POINT, KIND_POINT, KIND_OTHER)
+DEFAULT_METRIC_TYPES = (METRIC_TYPE_POINT_PAIR, METRIC_TYPE_POINT_PAIR, METRIC_TYPE_OTHER)
 DEFAULT_POINT_METRICS = (ST_HDIST, ST_VDIST, ST_MANHATTAN)
 DEFAULT_OTHER_METRICS = (ST_BOUNCES, ST_BOUNCES, ST_BOUNCES)
 DEFAULT_POINT1S = (POINT_START, POINT_START, POINT_START)  # point 1 per channel
@@ -56,7 +56,7 @@ class ColorationConfig:
     what the Colorations tab controls. Position in self.colorations has no special
     meaning; which one the top-left preview shows is whichever is selected
     (see live_coloration/select_coloration), not necessarily self.colorations[0]."""
-    __slots__ = ("id", "mode", "chan_src", "kinds", "point_metric", "other_metric",
+    __slots__ = ("id", "mode", "chan_src", "metric_types", "point_metric", "other_metric",
                 "point1_choice", "point2_choice", "buddha_points", "buddha_compression",
                 "buddha_brightness", "constant_choice")
 
@@ -64,7 +64,7 @@ class ColorationConfig:
         self.id = id_
         self.mode = DEFAULT_MODE
         self.chan_src = list(DEFAULT_CHAN_SRCS)
-        self.kinds = list(DEFAULT_KINDS)
+        self.metric_types = list(DEFAULT_METRIC_TYPES)
         self.point_metric = list(DEFAULT_POINT_METRICS)
         self.other_metric = list(DEFAULT_OTHER_METRICS)
         self.point1_choice = list(DEFAULT_POINT1S)
@@ -78,8 +78,8 @@ class ColorationConfig:
         """Make channel `c` what the ChannelSettings record `channel` says (a loaded keyframe
         or project)."""
         self.chan_src[c] = channel.chan_src
-        self.kinds[c] = channel.kind
-        if channel.kind == KIND_POINT:
+        self.metric_types[c] = channel.metric_type
+        if channel.metric_type == METRIC_TYPE_POINT_PAIR:
             self.point_metric[c] = channel.stat
         else:
             self.other_metric[c] = channel.stat
@@ -92,7 +92,7 @@ class ColorationConfig:
 
     def settings(self):
         """This coloration as the ColorationSettings the colouring code takes."""
-        return ColorationSettings(mode=self.mode, kinds=self.kinds, point_metric=self.point_metric,
+        return ColorationSettings(mode=self.mode, metric_types=self.metric_types, point_metric=self.point_metric,
                             other_metric=self.other_metric, point1_choice=self.point1_choice,
                             point2_choice=self.point2_choice, chan_src=self.chan_src,
                             buddha_points=self.buddha_points,
@@ -109,7 +109,7 @@ class ColorationSnapshot:
     id: int
     mode: str
     chan_src: tuple
-    kinds: tuple
+    metric_types: tuple
     point_metric: tuple
     other_metric: tuple
     point1_choice: tuple
@@ -140,7 +140,7 @@ class ChannelSettings:
     `stat`, whose meaning already depends on `kind`, so reading it never requires
     guessing which of several interpretations currently applies."""
     chan_src: int
-    kind: int
+    metric_type: int
     stat: int                  # the point metric if kind is KIND_POINT, else the other metric
     point1: int
     point2: int
@@ -153,9 +153,9 @@ class ChannelSettings:
 def coloration_channel_value(v, c):
     """Channel c's current setting for a ColorationConfig or ColorationSnapshot `v`, as
     stored in a keyframe (a ChannelSettings)."""
-    stat = v.point_metric[c] if v.kinds[c] == KIND_POINT else v.other_metric[c]
+    stat = v.point_metric[c] if v.metric_types[c] == METRIC_TYPE_POINT_PAIR else v.other_metric[c]
     return ChannelSettings(
-        chan_src=v.chan_src[c], kind=v.kinds[c], stat=stat, point1=v.point1_choice[c],
+        chan_src=v.chan_src[c], metric_type=v.metric_types[c], stat=stat, point1=v.point1_choice[c],
         point2=v.point2_choice[c], buddha_points=v.buddha_points[c],
         buddha_compression=v.buddha_compression[c], buddha_brightness=v.buddha_brightness[c],
         constant=v.constant_choice[c])
@@ -181,7 +181,7 @@ class ColorationSettings:
     """One coloration, resolved, as apply_coloration reads it (per-channel values
     are 3-tuples)."""
     mode: str
-    kinds: tuple
+    metric_types: tuple
     point_metric: tuple
     other_metric: tuple
     point1_choice: tuple
@@ -200,10 +200,10 @@ def decompose_chans(mode, chans):
     resolve_colorations() for every coloration alike."""
     return ColorationSettings(
         mode=mode,
-        kinds=tuple(c.kind for c in chans),
-        point_metric=tuple(c.stat if c.kind == KIND_POINT else DEFAULT_POINT_METRICS[i]
+        metric_types=tuple(c.metric_type for c in chans),
+        point_metric=tuple(c.stat if c.metric_type == METRIC_TYPE_POINT_PAIR else DEFAULT_POINT_METRICS[i]
                            for i, c in enumerate(chans)),
-        other_metric=tuple(c.stat if c.kind == KIND_OTHER else DEFAULT_OTHER_METRICS[i]
+        other_metric=tuple(c.stat if c.metric_type == METRIC_TYPE_OTHER else DEFAULT_OTHER_METRICS[i]
                            for i, c in enumerate(chans)),
         point1_choice=tuple(c.point1 for c in chans),
         point2_choice=tuple(c.point2 for c in chans),

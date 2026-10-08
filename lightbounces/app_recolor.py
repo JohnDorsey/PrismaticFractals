@@ -1,12 +1,12 @@
 """Colour mapping on the live image: the Colorations tab's handlers (model, source, metric, points...), the Buddha count buffers and their blur cache, and recolouring rows from the stored per-pixel data."""
 import numpy as np
 from .constants import BACKGROUND, TERM_STAT_VALUE
-from .kernels import N_STATS, ST_TERMINATION, scatter_multi_buddha
+from .kernels import N_STATS, PIXEL_TRACED, ST_TERMINATION, scatter_multi_buddha
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_BRIGHTNESS_VALUES, BUDDHA_COMPRESSION_LABELS,
     BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF, BUDDHA_MULTI_PROG_BOUNCE,
     BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, BUDDHA_POINT_LABELS, CHAN_BUDDHA,
-    CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, KIND_LABELS, KIND_POINT, NONE_ONE,
+    CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, METRIC_TYPE_POINT_PAIR, NONE_ONE,
     NONE_ZERO, OTHER_LABELS, POINT_DESCRIPTIONS, POINT_LABELS, POINT_METRIC_LABELS, POINT_NOTE,
     POINT_STATS, STAT_DESCRIPTIONS, STAT_LABELS, blur_counts_image, buddha_compress,
     build_buddha_blur_kernel, constant_label_to_stat, constant_stat_to_label, extract_point_xy,
@@ -61,8 +61,8 @@ class RecolorMixin:
             self.constant_vars[c].set(constant_stat_to_label(coloration.constant_choice[c]))
             return
         self.query_frames[c].grid()
-        self.kind_vars[c].set(KIND_LABELS[coloration.kinds[c]])
-        if coloration.kinds[c] == KIND_POINT:
+        self.metric_type_vars[c].set(METRIC_TYPE_LABELS[coloration.metric_types[c]])
+        if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR:
             self.map_combos[c].configure(values=POINT_METRIC_LABELS)
             self.map_vars[c].set(STAT_LABELS[coloration.point_metric[c]])
             self.point1_combos[c].grid()
@@ -106,15 +106,15 @@ class RecolorMixin:
         self.constant_combos[c].selection_clear()
         self.apply_mapping_change(c)
 
-    def on_kind_changed(self, c):
+    def on_metric_type_changed(self, c):
         """Type dropdown changed (point comparison <-> other)."""
         if self._color_editor_loading:
             return
         coloration = self.selected_coloration_obj()
         if coloration is None:
             return
-        coloration.kinds[c] = KIND_LABELS.index(self.kind_vars[c].get())
-        self.kind_combos[c].selection_clear()
+        coloration.metric_types[c] = METRIC_TYPE_LABELS.index(self.metric_type_vars[c].get())
+        self.metric_type_combos[c].selection_clear()
         self.refresh_row(c)
         self.apply_mapping_change(c)
 
@@ -125,7 +125,7 @@ class RecolorMixin:
         if coloration is None:
             return
         label = self.map_vars[c].get()
-        if coloration.kinds[c] == KIND_POINT:
+        if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR:
             coloration.point_metric[c] = POINT_STATS[POINT_METRIC_LABELS.index(label)]
         else:
             coloration.other_metric[c] = other_label_to_stat(label)
@@ -184,7 +184,7 @@ class RecolorMixin:
             return
         coloration.point1_choice = [POINT_LABELS.index(v.get()) for v in self.point1_vars]
         coloration.point2_choice = [POINT_LABELS.index(v.get()) for v in self.point2_vars]
-        coloration_mapping = make_mapping(coloration.kinds, coloration.point_metric, coloration.other_metric,
+        coloration_mapping = make_mapping(coloration.metric_types, coloration.point_metric, coloration.other_metric,
                                     coloration.chan_src, coloration.constant_choice)
 
         name = MODES[coloration.mode][c][0]
@@ -253,9 +253,9 @@ class RecolorMixin:
         if r1 <= r0 or not any(s == CHAN_SRC_BUDDHA for s in coloration.chan_src):
             return
         h, w = self.img_h, self.img_w
-        window = self.image_window
+        world_rect = self.image_world_rect
         seeds = self.current_buddha_seed_settings()
-        fired = self.status[r0:r1] == 1
+        fired = self.pixel_state[r0:r1] == PIXEL_TRACED
         if seeds.camera_pixels and not fired.any():
             return
         term_stat = self.stats[r0:r1, :, ST_TERMINATION]
@@ -265,9 +265,9 @@ class RecolorMixin:
             if not seeds.camera_pixels:
                 # seeded from their own grid: every chosen point comes from rays fired there (rows of the grid
                 # correspond to the rows of the image as they are done)
-                if scatter_seeded_buddha(self.buddha_counts[c], window, seeds, r0, r1, coloration.buddha_points[c],
+                if scatter_seeded_buddha(self.buddha_counts[c], world_rect, seeds, r0, r1, coloration.buddha_points[c],
                                          self.gen_stop, self.gen_ray,
-                                         self.settings_of_current_image().fuzz.seed):
+                                         self.settings_of_current_image().fuzz.rng_seed):
                     self.buddha_counts_blurred[c] = None
                 continue
             want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
@@ -286,17 +286,17 @@ class RecolorMixin:
                     mask = mask & (np.abs(term_stat - target) < 0.01)
                 if not mask.any():
                     continue
-                xs = self.points[r0:r1, :, ref, 0][mask]
-                ys = self.points[r0:r1, :, ref, 1][mask]
-                col = np.floor((xs - window.x_start) * (w / (window.x_stop - window.x_start))).astype(np.int64)
-                row = np.floor((window.y_stop - ys) * (h / (window.y_stop - window.y_start))).astype(np.int64)
+                xs = self.characteristic_points[r0:r1, :, ref, 0][mask]
+                ys = self.characteristic_points[r0:r1, :, ref, 1][mask]
+                col = np.floor((xs - world_rect.x_start) * (w / (world_rect.x_stop - world_rect.x_start))).astype(np.int64)
+                row = np.floor((world_rect.y_stop - ys) * (h / (world_rect.y_stop - world_rect.y_start))).astype(np.int64)
                 valid = (col >= 0) & (col < w) & (row >= 0) & (row < h)
                 scatter_points_raw(self.buddha_counts[c], row, col, valid)
                 touched = True
             if any(want_multi.values()):
                 g = self.settings_of_current_image()
                 scatter_multi_buddha(
-                    r0, r1, window, self.gen_stop, self.gen_ray, g.fuzz.seed,
+                    r0, r1, world_rect, self.gen_stop, self.gen_ray, g.fuzz.rng_seed,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                     want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
                     self.buddha_counts[c])
@@ -337,8 +337,8 @@ class RecolorMixin:
             return
         coloration = self.live_coloration()
         st = self.stats[r0:r1]
-        sp = self.points[r0:r1]
-        computed = self.status[r0:r1] == 1
+        sp = self.characteristic_points[r0:r1]
+        computed = self.pixel_state[r0:r1] == PIXEL_TRACED
         out = self.img[r0:r1]
         out[:] = BACKGROUND
         n = int(computed.sum())

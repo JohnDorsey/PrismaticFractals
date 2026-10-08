@@ -13,7 +13,7 @@ from .parsing import parse_target_coordinate
 from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_CONSTANT_LABELS,
-    CHAN_SRC_BUDDHA, CHAN_SRC_LABELS, KIND_LABELS, N_BUDDHA_POINTS, POINT_LABELS, POINT_MENU_LABELS,
+    CHAN_SRC_BUDDHA, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, N_BUDDHA_POINTS, POINT_LABELS, POINT_MENU_LABELS,
     POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_stat_to_label, make_mapping
 )
 from .ui_text import default_map_help
@@ -41,7 +41,7 @@ class ColorationMixin:
         called whenever self.live_coloration() changes (selecting a different
         coloration, or creating/deleting one changes the selection)."""
         live = self.live_coloration()
-        self.mapping = make_mapping(live.kinds, live.point_metric, live.other_metric,
+        self.mapping = make_mapping(live.metric_types, live.point_metric, live.other_metric,
                                     live.chan_src, live.constant_choice)
         self.rebuild_buddha_counts()
         self.update_stat_tags()
@@ -229,8 +229,8 @@ class ColorationMixin:
         self.chan_src_vars = []
         self.chan_src_combos = []
         self.query_frames = []
-        self.kind_vars = []
-        self.kind_combos = []
+        self.metric_type_vars = []
+        self.metric_type_combos = []
         self.map_vars = []
         self.map_combos = []
         self.point1_vars = []
@@ -269,11 +269,11 @@ class ColorationMixin:
             qf.columnconfigure(1, weight=1)
             qf.columnconfigure(3, weight=1)
 
-            kvar = tk.StringVar(value=KIND_LABELS[coloration.kinds[c]])
-            kcombo = ttk.Combobox(qf, textvariable=kvar, values=KIND_LABELS,
+            metric_type_var = tk.StringVar(value=METRIC_TYPE_LABELS[coloration.metric_types[c]])
+            metric_type_combo = ttk.Combobox(qf, textvariable=metric_type_var, values=METRIC_TYPE_LABELS,
                                   state="readonly", width=11)
-            kcombo.grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
-            kcombo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_kind_changed(c))
+            metric_type_combo.grid(row=0, column=0, sticky="w", padx=(0, 6), pady=2)
+            metric_type_combo.bind("<<ComboboxSelected>>", lambda _e, c=c: self.on_metric_type_changed(c))
 
             mvar = tk.StringVar()
             mcombo = ttk.Combobox(qf, textvariable=mvar, state="readonly", width=18)
@@ -359,8 +359,8 @@ class ColorationMixin:
             self.chan_src_vars.append(svar)
             self.chan_src_combos.append(scombo)
             self.query_frames.append(qf)
-            self.kind_vars.append(kvar)
-            self.kind_combos.append(kcombo)
+            self.metric_type_vars.append(metric_type_var)
+            self.metric_type_combos.append(metric_type_combo)
             self.map_vars.append(mvar)
             self.map_combos.append(mcombo)
             self.point1_vars.append(p1var)
@@ -493,8 +493,8 @@ class ColorationMixin:
             lo=BUDDHA_BLUR_RADIUS_MIN, hi=BUDDHA_BLUR_RADIUS_MAX, fmt="{:.2f}",
             exact=True)
         ttk.Label(rf, foreground="#666", wraplength=RIGHT_W - 70,
-                  text="A multiple of the view's smallest dimension (2 units): 0.1 "
-                       "means a blur radius of 0.2 units. 0 means no blur at all - "
+                  text="A multiple of the image's smaller side, whatever framing it shows: 0.1 "
+                       "means a blur radius of a tenth of it. 0 means no blur at all - "
                        "each point still lands on exactly one pixel, as before."
                   ).grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 6))
 

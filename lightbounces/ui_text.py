@@ -2,7 +2,7 @@
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, OBSTACLE_EFFECT_NAMES
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT, CHAN_SRC_BUDDHA,
-    CHAN_SRC_CONSTANT, KIND_POINT, NONE_ONE, NONE_ZERO, POINT_SHORT, STAT_SHORT
+    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, STAT_SHORT
 )
 from .shapes import OBST_FIELD_FMT
 
@@ -61,14 +61,14 @@ def short_value_text(key, val):
             return f"Buddha:{'+'.join(chosen) if chosen else 'none'}/{comp}/{bright}"
         if val.chan_src == CHAN_SRC_CONSTANT:
             return f"Const:{'0' if val.constant == NONE_ZERO else '1'}"
-        if val.kind == KIND_POINT:
+        if val.metric_type == METRIC_TYPE_POINT_PAIR:
             return f"{STAT_SHORT[val.stat]}@{POINT_SHORT[val.point1]}/{POINT_SHORT[val.point2]}"
         if val.stat in (NONE_ZERO, NONE_ONE):
             raise ValueError(
                 f"channel value has stat={val.stat} (a Constant-only sentinel) but "
                 f"chan_src is {val.chan_src}, not CHAN_SRC_CONSTANT")
         return STAT_SHORT[val.stat]
-    if key in ("iter", "dist", "seed", "confine_window"):
+    if key in ("iter", "dist", "seed", "confine_lookback"):
         return str(val)
     if key == "confine_method":
         return CONFINE_METHOD_NAMES[val]

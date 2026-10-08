@@ -7,8 +7,8 @@ from .constants import (
 )
 from .geometry import ellipse_bound
 from .kernels import (
-    ObstacleArrays, SHAPE_ELLIPSE, compute_sequences, compute_stats, emits_ray,
-    inside_boundary, render_rows_wh, trace_path
+    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, compute_sequences, compute_run_measurements, emits_ray,
+    inside_boundary, trace_rows, trace_path
 )
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
@@ -36,14 +36,14 @@ class GenerationMixin:
         emits_ray(0.0, 0.0, no_obstacles)
         stop = natural_stop_rule(WARM_ITER, big, DEFAULT_ESCAPE_RADIUS, CONFINE_DEFAULT)
         ray = ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT, no_obstacles)
-        trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, stop, ray, self.hover_raw)
-        compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER, DEFAULT_SEGMENT_MULT, self.hover_vec)
-        compute_sequences(self.hover_pts, 4, self.hover_kinds, 0, WARM_ITER, self.hover_vec, self.hover_sp)
-        render_rows_wh(self.stats, self.points, self.status, 0, 1, self.img_w, self.img_h, self.image_window,
+        trace_path(0.0, 0.0, self.hover_path_points, self.hover_kinds, stop, ray, self.hover_raw)
+        compute_run_measurements(self.hover_path_points, 4, self.hover_raw, WARM_ITER, DEFAULT_SEGMENT_MULT, self.hover_vec)
+        compute_sequences(self.hover_path_points, 4, self.hover_kinds, 0, WARM_ITER, self.hover_vec, self.hover_sp)
+        trace_rows(self.stats, self.characteristic_points, self.pixel_state, 0, 1, self.img_w, self.img_h, self.image_world_rect,
                        stop, ray, 0)
         self.stats[:] = 0
-        self.points[:] = 0
-        self.status[:] = 0
+        self.characteristic_points[:] = 0
+        self.pixel_state[:] = PIXEL_PENDING
         self.ready = True
         self.update_buttons()
         self.root.after(500, self.take_startup_captures)   # let the UI settle first
@@ -105,8 +105,8 @@ class GenerationMixin:
         while self.rows_done < self.img_h:
             t0 = time.perf_counter()
             row1 = min(self.rows_done + self.batch_rows, self.img_h)
-            render_rows_wh(self.stats, self.points, self.status, self.rows_done, row1, self.img_w, self.img_h,
-                           self.image_window, self.gen_stop, self.gen_ray, g.fuzz.seed)
+            trace_rows(self.stats, self.characteristic_points, self.pixel_state, self.rows_done, row1, self.img_w, self.img_h,
+                           self.image_world_rect, self.gen_stop, self.gen_ray, g.fuzz.rng_seed)
             self.rows_done = row1
             now = time.perf_counter()
 

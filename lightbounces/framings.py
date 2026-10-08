@@ -1,14 +1,14 @@
 """Framings: where the camera is and how much of the world it sees. A framing is a centre (x, y), a diagonal and an
-aspect ratio (width / height), all in world units; it defines the rectangle of the world an image covers (a Window: what
+aspect ratio (width / height), all in world units; it defines the rectangle of the world an image covers (a WorldRect: what
 the kernels take), and so also the shape of the image on screen. This module has the live editable FramingConfig, its
 frozen copy FramingSnapshot (what background threads and project files hold) and the arithmetic from a framing to its
-window, its pixel size and the text that describes it. The whole-world framing (centre 0, 0, diagonal 2 sqrt(2),
+world rectangle, its pixel size and the text that describes it. The whole-world framing (centre 0, 0, diagonal 2 sqrt(2),
 aspect 1) covers (-1, 1, -1, 1) exactly: what every image covered before framings existed."""
 import math
 from .constants import (
     DEFAULT_FRAMING_ASPECT, DEFAULT_FRAMING_DIAGONAL, DEFAULT_FRAMING_X, DEFAULT_FRAMING_Y
 )
-from .kernels import SIZE, Window
+from .kernels import SIZE, WorldRect
 from .settings import resolve_value, strict_record
 
 FRAMING_FIELDS = ("x", "y", "diagonal", "aspect")        # a framing's settings (it also has an id)
@@ -81,20 +81,20 @@ def framing_size(f):
     return f.aspect * height, height
 
 
-def framing_window(f):
-    """The Window (see kernels.Window) a framing covers: its centre, the width and the height."""
+def framing_world_rect(f):
+    """The WorldRect (see kernels.WorldRect) a framing covers: its centre, the width and the height."""
     width, height = framing_size(f)
-    return Window(float(f.x - width / 2.0), float(f.x + width / 2.0),
+    return WorldRect(float(f.x - width / 2.0), float(f.x + width / 2.0),
                   float(f.y - height / 2.0), float(f.y + height / 2.0))
 
 
 def framing_is_usable(f):
-    """Whether a framing's numbers make a window that has a size (a diagonal too small for the centre's size, or a
+    """Whether a framing's numbers make a world rectangle that has a size (a diagonal too small for the centre's size, or a
     number too large to have a fraction, would leave it a line or a point) and a finite one."""
     width, height = framing_size(f)
-    window = framing_window(f)
-    return (all(math.isfinite(v) for v in window) and width > 0.0 and height > 0.0
-            and window.x_stop > window.x_start and window.y_stop > window.y_start)
+    world_rect = framing_world_rect(f)
+    return (all(math.isfinite(v) for v in world_rect) and width > 0.0 and height > 0.0
+            and world_rect.x_stop > world_rect.x_start and world_rect.y_stop > world_rect.y_start)
 
 
 def framing_image_size(f, box=SIZE):

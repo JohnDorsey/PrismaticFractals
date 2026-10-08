@@ -58,8 +58,8 @@ def _make_fake_app_for_snapshot():
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
 
-    app.seed_var = _Get("0")
-    app.last_seed = 0
+    app.rng_seed_var = _Get("0")
+    app.last_rng_seed = 0
     app.fuzz_enabled_var = _Get(False)
     for field in ["emit_jitter", "bnd_offset", "bnd_jitter", "bnd_mult",
                  "self_offset", "self_jitter", "self_mult"]:
@@ -71,7 +71,7 @@ def _make_fake_app_for_snapshot():
     app.seg_mult_scale = _Get(0.75)
     app.buddha_blur_radius_scale = _Get(m.DEFAULT_BUDDHA_BLUR_RADIUS)
     app.buddha_blur_type_var = _Get(m.BUDDHA_BLUR_LABELS[m.DEFAULT_BUDDHA_BLUR_TYPE])
-    app.confine_window_var = _Get(str(m.DEFAULT_CONFINE_WINDOW))
+    app.confine_lookback_var = _Get(str(m.DEFAULT_CONFINE_LOOKBACK))
     app.confine_method_var = _Get(m.CONFINE_METHOD_NAMES[m.DEFAULT_CONFINE_METHOD])
     app.confine_threshold_var = _Get(str(m.DEFAULT_CONFINE_THRESHOLD))
     app.emit_mode_var = _Get(m.EMIT_MODE_NAMES[m.DEFAULT_EMIT_MODE])
@@ -93,7 +93,7 @@ def _framing(**changes):
 
 def _give_image_geometry(app, framing=None):
     """Give a fake app the state of the image on screen that the real App has (its framing, size in pixels and world
-    window, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world."""
+    rectangle, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world."""
     app.set_image_framing = m.App.set_image_framing.__get__(app)
     app.make_image_buffers = m.App.make_image_buffers.__get__(app)
     app.pixel_center = m.App.pixel_center.__get__(app)
@@ -134,7 +134,7 @@ def _starting_obst_arrays():
 
 
 def _coloration_settings_from_config(v):
-    return m.ColorationSettings(mode=v.mode, kinds=v.kinds, point_metric=v.point_metric,
+    return m.ColorationSettings(mode=v.mode, metric_types=v.metric_types, point_metric=v.point_metric,
                           other_metric=v.other_metric, point1_choice=v.point1_choice,
                           point2_choice=v.point2_choice, chan_src=v.chan_src,
                           buddha_points=v.buddha_points, buddha_compression=v.buddha_compression,
@@ -293,9 +293,9 @@ def _run_save_new_image_synchronously(app):
 def _fake_current_image_app():
     app = _fake_export_app()
     app.stats = np.random.RandomState(0).rand(m.SIZE, m.SIZE, m.N_STATS).astype(np.float32)
-    app.points = (np.random.RandomState(1).rand(m.SIZE, m.SIZE, m.N_POINTS, 2)
+    app.characteristic_points = (np.random.RandomState(1).rand(m.SIZE, m.SIZE, m.N_POINTS, 2)
                  .astype(np.float32) * 2 - 1)
-    app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
+    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
@@ -397,7 +397,7 @@ def _terminated_coloration(**_):
     channels are constant 0: a pixel's red value then says why its ray stopped
     (255 = escaped)."""
     v = m.ColorationConfig(0)
-    v.kinds[0] = m.KIND_OTHER
+    v.metric_types[0] = m.METRIC_TYPE_OTHER
     v.other_metric[0] = m.ST_TERMINATION
     v.chan_src[1] = v.chan_src[2] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = v.constant_choice[2] = m.NONE_ZERO
@@ -419,15 +419,15 @@ def _first_direction(x0, y0, emission, fuzz=None, seed=0):
     read off the real kernel (an obstacle-free, escaping scene: the first
     recorded point is then straight down the ray, on the image edge)."""
     arrays = m.build_obstacle_arrays([_circle_obstacle(x0, y0, 0.001, P, P, fire=True)])
-    pts = np.empty((6, 2))
-    kinds = np.empty(6)
+    path_points = np.empty((6, 2))
+    path_point_tags = np.empty(6)
     raw = np.empty(m.N_RAW)
     fz = m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz)
     _seed_kernel_rng(seed)
-    term, npts = m.trace_path(x0, y0, pts, kinds, _stop(4),
+    term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _stop(4),
                               m.ray_args(1.0, fz, emission, arrays), raw)
     assert term == m.TERM_ESCAPED and npts == 2
-    delta = pts[1] - pts[0]
+    delta = path_points[1] - path_points[0]
     return delta / np.hypot(*delta)
 
 
@@ -465,8 +465,8 @@ def _fake_color_editor_app():
     app.map_help_var = _StubVar("")
     app.chan_src_vars = [_StubVar(m.CHAN_SRC_QUERY) for _ in range(3)]
     app.chan_src_combos = [_StubWidget() for _ in range(3)]
-    app.kind_vars = [_StubVar(m.KIND_POINT) for _ in range(3)]
-    app.kind_combos = [_StubWidget() for _ in range(3)]
+    app.metric_type_vars = [_StubVar(m.METRIC_TYPE_POINT_PAIR) for _ in range(3)]
+    app.metric_type_combos = [_StubWidget() for _ in range(3)]
     app.map_vars = [_StubVar("") for _ in range(3)]
     app.map_combos = [_StubWidget() for _ in range(3)]
     app.point1_vars = [_StubVar(m.POINT_LABELS[m.POINT_START]) for _ in range(3)]
@@ -485,7 +485,7 @@ def _fake_color_editor_app():
     app.constant_vars = [_StubVar(m.CHAN_CONSTANT_LABELS[0]) for _ in range(3)]
     app.constant_combos = [_StubWidget() for _ in range(3)]
 
-    app.mapping = m.make_mapping(m.DEFAULT_KINDS, m.DEFAULT_POINT_METRICS,
+    app.mapping = m.make_mapping(m.DEFAULT_METRIC_TYPES, m.DEFAULT_POINT_METRICS,
                                  m.DEFAULT_OTHER_METRICS, m.DEFAULT_CHAN_SRCS,
                                  m.DEFAULT_CONSTANT_CHOICES)
     app.rows_done = 0

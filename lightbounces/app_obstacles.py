@@ -325,5 +325,5 @@ class ObstaclesMixin:
             return                                 # nothing generated yet: nothing "pending"
         for o in self.obstacles:
             if self.obstacle_is_pending(o):
-                self.canvas.create_line(*o.outline_coords(self.image_window, self.img_w, self.img_h),
+                self.canvas.create_line(*o.outline_coords(self.image_world_rect, self.img_w, self.img_h),
                                         fill=PENDING_OUTLINE, dash=(5, 4), tags="pending")

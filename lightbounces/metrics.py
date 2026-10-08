@@ -10,7 +10,7 @@ from .constants import (
 )
 from .kernels import (
     N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, Window, scatter_from_seeds
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, WorldRect, scatter_from_seeds
 )
 
 
@@ -137,7 +137,7 @@ STAT_REDUCTION_DESCRIPTIONS = [
 
 
 def point_slot(seq, reduction):
-    """The index into a ray's stored points of one reduction (PRED_*) of one named sequence (SEQ_*)."""
+    """The index into a ray's characteristic points of one reduction (PRED_*) of one named sequence (SEQ_*)."""
     return int(POINT_SLOT[seq, reduction])
 
 
@@ -154,7 +154,7 @@ def _slot_owners(slots):
 POINT_OF_SLOT = _slot_owners(POINT_SLOT)
 STAT_OF_SLOT = _slot_owners(STAT_SLOT)
 
-# The measurements of a ray's own run (compute_stats writes them; they are no reduction of a sequence):
+# The measurements of a ray's own run (compute_run_measurements writes them; they are no reduction of a sequence):
 # slot -> (label, short name for the ray-preview panel, description)
 RUN_STAT_INFO = {
     ST_HDIST: ("Horizontal distance", "H dist",
@@ -203,7 +203,7 @@ for _slot in range(N_STATS):
     STAT_DESCRIPTIONS.append(_description)
 
 # Metrics that compare two sample points (the others ignore the point choices).
-# They are evaluated at coloring time from the stored points; the copies stored
+# They are evaluated at coloring time from the characteristic points; the copies stored
 # in the metrics array are for the end of the ray and feed the preview list.
 POINT_STATS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
 # every other metric, in the order the "Other" dropdown lists them: the run's own measurements, then each sequence's
@@ -212,11 +212,11 @@ OTHER_STATS = (tuple(slot for slot in RUN_STAT_INFO if slot not in POINT_STATS)
 
 # Two fixed reference points, unrelated to any ray - always the same regardless of
 # where the ray went. They are CHOICES only, with no slot of their own (the ids come after the
-# stored points' slots), so any code reading a chosen point's coordinates must check
+# characteristic points' slots), so any code reading a chosen point's coordinates must check
 # CONSTANT_POINT_COORDS first.
 POINT_ORIGIN = N_POINTS                       # the fixed point (0, 0)
-POINT_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed point (-1, 1): the top-left corner of the
-                                              # [-1, 1] square the simulation runs in
+POINT_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
+                                              # default framing (not of the selected one)
 N_POINT_CHOICES = N_POINTS + 2                # total selectable points (every stored one + 2 fixed)
 CONSTANT_POINT_COORDS = {POINT_ORIGIN: (0.0, 0.0), POINT_TOP_LEFT_CORNER: (-1.0, 1.0)}
 
@@ -230,15 +230,15 @@ for _slot in range(N_POINTS):
     POINT_SHORT.append(f"{SEQUENCE_SHORT[_seq]}.{POINT_REDUCTION_SHORT[_red]}")
 POINT_LABELS += ["Origin", "Top left corner"]
 POINT_DESCRIPTIONS += ["the fixed point (0, 0) - unrelated to the ray, always the same.",
-                       "the fixed point (-1, 1), the top-left corner of the simulation's [-1, 1] square - unrelated "
-                       "to the ray, always the same."]
+                       "the fixed world point (-1, 1), the top-left corner of the default framing (whichever framing "
+                       "is selected) - unrelated to the ray, always the same."]
 POINT_SHORT += ["Origin", "TopLeft"]
 POINT_NOTE = (" (Origin and Top left corner don't depend on the ray at all; a sequence the ray has no points in "
               "falls back to the ray's end point.)")
 
 # The order the two point dropdowns list the choices in: the two fixed points
 # (which don't depend on the ray at all) first, then each sequence's points. Only the display
-# order - a point's id (its index in POINT_LABELS, and into the per-ray stored points for
+# order - a point's id (its index in POINT_LABELS, and into the per-ray characteristic points for
 # every one but the fixed two) does not depend on it, and choosing by label still maps back
 # through POINT_LABELS.index().
 POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + [
@@ -253,9 +253,9 @@ CHAN_BUDDHA = -3          # self.mapping[c] sentinel: channel c uses Buddha
                          # coloration, not a Query stat at all
 
 # Dropdown contents for the coloration table
-KIND_POINT = 0         # the channel uses a point-comparison metric (+ two points)
-KIND_OTHER = 1         # the channel uses any other metric
-KIND_LABELS = ["Point comparison", "Other"]
+METRIC_TYPE_POINT_PAIR = 0         # the channel uses a point-comparison metric (+ two points)
+METRIC_TYPE_OTHER = 1         # the channel uses any other metric
+METRIC_TYPE_LABELS = ["Point comparison", "Other"]
 POINT_METRIC_LABELS = [STAT_LABELS[s] for s in POINT_STATS]
 OTHER_LABELS = [STAT_LABELS[s] for s in OTHER_STATS]
 
@@ -272,9 +272,9 @@ CHAN_SRC_CONSTANT = 2
 CHAN_SRC_LABELS = ["Query", "Buddha", "Constant"]
 
 # "Constant" source: a channel's value never depends on the simulation at
-# all. Stored in the same slot other_metric[c] already occupies (as
-# NONE_ZERO/NONE_ONE) rather than a separate field, since only one of the
-# two ever applies to a given channel at once.
+# all. Stored in the same slot the channel's metric choice already occupies (as
+# NONE_ZERO/NONE_ONE; `ColorationSettings.constant_choice` holds the choice) rather than a
+# separate field, since only one of the two ever applies to a given channel at once.
 CHAN_CONSTANT_LABELS = ["Always 0", "Always 1"]
 
 
@@ -311,22 +311,22 @@ def point_comparison_metric(stat, p1x, p1y, p2x, p2y):
     return np.clip(v, 0.0, 1.0)
 
 
-def extract_point_xy(points_arr, point_idx, computed, n):
+def extract_point_xy(characteristic_points, point_idx, computed, n):
     """(x, y) arrays of length n holding the chosen point's coordinates for
     every computed pixel: read from `points_arr` (an (H, W, N_POINTS, 2)
-    array of the stored points) for a real simulation point, or a constant-filled array for
+    array of the characteristic points) for a real simulation point, or a constant-filled array for
     POINT_ORIGIN/POINT_TOP_LEFT_CORNER, which was never written into
     `points_arr` at all."""
     if point_idx in CONSTANT_POINT_COORDS:
         cx, cy = CONSTANT_POINT_COORDS[point_idx]
         return np.full(n, cx), np.full(n, cy)
-    xy = points_arr[..., point_idx, :][computed].astype(np.float64)
+    xy = characteristic_points[..., point_idx, :][computed].astype(np.float64)
     return xy[:, 0], xy[:, 1]
 
 
 def resolve_point_xy(sp, point_idx):
     """(x, y) for a single ray's chosen point: read from `sp` (that ray's
-    own (N_POINTS, 2) stored points) for a real simulation point, or one of
+    own (N_POINTS, 2) characteristic points) for a real simulation point, or one of
     the two fixed constant points."""
     if point_idx in CONSTANT_POINT_COORDS:
         return CONSTANT_POINT_COORDS[point_idx]
@@ -349,7 +349,7 @@ BUDDHA_MULTI_PROG_MID = "prog_mid"           # progressive means of segment midp
 # (label, style, point index (BUDDHA_SIMPLE) or multi-kind (BUDDHA_MULTI),
 #  required termination reason (BUDDHA_SIMPLE only) or None for no filter).
 # The simple ones are every point stored for a ray - each reduction of each named sequence, in the order of
-# the stored points - followed by the path's last point for the rays a given limit ended; then the multi ones.
+# the characteristic points - followed by the path's last point for the rays a given limit ended; then the multi ones.
 BUDDHA_POINT_CATALOG = (
     [(POINT_LABELS[slot], BUDDHA_SIMPLE, slot, None) for slot in range(N_POINTS)]
     + [("Path: Last point (distance limit)", BUDDHA_SIMPLE, POINT_END, TERM_DIST),
@@ -366,11 +366,11 @@ BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(per
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 
-def scatter_seeded_buddha(counts, window, seeds, row0, row1, chosen, stop, ray, seed_base):
-    """Scatter, into `counts` (in place; it covers the world `window`), the Buddha points `chosen` (a channel's tuple
+def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, stop, ray, rng_seed_base):
+    """Scatter, into `counts` (in place; it covers the world rectangle `world_rect`), the Buddha points `chosen` (a channel's tuple
     of flags, one per entry of BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a
     BuddhaSeedSettings: its zone, laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen
-    option - the stored points too - is made from those rays, not from the image's own. Returns whether anything
+    option - the characteristic points too - is made from those rays, not from the image's own. Returns whether anything
     was chosen."""
     slots, end_terms = [], []
     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
@@ -387,8 +387,8 @@ def scatter_seeded_buddha(counts, window, seeds, row0, row1, chosen, stop, ray, 
             end_terms.append(term_filter)
     if not (slots or end_terms or any(want_multi.values())):
         return False
-    scatter_from_seeds(row0, row1, Window(seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop), window,
-                       stop, ray, seed_base,
+    scatter_from_seeds(row0, row1, WorldRect(seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop), world_rect,
+                       stop, ray, rng_seed_base,
                        np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
                        want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                        want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)
@@ -413,7 +413,8 @@ DEFAULT_BUDDHA_BRIGHTNESS = 0    # index into the lists above: "1x", no change
 
 
 def buddha_compress(count, method, brightness_mult=1.0):
-    """A visit count (a non-negative int, or an array of them) -> 0..1."""
+    """A visit count (a non-negative number, or an array of them) -> 0..1 with `method` (BUDDHA_COMPRESS_ARCTAN or
+    _MODULUS), then multiplied by `brightness_mult` and clipped to 0..1 (a multiplier of 1 changes nothing)."""
     if method == BUDDHA_COMPRESS_ARCTAN:
         v = (2.0 / pi) * np.arctan(count / BUDDHA_ARCTAN_SCALE)
     else:
@@ -423,7 +424,7 @@ def buddha_compress(count, method, brightness_mult=1.0):
     return v
 
 
-def make_mapping(kinds, point_metrics, other_metrics, chan_src=None, constant_choices=None):
+def make_mapping(metric_types, point_metrics, other_metrics, chan_src=None, constant_choices=None):
     """The metric (or NONE_*/CHAN_BUDDHA) each channel is currently using."""
     def one(c):
         if chan_src is not None and chan_src[c] == CHAN_SRC_BUDDHA:
@@ -434,5 +435,5 @@ def make_mapping(kinds, point_metrics, other_metrics, chan_src=None, constant_ch
                     f"channel {c} is CHAN_SRC_CONSTANT but make_mapping was called "
                     "without constant_choices")
             return constant_choices[c]
-        return point_metrics[c] if kinds[c] == KIND_POINT else other_metrics[c]
+        return point_metrics[c] if metric_types[c] == METRIC_TYPE_POINT_PAIR else other_metrics[c]
     return tuple(one(c) for c in range(3))

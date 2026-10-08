@@ -2,7 +2,7 @@
 import math
 import re
 from .constants import (
-    CONFINE_WINDOW_MAX, CONFINE_WINDOW_MIN, DIST_LIMIT_MAX, DIST_LIMIT_MIN, ITER_LIMIT_MAX,
+    CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN, DIST_LIMIT_MAX, DIST_LIMIT_MIN, ITER_LIMIT_MAX,
     ITER_LIMIT_MIN
 )
 
@@ -30,12 +30,12 @@ def parse_dist_limit(text):
     return None
 
 
-def parse_confine_window(text):
-    """Whole number of path points in [CONFINE_WINDOW_MIN, CONFINE_WINDOW_MAX]
+def parse_confine_lookback(text):
+    """Whole number of path points in [CONFINE_LOOKBACK_MIN, CONFINE_LOOKBACK_MAX]
     from entry text, else None."""
     if re.fullmatch(r"[0-9]{1,3}", text):
         value = int(text)
-        if CONFINE_WINDOW_MIN <= value <= CONFINE_WINDOW_MAX:
+        if CONFINE_LOOKBACK_MIN <= value <= CONFINE_LOOKBACK_MAX:
             return value
     return None
 
@@ -78,7 +78,7 @@ def parse_target_coordinate(text):
     return value if math.isfinite(value) else None
 
 
-def parse_seed(text):
+def parse_rng_seed(text):
     """Whole number seed from entry text (blank counts as 0), else None."""
     if text == "":
         return 0

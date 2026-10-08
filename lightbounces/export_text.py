@@ -8,7 +8,7 @@ from .image_io import jxl_quality_tag, render_text_line
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, SIZE
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
-    CHAN_SRC_CONSTANT, KIND_POINT, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_STATS, STAT_LABELS,
+    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_STATS, STAT_LABELS,
     constant_stat_to_label
 )
 from .colorations import MODES
@@ -28,7 +28,7 @@ def settings_suffix(ray, natural_stop):
                   f"bo{f.bnd_offset:.1f}", f"bj{f.bnd_jitter:.1f}",
                   f"bm{f.bnd_mult:.2f}",
                   f"so{f.self_offset:.1f}", f"sj{f.self_jitter:.1f}",
-                  f"sm{f.self_mult:.2f}", f"seed{f.seed}"]
+                  f"sm{f.self_mult:.2f}", f"seed{f.rng_seed}"]
     return "-".join(parts)
 
 
@@ -97,7 +97,7 @@ def coloration_info_lines(coloration):
             lines.append(f"{letter}:Constant")
             lines.append(f"  {constant_stat_to_label(coloration.constant_choice[c])}")
         else:
-            stat = coloration.point_metric[c] if coloration.kinds[c] == KIND_POINT else coloration.other_metric[c]
+            stat = coloration.point_metric[c] if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR else coloration.other_metric[c]
             if stat in (NONE_ZERO, NONE_ONE):
                 raise ValueError(
                     f"channel {c} has stat={stat} (a Constant-only sentinel) but "
@@ -138,7 +138,7 @@ def figure_info_blocks(ray, natural_stop, obstacles):
                 f"  offset y {ray.emit_target_cy:.9g}" if toward else " ",
                 f"  angle offset {ray.emit_offset:+.2f}\u00b0"]
     confinement = [f"Confine:{CONFINE_METHOD_NAMES[natural_stop.confine_method]}",
-                   f"  window {natural_stop.confine_window}",
+                   f"  lookback {natural_stop.confine_lookback}",
                    ("  box size " if natural_stop.confine_method == CONFINE_BOX
                     else "  path length ") + f"{natural_stop.confine_threshold:.9g}"]
     f = ray.fuzz
@@ -151,7 +151,7 @@ def figure_info_blocks(ray, natural_stop, obstacles):
                 f"\u00d7{f.bnd_mult:.2f}",
                 f"  Self {f.self_offset:+.1f}\u00b0 \u00b1{f.self_jitter:.1f}\u00b0 "
                 f"\u00d7{f.self_mult:.2f}",
-                f"  Seed {f.seed}"]
+                f"  Seed {f.rng_seed}"]
     blocks = [limits, emission, confinement, fuzz]
     if obstacles:
         blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]

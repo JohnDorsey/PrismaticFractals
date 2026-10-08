@@ -40,7 +40,7 @@ from .kernels import (
     OBSTACLE_EFFECT_REFLECT, ObstacleArrays, PIXEL, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
     SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_FLOWER, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
     SHAPE_REULEAUX, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_SNAIL, SHAPE_SPIRAL, SHAPE_SUPERELLIPSE,
-    SHAPE_TREFOIL, SIZE, WINDOW_DEFAULT, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid,
+    SHAPE_TREFOIL, SIZE, WORLD_RECT_DEFAULT, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid,
     spiral_distance_grid, squircle_distance_grid
 )
 from .settings import resolve_obstacles, strict_record
@@ -252,13 +252,13 @@ class Shape:
         """(x, y) arrays tracing its edge around its own centre."""
         return sample_boundary_xy(self.KIND, self.bound())
 
-    def outline_coords(self, window=WINDOW_DEFAULT, w=SIZE, h=SIZE):
+    def outline_coords(self, world_rect=WORLD_RECT_DEFAULT, w=SIZE, h=SIZE):
         """Canvas coordinates (flat list) of a polygon tracing the shape, at its
-        centre (polar position plus x/y offset), on a canvas w x h pixels that shows the world `window`."""
+        centre (polar position plus x/y offset), on a canvas w x h pixels that shows the world rectangle `world_rect`."""
         wx, wy = self.boundary_xy()
         ocx, ocy = self.center()
-        xs = (wx + ocx - window.x_start) * (w / (window.x_stop - window.x_start))
-        ys = (window.y_stop - (wy + ocy)) * (h / (window.y_stop - window.y_start))
+        xs = (wx + ocx - world_rect.x_start) * (w / (world_rect.x_stop - world_rect.x_start))
+        ys = (world_rect.y_stop - (wy + ocy)) * (h / (world_rect.y_stop - world_rect.y_start))
         return np.column_stack((xs, ys)).ravel().tolist()
 
 

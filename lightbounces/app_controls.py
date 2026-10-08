@@ -4,20 +4,20 @@ import re
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
-    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, CONFINE_WINDOW_MAX, CONFINE_WINDOW_MIN,
-    DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
+    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN,
+    DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
-    DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER,
+    DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
     DEFAULT_SEGMENT_MULT, DIST_LIMIT_MAX, DIST_LIMIT_MIN, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
     FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, PIXEL
 from .parsing import (
-    parse_confine_threshold, parse_confine_window, parse_dist_limit, parse_escape_radius,
+    parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
     parse_iter_limit,
-    parse_resolution_dimension, parse_seed, parse_target_coordinate
+    parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 )
 from .settings import (
     BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, FuzzParams, NaturalStopSettings, RaySettings,
@@ -92,28 +92,28 @@ class ControlsMixin:
 
     def build_confinement_controls(self, parent):
         """The Confinement section: how many of a ray's most recent path points
-        are judged (window), by which method, against what threshold (see
+        are judged (the lookback), by which method, against what threshold (see
         CONFINE_BOX / CONFINE_PATH). The threshold accepts any number above
         zero, however small."""
         cf = ttk.LabelFrame(parent, text="Confinement")
         cf.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
         cf.columnconfigure(0, weight=1)
-        window_vcmd = (self.root.register(self.validate_window_digits), "%P")
+        lookback_vcmd = (self.root.register(self.validate_lookback_digits), "%P")
         threshold_vcmd = (self.root.register(self.validate_positive_float), "%P")
 
-        self.confine_window_var = tk.StringVar(value=str(DEFAULT_CONFINE_WINDOW))
+        self.confine_lookback_var = tk.StringVar(value=str(DEFAULT_CONFINE_LOOKBACK))
         self.confine_method_var = tk.StringVar(
             value=CONFINE_METHOD_NAMES[DEFAULT_CONFINE_METHOD])
         self.confine_threshold_var = tk.StringVar(
             value=str(DEFAULT_CONFINE_THRESHOLD))
         self.confine_threshold_label_var = tk.StringVar()
 
-        ttk.Label(cf, text="Window size (path points):").grid(
+        ttk.Label(cf, text="Lookback (path points):").grid(
             row=0, column=0, sticky="w", padx=(8, 6), pady=(6, 2))
-        self.confine_window_entry = ttk.Entry(
-            cf, textvariable=self.confine_window_var, width=8, justify="right",
-            validate="key", validatecommand=window_vcmd)
-        self.confine_window_entry.grid(row=0, column=1, padx=(0, 8), pady=(6, 2))
+        self.confine_lookback_entry = ttk.Entry(
+            cf, textvariable=self.confine_lookback_var, width=8, justify="right",
+            validate="key", validatecommand=lookback_vcmd)
+        self.confine_lookback_entry.grid(row=0, column=1, padx=(0, 8), pady=(6, 2))
 
         ttk.Label(cf, text="Detection method:").grid(
             row=1, column=0, sticky="w", padx=(8, 6), pady=2)
@@ -129,7 +129,7 @@ class ControlsMixin:
             cf, textvariable=self.confine_threshold_var, width=14, justify="right",
             validate="key", validatecommand=threshold_vcmd)
         self.confine_threshold_entry.grid(row=2, column=1, padx=(0, 8), pady=2)
-        for entry in (self.confine_window_entry, self.confine_threshold_entry):
+        for entry in (self.confine_lookback_entry, self.confine_threshold_entry):
             for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
                 entry.bind(event, self.on_limit_commit)
 
@@ -139,7 +139,7 @@ class ControlsMixin:
                                                 sticky="w", padx=8)
         ttk.Label(cf, foreground="#666", wraplength=RIGHT_W - 70,
                   text="A ray stops as confined when its last few path points (the "
-                       "window) show it is going nowhere. Box: they fit in a box "
+                       "lookback) show it is going nowhere. Box: they fit in a box "
                        "smaller than the threshold in both directions. Path length: "
                        "the segments between them add up to less than the threshold. "
                        "The threshold is in world units (the image spans -1 to 1) and "
@@ -360,24 +360,24 @@ class ControlsMixin:
         bounce_group("Self bounces", "self").grid(
             row=3, column=0, sticky="nsew", padx=(6, 3), pady=(0, 6))
 
-        seed = ttk.LabelFrame(fz, text="Random seed")
-        seed.grid(row=3, column=1, sticky="nsew", padx=(3, 6), pady=(0, 6))
-        seed.columnconfigure(0, weight=1)
-        row = ttk.Frame(seed)
+        rng_seed_frame = ttk.LabelFrame(fz, text="Random seed")
+        rng_seed_frame.grid(row=3, column=1, sticky="nsew", padx=(3, 6), pady=(0, 6))
+        rng_seed_frame.columnconfigure(0, weight=1)
+        row = ttk.Frame(rng_seed_frame)
         row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        self.seed_var = tk.StringVar(value=str(DEFAULT_FUZZ_SEED))
-        vcmd = (self.root.register(self.validate_seed_digits), "%P")
-        self.seed_entry = ttk.Entry(row, textvariable=self.seed_var, width=11,
+        self.rng_seed_var = tk.StringVar(value=str(DEFAULT_RNG_SEED))
+        vcmd = (self.root.register(self.validate_rng_seed_digits), "%P")
+        self.rng_seed_entry = ttk.Entry(row, textvariable=self.rng_seed_var, width=11,
                                     justify="right", validate="key",
                                     validatecommand=vcmd)
-        self.seed_entry.pack(side="left", padx=(0, 8))
-        self.seed_entry.bind("<FocusOut>", self.on_seed_commit)
-        self.seed_entry.bind("<Return>", self.on_seed_commit)
-        self.seed_entry.bind("<KP_Enter>", self.on_seed_commit)
-        randomize_btn = ttk.Button(row, text="Randomize", command=self.randomize_seed)
+        self.rng_seed_entry.pack(side="left", padx=(0, 8))
+        self.rng_seed_entry.bind("<FocusOut>", self.on_rng_seed_commit)
+        self.rng_seed_entry.bind("<Return>", self.on_rng_seed_commit)
+        self.rng_seed_entry.bind("<KP_Enter>", self.on_rng_seed_commit)
+        randomize_btn = ttk.Button(row, text="Randomize", command=self.randomize_rng_seed)
         randomize_btn.pack(side="left")
-        self.fuzz_ttk_widgets += [self.seed_entry, randomize_btn]
-        ttk.Label(seed, foreground="#666", wraplength=RIGHT_W // 2 - 60,
+        self.fuzz_ttk_widgets += [self.rng_seed_entry, randomize_btn]
+        ttk.Label(rng_seed_frame, foreground="#666", wraplength=RIGHT_W // 2 - 60,
                   text="Same seed and settings give the same image every time."
                   ).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 6))
 
@@ -407,8 +407,8 @@ class ControlsMixin:
         return re.fullmatch(r"-?[0-9]*\.?[0-9]*(?:[eE][-+]?[0-9]*)?", proposed) is not None
 
     @staticmethod
-    def validate_window_digits(proposed):
-        """Key-by-key check for the confinement window: up to three digits."""
+    def validate_lookback_digits(proposed):
+        """Key-by-key check for the confinement lookback: up to three digits."""
         return re.fullmatch(r"[0-9]{0,3}", proposed) is not None
 
     @staticmethod
@@ -421,7 +421,7 @@ class ControlsMixin:
         return re.fullmatch(r"[0-9]*\.?[0-9]*(?:[eE][-+]?[0-9]*)?", proposed) is not None
 
     @staticmethod
-    def validate_seed_digits(proposed):
+    def validate_rng_seed_digits(proposed):
         return re.fullmatch(r"[0-9]{0,9}", proposed) is not None
 
     @staticmethod
@@ -451,7 +451,7 @@ class ControlsMixin:
         it = parse_iter_limit(self.iter_var.get())
         ds = parse_dist_limit(self.dist_var.get())
         er = parse_escape_radius(self.escape_radius_var.get())
-        cw = parse_confine_window(self.confine_window_var.get())
+        cw = parse_confine_lookback(self.confine_lookback_var.get())
         ct = parse_confine_threshold(self.confine_threshold_var.get())
         if it is not None:
             self.last_iter = it
@@ -460,13 +460,13 @@ class ControlsMixin:
         if er is not None:
             self.last_escape_radius = er
         if cw is not None:
-            self.last_confine_window = cw
+            self.last_confine_lookback = cw
         if ct is not None:
             self.last_confine_threshold = ct
         self.iter_entry.configure(style="TEntry" if it is not None else "Invalid.TEntry")
         self.dist_entry.configure(style="TEntry" if ds is not None else "Invalid.TEntry")
         self.escape_radius_entry.configure(style="TEntry" if er is not None else "Invalid.TEntry")
-        self.confine_window_entry.configure(
+        self.confine_lookback_entry.configure(
             style="TEntry" if cw is not None else "Invalid.TEntry")
         self.confine_threshold_entry.configure(
             style="TEntry" if ct is not None else "Invalid.TEntry")
@@ -483,8 +483,8 @@ class ControlsMixin:
         self.emit_msg_var.set(" ".join(emit_msgs))
         confine_msgs = []
         if cw is None:
-            confine_msgs.append(f"Window size must be a whole number from "
-                                f"{CONFINE_WINDOW_MIN} to {CONFINE_WINDOW_MAX}.")
+            confine_msgs.append(f"Lookback must be a whole number from "
+                                f"{CONFINE_LOOKBACK_MIN} to {CONFINE_LOOKBACK_MAX}.")
         if ct is None:
             confine_msgs.append("Threshold must be a number greater than 0 "
                                 "(any size, e.g. 0.004 or 1e-9).")
@@ -510,7 +510,7 @@ class ControlsMixin:
                 (self.iter_var, self.last_iter, parse_iter_limit),
                 (self.dist_var, self.last_dist, parse_dist_limit),
                 (self.escape_radius_var, self.last_escape_radius, parse_escape_radius),
-                (self.confine_window_var, self.last_confine_window, parse_confine_window),
+                (self.confine_lookback_var, self.last_confine_lookback, parse_confine_lookback),
                 (self.confine_threshold_var, self.last_confine_threshold,
                  parse_confine_threshold),
                 *[(getattr(self, f"emit_target_{field}_var"),
@@ -526,20 +526,20 @@ class ControlsMixin:
         self.update_buttons()
         self.refresh_timeline_diffs()
 
-    def on_seed_var_changed(self, *_args):
-        seed = parse_seed(self.seed_var.get())
-        if seed is not None:
-            self.last_seed = seed
-        self.seed_entry.configure(style="TEntry" if seed is not None else "Invalid.TEntry")
+    def on_rng_seed_var_changed(self, *_args):
+        rng_seed = parse_rng_seed(self.rng_seed_var.get())
+        if rng_seed is not None:
+            self.last_rng_seed = rng_seed
+        self.rng_seed_entry.configure(style="TEntry" if rng_seed is not None else "Invalid.TEntry")
         self.on_fuzz_changed()
 
-    def on_seed_commit(self, _event=None):
-        seed = parse_seed(self.seed_var.get())
-        self.seed_var.set(str(self.last_seed if seed is None else seed))
+    def on_rng_seed_commit(self, _event=None):
+        rng_seed = parse_rng_seed(self.rng_seed_var.get())
+        self.rng_seed_var.set(str(self.last_rng_seed if rng_seed is None else rng_seed))
 
-    def randomize_seed(self):
-        self.seed_var.set(str(random.randint(0, 999999999)))
-        self.on_seed_commit()
+    def randomize_rng_seed(self):
+        self.rng_seed_var.set(str(random.randint(0, 999999999)))
+        self.on_rng_seed_commit()
 
     # ---- change handling (obstacle shape parameters and the like) -------------- #
     def on_shape_param_changed(self, _value=None):
@@ -552,7 +552,7 @@ class ControlsMixin:
     # ---- fuzzing controls ---------------------------------------------------- #
     def read_fuzz_controls(self):
         """FuzzParams from the current widget values."""
-        seed = parse_seed(self.seed_var.get())
+        rng_seed = parse_rng_seed(self.rng_seed_var.get())
         return FuzzParams(
             enabled=bool(self.fuzz_enabled_var.get()),
             emit_jitter=round(float(self.emit_jitter_scale.get()), 2),
@@ -562,7 +562,7 @@ class ControlsMixin:
             self_offset=round(float(self.self_offset_scale.get()), 2),
             self_jitter=round(float(self.self_jitter_scale.get()), 2),
             self_mult=round(float(self.self_mult_scale.get()), 3),
-            seed=self.last_seed if seed is None else seed)
+            rng_seed=self.last_rng_seed if rng_seed is None else rng_seed)
 
     def update_fuzz_enabled_state(self):
         """Grey out every Fuzzing-tab control except the Enable checkbox itself
@@ -611,12 +611,12 @@ class ControlsMixin:
         it = parse_iter_limit(self.iter_var.get())
         ds = parse_dist_limit(self.dist_var.get())
         er = parse_escape_radius(self.escape_radius_var.get())
-        cw = parse_confine_window(self.confine_window_var.get())
+        cw = parse_confine_lookback(self.confine_lookback_var.get())
         ct = parse_confine_threshold(self.confine_threshold_var.get())
         if it is None or ds is None or er is None or cw is None or ct is None:
             return None
         return NaturalStopSettings(
-            max_iter=it, max_dist=ds, escape_radius=er, confine_window=cw,
+            max_iter=it, max_dist=ds, escape_radius=er, confine_lookback=cw,
             confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
             confine_threshold=ct)
 

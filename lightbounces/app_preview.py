@@ -7,10 +7,10 @@ from .constants import (
     COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
 from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_placeholder, render_text_line
-from .framings import framing_image_size, framing_outline_pixel, framing_window
+from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
-    N_POINTS, N_STATS, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_stats, emits_ray,
+    N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, emits_ray,
     in_sequence, trace_path
 )
 from .metrics import POINT_STATS, resolve_point_xy
@@ -23,12 +23,12 @@ class PreviewMixin:
     # ---- the image on screen: its framing, its pixels and the world they cover ---------------------------- #
     def set_image_framing(self, framing):
         """The image on screen is, from now on, an image of `framing` (a FramingSnapshot): the pixel grid is
-        its aspect ratio's size (see framing_image_size), covers the world rectangle it makes (image_window), and
+        its aspect ratio's size (see framing_image_size), covers the world rectangle it makes (image_world_rect), and
         everything computed so far is discarded (nothing is computed for the new grid yet: rows_done is 0). The
-        canvas takes the new size. Every conversion between a pixel and the world goes through image_window,
+        canvas takes the new size. Every conversion between a pixel and the world goes through image_world_rect,
         img_w and img_h (pixel_center, world_to_canvas)."""
         self.image_framing = framing
-        self.image_window = framing_window(framing)
+        self.image_world_rect = framing_world_rect(framing)
         self.img_w, self.img_h = framing_image_size(framing)
         self.outline_pixel = framing_outline_pixel(framing)
         self.rows_done = 0
@@ -38,39 +38,39 @@ class PreviewMixin:
             self.photo.configure(width=self.img_w, height=self.img_h)
 
     def make_image_buffers(self):
-        """The per-pixel data and the image buffers for an img_w x img_h image of image_window, all empty (the
+        """The per-pixel data and the image buffers for an img_w x img_h image of image_world_rect, all empty (the
         buffers of the same size as the last are cleared, not made again) and the grid of the world coordinates of
         every pixel centre (which is also each ray's start point)."""
         shape = (self.img_h, self.img_w)
-        if getattr(self, "status", None) is not None and self.status.shape == shape:
+        if getattr(self, "pixel_state", None) is not None and self.pixel_state.shape == shape:
             self.stats[:] = 0
-            self.points[:] = 0
-            self.status[:] = 0
+            self.characteristic_points[:] = 0
+            self.pixel_state[:] = PIXEL_PENDING
             self.img[:] = BACKGROUND
         else:
             self.stats = np.zeros(shape + (N_STATS,), dtype=np.float32)
-            self.points = np.zeros(shape + (N_POINTS, 2), dtype=np.float32)
-            self.status = np.zeros(shape, dtype=np.uint8)           # 0 = not computed yet
+            self.characteristic_points = np.zeros(shape + (N_POINTS, 2), dtype=np.float32)
+            self.pixel_state = np.full(shape, PIXEL_PENDING, dtype=np.uint8)
             self.img = np.empty(shape + (3,), dtype=np.uint8)
             self.img[:] = BACKGROUND
             self.frame = np.empty_like(self.img)        # img + the outlines; this is what gets exported/saved, so
                                                         # it must never hold a preview-only decoration
             self.display_frame = np.empty_like(self.img)   # self.frame + the coloration-name overlay; only ever
                                                            # pushed to self.photo, never written to disk
-        self.gx, self.gy = make_grid(self.img_w, self.img_h, self.image_window)
+        self.gx, self.gy = make_grid(self.img_w, self.img_h, self.image_world_rect)
 
     def pixel_center(self, i, j):
         """The world coordinates of the centre of pixel (i, j) of the image on screen: where its ray starts (the same
-        arithmetic as render_rows_wh's, so a hover ray is exactly the one the image has)."""
-        window = self.image_window
-        return (window.x_start + (i + 0.5) * ((window.x_stop - window.x_start) / self.img_w),
-                window.y_stop - (j + 0.5) * ((window.y_stop - window.y_start) / self.img_h))
+        arithmetic as trace_rows's, so a hover ray is exactly the one the image has)."""
+        world_rect = self.image_world_rect
+        return (world_rect.x_start + (i + 0.5) * ((world_rect.x_stop - world_rect.x_start) / self.img_w),
+                world_rect.y_stop - (j + 0.5) * ((world_rect.y_stop - world_rect.y_start) / self.img_h))
 
     def world_to_canvas(self, x, y):
         """The canvas (pixel) coordinates of the world point (x, y) - numbers or arrays - on the image on screen."""
-        window = self.image_window
-        return ((x - window.x_start) * (self.img_w / (window.x_stop - window.x_start)),
-                (window.y_stop - y) * (self.img_h / (window.y_stop - window.y_start)))
+        world_rect = self.image_world_rect
+        return ((x - world_rect.x_start) * (self.img_w / (world_rect.x_stop - world_rect.x_start)),
+                (world_rect.y_stop - y) * (self.img_h / (world_rect.y_stop - world_rect.y_start)))
 
     def set_preview_image(self, rgb):
         """Show `rgb` (an (H, W, 3) uint8 array) bilinearly resized into the
@@ -164,7 +164,7 @@ class PreviewMixin:
             return self.generated_natural_stop
         return NaturalStopSettings(
             max_iter=self.last_iter, max_dist=self.last_dist, escape_radius=self.last_escape_radius,
-            confine_window=self.last_confine_window,
+            confine_lookback=self.last_confine_lookback,
             confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
             confine_threshold=self.last_confine_threshold)
 
@@ -224,19 +224,19 @@ class PreviewMixin:
         self.hover_px = (i, j)
         pn = self.preview_natural_stop_settings()
         if ps.fuzz.enabled:
-            np.random.seed(ps.fuzz.seed + i * 1000003 + j * 97)
-        pts, kinds = self.hover_pts, self.hover_kinds
+            np.random.seed(ps.fuzz.rng_seed + i * 1000003 + j * 97)
+        path_points, path_point_tags = self.hover_path_points, self.hover_path_point_tags
         raw, vec, sp = self.hover_raw, self.hover_vec, self.hover_sp
-        term, n = trace_path(x, y, pts, kinds, settings_natural_stop(pn),
+        term, n = trace_path(x, y, path_points, path_point_tags, settings_natural_stop(pn),
                              settings_ray_args(ps, obstacles), raw)
-        compute_stats(pts, n, raw, pn.max_iter, ps.seg_mult, vec)
-        compute_sequences(pts, n, kinds, int(raw[RAW_BOUNCES]), pn.max_iter, vec, sp)
+        compute_run_measurements(path_points, n, raw, pn.max_iter, ps.seg_mult, vec)
+        compute_sequences(path_points, n, path_point_tags, int(raw[RAW_BOUNCES]), pn.max_iter, vec, sp)
         vals = self.component_values(vec, sp, x, y)
-        self.draw_segments(pts, kinds, n)
-        self.draw_corkscrew(pts, kinds, n)
+        self.draw_segments(path_points, path_point_tags, n)
+        self.draw_corkscrew(path_points, path_point_tags, n)
 
         # ---- overlay on the canvas (never part of the image) ----
-        xs, ys = self.world_to_canvas(pts[:n, 0], pts[:n, 1])
+        xs, ys = self.world_to_canvas(path_points[:n, 0], path_points[:n, 1])
         coords = np.column_stack((xs, ys)).ravel().tolist()
         show = {key: var.get() for key, var in self.deco.items()}
 
@@ -287,8 +287,8 @@ class PreviewMixin:
 
         # ---- info panel ----
         bounces = int(raw[RAW_BOUNCES])
-        n_boundary = sum(in_sequence(SEQ_BOUNDARY, k, kinds, bounces, n) for k in range(n))
-        fx, fy = float(pts[n - 1, 0]), float(pts[n - 1, 1])
+        n_boundary = sum(in_sequence(SEQ_BOUNDARY, k, path_point_tags) for k in range(n))
+        fx, fy = float(path_points[n - 1, 0]), float(path_points[n - 1, 1])
         r, g, b = self.map_color(vals)
         hexcol = f"#{r:02x}{g:02x}{b:02x}"
 

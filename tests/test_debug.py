@@ -343,7 +343,7 @@ def _fake_debug_app():
     app.root = _FakeGeometryRoot()
     app._crash_dumps = 0
     app.keep_window_on_screen = lambda: None
-    app.points = np.zeros((200, 200, 2), dtype=np.float32)   # 320 KB: a large array
+    app.characteristic_points = np.zeros((200, 200, 2), dtype=np.float32)   # 320 KB: a large array
     app.iter_var = _FakeVar()
     for name in ("take_startup_screenshot", "take_startup_captures", "manual_screenshot",
                  "manual_dump", "report_debug_result", "on_callback_exception", "dump_crash"):
@@ -417,7 +417,7 @@ def test_startup_captures_take_a_screenshot_then_a_dump_without_large_arrays_onc
         assert len(shots) == 1 and shots[0].endswith("-startup.png")
         data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
         assert data["meta"]["cause"] == "startup" and data["meta"]["large_arrays_included"] is False
-        assert data["app"]["points"]["__standin__"] == "large array"
+        assert data["app"]["characteristic_points"]["__standin__"] == "large array"
         assert data["app"]["iter_var"]["value"] == "256"
 
 
@@ -474,7 +474,7 @@ def test_a_crash_leaves_a_dump_without_large_arrays_and_no_screenshot():
         assert name.endswith("-crash.pkl")
         data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
         assert data["meta"]["large_arrays_included"] is False
-        assert data["app"]["points"]["__standin__"] == "large array"
+        assert data["app"]["characteristic_points"]["__standin__"] == "large array"
         assert "ValueError: kaboom" in data["meta"]["exception"]
     assert "Exception in Tkinter callback" in err.getvalue() and "kaboom" in err.getvalue()
 

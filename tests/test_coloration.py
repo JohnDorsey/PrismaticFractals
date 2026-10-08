@@ -18,10 +18,10 @@ def test_extract_point_xy_returns_constants_for_the_fixed_points():
 
 
 def test_extract_point_xy_still_reads_real_points_from_the_array():
-    points_arr = np.zeros((3, 3, m.N_POINTS, 2))
-    points_arr[..., m.POINT_START, :] = [0.5, 0.25]
+    characteristic_points = np.zeros((3, 3, m.N_POINTS, 2))
+    characteristic_points[..., m.POINT_START, :] = [0.5, 0.25]
     computed = np.ones((3, 3), dtype=bool)
-    x, y = m.extract_point_xy(points_arr, m.POINT_START, computed, 9)
+    x, y = m.extract_point_xy(characteristic_points, m.POINT_START, computed, 9)
     assert x[0] == 0.5 and y[0] == 0.25
 
 
@@ -46,13 +46,13 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
     since the metric no longer depends on the ray at all."""
     app = _fake_render_app()
     stats = np.zeros((4, 4, m.N_STATS), dtype=np.float32)
-    points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
-    status = np.ones((4, 4), dtype=np.uint8)
+    characteristic_points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.full((4, 4), m.PIXEL_TRACED, dtype=np.uint8)
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.point1_choice[0] = m.POINT_ORIGIN
     v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
-    img = app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, 4, 4,
+    img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
                             m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == img[0, 0, 0]).all()
     assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
@@ -100,7 +100,7 @@ def test_make_mapping_raises_if_constant_channel_has_no_constant_choices():
     """The specific safety property requested: a mistake here must crash,
     not silently misread some other slot."""
     try:
-        m.make_mapping([m.KIND_OTHER] * 3, [0] * 3, [0] * 3,
+        m.make_mapping([m.METRIC_TYPE_OTHER] * 3, [0] * 3, [0] * 3,
                        chan_src=[m.CHAN_SRC_CONSTANT] * 3)
         assert False, "should have raised"
     except ValueError:
@@ -108,12 +108,12 @@ def test_make_mapping_raises_if_constant_channel_has_no_constant_choices():
 
 
 def test_make_mapping_resolves_constant_channels_from_constant_choices():
-    kinds = [m.KIND_OTHER] * 3
+    metric_types = [m.METRIC_TYPE_OTHER] * 3
     point_metrics = [m.ST_HDIST] * 3
     other_metrics = [m.ST_BOUNCES, m.ST_BOUNCES, m.ST_BOUNCES]   # never consulted
     chan_src = [m.CHAN_SRC_CONSTANT, m.CHAN_SRC_CONSTANT, m.CHAN_SRC_QUERY]
     constant_choices = [m.NONE_ZERO, m.NONE_ONE, m.NONE_ZERO]    # [2] unused (Query)
-    mapping = m.make_mapping(kinds, point_metrics, other_metrics, chan_src, constant_choices)
+    mapping = m.make_mapping(metric_types, point_metrics, other_metrics, chan_src, constant_choices)
     assert mapping == (m.NONE_ZERO, m.NONE_ONE, m.ST_BOUNCES)
 
 
@@ -133,14 +133,14 @@ def test_apply_coloration_renders_constant_channels_correctly():
     everywhere, regardless of the actual simulation data."""
     app = _fake_render_app()
     stats = np.random.RandomState(0).rand(4, 4, m.N_STATS).astype(np.float32)
-    points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
-    status = np.ones((4, 4), dtype=np.uint8)
+    characteristic_points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.full((4, 4), m.PIXEL_TRACED, dtype=np.uint8)
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.chan_src[0] = m.CHAN_SRC_CONSTANT
     v.constant_choice[0] = m.NONE_ONE
     v.chan_src[1] = m.CHAN_SRC_CONSTANT
     v.constant_choice[1] = m.NONE_ZERO
-    img = app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, 4, 4,
+    img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
                             m.DEFAULT_BUDDHA_BLUR, _stop(30), _ray(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == 255).all()
     assert (img[..., 1] == 0).all()
@@ -162,7 +162,7 @@ def test_coloration_info_lines_raises_if_stat_is_a_constant_sentinel_outside_con
     up holding a Constant-only sentinel while chan_src is Query, that must
     crash loudly rather than render as if it were a real metric."""
     v = m.ColorationConfig(0)
-    v.kinds[0] = m.KIND_OTHER
+    v.metric_types[0] = m.METRIC_TYPE_OTHER
     v.other_metric[0] = m.NONE_ZERO      # chan_src[0] is still CHAN_SRC_QUERY
     try:
         m.coloration_info_lines(v)
@@ -182,7 +182,7 @@ def test_short_value_text_describes_a_constant_channel():
 
 def test_short_value_text_raises_if_stat_is_a_constant_sentinel_outside_constant_source():
     v = m.ColorationConfig(0)
-    v.kinds[0] = m.KIND_OTHER
+    v.metric_types[0] = m.METRIC_TYPE_OTHER
     v.other_metric[0] = m.NONE_ONE       # chan_src[0] is still CHAN_SRC_QUERY
     val = m.coloration_channel_value(v, 0)
     try:
@@ -369,11 +369,11 @@ def test_apply_coloration_spreads_a_buddha_point_with_blur_enabled():
     app = _fake_render_app()
     size = 20
     stats = np.zeros((size, size, m.N_STATS), dtype=np.float32)
-    points = np.full((size, size, m.N_POINTS, 2), 100.0, dtype=np.float32)   # far outside
+    characteristic_points = np.full((size, size, m.N_POINTS, 2), 100.0, dtype=np.float32)   # far outside
                                                                              # the [-1,1] grid
-    status = np.zeros((size, size), dtype=np.uint8)
-    status[8:13, 8:13] = 1                          # a small fired neighborhood
-    points[10, 10, m.POINT_ALL_MEAN] = [0.0, 0.0]   # only this one actually lands in-frame
+    pixel_state = np.zeros((size, size), dtype=np.uint8)
+    pixel_state[8:13, 8:13] = m.PIXEL_TRACED                          # a small fired neighborhood
+    characteristic_points[10, 10, m.POINT_ALL_MEAN] = [0.0, 0.0]   # only this one actually lands in-frame
 
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
@@ -383,11 +383,11 @@ def test_apply_coloration_spreads_a_buddha_point_with_blur_enabled():
     stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
 
     no_blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    img_no_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, size, size, no_blur, stop, ray, 0)
+    img_no_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, no_blur, stop, ray, 0)
     lit_no_blur = (img_no_blur[8:13, 8:13, 0] > 0).sum()
 
     blur = m.BuddhaBlurSettings(radius=0.1, type=m.BUDDHA_BLUR_BOKEH)
-    img_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, size, size, blur, stop, ray, 0)
+    img_blur = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, stop, ray, 0)
     lit_blur = (img_blur[8:13, 8:13, 0] > 0).sum()
 
     assert lit_no_blur == 1, f"with no blur, exactly one pixel should be nonzero, got {lit_no_blur}"
@@ -508,8 +508,8 @@ def test_scatter_buddha_rows_invalidates_only_touched_channels():
     app.buddha_counts = [np.zeros((m.SIZE, m.SIZE), dtype=np.float64),
                          np.zeros((m.SIZE, m.SIZE), dtype=np.float64), None]
     app.buddha_counts_blurred = ["sentinel0", "sentinel1", None]
-    app.status = np.ones((m.SIZE, m.SIZE), dtype=np.uint8)
-    app.points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
+    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
+    app.characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     app.scatter_buddha_rows = m.App.scatter_buddha_rows.__get__(app)
     app.scatter_buddha_rows(0, m.SIZE)
@@ -527,15 +527,15 @@ def test_large_blur_radius_completes_quickly():
     app = _fake_render_app()
     size = 128
     stats = np.zeros((size, size, m.N_STATS), dtype=np.float32)
-    points = np.random.RandomState(0).rand(size, size, m.N_POINTS, 2).astype(np.float32) * 2 - 1
-    status = np.ones((size, size), dtype=np.uint8)   # every pixel fires
+    characteristic_points = np.random.RandomState(0).rand(size, size, m.N_POINTS, 2).astype(np.float32) * 2 - 1
+    pixel_state = np.full((size, size), m.PIXEL_TRACED, dtype=np.uint8)   # every pixel fires
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
     stop, ray = _stop(30), _ray(m.build_obstacle_arrays([]))
     blur = m.BuddhaBlurSettings(radius=0.15, type=m.BUDDHA_BLUR_GAUSSIAN)     # a large, expensive-looking radius
     t0 = time.time()
-    app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, size, size, blur, stop, ray, 0)
+    app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, size, size, blur, stop, ray, 0)
     elapsed = time.time() - t0
     assert elapsed < 3.0, f"large-radius blur took {elapsed:.2f}s - performance regression?"
 
@@ -671,7 +671,7 @@ def test_load_value_skips_buddha_rebuild_for_unrelated_channel_field():
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     app.load_value = m.App.load_value.__get__(app)
     chan1_value = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_QUERY, kind=m.KIND_POINT, stat=m.ST_HDIST, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_POINT_PAIR, stat=m.ST_HDIST, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan1", chan1_value)
@@ -682,7 +682,7 @@ def test_load_value_rebuilds_when_the_loaded_channel_is_buddha():
     app = _fake_color_editor_app()
     app.load_value = m.App.load_value.__get__(app)
     chan0_value = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan0", chan0_value)
@@ -693,7 +693,7 @@ def test_delete_coloration_recolors_the_preview_to_match_the_new_selection():
     app = _fake_coloration_list_app()
     app.new_coloration()                     # ids: [0, 1]; 1 is now selected/live
     app.select_coloration(0)
-    app.mapping = m.make_mapping(m.DEFAULT_KINDS, m.DEFAULT_POINT_METRICS,
+    app.mapping = m.make_mapping(m.DEFAULT_METRIC_TYPES, m.DEFAULT_POINT_METRICS,
                                  m.DEFAULT_OTHER_METRICS, m.DEFAULT_CHAN_SRCS)
     recolor_calls = []
     app.recolor = lambda r0, r1: recolor_calls.append((r0, r1))
@@ -740,7 +740,7 @@ def test_every_metric_and_point_a_dropdown_can_choose_is_a_plain_int():
     for label in m.OTHER_LABELS:
         assert type(m.other_label_to_stat(label)) is int, label
     v = m.ColorationConfig(0)
-    v.kinds[1] = m.KIND_OTHER
+    v.metric_types[1] = m.METRIC_TYPE_OTHER
     v.other_metric[1] = m.other_label_to_stat("Boundary bounces: Length (arctan)")
     v.point1_choice[0] = m.POINT_LABELS.index("Self bounces: Last point")
     channels = [m.coloration_channel_value(v, c) for c in range(3)]
@@ -891,15 +891,15 @@ def _buddha_image(app, points_choice, seeds, zone_scene=None):
     stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()), seg_mult=0.9)
     n = 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
-    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
-    status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, stop, ray, 0)
+    characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.zeros((n, n), dtype=np.uint8)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
     v = m.ColorationConfig(0)
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = _buddha_choice(*points_choice)
     v.buddha_brightness[0] = 3
     blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    return app.apply_coloration(_coloration_settings_from_config(v), stats, points, status, n, n, blur, stop, ray, 0, seeds)
+    return app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, n, n, blur, stop, ray, 0, seeds)
 
 
 def test_a_buddha_image_seeded_from_the_whole_world_zone_is_the_camera_pixels_image_whatever_the_options():
@@ -927,13 +927,13 @@ def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_ho
     stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()))
     for zone, expected_rows in ((whole, (0, n)), (small, (n // 4, 3 * n // 4))):
         counts = np.zeros((n, n))
-        m.scatter_from_seeds(0, n, m.Window(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), m.WINDOW_DEFAULT,
+        m.scatter_from_seeds(0, n, m.WorldRect(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), m.WORLD_RECT_DEFAULT,
                              stop, ray, 0,
                              np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                              False, False, False, False, counts)
         assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
     full = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, m.Window(small.x_start, small.x_stop, small.y_start, small.y_stop), m.WINDOW_DEFAULT,
+    m.scatter_from_seeds(0, n, m.WorldRect(small.x_start, small.x_stop, small.y_start, small.y_stop), m.WORLD_RECT_DEFAULT,
                          stop, ray, 0,
                          np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                          False, False, False, False, full)

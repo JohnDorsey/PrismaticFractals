@@ -3,8 +3,8 @@ tables built from them. None of these is read by a numba kernel (those are in ke
 value that is both needed here and by a kernel lives in kernels.py and is imported from there."""
 import math
 from .kernels import (
-    CONFINE_BOX, EMIT_UP, KIND_BOUNDARY, KIND_DISTCUT, KIND_ESCAPED, KIND_OBSTACLE_TERM,
-    KIND_SELF, KIND_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
+    CONFINE_BOX, EMIT_UP, TAG_BOUNDARY, TAG_DISTCUT, TAG_ESCAPED, TAG_OBSTACLE_TERM,
+    TAG_PERPENDICULAR, TAG_SELF, TAG_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
     OBSTACLE_EFFECT_TERMINATE, PIXEL, SIZE, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
     TERM_OBSTACLE, TERM_PERPENDICULAR
 )
@@ -25,11 +25,10 @@ WARM_ITER = 8              # iteration limit used for the compile warm-up
 # Buddha blur: spreads each scattered point's weight across a neighborhood of
 # pixels instead of a single one, applied only at the moment a point is
 # recorded into a Buddha data channel - never touches the ray simulation
-# itself. The radius control is a multiple of the view area's smallest
-# dimension IN WORLD UNITS (always 2.0 in this program, since the simulation
-# always runs in the fixed [-1, 1] square on both axes): control value 0.1 ->
-# world radius 0.1 * 2.0 = 0.2 units, matching the same "smallest dimension"
-# reference regardless of whether that 2.0 comes from a 2x2 or a 2x3 area.
+# itself. The radius control is a multiple of the output image's smaller side
+# in PIXELS (world_radius_to_pixels): control value 0.1 -> 0.1 * min(width,
+# height) pixels, so the blur looks the same at any export size and for any
+# framing (a zoomed-in framing blurs over fewer world units).
 BUDDHA_BLUR_GAUSSIAN = 0
 BUDDHA_BLUR_TRIANGULAR = 1
 BUDDHA_BLUR_BOKEH = 2
@@ -60,7 +59,7 @@ BUDDHA_BLUR_CATADIOPTRIC_INNER_RATIO = 0.5   # the "donut" hole's inner edge, as
                                              # fraction of the outer radius
 
 # The ST_TERMINATION metric's 0..1 value for each termination reason (see
-# compute_stats) - also used outside njit context to filter by termination
+# compute_run_measurements) - also used outside njit context to filter by termination
 # reason (Buddha's two termination-point options).
 TERM_STAT_VALUE = {TERM_ITER: 0.0, TERM_CONFINED: 0.2, TERM_DIST: 0.4,
                    TERM_OBSTACLE: 0.6, TERM_PERPENDICULAR: 0.8, TERM_ESCAPED: 1.0}
@@ -236,7 +235,7 @@ FUZZ_JITTER_MIN = 0.0      # jitter range (+/-), degrees
 FUZZ_JITTER_MAX = 180.0
 FUZZ_MULT_MIN = 0.0        # bounce angle multiplier range
 FUZZ_MULT_MAX = 3.0
-DEFAULT_FUZZ_SEED = 0
+DEFAULT_RNG_SEED = 0
 
 EMIT_MODE_NAMES = ["Up", "Towards point"]
 DEFAULT_EMIT_MODE = EMIT_UP
@@ -251,9 +250,9 @@ DEFAULT_EMIT_TARGET_CY = 0.0
 DEFAULT_EMIT_OFFSET = -45.0
 
 CONFINE_METHOD_NAMES = ["Box", "Path length"]
-CONFINE_WINDOW_MIN = 2
-CONFINE_WINDOW_MAX = 999
-DEFAULT_CONFINE_WINDOW = 4
+CONFINE_LOOKBACK_MIN = 2
+CONFINE_LOOKBACK_MAX = 999
+DEFAULT_CONFINE_LOOKBACK = 4
 DEFAULT_CONFINE_METHOD = CONFINE_BOX
 DEFAULT_CONFINE_THRESHOLD = PIXEL
 REFRESH_HZ = 10            # redraws per second during generation
@@ -268,8 +267,8 @@ GUIDE_FALLBACK_HEX = "#c8c8c8"     # used with a stipple if alpha images fail
 
 # The segment-lengths graphic: same px-per-unit scale as the main image, one
 # unit tall (so it matches the main image's scale, just turned into a plot of
-# length rather than of position). Each bar is colored by what kind of point
-# lies at its top (earlier) and bottom (later) end.
+# length rather than of position). Each bar is colored by the tag of the point
+# at its top (earlier) and bottom (later) end.
 SEG_CANVAS_W = SIZE
 SEG_CANVAS_H = SIZE // 2   # 1 world unit, at the main image's pixels-per-unit
 # The corkscrew graphic: the sequence's segments all the same length, laid end to end from the centre of a
@@ -281,11 +280,12 @@ CORKSCREW_LINE_WIDTH = 2
 CORKSCREW_TEXT_W = 130             # width of the description to the left of the canvas (narrow enough that the canvas is
                                    # limited by the tab's height, not its width, at the window's size)
 CORKSCREW_SIDE_MIN = 60
-KIND_COLOR = {KIND_START: (67, 160, 71), KIND_DISTCUT: (67, 160, 71),   # green
-             KIND_BOUNDARY: (229, 57, 53),                              # red
-             KIND_SELF: (30, 136, 229),                                 # blue
-             KIND_OBSTACLE_TERM: (255, 235, 59),                        # yellow
-             KIND_ESCAPED: (0, 229, 255)}                               # cyan
+TAG_COLOR = {TAG_START: (67, 160, 71), TAG_DISTCUT: (67, 160, 71),   # green
+             TAG_BOUNDARY: (229, 57, 53),                              # red
+             TAG_SELF: (30, 136, 229),                                 # blue
+             TAG_OBSTACLE_TERM: (255, 235, 59),                        # yellow
+             TAG_ESCAPED: (0, 229, 255),                               # cyan
+             TAG_PERPENDICULAR: (124, 77, 255)}                        # purple (as TERM_END_COLOR's)
 
 # Solid outline colors for obstacles (part of the saved image/video, drawn with
 # the same "outline" decoration flag), by ray effect

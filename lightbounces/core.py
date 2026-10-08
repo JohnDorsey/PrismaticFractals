@@ -16,10 +16,10 @@ import numpy as np
 from .framings import FramingConfig, snapshot_framing
 from .kernels import N_POINTS, N_RAW, N_STATS, ObstacleArrays
 from .constants import (
-    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
+    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
-    DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
+    DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
     ITER_LIMIT_MAX, OBST_BOUND_LEN, REFRESH_HZ
 )
 from .settings import (
@@ -94,14 +94,14 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.last_emit_target_theta = DEFAULT_EMIT_TARGET_THETA
         self.last_emit_target_cx = DEFAULT_EMIT_TARGET_CX
         self.last_emit_target_cy = DEFAULT_EMIT_TARGET_CY
-        self.last_confine_window = DEFAULT_CONFINE_WINDOW
+        self.last_confine_lookback = DEFAULT_CONFINE_LOOKBACK
         self.last_confine_threshold = DEFAULT_CONFINE_THRESHOLD
-        self.last_seed = DEFAULT_FUZZ_SEED
+        self.last_rng_seed = DEFAULT_RNG_SEED
         self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
         self._coloration_counter = 1
         self.selected_coloration_id = 0         # which coloration is selected - both for editing in
                                            # the Colorations tab AND shown in the preview
-        self.mapping = make_mapping(self.live_coloration().kinds, self.live_coloration().point_metric,
+        self.mapping = make_mapping(self.live_coloration().metric_types, self.live_coloration().point_metric,
                                     self.live_coloration().other_metric, self.live_coloration().chan_src,
                                     self.live_coloration().constant_choice)
         self.buddha_counts = [None, None, None]   # per channel of the live coloration: (img_h, img_w)
@@ -129,7 +129,7 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.pinned_px = None             # pixel pinned by a click, or None
         self.fuzz_tk_widgets = []         # classic Tk widgets in the Fuzzing section of the Mutations tab
         self.fuzz_ttk_widgets = []        # ttk widgets in the Fuzzing section of the Mutations tab
-        self.hover_pts = np.empty((ITER_LIMIT_MAX + 2, 2))
+        self.hover_path_points = np.empty((ITER_LIMIT_MAX + 2, 2))
         self.hover_kinds = np.empty(ITER_LIMIT_MAX + 2)
         self.hover_raw = np.empty(N_RAW)
         self.hover_vec = np.empty(N_STATS)
@@ -195,14 +195,14 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.iter_var.trace_add("write", self.on_limit_var_changed)
         self.dist_var.trace_add("write", self.on_limit_var_changed)
         self.escape_radius_var.trace_add("write", self.on_limit_var_changed)
-        self.confine_window_var.trace_add("write", self.on_limit_var_changed)
+        self.confine_lookback_var.trace_add("write", self.on_limit_var_changed)
         self.confine_threshold_var.trace_add("write", self.on_limit_var_changed)
         self.confine_method_var.trace_add("write", self.on_confine_method_changed)
         for field in EMIT_TARGET_FIELDS:
             getattr(self, f"emit_target_{field}_var").trace_add(
                 "write", self.on_limit_var_changed)
         self.emit_mode_var.trace_add("write", self.on_emit_mode_changed)
-        self.seed_var.trace_add("write", self.on_seed_var_changed)
+        self.rng_seed_var.trace_add("write", self.on_rng_seed_var_changed)
 
         self.draw()
         self.update_buttons()

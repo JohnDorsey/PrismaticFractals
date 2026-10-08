@@ -205,7 +205,7 @@ def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_n
     import inspect
     import textwrap
     checked = 0
-    for fn in (m.emits_ray, m.trace_path, m.render_rows_wh,
+    for fn in (m.emits_ray, m.trace_path, m.trace_rows,
                m.scatter_multi_buddha):
         tree = ast.parse(textwrap.dedent(inspect.getsource(fn.py_func)))
         for node in ast.walk(tree):

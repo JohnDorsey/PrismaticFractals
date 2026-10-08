@@ -1,11 +1,13 @@
 """
 Light-bounce image / video generator.
 
-The scene is made of shapes - "obstacles" - drawn in a 512x512 preview image
-that spans [-1, 1] in both directions (the simulation itself always runs in
-that fixed square, whatever resolution is later exported). There is no other
+The scene is made of shapes - "obstacles" - drawn in a preview image of at most
+512x512 pixels that shows the part of the world the selected framing (camera)
+looks at; the default framing spans [-1, 1] in both directions. Rays start at
+the centre of every pixel inside a firing shape, whatever resolution is later
+exported. There is no other
 kind of boundary: the app starts with a single obstacle - the unit circle,
-filling the image, which reflects rays and fires them inside itself - and
+filling the default framing, which reflects rays and fires them inside itself - and
 everything else is built the same way, by editing, adding or deleting
 obstacles.
 
@@ -98,7 +100,7 @@ Rays
   on top. The defaults - Up, offset -45 degrees - give the up-and-to-the-right
   direction of 45 degrees.
 
-  Confinement is judged on the last few points of the ray's path (the window,
+  Confinement is judged on the last few points of the ray's path (the lookback,
   4 by default; 2 to 999). With the Box method (the default) the ray is confined
   when those points fit in a box smaller than the threshold in both directions;
   with Path length, when the segments between them add up to less than the

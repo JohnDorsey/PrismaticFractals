@@ -7,26 +7,26 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 # --------------------------------------------------------------------------- #
-# A framing's arithmetic: its window, the size of its image, its text
+# A framing's arithmetic: its world rectangle, the size of its image, its text
 # --------------------------------------------------------------------------- #
 def test_the_default_framing_covers_exactly_the_world_every_image_covered_before_framings_existed():
     assert m.DEFAULT_FRAMING_DIAGONAL == 2.0 * math.sqrt(2.0)
     assert (m.DEFAULT_FRAMING.x, m.DEFAULT_FRAMING.y, m.DEFAULT_FRAMING.aspect) == (0.0, 0.0, 1.0)
-    assert m.framing_window(m.DEFAULT_FRAMING) == m.WINDOW_DEFAULT == m.Window(-1.0, 1.0, -1.0, 1.0)
+    assert m.framing_world_rect(m.DEFAULT_FRAMING) == m.WORLD_RECT_DEFAULT == m.WorldRect(-1.0, 1.0, -1.0, 1.0)
     assert m.framing_image_size(m.DEFAULT_FRAMING) == (m.SIZE, m.SIZE)
     assert m.framing_outline_pixel(m.DEFAULT_FRAMING) == m.PIXEL
 
 
 def test_a_framings_diagonal_and_aspect_ratio_make_its_window_around_its_centre():
     f = _framing(x=1.5, y=-2.0, diagonal=5.0, aspect=2.0)
-    window = m.framing_window(f)
-    width, height = window.x_stop - window.x_start, window.y_stop - window.y_start
+    world_rect = m.framing_world_rect(f)
+    width, height = world_rect.x_stop - world_rect.x_start, world_rect.y_stop - world_rect.y_start
     assert abs(width / height - 2.0) < 1e-12, "aspect ratio is width / height"
     assert abs(math.hypot(width, height) - 5.0) < 1e-12, "the diagonal is the diagonal"
-    assert abs((window.x_start + window.x_stop) / 2 - 1.5) < 1e-12 and abs((window.y_start + window.y_stop) / 2 + 2.0) < 1e-12
-    portrait = m.framing_window(_framing(diagonal=5.0, aspect=0.5))
+    assert abs((world_rect.x_start + world_rect.x_stop) / 2 - 1.5) < 1e-12 and abs((world_rect.y_start + world_rect.y_stop) / 2 + 2.0) < 1e-12
+    portrait = m.framing_world_rect(_framing(diagonal=5.0, aspect=0.5))
     assert (portrait.x_stop - portrait.x_start) < (portrait.y_stop - portrait.y_start)
-    assert all(type(v) is float for v in window), "numba is given floats"
+    assert all(type(v) is float for v in world_rect), "numba is given floats"
 
 
 def test_the_image_of_a_framing_has_its_aspect_ratio_in_the_largest_size_that_fits_the_512_box():
@@ -87,21 +87,21 @@ def test_a_framing_describes_itself_in_the_lines_of_a_margin_block():
 
 
 # --------------------------------------------------------------------------- #
-# The kernels cover the framing's window
+# The kernels cover the framing's world rectangle
 # --------------------------------------------------------------------------- #
 def test_every_ray_of_a_panned_and_zoomed_window_starts_at_the_centre_of_its_pixel():
-    window = m.Window(0.2, 0.6, -0.3, 0.1)
+    world_rect = m.WorldRect(0.2, 0.6, -0.3, 0.1)
     w, h = 8, 6
     arrays = m.build_obstacle_arrays([_circle_obstacle(0.0, 0.0, 5.0, R, R, fire=True)])
     stats = np.zeros((h, w, m.N_STATS), dtype=np.float32)
-    points = np.zeros((h, w, m.N_POINTS, 2), dtype=np.float32)
-    status = np.zeros((h, w), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, h, w, h, window, _stop(3), _ray(arrays), 0)
-    assert status.all()
-    gx, gy = m.make_grid(w, h, window)
-    assert np.allclose(points[..., m.POINT_START, 0], gx, atol=1e-6) and np.allclose(points[..., m.POINT_START, 1], gy, atol=1e-6)
+    characteristic_points = np.zeros((h, w, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.zeros((h, w), dtype=np.uint8)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, _stop(3), _ray(arrays), 0)
+    assert (pixel_state == m.PIXEL_TRACED).all()
+    gx, gy = m.make_grid(w, h, world_rect)
+    assert np.allclose(characteristic_points[..., m.POINT_START, 0], gx, atol=1e-6) and np.allclose(characteristic_points[..., m.POINT_START, 1], gy, atol=1e-6)
     assert abs(gx[0, 0] - (0.2 + 0.5 * 0.4 / 8)) < 1e-12 and abs(gy[0, 0] - (0.1 - 0.5 * 0.4 / 6)) < 1e-12, \
-        "the top left pixel's centre, in the window's corner"
+        "the top left pixel's centre, in the world rectangle's corner"
 
 
 def test_make_grid_of_the_whole_world_is_what_it_always_was():
@@ -110,42 +110,42 @@ def test_make_grid_of_the_whole_world_is_what_it_always_was():
     cy = (np.arange(3) + 0.5) * (2.0 / 3) - 1.0
     ex, ey = np.meshgrid(cx, -cy)
     assert np.array_equal(gx, ex) and np.array_equal(gy, ey)
-    assert np.array_equal(gx, m.make_grid(5, 3, m.WINDOW_DEFAULT)[0])
+    assert np.array_equal(gx, m.make_grid(5, 3, m.WORLD_RECT_DEFAULT)[0])
 
 
 def test_a_buddha_point_is_counted_in_the_pixel_of_the_window_it_falls_in_and_not_at_all_outside_it():
-    window = m.Window(0.0, 1.0, 0.0, 1.0)
+    world_rect = m.WorldRect(0.0, 1.0, 0.0, 1.0)
     counts = np.zeros((4, 4))
     for x, y in ((0.1, 0.9), (0.9, 0.1), (0.5, 0.5)):
-        m.scatter_one_buddha_point(counts, x, y, window)
+        m.scatter_one_buddha_point(counts, x, y, world_rect)
     assert counts[0, 0] == 1 and counts[3, 3] == 1 and counts[2, 2] == 1 and counts.sum() == 3
     for x, y in ((-0.1, 0.5), (1.1, 0.5), (0.5, 1.1), (0.5, -0.1)):
-        m.scatter_one_buddha_point(counts, x, y, window)
-    assert counts.sum() == 3, "points outside the window are not in the image"
+        m.scatter_one_buddha_point(counts, x, y, world_rect)
+    assert counts.sum() == 3, "points outside the world rectangle are not in the image"
     whole = np.zeros((4, 4))
-    m.scatter_one_buddha_point(whole, 0.1, 0.9, m.WINDOW_DEFAULT)
+    m.scatter_one_buddha_point(whole, 0.1, 0.9, m.WORLD_RECT_DEFAULT)
     assert whole[0, 2] == 1, "the whole world's pixel of the same point is another"
 
 
 def test_the_camera_pixels_seeds_of_a_window_are_the_pixels_of_that_window():
-    """scatter_multi_buddha is the seeding of the camera's pixels: the zone is the window the counts cover."""
+    """scatter_multi_buddha is the seeding of the camera's pixels: the zone is the world rectangle the counts cover."""
     stop = _stop(40)
     ray = _ray(m.build_obstacle_arrays([_circle_obstacle(0.5, 0.0, 0.6, R, R, fire=True)]))
-    window = m.Window(0.2, 0.9, -0.3, 0.3)
+    world_rect = m.WorldRect(0.2, 0.9, -0.3, 0.3)
     n = 20
     multi = (False, True, False, False)
     mine = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, window, stop, ray, 0, *multi, mine)
+    m.scatter_multi_buddha(0, n, world_rect, stop, ray, 0, *multi, mine)
     general = np.zeros((n, n))
     none = np.empty(0, dtype=np.int64)
-    m.scatter_from_seeds(0, n, window, window, stop, ray, 0, none, none, *multi, general)
+    m.scatter_from_seeds(0, n, world_rect, world_rect, stop, ray, 0, none, none, *multi, general)
     assert mine.sum() > 0 and np.array_equal(mine, general)
     whole = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, m.WINDOW_DEFAULT, stop, ray, 0, *multi, whole)
-    assert not np.array_equal(mine, whole), "another window, other seeds and another image"
+    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, stop, ray, 0, *multi, whole)
+    assert not np.array_equal(mine, whole), "another world rectangle, other seeds and another image"
     elsewhere = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, m.WINDOW_DEFAULT, window, stop, ray, 0, none, none, *multi, elsewhere)
-    assert not np.array_equal(elsewhere, general), "a zone of its own is not the window"
+    m.scatter_from_seeds(0, n, m.WORLD_RECT_DEFAULT, world_rect, stop, ray, 0, none, none, *multi, elsewhere)
+    assert not np.array_equal(elsewhere, general), "a zone of its own is not the world rectangle"
 
 
 # --------------------------------------------------------------------------- #
@@ -161,15 +161,15 @@ def _geometry_app(framing=None):
 def test_set_image_framing_reshapes_every_buffer_and_forgets_what_was_computed():
     app = _geometry_app()
     assert app.stats.shape == (512, 512, m.N_STATS) and app.gx.shape == (512, 512)
-    app.status[:] = 1
+    app.pixel_state[:] = m.PIXEL_TRACED
     app.rows_done = 300
     app.set_image_framing(_framing(aspect=2.0))
     assert (app.img_w, app.img_h) == (512, 256) and app.rows_done == 0
-    assert app.stats.shape == (256, 512, m.N_STATS) and app.points.shape == (256, 512, m.N_POINTS, 2)
-    assert app.status.shape == (256, 512) and not app.status.any()
+    assert app.stats.shape == (256, 512, m.N_STATS) and app.characteristic_points.shape == (256, 512, m.N_POINTS, 2)
+    assert app.pixel_state.shape == (256, 512) and (app.pixel_state == m.PIXEL_PENDING).all()
     assert app.img.shape == app.frame.shape == app.display_frame.shape == (256, 512, 3)
     assert (app.img == m.BACKGROUND).all() and app.gx.shape == (256, 512)
-    assert app.image_window == m.framing_window(_framing(aspect=2.0))
+    assert app.image_world_rect == m.framing_world_rect(_framing(aspect=2.0))
     assert app.outline_pixel == m.framing_outline_pixel(_framing(aspect=2.0)) and app.image_framing == _framing(aspect=2.0)
 
 
@@ -179,7 +179,7 @@ def test_set_image_framing_of_the_same_size_clears_the_buffers_it_has_instead_of
     app.stats[:] = 5
     app.set_image_framing(_framing(x=0.5))
     assert app.stats is stats and not stats.any(), "80 MB are not allocated again for a pan"
-    assert app.image_window.x_start == m.framing_window(_framing(x=0.5)).x_start and app.gx[0, 0] > -1.0 + 0.4
+    assert app.image_world_rect.x_start == m.framing_world_rect(_framing(x=0.5)).x_start and app.gx[0, 0] > -1.0 + 0.4
 
 
 def test_a_pixels_centre_is_its_grid_point_and_the_canvas_position_of_the_centre_is_the_pixel():
@@ -190,17 +190,17 @@ def test_a_pixels_centre_is_its_grid_point_and_the_canvas_position_of_the_centre
             assert (x, y) == (float(app.gx[j, i]), float(app.gy[j, i])), "a hover ray starts where the image's did"
             cx, cy = app.world_to_canvas(x, y)
             assert abs(cx - (i + 0.5)) < 1e-9 and abs(cy - (j + 0.5)) < 1e-9
-    xs, ys = app.world_to_canvas(np.array([app.image_window.x_start, app.image_window.x_stop]),
-                                 np.array([app.image_window.y_stop, app.image_window.y_start]))
-    assert np.allclose(xs, [0, app.img_w]) and np.allclose(ys, [0, app.img_h]), "the window's corners are the canvas'"
+    xs, ys = app.world_to_canvas(np.array([app.image_world_rect.x_start, app.image_world_rect.x_stop]),
+                                 np.array([app.image_world_rect.y_stop, app.image_world_rect.y_start]))
+    assert np.allclose(xs, [0, app.img_w]) and np.allclose(ys, [0, app.img_h]), "the world rectangle's corners are the canvas'"
 
 
 def test_an_obstacle_outline_is_placed_on_the_canvas_by_the_window_of_the_image():
     lune = m.LuneShape(0)
     default = np.array(lune.outline_coords())
-    assert np.array_equal(default, np.array(lune.outline_coords(m.WINDOW_DEFAULT, m.SIZE, m.SIZE)))
-    window = m.Window(-2.0, 2.0, -1.0, 1.0)
-    wide = np.array(lune.outline_coords(window, 512, 256)).reshape(-1, 2)
+    assert np.array_equal(default, np.array(lune.outline_coords(m.WORLD_RECT_DEFAULT, m.SIZE, m.SIZE)))
+    world_rect = m.WorldRect(-2.0, 2.0, -1.0, 1.0)
+    wide = np.array(lune.outline_coords(world_rect, 512, 256)).reshape(-1, 2)
     base = default.reshape(-1, 2)
     assert np.allclose(wide[:, 0], (base[:, 0] - 256) / 2.0 + 256, atol=1e-9), "x: half as far from the middle"
     assert np.allclose(wide[:, 1], base[:, 1] / 2.0, atol=1e-9), "y: the 2:1 canvas halves 512"
@@ -306,7 +306,7 @@ def test_a_framing_entry_commits_only_valid_numbers_and_otherwise_goes_back_to_t
     app.framing_x_var.set("1e300")
     app.framing_diagonal_var.set("1e-300")
     app.on_framing_commit()
-    assert app.framings[0].x == 0.0 and app.framing_x_var.get() == "0.0", "a window of no width is refused, all of it"
+    assert app.framings[0].x == 0.0 and app.framing_x_var.get() == "0.0", "a world rectangle of no width is refused, all of it"
     app.framing_x_var.set("-1.5")
     app.framing_y_var.set("0.25")
     app.framing_diagonal_var.set("4")
@@ -397,8 +397,8 @@ def test_the_simulation_behind_thumbnails_is_made_once_per_framing_and_size():
     assert app.simulated_thumbnail_data(_framing(id=7), 48) is first, "the same camera, whatever its id"
     assert app.simulated_thumbnail_data(m.DEFAULT_FRAMING, 24) is not first
     assert app.simulated_thumbnail_data(_framing(x=0.1), 48) is not first
-    stats, points, status, window, w, h = first
-    assert (w, h) == (48, 48) and window == m.WINDOW_DEFAULT and status.any()
+    stats, characteristic_points, pixel_state, world_rect, w, h = first
+    assert (w, h) == (48, 48) and world_rect == m.WORLD_RECT_DEFAULT and (pixel_state == m.PIXEL_TRACED).any()
 
 
 def test_a_colorations_thumbnail_is_of_framing_0_even_when_the_image_on_screen_is_of_another_framing():

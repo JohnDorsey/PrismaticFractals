@@ -22,14 +22,14 @@ def _fake_preview_app(pinned):
     app.obstacles = []                              # nothing at all fires a ray
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.preview_natural_stop_settings = lambda: m.DEFAULT_NATURAL_STOP_SETTINGS
-    app.hover_pts = np.empty((m.ITER_LIMIT_MAX + 2, 2))
-    app.hover_kinds = np.empty(m.ITER_LIMIT_MAX + 2)
+    app.hover_path_points = np.empty((m.ITER_LIMIT_MAX + 2, 2))
+    app.hover_path_point_tags = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
     app.hover_vec = np.empty(m.N_STATS)
     app.hover_sp = np.empty((m.N_POINTS, 2))
     app.component_values = lambda vec, sp, x, y: (0.1, 0.2, 0.3)
-    app.draw_segments = lambda pts, kinds, n: None
-    app.draw_corkscrew = lambda pts, kinds, n: None
+    app.draw_segments = lambda path_points, path_point_tags, n: None
+    app.draw_corkscrew = lambda path_points, path_point_tags, n: None
     app.deco = {k: _StubVar(k != "samples") for k in
                 ("pending", "outline", "ray_path", "ray_start", "ray_end", "guides", "samples")}
     app.canvas = _StubWidget()
@@ -174,7 +174,7 @@ def test_point_comparison_metric_names_no_longer_say_between_points():
 
 def test_coloration_info_lines_shows_points_only_for_point_comparison_metrics():
     v = m.ColorationConfig(0)
-    v.kinds[2] = m.KIND_OTHER
+    v.metric_types[2] = m.METRIC_TYPE_OTHER
     v.other_metric[2] = m.ST_BOUNCES
     lines = m.coloration_info_lines(v)
     letter2 = m.MODES[v.mode][2][0][0]
@@ -464,31 +464,31 @@ def test_write_with_both_margins_composes_correctly():
 # --------------------------------------------------------------------------- #
 def _corkscrew_path():
     """A path of five points: right, up (a segment of no length between), left, down-left."""
-    pts = np.array([[0.0, 0.0], [0.5, 0.0], [0.5, 0.0], [0.5, 2.0], [-1.5, 2.0], [-2.5, 0.0]])
-    kinds = np.array([m.KIND_START, m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_SELF, m.KIND_BOUNDARY, m.KIND_ESCAPED])
-    return pts, kinds
+    path_points = np.array([[0.0, 0.0], [0.5, 0.0], [0.5, 0.0], [0.5, 2.0], [-1.5, 2.0], [-2.5, 0.0]])
+    path_point_tags = np.array([m.TAG_START, m.TAG_BOUNDARY, m.TAG_SELF, m.TAG_SELF, m.TAG_BOUNDARY, m.TAG_ESCAPED])
+    return path_points, path_point_tags
 
 
 def test_the_corkscrew_has_every_segment_one_unit_long_pointing_the_way_the_real_segment_points():
-    pts, kinds = _corkscrew_path()
-    vertices, start_kinds, end_kinds = m.corkscrew_steps(pts, kinds, len(pts))
+    path_points, path_point_tags = _corkscrew_path()
+    vertices, start_tags, end_tags = m.corkscrew_steps(path_points, path_point_tags, len(path_points))
     steps = np.diff(vertices, axis=0)
     assert len(steps) == 4, "the segment of no length has no direction, so it is left out"
     assert np.allclose(np.hypot(steps[:, 0], steps[:, 1]), 1.0)
-    real = np.diff(pts, axis=0)
+    real = np.diff(path_points, axis=0)
     real = real[np.hypot(real[:, 0], real[:, 1]) > 1e-12]
     assert np.allclose(steps, real / np.hypot(real[:, 0], real[:, 1])[:, None])
     assert np.allclose(vertices[0], 0.0)
-    assert list(start_kinds) == [m.KIND_START, m.KIND_SELF, m.KIND_SELF, m.KIND_BOUNDARY]
-    assert list(end_kinds) == [m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_BOUNDARY, m.KIND_ESCAPED]
+    assert list(start_tags) == [m.TAG_START, m.TAG_SELF, m.TAG_SELF, m.TAG_BOUNDARY]
+    assert list(end_tags) == [m.TAG_BOUNDARY, m.TAG_SELF, m.TAG_BOUNDARY, m.TAG_ESCAPED]
 
 
 def test_the_corkscrew_of_a_sequence_with_no_segment_is_empty():
     for n in (0, 1):
-        vertices, start_kinds, end_kinds = m.corkscrew_steps(np.zeros((3, 2)), np.zeros(3), n)
-        assert vertices.shape == (1, 2) and len(start_kinds) == len(end_kinds) == 0
-    vertices, start_kinds, _end = m.corkscrew_steps(np.array([[1.0, 1.0], [1.0, 1.0]]), np.zeros(2), 2)
-    assert len(start_kinds) == 0, "a sequence that never moves has no direction to draw"
+        vertices, start_tags, end_tags = m.corkscrew_steps(np.zeros((3, 2)), np.zeros(3), n)
+        assert vertices.shape == (1, 2) and len(start_tags) == len(end_tags) == 0
+    vertices, start_tags, _end = m.corkscrew_steps(np.array([[1.0, 1.0], [1.0, 1.0]]), np.zeros(2), 2)
+    assert len(start_tags) == 0, "a sequence that never moves has no direction to draw"
 
 
 def test_the_corkscrew_starts_at_the_centre_and_stops_just_short_of_the_edge_at_any_canvas_size():
@@ -496,8 +496,8 @@ def test_the_corkscrew_starts_at_the_centre_and_stops_just_short_of_the_edge_at_
     for side in (80, 301, 640):
         for trial in range(20):
             n = int(rng.randint(2, 60))
-            pts = np.cumsum(rng.normal(size=(n, 2)) * rng.choice([0.01, 1.0, 300.0]), axis=0)
-            vertices, _s, _e = m.corkscrew_steps(pts, np.zeros(n), n)
+            path_points = np.cumsum(rng.normal(size=(n, 2)) * rng.choice([0.01, 1.0, 300.0]), axis=0)
+            vertices, _s, _e = m.corkscrew_steps(path_points, np.zeros(n), n)
             xy, segment = m.corkscrew_fit(vertices, side)
             margin = max(m.CORKSCREW_MARGIN_MIN, side * m.CORKSCREW_MARGIN)
             assert np.allclose(xy[0], side / 2.0), "starts at the centre"
@@ -560,8 +560,8 @@ def _fake_corkscrew_app(side=300):
 
 def test_drawing_a_corkscrew_lays_the_lines_end_to_end_from_the_centre_in_the_bar_graphs_colours():
     app = _fake_corkscrew_app(300)
-    pts, kinds = _corkscrew_path()
-    app.draw_corkscrew(pts, kinds, len(pts))
+    path_points, path_point_tags = _corkscrew_path()
+    app.draw_corkscrew(path_points, path_point_tags, len(path_points))
     lines = app.corkscrew_canvas.lines
     ends = [(l[0][:2], l[0][2:]) for l in lines]
     assert np.allclose(ends[0][0], (150, 150)), "the first line starts at the centre"
@@ -569,21 +569,21 @@ def test_drawing_a_corkscrew_lays_the_lines_end_to_end_from_the_centre_in_the_ba
         assert np.allclose(end, start), "each line starts where the one before ended"
     assert all(0 < x < 300 and 0 < y < 300 for line in lines for x, y in (line[0][:2], line[0][2:]))
     colors = [l[1]["fill"] for l in lines]
-    boundary, self_, escaped = (m.lerp_color(m.KIND_COLOR[k], m.KIND_COLOR[k], 0.0)
-                                for k in (m.KIND_BOUNDARY, m.KIND_SELF, m.KIND_ESCAPED))
-    assert self_ in colors, "a segment between two points of the same kind is one solid colour"
-    assert any(c not in (boundary, self_, escaped) and c != m.lerp_color(m.KIND_COLOR[m.KIND_START], m.KIND_COLOR[m.KIND_START], 0.0)
-               for c in colors), "a segment between two kinds fades from one colour to the other"
+    boundary, self_, escaped = (m.lerp_color(m.TAG_COLOR[k], m.TAG_COLOR[k], 0.0)
+                                for k in (m.TAG_BOUNDARY, m.TAG_SELF, m.TAG_ESCAPED))
+    assert self_ in colors, "a segment between two points of the same tag is one solid colour"
+    assert any(c not in (boundary, self_, escaped) and c != m.lerp_color(m.TAG_COLOR[m.TAG_START], m.TAG_COLOR[m.TAG_START], 0.0)
+               for c in colors), "a segment between two differently tagged points fades from one colour to the other"
     assert lines[0][1]["width"] == m.CORKSCREW_LINE_WIDTH
 
 
-def test_a_segment_fades_from_its_start_kinds_colour_to_its_end_kinds_colour():
+def test_a_segment_fades_from_its_start_tags_colour_to_its_end_tags_colour():
     app = _fake_corkscrew_app(300)
-    pts = np.array([[0.0, 0.0], [1.0, 0.0]])
-    app.draw_corkscrew(pts, np.array([m.KIND_START, m.KIND_ESCAPED]), 2)
+    path_points = np.array([[0.0, 0.0], [1.0, 0.0]])
+    app.draw_corkscrew(path_points, np.array([m.TAG_START, m.TAG_ESCAPED]), 2)
     colors = [l[1]["fill"] for l in app.corkscrew_canvas.lines]
     assert len(colors) >= 2
-    start, end = m.KIND_COLOR[m.KIND_START], m.KIND_COLOR[m.KIND_ESCAPED]
+    start, end = m.TAG_COLOR[m.TAG_START], m.TAG_COLOR[m.TAG_ESCAPED]
     channel = lambda c, i: int(c[1 + 2 * i:3 + 2 * i], 16)
     assert abs(channel(colors[0], 1) - start[1]) < abs(channel(colors[-1], 1) - start[1])
     assert abs(channel(colors[-1], 1) - end[1]) < abs(channel(colors[0], 1) - end[1])
@@ -592,8 +592,8 @@ def test_a_segment_fades_from_its_start_kinds_colour_to_its_end_kinds_colour():
 def test_resizing_the_tab_keeps_the_canvas_square_and_redraws_the_corkscrew_to_fit():
     import types
     app = _fake_corkscrew_app(300)
-    pts, kinds = _corkscrew_path()
-    app.draw_corkscrew(pts, kinds, len(pts))
+    path_points, path_point_tags = _corkscrew_path()
+    app.draw_corkscrew(path_points, path_point_tags, len(path_points))
     before = list(app.corkscrew_canvas.lines)
     app.on_corkscrew_tab_resized(types.SimpleNamespace(width=512, height=200))
     side = m.corkscrew_side(512, 200)
@@ -607,8 +607,8 @@ def test_resizing_the_tab_keeps_the_canvas_square_and_redraws_the_corkscrew_to_f
 
 def test_clearing_the_preview_clears_the_corkscrew_too():
     app = _fake_corkscrew_app(300)
-    pts, kinds = _corkscrew_path()
-    app.draw_corkscrew(pts, kinds, len(pts))
+    path_points, path_point_tags = _corkscrew_path()
+    app.draw_corkscrew(path_points, path_point_tags, len(path_points))
     assert app.corkscrew_canvas.lines
     app.clear_corkscrew()
     assert app.corkscrew_canvas.lines == []
@@ -619,6 +619,6 @@ def test_clearing_the_preview_clears_the_corkscrew_too():
 def test_previewing_a_ray_draws_its_corkscrew():
     app = _fake_preview_app(pinned=(100, 100))
     app.corkscrews = []
-    app.draw_corkscrew = lambda pts, kinds, n: app.corkscrews.append((pts[:n].copy(), kinds[:n].copy(), n))
+    app.draw_corkscrew = lambda path_points, path_point_tags, n: app.corkscrews.append((path_points[:n].copy(), path_point_tags[:n].copy(), n))
     app.update_preview(100, 100)
     assert len(app.corkscrews) == 1 and app.corkscrews[0][2] >= 1

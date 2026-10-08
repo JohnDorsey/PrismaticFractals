@@ -42,7 +42,7 @@ def test_coloration_config_defaults_match_the_module_defaults():
     v = m.ColorationConfig(1)
     assert v.mode == m.DEFAULT_MODE
     assert list(v.chan_src) == list(m.DEFAULT_CHAN_SRCS)
-    assert list(v.kinds) == list(m.DEFAULT_KINDS)
+    assert list(v.metric_types) == list(m.DEFAULT_METRIC_TYPES)
 
 
 def test_coloration_config_per_channel_fields_are_independent_per_instance():
@@ -80,14 +80,14 @@ def test_resolve_colorations_honors_keyframe_overrides_per_channel():
     v = m.ColorationConfig(9)
     snap = m.snapshot_coloration(v)
     custom_chan = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_QUERY, kind=m.KIND_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, stat=m.ST_BOUNCES, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ZERO)
     kf = m.Keyframe(1, 0, {"coloration:9:mode": "HSV", "coloration:9:chan0": custom_chan})
     resolved = m.resolve_colorations([snap], [kf], 0)[0]
     assert resolved.mode == "HSV"
-    assert resolved.kinds[0] == m.KIND_OTHER and resolved.buddha_brightness[0] == 3
-    assert resolved.kinds[1] == m.DEFAULT_KINDS[1]   # untouched channel keeps the live default
+    assert resolved.metric_types[0] == m.METRIC_TYPE_OTHER and resolved.buddha_brightness[0] == 3
+    assert resolved.metric_types[1] == m.DEFAULT_METRIC_TYPES[1]   # untouched channel keeps the live default
 
 
 def test_capture_all_settings_has_no_first_coloration_special_case():
@@ -196,7 +196,7 @@ def test_delete_coloration_removes_an_extra_coloration_and_keeps_the_first():
 # --------------------------------------------------------------------------- #
 def test_a_coloration_config_takes_a_channel_record_and_makes_its_coloration_settings():
     v = m.ColorationConfig(4)
-    channel = m.ChannelSettings(chan_src=m.CHAN_SRC_BUDDHA, kind=m.KIND_OTHER, stat=m.ST_ANGLES,
+    channel = m.ChannelSettings(chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, stat=m.ST_ANGLES,
                                 point1=3, point2=5,
                                 buddha_points=(False, True) + (False,) * (m.N_BUDDHA_POINTS - 2),
                                 buddha_compression=m.BUDDHA_COMPRESS_MODULUS,
@@ -204,7 +204,7 @@ def test_a_coloration_config_takes_a_channel_record_and_makes_its_coloration_set
     v.set_channel(1, channel)
     assert m.coloration_channel_value(v, 1) == channel
     assert m.coloration_channel_value(v, 0) == m.coloration_channel_value(m.ColorationConfig(0), 0)   # others untouched
-    point = channel.replace(kind=m.KIND_POINT, stat=m.ST_EUCLIDEAN)
+    point = channel.replace(metric_type=m.METRIC_TYPE_POINT_PAIR, stat=m.ST_EUCLIDEAN)
     v.set_channel(2, point)
     assert m.coloration_channel_value(v, 2) == point and v.point_metric[2] == m.ST_EUCLIDEAN
     settings = v.settings()
@@ -216,7 +216,7 @@ def test_a_coloration_config_made_from_a_snapshot_has_the_snapshots_contents():
     v = m.ColorationConfig(7)
     v.mode = "HSV"
     v.set_channel(0, m.ChannelSettings(
-        chan_src=m.CHAN_SRC_CONSTANT, kind=m.KIND_POINT, stat=m.ST_HDIST, point1=1, point2=2,
+        chan_src=m.CHAN_SRC_CONSTANT, metric_type=m.METRIC_TYPE_POINT_PAIR, stat=m.ST_HDIST, point1=1, point2=2,
         buddha_points=(True,) + (False,) * (m.N_BUDDHA_POINTS - 1), buddha_compression=0,
         buddha_brightness=4, constant=m.NONE_ZERO))
     snap = m.snapshot_coloration(v)

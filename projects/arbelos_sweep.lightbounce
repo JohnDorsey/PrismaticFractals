@@ -1,7 +1,7 @@
 {
   "format": "light-bounces-project",
   "format_version": 6,
-  "program_version": 141,
+  "program_version": 142,
   "simulation": {
     "seg_mult": 1.0,
     "emit_mode": "up",
@@ -33,7 +33,7 @@
     "buddha_blur_type": "gaussian"
   },
   "buddha_seeding": {
-    "buddha_seed_camera": true,
+    "buddha_seed_camera": false,
     "buddha_seed_x_start": 0.0,
     "buddha_seed_x_stop": 1.0,
     "buddha_seed_y_start": -1.0,
@@ -55,7 +55,7 @@
       "fields": {
         "rotation": 0.0,
         "radius": 1.0,
-        "split": 0.05,
+        "split": 0.66,
         "r": 0.0,
         "theta": 0.0,
         "cx": 0.0,
@@ -101,9 +101,9 @@
   "framings": [
     {
       "id": 0,
-      "x": -0.9,
-      "y": -0.25,
-      "diagonal": 1.0,
+      "x": 0.9,
+      "y": -0.15,
+      "diagonal": 3.0,
       "aspect": 1.0
     }
   ],
@@ -112,14 +112,16 @@
       "id": 0,
       "frame_index": 0,
       "settings": {
-        "obst:11:split": 0.05
+        "obst:11:split": 0.05,
+        "framing:0:x": -0.9
       }
     },
     {
       "id": 1,
-      "frame_index": 3599,
+      "frame_index": 7199,
       "settings": {
-        "obst:11:split": 0.95
+        "obst:11:split": 0.95,
+        "framing:0:x": 0.9
       }
     }
   ],
@@ -151,7 +153,7 @@
     "video_jxl_quality": 5
   },
   "counters": {
-    "obstacle": 12,
+    "obstacle": 13,
     "coloration": 1,
     "framing": 1,
     "keyframe": 2
