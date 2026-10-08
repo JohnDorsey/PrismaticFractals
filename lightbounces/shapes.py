@@ -37,10 +37,10 @@ from .geometry import (
     squircle_outline_xy, superellipse_bound
 )
 from .kernels import (
-    OBSTACLE_EFFECT_REFLECT, ObstacleArrays, PIXEL, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
+    OBSTACLE_EFFECT_REFLECT, ObstacleArrays, DEFAULT_PIXEL_WORLD_WIDTH, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
     SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_FLOWER, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
     SHAPE_REULEAUX, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_SNAIL, SHAPE_SPIRAL, SHAPE_SUPERELLIPSE,
-    SHAPE_TREFOIL, SIZE, WORLD_RECT_DEFAULT, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid,
+    SHAPE_TREFOIL, PREVIEW_BOX, WORLD_RECT_DEFAULT, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid,
     spiral_distance_grid, squircle_distance_grid
 )
 from .settings import resolve_obstacles, strict_record
@@ -252,7 +252,7 @@ class Shape:
         """(x, y) arrays tracing its edge around its own centre."""
         return sample_boundary_xy(self.KIND, self.bound())
 
-    def outline_coords(self, world_rect=WORLD_RECT_DEFAULT, w=SIZE, h=SIZE):
+    def outline_coords(self, world_rect=WORLD_RECT_DEFAULT, w=PREVIEW_BOX, h=PREVIEW_BOX):
         """Canvas coordinates (flat list) of a polygon tracing the shape, at its
         centre (polar position plus x/y offset), on a canvas w x h pixels that shows the world rectangle `world_rect`."""
         wx, wy = self.boundary_xy()
@@ -905,11 +905,11 @@ def arc_loop_distance(bound, x, y):
     return best
 
 
-def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX, pixel=PIXEL):
+def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX, pixel=DEFAULT_PIXEL_WORLD_WIDTH):
     """(outer, inner) boolean masks on the world-coordinate grid (x, y) for a
     shape's two-layer outline: `outer` is the band just outside its edge and
     `inner` the band just inside it, each `layer_px` pixels of `pixel` world units thick (the world width of a pixel
-    of the 512-pixel preview: PIXEL for the whole world, less for a framing that zooms in)."""
+    of the 512-pixel preview: DEFAULT_PIXEL_WORLD_WIDTH for the whole world, less for a framing that zooms in)."""
     w = layer_px * pixel
     layout = SHAPE_CLASSES[shape].LAYOUT
     if layout == LAYOUT_ELLIPSE:
@@ -950,7 +950,7 @@ def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX, pixel=PIXE
     return bigger & ~inside, inside & ~smaller
 
 
-def draw_obstacle_outline(img, shape, bound, x, y, in_effect, out_effect, pixel=PIXEL):
+def draw_obstacle_outline(img, shape, bound, x, y, in_effect, out_effect, pixel=DEFAULT_PIXEL_WORLD_WIDTH):
     """Draws an obstacle's two-layer outline into `img` (in place), on the
     world-coordinate grid (x, y) already shifted to be relative to the
     obstacle's centre: the outer layer in its incoming effect's color, the

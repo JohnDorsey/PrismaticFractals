@@ -27,14 +27,14 @@ def _sample_project(**changes):
                 o.out_effect = (i + 1) % 3
         obstacles.append(o.snapshot())
     v0, v1 = m.ColorationConfig(0), m.ColorationConfig(5)
-    v1.mode = "HSV"
+    v1.color_model = "HSV"
     v1.set_channel(1, m.ChannelSettings(
-        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCES, point1=0, point2=1,
+        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=0, point2=1,
         buddha_points=_buddha_choice(m.POINT_SELF_MEAN, m.POINT_BOUNDARY_MEAN),
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ONE))
     channel = m.coloration_channel_value(v1, 1)
     keyframes = (m.Keyframe(2, 0, {"iter": 40, "dist": 2.5, "outline": False,
-                                   "obst:1:rotation": 15.0, "coloration:5:mode": "HSV",
+                                   "obst:1:rotation": 15.0, "coloration:5:color_model": "HSV",
                                    "coloration:5:chan1": channel, "coloration:0:chan0": m.coloration_channel_value(v0, 0)}),
                  m.Keyframe(7, 30, {"obst:3:r": 0.5, "emit_mode": m.EMIT_TOWARDS}))
     ray, natural_termination = _generation(
@@ -84,7 +84,7 @@ def test_a_project_survives_being_saved_and_loaded():
     assert loaded.ray == project.ray and loaded.buddha_blur == project.buddha_blur
     assert [v.id for v in loaded.colorations] == [0, 5]
     for want, got in zip(project.colorations, loaded.colorations):
-        assert got.mode == want.mode
+        assert got.color_model == want.color_model
         for number in range(3):
             assert m.coloration_channel_value(got, number) == _as_saved(m.coloration_channel_value(want, number), number)
     assert [type(o) for o in loaded.obstacles] == list(m.SHAPE_CLASSES)
@@ -99,15 +99,15 @@ def test_a_project_survives_being_saved_and_loaded():
     want = project.keyframes[0].data
     assert kf.data["coloration:5:chan1"] == _as_saved(want["coloration:5:chan1"], 1)
     assert kf.data["coloration:0:chan0"] == _as_saved(want["coloration:0:chan0"], 0)
-    assert {k: v for k, v in kf.data.items() if not k.startswith("coloration:") or k.endswith("mode")} \
-        == {k: v for k, v in want.items() if not k.startswith("coloration:") or k.endswith("mode")}
+    assert {k: v for k, v in kf.data.items() if not k.startswith("coloration:") or k.endswith("color_model")} \
+        == {k: v for k, v in want.items() if not k.startswith("coloration:") or k.endswith("color_model")}
     assert isinstance(kf.data["coloration:5:chan1"], m.ChannelSettings)
     assert isinstance(kf.data["iter"], int) and kf.data["outline"] is False
 
 
 def _channel(source, **changes):
     fields = dict(chan_src=source, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_EUCLIDEAN, point1=m.POINT_TOP,
-                  point2=m.POINT_ORIGIN,
+                  point2=m.CHOICE_ORIGIN,
                   buddha_points=_buddha_choice(m.POINT_SELF_MEAN),
                   buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3,
                   constant=m.NONE_ONE)
@@ -119,7 +119,7 @@ def test_a_channel_in_a_file_has_only_the_settings_its_source_uses():
     query_points = m._channel_to_json(_channel(m.CHAN_SRC_QUERY))
     assert query_points == {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
                             "point1": "bounces_uppermost", "point2": "origin"}
-    query_other = m._channel_to_json(_channel(m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCES))
+    query_other = m._channel_to_json(_channel(m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT))
     assert query_other == {"source": "query", "kind": "other_metric", "metric": "bounces_count"}
     assert m._channel_to_json(_channel(m.CHAN_SRC_BUDDHA)) == {
         "source": "buddha", "buddha_points": ["self_bounces_mean"],
@@ -272,7 +272,7 @@ def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d7["colorations"][1]["id"] = 0
     _refused(d7, "two colorations have the id")
     d8 = _dict_of()
-    d8["colorations"][0]["mode"] = "CMYK"
+    d8["colorations"][0]["color_model"] = "CMYK"
     _refused(d8, "colour model")
     d9 = _dict_of()
     d9["colorations"][0]["channels"].pop()
@@ -427,8 +427,8 @@ PINNED_KEYS = {
         "manhattan_distance": "ST_MANHATTAN", "euclidean_distance": "ST_EUCLIDEAN",
         "loop_area": "ST_LOOP_AREA", "mean_bounce_angle": "ST_ANGLES",
         "termination_reason": "ST_TERMINATION", "last_segment_ratio": "ST_LAST_RATIO",
-        "bounces_count": "ST_BOUNCES", "self_bounces_share": "ST_RAY_FRAC",
-        "boundary_bounces_share": "ST_BOUNDARY_FRAC", "path_length": "ST_LENGTH",
+        "bounces_count": "ST_BOUNCE_COUNT", "self_bounces_share": "ST_SELF_SHARE",
+        "boundary_bounces_share": "ST_BOUNDARY_SHARE", "path_length": "ST_LENGTH",
         "path_last_direction": "ST_LAST_DIR"},
     "CAT_POINT": {
         "path_first": "POINT_START", "path_last": "POINT_END", "bounces_mean": "POINT_ALL_MEAN",
@@ -437,7 +437,7 @@ PINNED_KEYS = {
         "bounces_rightmost": "POINT_RIGHT", "bounces_leftmost": "POINT_LEFT",
         "self_bounces_uppermost": "POINT_SELF_TOP", "self_bounces_lowermost": "POINT_SELF_BOTTOM",
         "self_bounces_rightmost": "POINT_SELF_RIGHT", "self_bounces_leftmost": "POINT_SELF_LEFT",
-        "origin": "POINT_ORIGIN", "top_left_corner": "POINT_TOP_LEFT_CORNER"},
+        "origin": "CHOICE_ORIGIN", "top_left_corner": "CHOICE_TOP_LEFT_CORNER"},
     "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
                                "modulus": "BUDDHA_COMPRESS_MODULUS"},
     "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
@@ -466,8 +466,8 @@ FORMAT_4_KEYS = {
     "CAT_METRIC": {
         "horizontal_distance": "ST_HDIST", "vertical_distance": "ST_VDIST",
         "manhattan_distance": "ST_MANHATTAN", "euclidean_distance": "ST_EUCLIDEAN",
-        "bounces": "ST_BOUNCES", "ray_bounce_fraction": "ST_RAY_FRAC",
-        "boundary_bounce_fraction": "ST_BOUNDARY_FRAC", "loop_area": "ST_LOOP_AREA",
+        "bounces": "ST_BOUNCE_COUNT", "ray_bounce_fraction": "ST_SELF_SHARE",
+        "boundary_bounce_fraction": "ST_BOUNDARY_SHARE", "loop_area": "ST_LOOP_AREA",
         "mean_bounce_angle": "ST_ANGLES", "ray_length": "ST_LENGTH",
         "last_segment_direction": "ST_LAST_DIR", "termination_reason": "ST_TERMINATION",
         "last_segment_ratio": "ST_LAST_RATIO"},
@@ -478,8 +478,8 @@ FORMAT_4_KEYS = {
         "lowermost_bounce": "POINT_BOTTOM", "rightmost_bounce": "POINT_RIGHT",
         "leftmost_bounce": "POINT_LEFT", "uppermost_self_bounce": "POINT_SELF_TOP",
         "lowermost_self_bounce": "POINT_SELF_BOTTOM", "rightmost_self_bounce": "POINT_SELF_RIGHT",
-        "leftmost_self_bounce": "POINT_SELF_LEFT", "origin": "POINT_ORIGIN",
-        "top_left_corner": "POINT_TOP_LEFT_CORNER"}}
+        "leftmost_self_bounce": "POINT_SELF_LEFT", "origin": "CHOICE_ORIGIN",
+        "top_left_corner": "CHOICE_TOP_LEFT_CORNER"}}
 FORMAT_4_BUDDHA_POINT_KEYS = {        # key -> the format-5 key of the same thing
     "all_bounces_mean": "bounces_mean", "self_bounces_mean": "self_bounces_mean",
     "boundary_bounces_mean": "boundary_bounces_mean", "termination_point": "path_last",
@@ -1082,13 +1082,25 @@ def test_a_format_7_project_file_is_converted_when_loaded():
     converted = json.loads(m.project_text(loaded))
     assert converted["format_version"] == 8 and converted["natural_termination"] == old["natural_stop"]
     assert "natural_stop" not in converted
+    assert [c["color_model"] for c in converted["colorations"]] == [c["mode"] for c in old["colorations"]]
+    assert all("mode" not in c for c in converted["colorations"])
+    assert "coloration:5:color_model" in converted["keyframes"][0]["settings"]
+    assert not any(k.endswith(":mode") for kf in converted["keyframes"] for k in kf["settings"])
 
 
-def test_the_format_7_to_8_migration_renames_only_the_natural_stop_section_it_finds():
-    old = {"format_version": 7, "natural_stop": {"iter": 5}, "simulation": {"seg_mult": 0.5}}
+def test_the_format_7_to_8_migration_renames_only_the_natural_stop_section_and_the_colour_models_it_finds():
+    old = {"format_version": 7, "natural_stop": {"iter": 5}, "simulation": {"seg_mult": 0.5, "emit_mode": "up"},
+           "colorations": [{"id": 0, "mode": "HSV", "channels": []}, {"id": 3, "channels": []}],
+           "keyframes": [{"id": 0, "frame_index": 0, "settings": {"coloration:3:mode": "RGB", "coloration:3:chan0": 1,
+                                                                   "emit_mode": "up", "iter": 7}}]}
     new = m._migrate_project_7_to_8(old)
-    assert new == {"format_version": 8, "natural_termination": {"iter": 5}, "simulation": {"seg_mult": 0.5}}
-    assert "natural_stop" in old and old["format_version"] == 7              # the file's data is not modified
+    assert new == {"format_version": 8, "natural_termination": {"iter": 5},
+                   "simulation": {"seg_mult": 0.5, "emit_mode": "up"},       # the emission's mode is another thing
+                   "colorations": [{"id": 0, "color_model": "HSV", "channels": []}, {"id": 3, "channels": []}],
+                   "keyframes": [{"id": 0, "frame_index": 0, "settings": {"coloration:3:color_model": "RGB",
+                                                                           "coloration:3:chan0": 1, "emit_mode": "up",
+                                                                           "iter": 7}}]}
+    assert "natural_stop" in old and old["format_version"] == 7 and old["colorations"][0]["mode"] == "HSV"
     assert m._migrate_project_7_to_8({"format_version": 7}) == {"format_version": 8}
 
 

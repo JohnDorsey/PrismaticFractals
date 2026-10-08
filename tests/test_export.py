@@ -140,12 +140,12 @@ def test_render_coloration_thumbnail_reuses_self_img_for_the_live_coloration():
     re-tracing every ray for a "multi" Buddha point option on every single
     color-setting change."""
     app = _fake_current_image_app()
-    app.img = np.random.RandomState(0).randint(0, 256, (m.SIZE, m.SIZE, 3), dtype=np.uint8)
+    app.img = np.random.RandomState(0).randint(0, 256, (m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     live = app.live_coloration()
     assert live is app.colorations[0]
     thumb = app.render_coloration_thumbnail(live, m.THUMB_SIZE)
-    ys = (np.arange(m.THUMB_SIZE) * m.SIZE / m.THUMB_SIZE).astype(np.int64)
-    xs = (np.arange(m.THUMB_SIZE) * m.SIZE / m.THUMB_SIZE).astype(np.int64)
+    ys = (np.arange(m.THUMB_SIZE) * m.PREVIEW_BOX / m.THUMB_SIZE).astype(np.int64)
+    xs = (np.arange(m.THUMB_SIZE) * m.PREVIEW_BOX / m.THUMB_SIZE).astype(np.int64)
     expected = app.img[np.ix_(ys, xs)]
     assert np.array_equal(thumb, expected)
 
@@ -155,7 +155,7 @@ def test_render_coloration_thumbnail_never_calls_apply_coloration_for_the_live_c
     point (the expensive, ray-re-tracing case) must not reach
     apply_coloration at all when thumbnailing the live coloration."""
     app = _fake_current_image_app()
-    app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
+    app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     live = app.live_coloration()
     live.chan_src[0] = m.CHAN_SRC_BUDDHA
     live.buddha_points[0] = tuple(i == 7 for i in range(m.N_BUDDHA_POINTS))  # a "multi" point
@@ -171,9 +171,9 @@ def test_render_coloration_thumbnail_still_uses_apply_coloration_for_a_non_live_
     self.img to reuse, so it must still go through apply_coloration as
     before."""
     app = _fake_current_image_app()
-    app.img = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # sentinel: must be unused
+    app.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # sentinel: must be unused
     other = m.ColorationConfig(99)
-    other.mode = "HSV"
+    other.color_model = "HSV"
     assert other is not app.live_coloration()
     thumb = app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert not np.array_equal(thumb, np.full((m.THUMB_SIZE, m.THUMB_SIZE, 3), 42, dtype=np.uint8))
@@ -213,7 +213,7 @@ def test_render_coloration_thumbnail_recomputes_a_non_live_coloration_after_rows
         return real_colorize(*a, **k)
     app.apply_coloration = counting_colorize
     app.render_coloration_thumbnail(other, m.THUMB_SIZE)
-    app.rows_done = m.SIZE // 2   # simulate more rows having completed
+    app.rows_done = m.PREVIEW_BOX // 2   # simulate more rows having completed
     app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert len(calls) == 2, "rows_done advancing must invalidate the cache"
 
@@ -227,9 +227,9 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.render_coloration_thumbnail = m.App.render_coloration_thumbnail.__get__(app)
     app.apply_coloration = m.App.apply_coloration.__get__(app)
     app.obstacles = []
-    app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
-    app.characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
-    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
+    app.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
+    app.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
+    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     app.gen_termination = m.NATURAL_TERMINATION_DEFAULT
     app.gen_engine_args = _engine_args(m.build_obstacle_arrays([]))
     app.generated_settings = None                     # the placeholder image: default settings
@@ -237,7 +237,7 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
-    app.img = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
+    app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
 
     # coloration 1 starts non-live; cache its (default RGB) thumbnail first
     coloration1 = app.colorations[1]
@@ -261,41 +261,41 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
 
 def test_write_uses_self_frame_directly_for_a_single_coloration():
     """No need to recompute anything when only one coloration is being exported -
-    self.frame already holds exactly that."""
+    self.image_for_export already holds exactly that."""
     app = _fake_current_image_app()
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
     img = m.read_png(path)
-    assert img.shape == (m.SIZE, m.SIZE, 3)
-    assert (img == 42).all(), "single-coloration export should be exactly self.frame"
+    assert img.shape == (m.PREVIEW_BOX, m.PREVIEW_BOX, 3)
+    assert (img == 42).all(), "single-coloration export should be exactly self.image_for_export"
 
 
 def test_write_composes_all_colorations_when_include_all_colorations_is_on():
     app = _fake_current_image_app()
     app.include_all_colorations_var = _StubVar(True)
     app.new_coloration()
-    app.colorations[1].mode = "HSV"
+    app.colorations[1].color_model = "HSV"
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
     img = m.read_png(path)
-    assert img.shape == (m.SIZE, m.SIZE * 2, 3)
-    half = m.SIZE
+    assert img.shape == (m.PREVIEW_BOX, m.PREVIEW_BOX * 2, 3)
+    half = m.PREVIEW_BOX
     assert not np.array_equal(img[:, :half], img[:, half:]), \
         "two colorations with different modes should produce different halves"
 
 
 def test_render_current_image_matches_self_frame_for_identical_single_coloration():
     """A sanity check that the two code paths agree: composing just the live
-    coloration through render_current_image gives the same picture self.frame
+    coloration through render_current_image gives the same picture self.image_for_export
     already has (modulo the outline, which render_current_image also
     applies - both are off here for a clean, direct pixel comparison isn't
-    meaningful since self.frame's content comes from a different source in
+    meaningful since self.image_for_export's content comes from a different source in
     this fixture; instead just check shape and that it runs without error)."""
     app = _fake_current_image_app()
     img = app.render_current_image([app.live_coloration()])
-    assert img.shape == (m.SIZE, m.SIZE, 3)
+    assert img.shape == (m.PREVIEW_BOX, m.PREVIEW_BOX, 3)
 
 
 def _every_kind_of_obstacle():
@@ -433,23 +433,23 @@ def test_layout_info_columns_keeps_blocks_together_and_splits_only_oversized_one
 
 
 def test_left_margin_is_half_the_image_width_for_an_ordinary_scene():
-    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
     out = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(), _start_scene()))
-    assert out.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
-    assert np.array_equal(out[:, m.SIZE // 2:], img), "the image itself is untouched"
-    assert (out[:, :m.SIZE // 2] != m.COLORATION_INFO_BG).any(), "and the text is drawn"
+    assert out.shape == (m.PREVIEW_BOX, m.PREVIEW_BOX + m.PREVIEW_BOX // 2, 3)
+    assert np.array_equal(out[:, m.PREVIEW_BOX // 2:], img), "the image itself is untouched"
+    assert (out[:, :m.PREVIEW_BOX // 2] != m.COLORATION_INFO_BG).any(), "and the text is drawn"
 
 
 def test_left_margin_grows_extra_columns_when_the_settings_need_the_room():
-    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
     scene = []
     for i in range(14):
         o = m.default_starting_obstacle(i)
         o.r = 0.1 * i
         scene.append(o)
     out = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(), scene))
-    margin_w = out.shape[1] - m.SIZE
-    assert margin_w > m.SIZE // 2
+    margin_w = out.shape[1] - m.PREVIEW_BOX
+    assert margin_w > m.PREVIEW_BOX // 2
     assert margin_w % 2 == 0, "video encoders want even widths"
     text = (out[:, :margin_w] != m.COLORATION_INFO_BG).any(axis=-1)
     last_col_x0 = margin_w - 6 * m.FIGURE_INFO_COLUMN_CHARS
@@ -457,7 +457,7 @@ def test_left_margin_grows_extra_columns_when_the_settings_need_the_room():
 
 
 def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
-    img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
     scene = _every_kind_of_obstacle()
     moved = _every_kind_of_obstacle()
     for o in moved:
@@ -726,7 +726,7 @@ def test_export_enabled_after_generation_finishes():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
-    app.rows_done = m.SIZE
+    app.rows_done = m.PREVIEW_BOX
     app.running = False
     app.update_buttons()
     assert app.save_btn_tooltip.text == ""
@@ -736,7 +736,7 @@ def test_export_disabled_while_still_generating():
     app = _fake_button_gating_app()
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.generated_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
-    app.rows_done = m.SIZE // 2
+    app.rows_done = m.PREVIEW_BOX // 2
     app.running = True
     app.update_buttons()
     assert app.save_btn_tooltip.text != ""

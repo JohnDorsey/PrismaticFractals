@@ -8,7 +8,7 @@ import math
 from .constants import (
     DEFAULT_FRAMING_ASPECT, DEFAULT_FRAMING_DIAGONAL, DEFAULT_FRAMING_X, DEFAULT_FRAMING_Y
 )
-from .kernels import SIZE, WorldRect
+from .kernels import PREVIEW_BOX, WorldRect
 from .settings import resolve_value, strict_record
 
 FRAMING_FIELDS = ("x", "y", "diagonal", "aspect")        # a framing's settings (it also has an id)
@@ -97,7 +97,7 @@ def framing_is_usable(f):
             and world_rect.x_stop > world_rect.x_start and world_rect.y_stop > world_rect.y_start)
 
 
-def framing_image_size(f, box=SIZE):
+def framing_image_size(f, box=PREVIEW_BOX):
     """(pixels across, pixels down) of the image a framing makes on screen: its aspect ratio, in the largest size
     that fits a `box` pixel square (so the whole-world framing's is box x box)."""
     if f.aspect >= 1.0:
@@ -107,9 +107,9 @@ def framing_image_size(f, box=SIZE):
 
 def framing_outline_pixel(f):
     """The world width of one pixel of the image this framing makes on screen: what an obstacle's outline layers are
-    measured in, so that they look the same however far the framing zooms in or out (PIXEL for the whole world)."""
+    measured in, so that they look the same however far the framing zooms in or out (DEFAULT_PIXEL_WORLD_WIDTH for the whole world)."""
     width, height = framing_size(f)
-    return max(width, height) / SIZE
+    return max(width, height) / PREVIEW_BOX
 
 
 def framing_info_block(f):

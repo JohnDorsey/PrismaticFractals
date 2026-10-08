@@ -14,12 +14,12 @@ from .metrics import (
     resolve_point_xy, scatter_points_raw, scatter_seeded_buddha, world_radius_to_pixels
 )
 from .ui_text import default_map_help
-from .colorations import MODES, channels_to_rgb
+from .colorations import COLOR_MODELS, channels_to_rgb
 
 
 class RecolorMixin:
     # ---- color mapping ---------------------------------------------------- #
-    def on_mode_changed(self, _event=None):
+    def on_color_model_changed(self, _event=None):
         """RGB <-> HSV: relabel the table rows and, if the edited coloration is the
         live one, recolor right away."""
         if self._color_editor_loading:
@@ -27,11 +27,11 @@ class RecolorMixin:
         coloration = self.selected_coloration_obj()
         if coloration is None:
             return
-        coloration.mode = self.mode_var.get()
-        for c, (name, color) in enumerate(MODES[coloration.mode]):
+        coloration.color_model = self.color_model_var.get()
+        for c, (name, color) in enumerate(COLOR_MODELS[coloration.color_model]):
             self.comp_labels[c].configure(text=name, foreground=color)
-        self.map_help_var.set(default_map_help(coloration.mode))
-        self.mode_combo.selection_clear()
+        self.map_help_var.set(default_map_help(coloration.color_model))
+        self.color_model_combo.selection_clear()
         if coloration is self.live_coloration():
             self.update_stat_tags()
             self.recolor(0, self.rows_done)
@@ -78,7 +78,7 @@ class RecolorMixin:
         channel letter(s) it currently drives, e.g. '-> B'. Always about the
         live coloration specifically - this describes the top-left preview image,
         not whichever coloration is being edited."""
-        letters = [name[0] for name, _color in MODES[self.live_coloration().mode]]
+        letters = [name[0] for name, _color in COLOR_MODELS[self.live_coloration().color_model]]
         for s in range(N_STATS):
             used = [letters[c] for c in range(3) if self.mapping[c] == s]
             self.stat_tags[s].configure(text="-> " + ", ".join(used) if used else "")
@@ -187,7 +187,7 @@ class RecolorMixin:
         coloration_mapping = make_mapping(coloration.metric_types, coloration.point_metric, coloration.other_metric,
                                     coloration.chan_src, coloration.constant_choice)
 
-        name = MODES[coloration.mode][c][0]
+        name = COLOR_MODELS[coloration.color_model][c][0]
         if coloration.chan_src[c] == CHAN_SRC_BUDDHA:
             chosen = [BUDDHA_POINT_LABELS[i] for i, v in enumerate(coloration.buddha_points[c]) if v]
             comp = BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]]
@@ -365,14 +365,14 @@ class RecolorMixin:
                 else:
                     vals.append(np.clip(st[..., s][computed].astype(np.float64),
                                         0.0, 1.0))
-            r, g, b = channels_to_rgb(coloration.mode, *vals)
+            r, g, b = channels_to_rgb(coloration.color_model, *vals)
             rgb = np.stack((r, g, b), axis=-1)
             out[computed] = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
 
     def component_values(self, vec, ray_characteristic_points, x0, y0):
         """The three channel values (0..1) for one ray under the current
         mapping. vec: its metrics, ray_characteristic_points: its sample points, (x0, y0): the
-        pixel it was emitted from (used to look up a Buddha channel's
+        pixel it was fired from (used to look up a Buddha channel's
         already-accumulated count at that same pixel)."""
         coloration = self.live_coloration()
         vals = []
@@ -406,5 +406,5 @@ class RecolorMixin:
 
     def map_color(self, vals):
         """Color (r, g, b) from three channel values under the current model."""
-        r, g, b = channels_to_rgb(self.live_coloration().mode, *[np.array([v]) for v in vals])
+        r, g, b = channels_to_rgb(self.live_coloration().color_model, *[np.array([v]) for v in vals])
         return tuple(int(np.clip(np.rint(ch[0]), 0, 255)) for ch in (r, g, b))

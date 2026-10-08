@@ -30,8 +30,8 @@ from .kernels import (
 from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
-    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, POINT_ORIGIN,
-    POINT_METRICS, POINT_TOP_LEFT_CORNER, point_slot, stat_slot
+    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, CHOICE_ORIGIN,
+    POINT_METRICS, CHOICE_TOP_LEFT_CORNER, point_slot, stat_slot
 )
 from .settings import (
     BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalTerminationSettings, RaySettings, SETTING_TABLES,
@@ -39,7 +39,7 @@ from .settings import (
 )
 from .shapes import SHAPE_CLASSES
 from .version import FILE_VERSION
-from .colorations import ChannelSettings, MODES, ColorationConfig, snapshot_coloration, coloration_channel_value
+from .colorations import ChannelSettings, COLOR_MODELS, ColorationConfig, snapshot_coloration, coloration_channel_value
 from .framings import (
     DEFAULT_FRAMING, FRAMING_FIELDS, FramingConfig, framing_is_usable, snapshot_framing
 )
@@ -115,7 +115,7 @@ CAT_METRIC = Catalog("metric", [          # the measurements of a ray's own run,
 CAT_POINT = Catalog("point", [
     (f"{CAT_SEQUENCE.key(seq)}_{CAT_POINT_REDUCTION.key(red)}", point_slot(seq, red))
     for seq in range(N_SEQS) for red in range(N_PRED)]
-    + [("origin", POINT_ORIGIN), ("top_left_corner", POINT_TOP_LEFT_CORNER)])
+    + [("origin", CHOICE_ORIGIN), ("top_left_corner", CHOICE_TOP_LEFT_CORNER)])
 _BUDDHA_TERM_KEYS = {TERM_DIST: "distance_limit", TERM_PERPENDICULAR: "perpendicular_collision",
                      TERM_CONFINED: "confined"}
 _BUDDHA_MULTI_KEYS = {BUDDHA_MULTI_ALL_SELF: "all_self_bounces", BUDDHA_MULTI_ALL_MID: "all_segment_midpoints",
@@ -233,7 +233,7 @@ class Project:
 def coloration_config_from_snapshot(snapshot):
     """A live ColorationConfig with the contents of a ColorationSnapshot."""
     coloration = ColorationConfig(snapshot.id)
-    coloration.mode = snapshot.mode
+    coloration.color_model = snapshot.color_model
     for c in range(3):
         coloration.set_channel(c, coloration_channel_value(snapshot, c))
     return coloration
@@ -329,7 +329,7 @@ def project_to_dict(project):
                        "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
                                   for name in o.FIELD_NAMES}}
                       for o in project.obstacles],
-        "colorations": [{"id": v.id, "mode": v.mode,
+        "colorations": [{"id": v.id, "color_model": v.color_model,
                          "channels": [_channel_to_json(coloration_channel_value(v, c)) for c in range(3)]}
                         for v in project.colorations],
         "framings": [{"id": f.id, **{field: getattr(f, field) for field in FRAMING_FIELDS}}
@@ -467,16 +467,16 @@ def _shape_from_json(data, seen_ids):
 
 def _coloration_from_json(data, seen_ids):
     _expect(isinstance(data, dict), "a coloration must be an object")
-    coloration_id, mode, channels = data.get("id"), data.get("mode"), data.get("channels")
+    coloration_id, color_model, channels = data.get("id"), data.get("color_model"), data.get("channels")
     _expect(isinstance(coloration_id, int) and not isinstance(coloration_id, bool) and coloration_id >= 0,
             "a coloration's id must be a whole number")
     _expect(coloration_id not in seen_ids, f"two colorations have the id {coloration_id}")
     seen_ids.add(coloration_id)
-    _expect(mode in MODES, f"coloration {coloration_id}: unknown colour model {mode!r}")
+    _expect(color_model in COLOR_MODELS, f"coloration {coloration_id}: unknown colour model {color_model!r}")
     _expect(isinstance(channels, list) and len(channels) == 3,
             f"coloration {coloration_id}: it needs exactly 3 channels")
     coloration = ColorationConfig(coloration_id)
-    coloration.mode = mode
+    coloration.color_model = color_model
     for c, channel in enumerate(channels):
         coloration.set_channel(c, _channel_from_json(channel, f"coloration {coloration_id} channel {c + 1}", c))
     return snapshot_coloration(coloration)
@@ -737,12 +737,22 @@ def _migrate_project_6_to_7(data):
 
 def _migrate_project_7_to_8(data):
     """Format 7 called the section of the natural termination settings (the iteration, distance and escape-radius
-    limits and the three confinement settings) "natural_stop"; format 8 calls it "natural_termination" (a ray ends
-    by termination, never by "stop"). The settings in it are unchanged. Converts a parsed format-7 file."""
+    limits and the three confinement settings) "natural_stop", and the color model of a coloration (RGB, HSV...)
+    its "mode" (in the coloration's entry and in the keyframe settings "coloration:<id>:mode"). Format 8 calls them
+    "natural_termination" (a ray ends by termination, never by "stop") and "color_model" ("mode" is also the
+    emission's and the video bitrate's). Their values are unchanged. Converts a parsed format-7 file."""
     import copy
     data = copy.deepcopy(data)
     if "natural_stop" in data:
         data["natural_termination"] = data.pop("natural_stop")
+    for coloration in data.get("colorations", []):
+        if isinstance(coloration, dict) and "mode" in coloration:
+            coloration["color_model"] = coloration.pop("mode")
+    for kf in data.get("keyframes", []):
+        settings = kf.get("settings") if isinstance(kf, dict) else None
+        if isinstance(settings, dict):
+            kf["settings"] = {(key[:-len(":mode")] + ":color_model" if key.startswith("coloration:") and key.endswith(":mode")
+                               else key): value for key, value in settings.items()}
     data["format_version"] = 8
     return data
 

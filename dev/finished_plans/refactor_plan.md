@@ -97,7 +97,7 @@ True cycles (two regions need each other):
 Placement problems (one direction, wrong place):
 3. `OBST_BOUND_LEN` (defined in the coloration region) used by `build_obstacle_arrays`: move to the kernel-constants area.
 4. `DEFAULT_SETTING_VALUES` (after the project code) used by `resolve_setting`: move up beside DEFAULT_RAY_SETTINGS.
-5. `MODES` (coloration region) used by `_view_from_json`: move to the views region / constants.
+5. `COLOR_MODELS` (coloration region) used by `_view_from_json`: move to the views region / constants.
 6. `jxl_quality_tag` (image writers) used by `image_filename`: put the two together.
 7. `inside_boundary_grid` (a kernel) used by `render_obstacle_thumbnail`/`ring_layer_masks`: just needs kernels to be a lower layer.
 8. `inside_boundary`, `boundary_hit` (kernels) used by `estimate_area_numeric`/`sample_boundary_xy` (geometry): same.
@@ -137,7 +137,7 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
       must come before `EMISSION_DEFAULT`); `resolve_obstacles` follows `resolve_value`; `resolve_obstacle_arrays` STAYS in the
       shapes region (it needs `build_obstacle_arrays`), so **shapes import settings, never the reverse** (settings is below
       geometry and shapes in the target order); `OBST_BOUND_LEN` is beside `DEFAULT_SIDES`; `DEFAULT_SETTING_VALUES` follows
-      `SETTING_WIDGET_ATTRS`; `MODES`/`MODE_NAMES` precede the Views section; `default_filename`/`image_filename` follow
+      `SETTING_WIDGET_ATTRS`; `COLOR_MODELS`/`COLOR_MODEL_NAMES` precede the Views section; `default_filename`/`image_filename` follow
       `preview_placeholder` (after the image writers whose `jxl_quality_tag` they use).
 - [x] `dev/refactor/deps_map.py` now cuts regions at named anchor definitions (not line numbers), so it keeps working after
       moves. Its output: no region uses a later one except shapes -> geometry/kernels/settings and geometry -> kernels, which
@@ -233,7 +233,7 @@ Also: `image_io` needs `FONT_5X7` (line 781) and `TEMP_DIR` (line 905): the font
 
 ### Step 6 - metrics, views, export text, projects, self-checks. Recommended effort: MEDIUM-HIGH - DONE (FILE_VERSION 120)
 - [x] `metrics.py` (393 lines: metric/point/Buddha catalogs and options, `buddha_compress`, the four Buddha blur functions, `make_mapping`), `views.py` (262:
-      the DEFAULT_* channel tables, MODES, `ViewConfig`, `ViewSnapshot`, `ChannelSettings`, `ViewSettings`, `resolve_views`, `hsv_to_rgb_np`/`channels_to_rgb`),
+      the DEFAULT_* channel tables, COLOR_MODELS, `ViewConfig`, `ViewSnapshot`, `ChannelSettings`, `ViewSettings`, `resolve_views`, `hsv_to_rgb_np`/`channels_to_rgb`),
       `export_text.py` (310: option lists, `settings_suffix`, `default_filename`/`image_filename`, coloration/figure info text, layout and drawing, `apply_info_locations`),
       `projects.py` (603: PROJECT_* constants, `Catalog` + every `CAT_*`, `EXPORT_OPTIONS`, `Project`, JSON, migrations 1->2 and 2->3, `project_from_dict`),
       `selfchecks.py` (186: `run_self_checks`). `__init__` calls `selfchecks.run_self_checks()` after all modules are loaded (it used to run when core was imported).

@@ -66,16 +66,16 @@ class ExportMixin:
         jxl_lossless = self.save_jxl_mode_var.get() == "Lossless"
         jxl_quality = int(round(float(self.save_jxl_quality_scale.get())))
         colorations = self.colorations_to_export()
-        # self.frame already holds exactly the single-coloration case (with the
+        # self.image_for_export already holds exactly the single-coloration case (with the
         # outline if that decoration is on, no preview overlays) - only
         # recompute when more than one coloration needs to be composed in.
-        rgb = self.frame if len(colorations) == 1 else self.render_current_image(colorations)
+        rgb = self.image_for_export if len(colorations) == 1 else self.render_current_image(colorations)
         rgb = apply_info_locations(
             rgb, colorations, rgb.shape[1] // len(colorations), self.generated_settings,
             self.generated_natural_termination, self.gen_obstacle_snapshots, self.color_info_location_var.get(),
             self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
             mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
-                                       # array from render_current_image, not self.frame
+                                       # array from render_current_image, not self.image_for_export
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
         except Exception as exc:                   # noqa: BLE001

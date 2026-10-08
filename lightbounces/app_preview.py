@@ -10,13 +10,13 @@ from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_plac
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
     N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, emits_ray,
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, fires_ray,
     in_sequence, trace_path
 )
 from .metrics import POINT_METRICS, resolve_point_xy
 from .settings import NaturalTerminationSettings, RaySettings, settings_natural_termination, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
-from .colorations import MODES
+from .colorations import COLOR_MODELS
 
 
 class PreviewMixin:
@@ -53,9 +53,9 @@ class PreviewMixin:
             self.pixel_state = np.full(shape, PIXEL_PENDING, dtype=np.uint8)
             self.img = np.empty(shape + (3,), dtype=np.uint8)
             self.img[:] = BACKGROUND
-            self.frame = np.empty_like(self.img)        # img + the outlines; this is what gets exported/saved, so
+            self.image_for_export = np.empty_like(self.img)        # img + the outlines; this is what gets exported/saved, so
                                                         # it must never hold a preview-only decoration
-            self.display_frame = np.empty_like(self.img)   # self.frame + the coloration-name overlay; only ever
+            self.image_for_screen = np.empty_like(self.img)   # self.image_for_export + the coloration-name overlay; only ever
                                                            # pushed to self.photo, never written to disk
         self.gx, self.gy = make_grid(self.img_w, self.img_h, self.image_world_rect)
 
@@ -108,25 +108,25 @@ class PreviewMixin:
         (two layers: outer = incoming effect, inner = outgoing effect; brown for
         Terminate, pale light blue for Reflect, black for Pass through),
         then the live coloration's name in the bottom-left corner - a preview-only
-        decoration drawn into self.display_frame, a separate buffer from
-        self.frame (which is what gets exported/saved, and so must never
+        decoration drawn into self.image_for_screen, a separate buffer from
+        self.image_for_export (which is what gets exported/saved, and so must never
         carry it)."""
-        np.copyto(self.frame, self.img)
+        np.copyto(self.image_for_export, self.img)
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for ring in self.obstacle_ring_specs():
-                draw_obstacle_outline(self.frame, ring.shape, ring.bound, self.gx - ring.cx,
+                draw_obstacle_outline(self.image_for_export, ring.shape, ring.bound, self.gx - ring.cx,
                                       self.gy - ring.cy, ring.in_effect, ring.out_effect, self.outline_pixel)
-        np.copyto(self.display_frame, self.frame)
+        np.copyto(self.image_for_screen, self.image_for_export)
         self.draw_coloration_name_overlay()
         header = f"P6 {self.img_w} {self.img_h} 255\n".encode()
-        self.photo.configure(data=header + self.display_frame.tobytes(), format="PPM")
+        self.photo.configure(data=header + self.image_for_screen.tobytes(), format="PPM")
 
     def draw_coloration_name_overlay(self):
         """Stamps the live coloration's display name ("coloration N") into the bottom-left
-        corner of self.display_frame, in the tiny 5x7 pixel font, on a solid
+        corner of self.image_for_screen, in the tiny 5x7 pixel font, on a solid
         background box so it stays legible over any image content. Never
-        touches self.frame - this is preview-only and must never end up in
+        touches self.image_for_export - this is preview-only and must never end up in
         a saved/exported image."""
         idx = self.all_coloration_ids().index(self.live_coloration().id)
         mask = render_text_line(f"coloration {idx}", COLORATION_NAME_OVERLAY_SCALE)
@@ -139,8 +139,8 @@ class PreviewMixin:
         x1 = x0 + w + 2 * pad
         if y0 < 0 or x1 > self.img_w:
             return                                 # the image is too small to hold it
-        self.display_frame[y0:y1, x0:x1] = COLORATION_NAME_OVERLAY_BG
-        region = self.display_frame[y0 + pad:y0 + pad + h, x0 + pad:x0 + pad + w]
+        self.image_for_screen[y0:y1, x0:x1] = COLORATION_NAME_OVERLAY_BG
+        region = self.image_for_screen[y0 + pad:y0 + pad + h, x0 + pad:x0 + pad + w]
         region[mask] = COLORATION_NAME_OVERLAY_FG
 
     # ---- hover demonstration ---------------------------------------------- #
@@ -191,7 +191,7 @@ class PreviewMixin:
         x, y = self.pixel_center(i, j)
         ps = self.preview_settings()
         obstacles = build_obstacle_arrays(self.obstacles)
-        if (self.pinned_px != (i, j) and not emits_ray(x, y, obstacles)):
+        if (self.pinned_px != (i, j) and not fires_ray(x, y, obstacles)):
             return                                 # clicking where no ray fires does nothing -
                                                    # except on the pinned pixel, to unpin it
         if self.pinned_px == (i, j):
@@ -215,8 +215,8 @@ class PreviewMixin:
         # A hovered pixel that fires no ray has no preview - but a pinned one
         # stays visible even if the scene changed under it so that it no longer
         # fires: it then shows the ray such a pixel would trace anyway.
-        if (self.pinned_px != (i, j) and not emits_ray(x, y, obstacles)):
-            self.clear_overlay()                   # not a ray-emitting pixel
+        if (self.pinned_px != (i, j) and not fires_ray(x, y, obstacles)):
+            self.clear_overlay()                   # not a pixel that fires a ray
             return
         if (i, j) == self.hover_px:
             return
@@ -283,7 +283,7 @@ class PreviewMixin:
                         px, py = resolve_point_xy(ray_characteristic_points, p)
                         cx, cy = self.world_to_canvas(px, py)
                         cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, width=2,
-                                      outline=SAMPLE_COLORS[live_coloration.mode][c], tags="ray")
+                                      outline=SAMPLE_COLORS[live_coloration.color_model][c], tags="ray")
 
         # ---- info panel ----
         bounces = int(raw[RAW_BOUNCES])
@@ -309,7 +309,7 @@ class PreviewMixin:
             v["loop"].set(f"area {raw[RAW_AREA]:.4f}")
         else:
             v["loop"].set("never touches itself")
-        letters = [name[0] for name, _color in MODES[self.live_coloration().mode]]
+        letters = [name[0] for name, _color in COLOR_MODELS[self.live_coloration().color_model]]
         v["components"].set("   ".join(f"{letters[c]} {vals[c]:.3f}" for c in range(3)))
         v["color"].set(hexcol)
         for s in range(N_STATS):

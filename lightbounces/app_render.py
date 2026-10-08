@@ -25,8 +25,8 @@ class RenderMixin:
         resolution (img_w x img_h per coloration) - reusing self.stats/self.characteristic_points/
         self.pixel_state as already computed, no re-simulation. Each coloration gets
         the outline decoration drawn in if enabled, exactly like
-        self.frame/draw(). Only called for more than one coloration - the
-        single-coloration case is just self.frame, already rendered."""
+        self.image_for_export/draw(). Only called for more than one coloration - the
+        single-coloration case is just self.image_for_export, already rendered."""
         images = []
         for v in colorations:
             images.append(self.apply_coloration(v.settings(), self.stats, self.characteristic_points, self.pixel_state,
@@ -162,7 +162,7 @@ class RenderMixin:
                 else:
                     vals.append(np.clip(stats[..., s][computed].astype(np.float64),
                                         0.0, 1.0))
-            r, g, b = channels_to_rgb(v.mode, *vals)
+            r, g, b = channels_to_rgb(v.color_model, *vals)
             rgb = np.stack((r, g, b), axis=-1)
             img[computed] = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
         return img

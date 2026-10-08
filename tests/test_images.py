@@ -193,7 +193,7 @@ def test_render_text_line_produces_legible_glyphs_for_every_digit():
 def test_coloration_name_overlay_draws_in_the_bottom_left_corner_only():
     app = type("FakeApp", (), {})()
     _give_image_geometry(app)
-    app.display_frame = np.full((m.SIZE, m.SIZE, 3), 100, dtype=np.uint8)
+    app.image_for_screen = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 100, dtype=np.uint8)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
     app.selected_coloration_id = 1
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
@@ -208,16 +208,16 @@ def test_coloration_name_overlay_draws_in_the_bottom_left_corner_only():
     # overlay's background color, and some pixels nearby must be its
     # foreground color (the text itself) - while the rest of the image is
     # untouched.
-    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
-    region = app.display_frame[m.SIZE - 40:m.SIZE, 0:100]
+    assert tuple(app.image_for_screen[m.PREVIEW_BOX - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
+    region = app.image_for_screen[m.PREVIEW_BOX - 40:m.PREVIEW_BOX, 0:100]
     assert ((region == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1)).sum() > 0
-    assert tuple(app.display_frame[10, m.SIZE - 10]) == (100, 100, 100)   # untouched elsewhere
+    assert tuple(app.image_for_screen[10, m.PREVIEW_BOX - 10]) == (100, 100, 100)   # untouched elsewhere
 
 
 def test_coloration_name_overlay_reflects_the_live_colorations_position():
     app = type("FakeApp", (), {})()
     _give_image_geometry(app)
-    app.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
+    app.image_for_screen = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1), m.ColorationConfig(2)]
     app.selected_coloration_id = 2
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
@@ -227,11 +227,11 @@ def test_coloration_name_overlay_reflects_the_live_colorations_position():
     app.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app)
 
     app.draw_coloration_name_overlay()
-    text_pixels_with_id_2 = (app.display_frame == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
+    text_pixels_with_id_2 = (app.image_for_screen == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
 
     app2 = type("FakeApp", (), {})()
     _give_image_geometry(app2)
-    app2.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
+    app2.image_for_screen = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     app2.colorations = app.colorations
     app2.selected_coloration_id = 0
     app2.coloration_by_id = m.App.coloration_by_id.__get__(app2)
@@ -240,25 +240,25 @@ def test_coloration_name_overlay_reflects_the_live_colorations_position():
     app2.all_coloration_ids = m.App.all_coloration_ids.__get__(app2)
     app2.draw_coloration_name_overlay = m.App.draw_coloration_name_overlay.__get__(app2)
     app2.draw_coloration_name_overlay()
-    text_pixels_with_id_0 = (app2.display_frame == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
+    text_pixels_with_id_0 = (app2.image_for_screen == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
 
     # "coloration 2" and "coloration 0" are different-length strings of lit pixels in
     # general, but at minimum the two renders should differ - same digit
     # count here, so compare the actual pixel patterns are not identical.
-    assert not np.array_equal(app.display_frame, app2.display_frame)
+    assert not np.array_equal(app.image_for_screen, app2.image_for_screen)
 
 
 def test_draw_never_lets_the_coloration_name_overlay_leak_into_the_export_buffer():
     """Regression test: draw() used to draw the overlay directly into
-    self.frame, which _write() (the "Current preview image" export path)
+    self.image_for_export, which _write() (the "Current preview image" export path)
     saves straight to disk - meaning the preview-only overlay was silently
-    ending up in exported files. self.frame must stay untouched by the
-    overlay; only self.display_frame (never written to disk) should carry it."""
+    ending up in exported files. self.image_for_export must stay untouched by the
+    overlay; only self.image_for_screen (never written to disk) should carry it."""
     app = type("FakeApp", (), {})()
     _give_image_geometry(app)
-    app.img = np.full((m.SIZE, m.SIZE, 3), 50, dtype=np.uint8)
-    app.frame = np.empty_like(app.img)
-    app.display_frame = np.empty_like(app.img)
+    app.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 50, dtype=np.uint8)
+    app.image_for_export = np.empty_like(app.img)
+    app.image_for_screen = np.empty_like(app.img)
     app.deco = {"outline": type("X", (), {"get": lambda self: False})()}
     app.colorations = [m.ColorationConfig(0)]
     app.selected_coloration_id = 0
@@ -273,6 +273,6 @@ def test_draw_never_lets_the_coloration_name_overlay_leak_into_the_export_buffer
 
     app.draw()
 
-    assert tuple(app.display_frame[m.SIZE - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
-    assert tuple(app.frame[m.SIZE - 10, 10]) == (50, 50, 50), \
-        "the overlay leaked into self.frame, which gets written to disk on export"
+    assert tuple(app.image_for_screen[m.PREVIEW_BOX - 10, 10]) == m.COLORATION_NAME_OVERLAY_BG
+    assert tuple(app.image_for_export[m.PREVIEW_BOX - 10, 10]) == (50, 50, 50), \
+        "the overlay leaked into self.image_for_export, which gets written to disk on export"

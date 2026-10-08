@@ -17,7 +17,7 @@ ANCHORS = [("consts", None), ("consts2+blur", "world_radius_to_pixels"), ("recor
            ("ui_helpers", "make_scrollable_tab"), ("keyframe", "Keyframe"), ("shapes", "ShapeParam"),
            ("settings", "SettingEntry"), ("misc_utils", "ensure_project_dir"), ("image_io", "png_rgba"),
            ("naming", "default_filename"), ("geometry", "ellipse_bound"),
-           ("metrics", "ST_HDIST"), ("views", "MODES"), ("project", "PROJECT_EXTENSION"),
+           ("metrics", "ST_HDIST"), ("views", "COLOR_MODELS"), ("project", "PROJECT_EXTENSION"),
            ("selfchecks", "run_self_checks"), ("coloration", "make_mapping"),
            ("kernels", "_circle_roots"), ("app", "App")]
 REGIONS = []

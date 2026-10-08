@@ -51,7 +51,7 @@ def short_value_text(key, val):
         return f"{val:.6g}"
     if key.startswith("coloration:"):
         field = key.split(":", 2)[2]
-        if field == "mode":
+        if field == "color_model":
             return val
         # field is "chan0"/"chan1"/"chan2"
         if val.chan_src == CHAN_SRC_BUDDHA:
@@ -93,11 +93,11 @@ def short_value_text(key, val):
     return str(val)
 
 
-def default_map_help(mode):
+def default_map_help(color_model):
     text = ("For each channel, choose the Type of metric: point comparison "
             "metrics measure the distance between two sample points of the "
             "ray (Point 1 and Point 2); other metrics don't need a point. "
             "Changes recolor the image immediately.")
-    if mode == "HSV":
+    if color_model == "HSV":
         text += " Hue 0 and hue 1 are both red."
     return text

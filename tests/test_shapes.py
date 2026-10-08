@@ -474,7 +474,7 @@ def test_ring_layers_have_the_requested_thickness_for_a_circle():
     outer, inner = m.ring_layer_masks(m.SHAPE_ELLIPSE, m.ellipse_bound(2.0, 2.0, 0.0),
                                       gx, gy, layer_px=layer_px)
     r = np.hypot(gx, gy)
-    width = layer_px * m.PIXEL
+    width = layer_px * m.DEFAULT_PIXEL_WORLD_WIDTH
     assert r[outer].min() >= 1.0 - 2 * step and r[outer].max() <= 1.0 + width + 2 * step
     assert r[inner].max() <= 1.0 + 2 * step and r[inner].min() >= 1.0 - width - 2 * step
 
@@ -899,7 +899,7 @@ def test_the_default_outline_layers_measure_their_full_thickness_on_a_circle():
     step = float(gx[0, 1] - gx[0, 0])
     outer, inner = m.ring_layer_masks(m.SHAPE_ELLIPSE, UNIT_CIRCLE, gx, gy)
     r = np.hypot(gx, gy)
-    width = m.OBST_RING_LAYER_PX * m.PIXEL
+    width = m.OBST_RING_LAYER_PX * m.DEFAULT_PIXEL_WORLD_WIDTH
     assert np.isclose(r[outer].max() - 1.0, width, atol=2 * step)
     assert np.isclose(1.0 - r[inner].min(), width, atol=2 * step)
 
@@ -1072,7 +1072,7 @@ def test_the_eggs_ring_layers_stay_close_to_its_outline_even_at_a_large_shift():
         ring = np.column_stack((gx[outer | inner], gy[outer | inner]))
         assert len(ring) > 50, (a, b, shift)
         far = np.sqrt(((ring[:, None, :] - curve[None, ::3, :]) ** 2).sum(-1)).min(axis=1).max()
-        assert far < 3 * m.OBST_RING_LAYER_PX * m.PIXEL + 0.01, (a, b, shift, far)
+        assert far < 3 * m.OBST_RING_LAYER_PX * m.DEFAULT_PIXEL_WORLD_WIDTH + 0.01, (a, b, shift, far)
 
 
 def test_the_sine_flower_has_the_exact_area_a_whole_number_of_petals_and_a_limited_amplitude():

@@ -17,7 +17,7 @@ from .metrics import (
     POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT, constant_metric_to_label, make_mapping
 )
 from .ui_text import default_map_help
-from .colorations import MODES, MODE_NAMES, ColorationConfig
+from .colorations import COLOR_MODELS, COLOR_MODEL_NAMES, ColorationConfig
 
 
 class ColorationMixin:
@@ -135,10 +135,10 @@ class ColorationMixin:
             return
         self._color_editor_loading = True
         try:
-            self.mode_var.set(coloration.mode)
-            for c, (name, color) in enumerate(MODES[coloration.mode]):
+            self.color_model_var.set(coloration.color_model)
+            for c, (name, color) in enumerate(COLOR_MODELS[coloration.color_model]):
                 self.comp_labels[c].configure(text=name, foreground=color)
-            self.map_help_var.set(default_map_help(coloration.mode))
+            self.map_help_var.set(default_map_help(coloration.color_model))
             for c in range(3):
                 self.chan_src_vars[c].set(CHAN_SRC_LABELS[coloration.chan_src[c]])
                 self.point1_vars[c].set(POINT_LABELS[coloration.point1_choice[c]])
@@ -219,11 +219,11 @@ class ColorationMixin:
         top = ttk.Frame(chan_list_frame)
         top.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=(0, 6))
         ttk.Label(top, text="Color model:").pack(side="left", padx=(0, 10))
-        self.mode_var = tk.StringVar(value=coloration.mode)
-        self.mode_combo = ttk.Combobox(top, textvariable=self.mode_var,
-                                       values=MODE_NAMES, state="readonly", width=8)
-        self.mode_combo.pack(side="left")
-        self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_changed)
+        self.color_model_var = tk.StringVar(value=coloration.color_model)
+        self.color_model_combo = ttk.Combobox(top, textvariable=self.color_model_var,
+                                       values=COLOR_MODEL_NAMES, state="readonly", width=8)
+        self.color_model_combo.pack(side="left")
+        self.color_model_combo.bind("<<ComboboxSelected>>", self.on_color_model_changed)
 
         self.comp_labels = []
         self.chan_src_vars = []
@@ -249,7 +249,7 @@ class ColorationMixin:
         self.constant_combos = []
         self.chan_blocks = []
 
-        for c, (name, color) in enumerate(MODES[coloration.mode]):
+        for c, (name, color) in enumerate(COLOR_MODELS[coloration.color_model]):
             block = ttk.Frame(chan_list_frame, relief="groove", borderwidth=1)
             block.grid(row=c + 1, column=0, sticky="ew", padx=(0, 4), pady=4)
             block.columnconfigure(2, weight=1)
@@ -379,7 +379,7 @@ class ColorationMixin:
             self.constant_combos.append(const_combo)
             self.refresh_row(c)
 
-        self.map_help_var = tk.StringVar(value=default_map_help(coloration.mode))
+        self.map_help_var = tk.StringVar(value=default_map_help(coloration.color_model))
         ttk.Label(mp, textvariable=self.map_help_var, foreground="#666",
                   wraplength=RIGHT_W - 70, justify="left").grid(
             row=1, column=0, sticky="w", padx=8, pady=(4, 6))

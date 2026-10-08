@@ -214,11 +214,11 @@ OTHER_METRICS = (tuple(slot for slot in RUN_METRIC_INFO if slot not in POINT_MET
 # where the ray went. They are CHOICES only, with no slot of their own (the ids come after the
 # characteristic points' slots), so any code reading a chosen point's coordinates must check
 # CONSTANT_POINT_COORDS first.
-POINT_ORIGIN = N_POINTS                       # the fixed point (0, 0)
-POINT_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
+CHOICE_ORIGIN = N_POINTS                       # the fixed point (0, 0)
+CHOICE_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
                                               # default framing (not of the selected one)
 N_POINT_CHOICES = N_POINTS + 2                # total selectable points (every stored one + 2 fixed)
-CONSTANT_POINT_COORDS = {POINT_ORIGIN: (0.0, 0.0), POINT_TOP_LEFT_CORNER: (-1.0, 1.0)}
+CONSTANT_POINT_COORDS = {CHOICE_ORIGIN: (0.0, 0.0), CHOICE_TOP_LEFT_CORNER: (-1.0, 1.0)}
 
 POINT_LABELS = []
 POINT_DESCRIPTIONS = []
@@ -241,7 +241,7 @@ POINT_NOTE = (" (Origin and Top left corner don't depend on the ray at all; a se
 # order - a point's id (its index in POINT_LABELS, and into the per-ray characteristic points for
 # every one but the fixed two) does not depend on it, and choosing by label still maps back
 # through POINT_LABELS.index().
-POINT_MENU_ORDER = [POINT_ORIGIN, POINT_TOP_LEFT_CORNER] + [
+POINT_MENU_ORDER = [CHOICE_ORIGIN, CHOICE_TOP_LEFT_CORNER] + [
     point_slot(seq, red) for seq in range(N_SEQS) for red in range(N_PRED)]
 POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
 
@@ -260,7 +260,7 @@ POINT_METRIC_LABELS = [METRIC_LABELS[s] for s in POINT_METRICS]
 OTHER_LABELS = [METRIC_LABELS[s] for s in OTHER_METRICS]
 
 # Each channel's coloration source: "Query" (the system above - a metric is
-# evaluated once per ray, for the pixel it was emitted from), "Buddha" (named
+# evaluated once per ray, for the pixel it was fired from), "Buddha" (named
 # after the Buddhabrot: every ray's characteristic points are scattered into a
 # visit-count histogram, and a pixel's brightness comes from how many times
 # ITS OWN location was landed on by any ray's points - see
@@ -315,7 +315,7 @@ def extract_point_xy(characteristic_points, point_idx, computed, n):
     """(x, y) arrays of length n holding the chosen point's coordinates for
     every computed pixel: read from `points_arr` (an (H, W, N_POINTS, 2)
     array of the characteristic points) for a real simulation point, or a constant-filled array for
-    POINT_ORIGIN/POINT_TOP_LEFT_CORNER, which was never written into
+    CHOICE_ORIGIN/CHOICE_TOP_LEFT_CORNER, which was never written into
     `points_arr` at all."""
     if point_idx in CONSTANT_POINT_COORDS:
         cx, cy = CONSTANT_POINT_COORDS[point_idx]

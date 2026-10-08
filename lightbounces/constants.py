@@ -5,7 +5,7 @@ import math
 from .kernels import (
     CONFINE_BOX, EMIT_UP, TAG_BOUNDARY, TAG_DISTCUT, TAG_ESCAPED, TAG_OBSTACLE_TERM,
     TAG_PERPENDICULAR, TAG_SELF, TAG_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
-    OBSTACLE_EFFECT_TERMINATE, PIXEL, SIZE, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
+    OBSTACLE_EFFECT_TERMINATE, DEFAULT_PIXEL_WORLD_WIDTH, PREVIEW_BOX, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
     TERM_OBSTACLE, TERM_PERPENDICULAR
 )
 
@@ -37,7 +37,7 @@ BUDDHA_BLUR_LABELS = ["Gaussian distribution", "Triangular distribution", "Bokeh
                      "Catadioptric bokeh"]
 BUDDHA_BLUR_RADIUS_MIN = 0.0
 BUDDHA_BLUR_RADIUS_MAX = 0.5
-# Buddha seeding: where the rays that Buddha channels scatter are emitted (see BuddhaSeedSettings). The zone
+# Buddha seeding: where the rays that Buddha channels scatter are fired (see BuddhaSeedSettings). The zone
 # defaults to the whole world, which is exactly what the camera pixels cover.
 DEFAULT_BUDDHA_SEED_CAMERA = True
 DEFAULT_BUDDHA_SEED_X_START = -1.0
@@ -254,7 +254,7 @@ CONFINE_LOOKBACK_MIN = 2
 CONFINE_LOOKBACK_MAX = 999
 DEFAULT_CONFINE_LOOKBACK = 4
 DEFAULT_CONFINE_METHOD = CONFINE_BOX
-DEFAULT_CONFINE_THRESHOLD = PIXEL
+DEFAULT_CONFINE_THRESHOLD = DEFAULT_PIXEL_WORLD_WIDTH
 REFRESH_HZ = 10            # redraws per second during generation
 COMPUTE_FRACTION = 0.55    # share of each refresh period spent computing
 
@@ -269,8 +269,8 @@ GUIDE_FALLBACK_HEX = "#c8c8c8"     # used with a stipple if alpha images fail
 # unit tall (so it matches the main image's scale, just turned into a plot of
 # length rather than of position). Each bar is colored by the tag of the point
 # at its top (earlier) and bottom (later) end.
-SEG_CANVAS_W = SIZE
-SEG_CANVAS_H = SIZE // 2   # 1 world unit, at the main image's pixels-per-unit
+SEG_CANVAS_W = PREVIEW_BOX
+SEG_CANVAS_H = PREVIEW_BOX // 2   # 1 world unit, at the main image's pixels-per-unit
 # The corkscrew graphic: the sequence's segments all the same length, laid end to end from the centre of a
 # square canvas, each pointing the way its own segment does. The length is chosen so that the farthest point
 # is CORKSCREW_MARGIN of the canvas's side (at least CORKSCREW_MARGIN_MIN pixels) short of the edge.

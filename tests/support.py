@@ -134,7 +134,7 @@ def _starting_obst_arrays():
 
 
 def _coloration_settings_from_config(v):
-    return m.ColorationSettings(mode=v.mode, metric_types=v.metric_types, point_metric=v.point_metric,
+    return m.ColorationSettings(color_model=v.color_model, metric_types=v.metric_types, point_metric=v.point_metric,
                           other_metric=v.other_metric, point1_choice=v.point1_choice,
                           point2_choice=v.point2_choice, chan_src=v.chan_src,
                           buddha_points=v.buddha_points, buddha_compression=v.buddha_compression,
@@ -292,10 +292,10 @@ def _run_save_new_image_synchronously(app):
 # --------------------------------------------------------------------------- #
 def _fake_current_image_app():
     app = _fake_export_app()
-    app.stats = np.random.RandomState(0).rand(m.SIZE, m.SIZE, m.N_STATS).astype(np.float32)
-    app.characteristic_points = (np.random.RandomState(1).rand(m.SIZE, m.SIZE, m.N_POINTS, 2)
+    app.stats = np.random.RandomState(0).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS).astype(np.float32)
+    app.characteristic_points = (np.random.RandomState(1).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2)
                  .astype(np.float32) * 2 - 1)
-    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
+    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.settings_of_current_image = m.App.settings_of_current_image.__get__(app)
@@ -308,10 +308,10 @@ def _fake_current_image_app():
     app.gen_engine_args = _engine_args(m.ObstacleArrays(
         shapes=empty_i, bounds=empty_b, cx=empty_f, cy=empty_f,
         effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool))
-    app.gx, app.gy = m.make_grid(m.SIZE, m.SIZE)
+    app.gx, app.gy = m.make_grid(m.PREVIEW_BOX, m.PREVIEW_BOX)
     app.obstacle_ring_specs = lambda: []
     app.gen_obstacle_snapshots = [m.default_starting_obstacle(0).snapshot()]
-    app.frame = np.full((m.SIZE, m.SIZE, 3), 42, dtype=np.uint8)   # the "already
+    app.image_for_export = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
     app.render_current_image = m.App.render_current_image.__get__(app)
     app.render_coloration_thumbnail = m.App.render_coloration_thumbnail.__get__(app)
@@ -448,7 +448,7 @@ def _fake_color_editor_app():
     _give_image_geometry(app)
     _give_framings(app)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
-    app.colorations[1].mode = "HSV"
+    app.colorations[1].color_model = "HSV"
     app._coloration_counter = 2
     app.selected_coloration_id = 0
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
@@ -459,8 +459,8 @@ def _fake_color_editor_app():
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app._color_editor_loading = False
 
-    app.mode_var = _StubVar("RGB")
-    app.mode_combo = _StubWidget()
+    app.color_model_var = _StubVar("RGB")
+    app.color_model_combo = _StubWidget()
     app.comp_labels = [_StubWidget() for _ in range(3)]
     app.map_help_var = _StubVar("")
     app.chan_src_vars = [_StubVar(m.CHAN_SRC_QUERY) for _ in range(3)]
@@ -505,7 +505,7 @@ def _fake_color_editor_app():
     app.refresh_color_controls_for_selected_coloration = (
         m.App.refresh_color_controls_for_selected_coloration.__get__(app))
     app.refresh_row = m.App.refresh_row.__get__(app)
-    app.on_mode_changed = m.App.on_mode_changed.__get__(app)
+    app.on_color_model_changed = m.App.on_color_model_changed.__get__(app)
     app.apply_mapping_change = m.App.apply_mapping_change.__get__(app)
     return app
 

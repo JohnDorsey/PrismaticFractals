@@ -10,7 +10,7 @@ from .constants import (
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
-    TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, SIZE
+    TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, PREVIEW_BOX
 )
 from .metrics import METRIC_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
@@ -52,11 +52,11 @@ class LayoutMixin:
     # ---- layout ------------------------------------------------------------ #
     def build_image_quadrant(self):
         """Top left: the image. Hover overlay lives on the canvas, not in the image."""
-        self.canvas = tk.Canvas(self.root, width=SIZE, height=SIZE, bd=0,
+        self.canvas = tk.Canvas(self.root, width=PREVIEW_BOX, height=PREVIEW_BOX, bd=0,
                                 highlightthickness=0, bg="black",
                                 cursor="crosshair")
         self.canvas.grid(row=0, column=0, padx=(PAD, PAD // 2), pady=(PAD, PAD // 2))
-        self.photo = tk.PhotoImage(width=SIZE, height=SIZE)
+        self.photo = tk.PhotoImage(width=PREVIEW_BOX, height=PREVIEW_BOX)
         self.canvas.create_image(0, 0, anchor="nw", image=self.photo)
         self.canvas.bind("<Motion>", self.on_motion)
         self.canvas.bind("<Leave>", self.on_leave)
@@ -68,15 +68,15 @@ class LayoutMixin:
         self.vline_img = None
         try:
             self.hline_img = tk.PhotoImage(
-                data=png_rgba(SIZE, 1, GUIDE_RGBA), format="png")
+                data=png_rgba(PREVIEW_BOX, 1, GUIDE_RGBA), format="png")
             self.vline_img = tk.PhotoImage(
-                data=png_rgba(1, SIZE, GUIDE_RGBA), format="png")
+                data=png_rgba(1, PREVIEW_BOX, GUIDE_RGBA), format="png")
         except tk.TclError:
             self.hline_img = self.vline_img = None   # fall back to stippled lines
 
     def build_controls_quadrant(self):
         """Top middle: the tabs of controls, with Start / Revert below them."""
-        ctl = ttk.LabelFrame(self.root, text="Controls", width=RIGHT_W, height=SIZE)
+        ctl = ttk.LabelFrame(self.root, text="Controls", width=RIGHT_W, height=PREVIEW_BOX)
         ctl.grid(row=0, column=1, sticky="nsew",
                  padx=(PAD // 2, PAD // 2), pady=(PAD, PAD // 2))
         ctl.grid_propagate(False)
@@ -194,7 +194,7 @@ class LayoutMixin:
 
     def build_info_quadrant(self):
         """Bottom left: the previewed sequence, in Numbers, Bar graph and Corkscrew tabs."""
-        info = ttk.LabelFrame(self.root, text="Sequence preview", width=SIZE, height=BOTTOM_H)
+        info = ttk.LabelFrame(self.root, text="Sequence preview", width=PREVIEW_BOX, height=BOTTOM_H)
         info.grid(row=1, column=0, sticky="nsew",
                   padx=(PAD, PAD // 2), pady=(PAD // 2, PAD))
         info.grid_propagate(False)
@@ -314,7 +314,7 @@ class LayoutMixin:
             row.pack(anchor="w", pady=(2, 0))
             tk.Label(row, text="  ", bg=lerp_color(rgb, rgb, 0.0)).pack(side="left", padx=(0, 4))
             ttk.Label(row, text=label).pack(side="left")
-        self.corkscrew_side = corkscrew_side(SIZE, BOTTOM_H - 70)
+        self.corkscrew_side = corkscrew_side(PREVIEW_BOX, BOTTOM_H - 70)
         self.corkscrew_canvas = tk.Canvas(tab, width=self.corkscrew_side, height=self.corkscrew_side,
                                           bd=0, highlightthickness=1, highlightbackground="#444",
                                           bg="black")

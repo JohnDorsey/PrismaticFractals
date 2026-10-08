@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from .constants import MODIFIED_POLL_MS, PAD, SELECTED_OUTLINE, SELECTED_OUTLINE_PX, TIMELINE_W
-from .kernels import SIZE
+from .kernels import PREVIEW_BOX
 from .metrics import CHAN_SRC_BUDDHA, make_mapping
 from .settings import (
     DEFAULT_SETTING_VALUES, Keyframe, SETTING_FLOAT_KEYS, SETTING_INFO, SETTING_SPECS,
@@ -33,7 +33,7 @@ class TimelineMixin:
         """Top right: the keyframe list, and beside it, a
         list of every setting, showing how each relates to the selected
         keyframe, grouped by tab."""
-        tl = ttk.LabelFrame(self.root, text="Timeline", width=TIMELINE_W, height=SIZE)
+        tl = ttk.LabelFrame(self.root, text="Timeline", width=TIMELINE_W, height=PREVIEW_BOX)
         tl.grid(row=0, column=2, sticky="nsew", padx=(PAD // 2, PAD), pady=(PAD, PAD // 2))
         tl.grid_propagate(False)
         tl.columnconfigure(0, weight=1)
@@ -169,7 +169,7 @@ class TimelineMixin:
             for field in o.FIELD_NAMES:
                 d[f"obst:{o.id}:{field}"] = getattr(o, field)
         for v in self.colorations:
-            d[f"coloration:{v.id}:mode"] = v.mode
+            d[f"coloration:{v.id}:color_model"] = v.color_model
             for c in range(3):
                 d[f"coloration:{v.id}:chan{c}"] = coloration_channel_value(v, c)
         for f in self.framings:
@@ -220,8 +220,8 @@ class TimelineMixin:
             v = self.coloration_by_id(int(coloration_id))
             if v is None:
                 return
-            if field == "mode":
-                v.mode = val
+            if field == "color_model":
+                v.color_model = val
             else:
                 c = int(field[-1])
                 v.set_channel(c, val)
@@ -230,8 +230,8 @@ class TimelineMixin:
             if v is self.live_coloration():
                 self.mapping = make_mapping(v.metric_types, v.point_metric, v.other_metric,
                                             v.chan_src, v.constant_choice)
-                if field != "mode" and v.chan_src[int(field[-1])] == CHAN_SRC_BUDDHA:
-                    self.rebuild_buddha_counts()   # mode never affects Buddha scattering
+                if field != "color_model" and v.chan_src[int(field[-1])] == CHAN_SRC_BUDDHA:
+                    self.rebuild_buddha_counts()   # the color model never affects Buddha scattering
                                                    # at all, and an unrelated channel's
                                                    # own edit can't either - see
                                                    # apply_mapping_change's identical fix
@@ -473,8 +473,8 @@ class TimelineMixin:
             v = self.selected_coloration_obj()
             if v is None or v.id != int(coloration_id):
                 return []
-            if field == "mode":
-                widget = attr("mode_combo")
+            if field == "color_model":
+                widget = attr("color_model_combo")
             else:
                 blocks = getattr(self, "chan_blocks", [])
                 widget = blocks[int(field[-1])] if int(field[-1]) < len(blocks) else None

@@ -119,9 +119,9 @@ def test_only_the_pinned_pixel_is_exempt_from_the_must_fire_rule():
 def test_font_5x7_covers_every_character_any_coloration_label_could_use():
     """Every string that coloration_info_lines could ever produce must be
     renderable - a missing glyph would KeyError mid-export."""
-    strings = list(m.MODE_NAMES)
-    for mode in m.MODE_NAMES:
-        strings += [name for name, _color in m.MODES[mode]]
+    strings = list(m.COLOR_MODEL_NAMES)
+    for color_model in m.COLOR_MODEL_NAMES:
+        strings += [name for name, _color in m.COLOR_MODELS[color_model]]
     strings += m.CHAN_SRC_LABELS
     strings += m.METRIC_LABELS
     strings += m.POINT_SHORT
@@ -149,10 +149,10 @@ def test_font_5x7_new_glyphs_are_not_blank():
 def test_coloration_info_lines_omits_metric_kind_and_shows_the_metric_name():
     v = m.ColorationConfig(0)
     lines = m.coloration_info_lines(v)
-    assert lines[0] == f"Mode:{v.mode}"
+    assert lines[0] == f"Mode:{v.color_model}"
     assert not any("Point comparison" in l or "Other" in l for l in lines), \
         "the metric's kind must never be shown - it's implied by the metric's name"
-    letter = m.MODES[v.mode][0][0][0]
+    letter = m.COLOR_MODELS[v.color_model][0][0][0]
     expected_metric = m.METRIC_LABELS[v.point_metric[0]]
     assert f"{letter}:{expected_metric}" in lines
 
@@ -175,10 +175,10 @@ def test_point_comparison_metric_names_no_longer_say_between_points():
 def test_coloration_info_lines_shows_points_only_for_point_comparison_metrics():
     v = m.ColorationConfig(0)
     v.metric_types[2] = m.METRIC_TYPE_OTHER
-    v.other_metric[2] = m.ST_BOUNCES
+    v.other_metric[2] = m.ST_BOUNCE_COUNT
     lines = m.coloration_info_lines(v)
-    letter2 = m.MODES[v.mode][2][0][0]
-    idx = lines.index(f"{letter2}:{m.METRIC_LABELS[m.ST_BOUNCES]}")
+    letter2 = m.COLOR_MODELS[v.color_model][2][0][0]
+    idx = lines.index(f"{letter2}:{m.METRIC_LABELS[m.ST_BOUNCE_COUNT]}")
     # the very next line (if any - this may be the last line) must NOT be a
     # Point 1/2 line for this channel
     assert idx + 1 == len(lines) or not lines[idx + 1].strip().startswith("P1:")
@@ -191,7 +191,7 @@ def test_coloration_info_lines_buddha_channel_shows_points_compression_brightnes
     v.buddha_compression[1] = m.BUDDHA_COMPRESS_MODULUS
     v.buddha_brightness[1] = 3
     lines = m.coloration_info_lines(v)
-    letter = m.MODES[v.mode][1][0][0]
+    letter = m.COLOR_MODELS[v.color_model][1][0][0]
     assert f"{letter}:Buddha" in lines
     assert f"  {m.BUDDHA_POINT_LABELS[0]}" in lines
     assert f"  {m.BUDDHA_POINT_LABELS[3]}" in lines
@@ -243,10 +243,10 @@ def _text_row_extent(img, background):
 
 def test_coloration_info_text_scales_up_above_size_512():
     v = m.ColorationConfig(0)
-    img_1x = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img_1x, [v], m.SIZE)
-    img_2x = np.full((m.SIZE * 2, m.SIZE * 2, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img_2x, [v], m.SIZE * 2)
+    img_1x = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
+    m.draw_coloration_info(img_1x, [v], m.PREVIEW_BOX)
+    img_2x = np.full((m.PREVIEW_BOX * 2, m.PREVIEW_BOX * 2, 3), 128, dtype=np.uint8)
+    m.draw_coloration_info(img_2x, [v], m.PREVIEW_BOX * 2)
     h1 = _text_row_extent(img_1x, 128)
     h2 = _text_row_extent(img_2x, 128)
     assert h2 == h1 * 2, \
@@ -255,22 +255,22 @@ def test_coloration_info_text_scales_up_above_size_512():
 
 def test_coloration_info_text_never_shrinks_below_the_size_512_baseline():
     v = m.ColorationConfig(0)
-    img_baseline = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img_baseline, [v], m.SIZE)
+    img_baseline = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
+    m.draw_coloration_info(img_baseline, [v], m.PREVIEW_BOX)
     img_small = np.full((200, 200, 3), 128, dtype=np.uint8)
     m.draw_coloration_info(img_small, [v], 200)
     assert _text_row_extent(img_small, 128) == _text_row_extent(img_baseline, 128), \
-        "text must stay at the baseline size for any resolution at or below SIZE"
+        "text must stay at the baseline size for any resolution at or below PREVIEW_BOX"
 
 
 def test_coloration_info_text_scale_uses_the_smaller_of_width_and_height():
     """An unusually elongated export (very wide, short coloration) shouldn't get
     oversized text just because one dimension is large."""
     v = m.ColorationConfig(0)
-    img_square = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    m.draw_coloration_info(img_square, [v], m.SIZE)
-    img_wide_short = np.full((m.SIZE, m.SIZE * 4, 3), 128, dtype=np.uint8)   # short height
-    m.draw_coloration_info(img_wide_short, [v], m.SIZE * 4)
+    img_square = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
+    m.draw_coloration_info(img_square, [v], m.PREVIEW_BOX)
+    img_wide_short = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX * 4, 3), 128, dtype=np.uint8)   # short height
+    m.draw_coloration_info(img_wide_short, [v], m.PREVIEW_BOX * 4)
     assert _text_row_extent(img_wide_short, 128) == _text_row_extent(img_square, 128), \
         "text size should follow the smaller dimension (height here), not the wide one"
 
@@ -282,9 +282,9 @@ def test_bottom_margin_text_scales_with_the_colorations_own_size_not_the_margin(
     which meant the text barely grew until an absurdly large export
     (coloration_width beyond ~3072) rather than scaling normally."""
     v = m.ColorationConfig(0)
-    img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out_512 = m.add_bottom_color_margin(img_512, [v], m.SIZE)
-    h1 = _text_row_extent(out_512[m.SIZE:], m.COLORATION_INFO_BG)
+    img_512 = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
+    out_512 = m.add_bottom_color_margin(img_512, [v], m.PREVIEW_BOX)
+    h1 = _text_row_extent(out_512[m.PREVIEW_BOX:], m.COLORATION_INFO_BG)
 
     img_1080 = np.full((1080, 1080, 3), 128, dtype=np.uint8)
     out_1080 = m.add_bottom_color_margin(img_1080, [v], 1080)
@@ -298,9 +298,9 @@ def test_left_margin_text_scales_with_the_colorations_own_size_not_the_margin():
     horizontal extent can be legitimately clipped once text no longer fits
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
     settings = _generation()
-    img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
+    img_512 = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 128, dtype=np.uint8)
     out_512 = m.add_left_info_margin(img_512, m.figure_info_blocks(*settings, _start_scene()))
-    margin_w_512 = m.SIZE // 2
+    margin_w_512 = m.PREVIEW_BOX // 2
     h1 = (out_512[:, :margin_w_512] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
     img_1080 = np.full((1080, 1080, 3), 128, dtype=np.uint8)
@@ -311,17 +311,17 @@ def test_left_margin_text_scales_with_the_colorations_own_size_not_the_margin():
     assert h2 == h1 * 2, f"expected exactly 2x text height at 1080 vs 512, got {h1} -> {h2}"
 
 
-def test_write_draws_coloration_info_without_mutating_self_frame():
-    """self.frame is the shared, reused live-preview buffer - drawing the
-    overlay must go into a copy, never into self.frame itself."""
+def test_write_draws_coloration_info_without_mutating_image_for_export():
+    """self.image_for_export is the shared, reused live-preview buffer - drawing the
+    overlay must go into a copy, never into self.image_for_export itself."""
     app = _fake_current_image_app()
     app.color_info_location_var = _StubVar("Overlay")
-    frame_before = app.frame.copy()
+    frame_before = app.image_for_export.copy()
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
-    assert np.array_equal(app.frame, frame_before), \
-        "self.frame must never be mutated by an export"
+    assert np.array_equal(app.image_for_export, frame_before), \
+        "self.image_for_export must never be mutated by an export"
     img = m.read_png(path)
     assert (img == m.COLORATION_INFO_BG).all(axis=-1).any(), \
         "the exported file should carry the coloration-info overlay"
@@ -429,9 +429,9 @@ def test_write_with_bottom_margin_produces_a_taller_image():
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
     img = m.read_png(path)
-    assert img.shape == (m.SIZE + m.SIZE // 4, m.SIZE, 3)
-    assert (img[m.SIZE:] == m.COLORATION_INFO_BG).all(axis=-1).mean() > 0.5
-    assert (img[:m.SIZE] == 42).all(), "the original coloration content must be untouched"
+    assert img.shape == (m.PREVIEW_BOX + m.PREVIEW_BOX // 4, m.PREVIEW_BOX, 3)
+    assert (img[m.PREVIEW_BOX:] == m.COLORATION_INFO_BG).all(axis=-1).mean() > 0.5
+    assert (img[:m.PREVIEW_BOX] == 42).all(), "the original coloration content must be untouched"
 
 
 def test_write_with_left_margin_produces_a_wider_image():
@@ -441,9 +441,9 @@ def test_write_with_left_margin_produces_a_wider_image():
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
     img = m.read_png(path)
-    assert img.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
-    assert (img[:, :m.SIZE // 2] == m.COLORATION_INFO_BG).all(axis=-1).any()
-    assert (img[:, m.SIZE // 2:] == 42).all(), "the original coloration content must be untouched"
+    assert img.shape == (m.PREVIEW_BOX, m.PREVIEW_BOX + m.PREVIEW_BOX // 2, 3)
+    assert (img[:, :m.PREVIEW_BOX // 2] == m.COLORATION_INFO_BG).all(axis=-1).any()
+    assert (img[:, m.PREVIEW_BOX // 2:] == 42).all(), "the original coloration content must be untouched"
 
 
 def test_write_with_both_margins_composes_correctly():
@@ -454,8 +454,8 @@ def test_write_with_both_margins_composes_correctly():
     path = os.path.join(tmpdir, "out.png")
     app._write(path)
     img = m.read_png(path)
-    expected_h = m.SIZE + m.SIZE // 4
-    expected_w = m.SIZE + m.SIZE // 2
+    expected_h = m.PREVIEW_BOX + m.PREVIEW_BOX // 4
+    expected_w = m.PREVIEW_BOX + m.PREVIEW_BOX // 2
     assert img.shape == (expected_h, expected_w, 3)
 
 

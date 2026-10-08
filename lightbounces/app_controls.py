@@ -13,7 +13,7 @@ from .constants import (
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
     FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, PIXEL
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
 from .parsing import (
     parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
     parse_iter_limit,
@@ -144,7 +144,7 @@ class ControlsMixin:
                        "the segments between them add up to less than the threshold. "
                        "The threshold is in world units (the image spans -1 to 1) and "
                        "can be any number above zero; one pixel of the 512-pixel "
-                       f"preview is {PIXEL:g}, the default."
+                       f"preview is {DEFAULT_PIXEL_WORLD_WIDTH:g}, the default."
                   ).grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
         self.update_confine_threshold_label()
 

@@ -134,7 +134,7 @@ Coloration
 
   A coloration is a color model (RGB or HSV) plus three channels. Each channel has a
   source:
-    Query     a metric, evaluated once per ray for the pixel it was emitted
+    Query     a metric, evaluated once per ray for the pixel it was fired
               from - either a point comparison (with its two sample points)
               or one of the other metrics,
     Buddha    named after the Buddhabrot: characteristic points of every ray

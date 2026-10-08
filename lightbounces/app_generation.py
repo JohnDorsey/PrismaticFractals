@@ -7,7 +7,7 @@ from .constants import (
 )
 from .geometry import ellipse_bound
 from .kernels import (
-    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, compute_sequences, compute_run_measurements, emits_ray,
+    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, compute_sequences, compute_run_measurements, fires_ray,
     inside_boundary, trace_rows, trace_path
 )
 from .metrics import CHAN_SRC_BUDDHA
@@ -33,7 +33,7 @@ class GenerationMixin:
         no_obstacles = ObstacleArrays(
             shapes=empty_i64, bounds=empty_bounds, cx=empty_f64, cy=empty_f64,
             effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
-        emits_ray(0.0, 0.0, no_obstacles)
+        fires_ray(0.0, 0.0, no_obstacles)
         termination = natural_termination_rule(WARM_ITER, big, DEFAULT_ESCAPE_RADIUS, CONFINE_DEFAULT)
         engine_args = ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT, no_obstacles)
         trace_path(0.0, 0.0, self.hover_path_points, self.hover_path_point_tags, termination, engine_args, self.hover_raw)

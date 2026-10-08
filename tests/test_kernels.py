@@ -88,7 +88,7 @@ def _emit_fixture(circle=True, obstacles=()):
     for i, (cx, cy, radius, fire) in enumerate(obstacles, start=1):
         scene.append(_circle_obstacle(cx, cy, radius, R, R, fire=fire, id_=i))
     arrays = m.build_obstacle_arrays(scene)
-    return lambda x, y: bool(m.emits_ray(x, y, arrays))
+    return lambda x, y: bool(m.fires_ray(x, y, arrays))
 
 
 def test_a_circle_fires_rays_inside_it_and_not_outside():
@@ -315,7 +315,7 @@ def test_stats_and_points_are_sane_for_an_escaped_ray():
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
     assert np.allclose(ray_characteristic_points[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
     assert np.allclose(ray_characteristic_points[m.POINT_START], (0.0, -0.5))
-    assert out[m.ST_BOUNCES] == 0.0
+    assert out[m.ST_BOUNCE_COUNT] == 0.0
 
 
 def test_every_termination_reason_maps_to_its_own_stat_value_in_compute_run_measurements():
@@ -337,30 +337,30 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     inside an obstacle with fire on emit a ray."""
     obstacle = _circle_obstacle(0.3, 0.0, 0.25, R, R, fire=True)
     arrays = m.build_obstacle_arrays([obstacle])
-    stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
-    characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
-    pixel_state = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.SIZE, m.SIZE, m.SIZE, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(arrays), 0)
+    stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
+    characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
+    pixel_state = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.uint8)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.PREVIEW_BOX, m.PREVIEW_BOX, m.PREVIEW_BOX, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(arrays), 0)
     ys, xs = np.nonzero(pixel_state == m.PIXEL_TRACED)
-    wx = (xs + 0.5) * m.PIXEL - 1.0
-    wy = 1.0 - (ys + 0.5) * m.PIXEL
+    wx = (xs + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0
+    wy = 1.0 - (ys + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH
     assert len(xs) > 1000
-    assert (np.hypot(wx - 0.3, wy) <= 0.25 + m.PIXEL).all(), "only inside the obstacle"
-    inside_count = int((np.hypot(*np.meshgrid((np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0 - 0.3,
-                                              1.0 - (np.arange(m.SIZE) + 0.5) * m.PIXEL)) <= 0.25
+    assert (np.hypot(wx - 0.3, wy) <= 0.25 + m.DEFAULT_PIXEL_WORLD_WIDTH).all(), "only inside the obstacle"
+    inside_count = int((np.hypot(*np.meshgrid((np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0 - 0.3,
+                                              1.0 - (np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH)) <= 0.25
                         ).sum())
     assert abs(len(xs) - inside_count) <= 4, "and from essentially every pixel inside it"
 
 
 def test_buddha_multi_scatter_includes_the_escaping_segment():
-    counts = np.zeros((m.SIZE, m.SIZE))
+    counts = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
     m.scatter_multi_buddha(250, 252, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(m.build_obstacle_arrays([circle])), 0,
                            False, True, False, False, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
-    xs = (np.arange(m.SIZE) + 0.5) * m.PIXEL - 1.0
-    gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * m.PIXEL)
+    xs = (np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0
+    gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH)
     firing = np.hypot(gx, gy) < 1.0
     dx = dy = np.sqrt(0.5)                                    # the default emission direction
     b = gx * dx + gy * dy
@@ -555,7 +555,7 @@ def test_an_obstacle_reproduces_the_recorded_classic_golden_data():
         assert golden[f"stats_{idx}"].shape[-1] == m.N_LEGACY_STATS and golden[f"points_{idx}"].shape[-2] == m.N_LEGACY_POINTS
         # (not the two fraction metrics: the data records the old count that also took in a final perpendicular hit, which
         # one capsule ray ends with - they are now plain sequence shares, see the test of that)
-        recorded = [s for s in range(m.N_LEGACY_STATS) if s not in (m.ST_RAY_FRAC, m.ST_BOUNDARY_FRAC)]
+        recorded = [s for s in range(m.N_LEGACY_STATS) if s not in (m.ST_SELF_SHARE, m.ST_BOUNDARY_SHARE)]
         assert np.allclose(stats[..., recorded], golden[f"stats_{idx}"][..., recorded], atol=1e-5), scene["name"]
         assert np.allclose(characteristic_points[..., :m.N_LEGACY_POINTS, :], golden[f"points_{idx}"], atol=1e-5), scene["name"]
 
@@ -573,7 +573,7 @@ def _confine(lookback, method, threshold):
 def test_the_default_confinement_rule_is_the_one_that_was_built_in():
     assert m.DEFAULT_CONFINE_LOOKBACK == 4
     assert m.DEFAULT_CONFINE_METHOD == m.CONFINE_BOX
-    assert m.DEFAULT_CONFINE_THRESHOLD == m.PIXEL == 2.0 / 512
+    assert m.DEFAULT_CONFINE_THRESHOLD == m.DEFAULT_PIXEL_WORLD_WIDTH == 2.0 / 512
     assert m.CONFINE_METHOD_NAMES == ["Box", "Path length"]
     assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=0, threshold=2.0 / 512)
     s = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
@@ -658,7 +658,7 @@ def test_the_default_rule_reproduces_the_old_hard_wired_behavior_on_the_golden_s
     # test_an_obstacle_reproduces_the_recorded_classic_golden_data runs every
     # scene under CONFINE_DEFAULT against data recorded before this was a
     # setting; this pins that the default IS one pixel, box, 4 points.
-    assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=BOX, threshold=m.PIXEL)
+    assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=BOX, threshold=m.DEFAULT_PIXEL_WORLD_WIDTH)
 
 
 def test_the_box_method_needs_both_directions_to_be_small():
@@ -769,7 +769,7 @@ def _fake_limits_app(lookback="4", method="Box", threshold="0.00390625"):
         setattr(app, f"last_emit_target_{field}", 0.0)
     app.last_iter, app.last_dist = 256, 0
     app.last_confine_lookback = 4
-    app.last_confine_threshold = m.PIXEL
+    app.last_confine_threshold = m.DEFAULT_PIXEL_WORLD_WIDTH
     app.styles = {}
 
     class Entry:
@@ -803,10 +803,10 @@ def test_an_invalid_threshold_is_flagged_and_the_last_good_value_is_kept():
         app = _fake_limits_app(threshold=bad)
         app.on_limit_var_changed()
         assert app.styles["threshold"] == "Invalid.TEntry", bad
-        assert app.last_confine_threshold == m.PIXEL
+        assert app.last_confine_threshold == m.DEFAULT_PIXEL_WORLD_WIDTH
         assert "greater than 0" in app.confine_msg_var.get()
         app.on_limit_commit()
-        assert app.confine_threshold_var.get() == str(m.PIXEL), "put back the last good one"
+        assert app.confine_threshold_var.get() == str(m.DEFAULT_PIXEL_WORLD_WIDTH), "put back the last good one"
 
 
 def test_an_invalid_lookback_is_flagged_and_restored_on_commit():
@@ -1736,7 +1736,7 @@ def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_
     assert len(expected) == m.N_LEGACY_POINTS
     for point, xy in expected.items():
         assert np.allclose(ray_characteristic_points[point], xy), (point, ray_characteristic_points[point], xy)
-    assert out[m.ST_BOUNCES] == 4 / 20
+    assert out[m.ST_BOUNCE_COUNT] == 4 / 20
     path_length = np.hypot(*np.diff(_HAND_PTS, axis=0).T).sum()
     assert np.isclose(out[m.ST_LENGTH], np.arctan(path_length / 5.0) * 2.0 / np.pi)
     assert np.isclose(out[m.ST_LAST_DIR], (np.arctan2(5.0, 3.0) + np.pi) / (2.0 * np.pi))     # (0, -2) -> (3, 3)
@@ -1750,7 +1750,7 @@ def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_
     # no bounce at all: every bounce choice is the end point
     ray_characteristic_points, out = _stored_for_path(_HAND_PTS[[0, 5]], _HAND_KINDS[[0, 5]], 0)
     assert all(np.allclose(ray_characteristic_points[p], (3, 3)) for p in range(m.N_LEGACY_POINTS) if p != m.POINT_START)
-    assert out[m.ST_BOUNCES] == 0.0
+    assert out[m.ST_BOUNCE_COUNT] == 0.0
 
 
 def test_every_stored_point_and_scalar_is_its_sequences_reduction_by_an_independent_reference():
@@ -1829,7 +1829,7 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
 
 
 def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequences_for_every_ray():
-    """ST_RAY_FRAC and ST_BOUNDARY_FRAC were once measured from a separate count of edge hits, which also counted a
+    """ST_SELF_SHARE and ST_BOUNDARY_SHARE were once measured from a separate count of edge hits, which also counted a
     final hit at exactly perpendicular incidence that is no recorded bounce (a ray that bounced once and then ended
     that way got -1 and 2). They are now the Self and Boundary sequences' share of the bounces, like any sequence's."""
     lens = m.LensShape(1)
@@ -1849,16 +1849,16 @@ def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequen
     bounces, own, edge = count(m.SEQ_BOUNCES), count(m.SEQ_SELF), count(m.SEQ_BOUNDARY)
     assert np.all((own + edge == bounces)[fired])
     safe = np.maximum(bounces, 1)
-    assert np.allclose(stats[..., m.ST_RAY_FRAC][fired], (own / safe)[fired], atol=1e-6)
-    assert np.allclose(stats[..., m.ST_BOUNDARY_FRAC][fired], (edge / safe)[fired], atol=1e-6)
-    assert np.all(stats[..., m.ST_RAY_FRAC][fired] >= 0) and np.all(stats[..., m.ST_BOUNDARY_FRAC][fired] <= 1)
-    assert np.allclose((stats[..., m.ST_RAY_FRAC] + stats[..., m.ST_BOUNDARY_FRAC])[fired & (bounces > 0)], 1.0, atol=1e-6)
+    assert np.allclose(stats[..., m.ST_SELF_SHARE][fired], (own / safe)[fired], atol=1e-6)
+    assert np.allclose(stats[..., m.ST_BOUNDARY_SHARE][fired], (edge / safe)[fired], atol=1e-6)
+    assert np.all(stats[..., m.ST_SELF_SHARE][fired] >= 0) and np.all(stats[..., m.ST_BOUNDARY_SHARE][fired] <= 1)
+    assert np.allclose((stats[..., m.ST_SELF_SHARE] + stats[..., m.ST_BOUNDARY_SHARE])[fired & (bounces > 0)], 1.0, atol=1e-6)
 
 
 def test_the_stored_layout_and_its_alias_tables_agree():
     assert m.N_POINTS == m.N_SEQS * m.N_PRED == 28 and m.N_STATS == 13 + m.N_SEQS * m.N_SRED - len(m.STAT_ALIASES) == 24
     assert m.point_slot(m.SEQ_SELF, m.PRED_TOP) == m.POINT_SELF_TOP and m.point_slot(m.SEQ_PATH, m.PRED_LAST) == m.POINT_END
-    assert m.stat_slot(m.SEQ_PATH, m.SRED_LENGTH) == m.ST_LENGTH and m.stat_slot(m.SEQ_BOUNCES, m.SRED_COUNT) == m.ST_BOUNCES
+    assert m.stat_slot(m.SEQ_PATH, m.SRED_LENGTH) == m.ST_LENGTH and m.stat_slot(m.SEQ_BOUNCES, m.SRED_COUNT) == m.ST_BOUNCE_COUNT
     assert sorted(m.POINT_SLOT.ravel().tolist()) == list(range(m.N_POINTS))
     assert m.SEQ_PATH == 0 and m.SEQUENCE_LABELS[m.SEQ_PATH] == "Path"      # the sequence every engine offers
 

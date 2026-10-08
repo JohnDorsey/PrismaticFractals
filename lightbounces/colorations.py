@@ -2,7 +2,7 @@
 source) in an RGB or HSV colour model; this module has the live editable ColorationConfig, its frozen copies (ColorationSnapshot, ColorationSettings),
 ChannelSettings (one channel as a keyframe stores it), resolve_colorations (a coloration's values for a video frame) and the colour-model maths."""
 import numpy as np
-from .kernels import POINT_END, POINT_START, ST_BOUNCES, ST_HDIST, ST_MANHATTAN, ST_VDIST
+from .kernels import POINT_END, POINT_START, ST_BOUNCE_COUNT, ST_HDIST, ST_MANHATTAN, ST_VDIST
 from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, CHAN_SRC_QUERY, DEFAULT_BUDDHA_BRIGHTNESS, DEFAULT_BUDDHA_POINTS,
     METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ZERO
@@ -15,7 +15,7 @@ from .settings import resolve_value, strict_record
 # back and forth restores what was chosen.
 DEFAULT_METRIC_TYPES = (METRIC_TYPE_POINT_PAIR, METRIC_TYPE_POINT_PAIR, METRIC_TYPE_OTHER)
 DEFAULT_POINT_METRICS = (ST_HDIST, ST_VDIST, ST_MANHATTAN)
-DEFAULT_OTHER_METRICS = (ST_BOUNCES, ST_BOUNCES, ST_BOUNCES)
+DEFAULT_OTHER_METRICS = (ST_BOUNCE_COUNT, ST_BOUNCE_COUNT, ST_BOUNCE_COUNT)
 DEFAULT_POINT1S = (POINT_START, POINT_START, POINT_START)  # point 1 per channel
 DEFAULT_POINT2S = (POINT_END, POINT_END, POINT_END)        # point 2 per channel
 DEFAULT_CHAN_SRCS = (CHAN_SRC_QUERY, CHAN_SRC_QUERY, CHAN_SRC_QUERY)   # per channel
@@ -23,14 +23,14 @@ DEFAULT_CONSTANT_CHOICES = (NONE_ZERO, NONE_ZERO, NONE_ZERO)          # per chan
 DEFAULT_BUDDHA_POINTS_PER_CHAN = (DEFAULT_BUDDHA_POINTS,) * 3
 DEFAULT_BUDDHA_COMPRESSIONS = (BUDDHA_COMPRESS_ARCTAN,) * 3
 DEFAULT_BUDDHA_BRIGHTNESSES = (DEFAULT_BUDDHA_BRIGHTNESS,) * 3
-DEFAULT_MODE = "RGB"
+DEFAULT_COLOR_MODEL = "RGB"
 
 # Color models: channel names (and label colors) for the three table rows
-MODES = {
+COLOR_MODELS = {
     "RGB": [("Red", "#c62828"), ("Green", "#2e7d32"), ("Blue", "#1565c0")],
     "HSV": [("Hue", "#6a1b9a"), ("Saturation", "#00838f"), ("Value", "#616161")],
 }
-MODE_NAMES = list(MODES)
+COLOR_MODEL_NAMES = list(COLOR_MODELS)
 
 
 # Colorations: showing more than 3 channels' worth of information at once, by
@@ -56,13 +56,13 @@ class ColorationConfig:
     what the Colorations tab controls. Position in self.colorations has no special
     meaning; which one the top-left preview shows is whichever is selected
     (see live_coloration/select_coloration), not necessarily self.colorations[0]."""
-    __slots__ = ("id", "mode", "chan_src", "metric_types", "point_metric", "other_metric",
+    __slots__ = ("id", "color_model", "chan_src", "metric_types", "point_metric", "other_metric",
                 "point1_choice", "point2_choice", "buddha_points", "buddha_compression",
                 "buddha_brightness", "constant_choice")
 
     def __init__(self, id_):
         self.id = id_
-        self.mode = DEFAULT_MODE
+        self.color_model = DEFAULT_COLOR_MODEL
         self.chan_src = list(DEFAULT_CHAN_SRCS)
         self.metric_types = list(DEFAULT_METRIC_TYPES)
         self.point_metric = list(DEFAULT_POINT_METRICS)
@@ -92,7 +92,7 @@ class ColorationConfig:
 
     def settings(self):
         """This coloration as the ColorationSettings the colouring code takes."""
-        return ColorationSettings(mode=self.mode, metric_types=self.metric_types, point_metric=self.point_metric,
+        return ColorationSettings(color_model=self.color_model, metric_types=self.metric_types, point_metric=self.point_metric,
                             other_metric=self.other_metric, point1_choice=self.point1_choice,
                             point2_choice=self.point2_choice, chan_src=self.chan_src,
                             buddha_points=self.buddha_points,
@@ -107,7 +107,7 @@ class ColorationSnapshot:
     mirror ColorationConfig.__slots__ (a test keeps them in step); the per-channel lists
     are stored as tuples."""
     id: int
-    mode: str
+    color_model: str
     chan_src: tuple
     metric_types: tuple
     point_metric: tuple
@@ -164,15 +164,15 @@ def coloration_channel_value(v, c):
 # Every field a coloration can define in a keyframe: (field, label, is_float) -
 # mirrors the shapes' KEYFRAME_FIELDS. None of these are float (a color model or a whole
 # channel's configuration is held between keyframes, never interpolated).
-COLORATION_FIELD_INFO = [("mode", "Color model", False), ("chan0", "Channel 1", False),
+COLORATION_FIELD_INFO = [("color_model", "Color model", False), ("chan0", "Channel 1", False),
                    ("chan1", "Channel 2", False), ("chan2", "Channel 3", False)]
 
 
 def coloration_field_value(v, field):
     """The current value of one of a coloration's COLORATION_FIELD_INFO fields, in the
     same shape a keyframe stores it in."""
-    if field == "mode":
-        return v.mode
+    if field == "color_model":
+        return v.color_model
     return coloration_channel_value(v, int(field[-1]))
 
 
@@ -180,7 +180,7 @@ def coloration_field_value(v, field):
 class ColorationSettings:
     """One coloration, resolved, as apply_coloration reads it (per-channel values
     are 3-tuples)."""
-    mode: str
+    color_model: str
     metric_types: tuple
     point_metric: tuple
     other_metric: tuple
@@ -193,13 +193,13 @@ class ColorationSettings:
     constant_choice: tuple
 
 
-def decompose_chans(mode, chans):
+def decompose_chans(color_model, chans):
     """A color model plus 3 channels' ChannelSettings (as stored in a keyframe, or
     built by coloration_channel_value) -> a ColorationSettings, decomposed into the separate
     per-channel fields render_full_image's coloring step actually reads. Used by
     resolve_colorations() for every coloration alike."""
     return ColorationSettings(
-        mode=mode,
+        color_model=color_model,
         metric_types=tuple(c.metric_type for c in chans),
         point_metric=tuple(c.metric_slot if c.metric_type == METRIC_TYPE_POINT_PAIR else DEFAULT_POINT_METRICS[i]
                            for i, c in enumerate(chans)),
@@ -225,12 +225,12 @@ def resolve_colorations(coloration_snapshots, keyframes_sorted, frame_number):
     defines it. Mirrors resolve_obstacle_arrays."""
     result = []
     for snap in coloration_snapshots:
-        mode = resolve_value(f"coloration:{snap.id}:mode", keyframes_sorted, frame_number,
-                             snap.mode, False)
+        color_model = resolve_value(f"coloration:{snap.id}:color_model", keyframes_sorted, frame_number,
+                             snap.color_model, False)
         chans = [resolve_value(f"coloration:{snap.id}:chan{c}", keyframes_sorted, frame_number,
                                coloration_channel_value(snap, c), False)
                 for c in range(3)]
-        result.append(decompose_chans(mode, chans))
+        result.append(decompose_chans(color_model, chans))
     return tuple(result)
 
 
@@ -249,14 +249,14 @@ def hsv_to_rgb_np(h, s, v):
     return r, g, b
 
 
-def channels_to_rgb(mode, v0, v1, v2):
+def channels_to_rgb(color_model, v0, v1, v2):
     """
     Convert three arrays of channel values (0..1) in the given color model
     to red, green, blue arrays on a 0..255 scale.
       RGB: the values are red, green, blue.
       HSV: the values are hue, saturation, value.
     """
-    if mode == "HSV":
+    if color_model == "HSV":
         r, g, b = hsv_to_rgb_np(v0, v1, v2)
         return r * 255.0, g * 255.0, b * 255.0
     return v0 * 255.0, v1 * 255.0, v2 * 255.0

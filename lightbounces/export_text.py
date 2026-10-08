@@ -5,13 +5,13 @@ import time
 import numpy as np
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES
 from .image_io import jxl_quality_tag, render_text_line
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, SIZE
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, PREVIEW_BOX
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
     CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_METRICS, METRIC_LABELS,
     constant_metric_to_label
 )
-from .colorations import MODES
+from .colorations import COLOR_MODELS
 from .framings import framing_info_block
 from . import paths
 
@@ -80,9 +80,9 @@ def coloration_info_lines(coloration):
     names shown in the Colorations tab's own dropdowns - the metric's Type
     (point comparison/other) is never shown on its own, though; it's
     implied by which metric is named."""
-    lines = [f"Mode:{coloration.mode}"]
+    lines = [f"Mode:{coloration.color_model}"]
     for c in range(3):
-        letter = MODES[coloration.mode][c][0][0]
+        letter = COLOR_MODELS[coloration.color_model][c][0][0]
         if coloration.chan_src[c] == CHAN_SRC_BUDDHA:
             lines.append(f"{letter}:Buddha")
             chosen = [BUDDHA_POINT_LABELS[i] for i, on in enumerate(coloration.buddha_points[c]) if on]
@@ -188,11 +188,11 @@ def layout_info_columns(blocks, lines_per_column):
 
 def resolution_scale(size):
     """The pixel-font scale factor for info text relating to something
-    `size` pixels across: never smaller than the SIZE=512 baseline scale,
+    `size` pixels across: never smaller than the PREVIEW_BOX=512 baseline scale,
     growing in whole steps above it, so text stays about the same size
     relative to whatever it's describing rather than shrinking to
     illegibility at high export resolutions."""
-    return COLORATION_INFO_SCALE * max(1, round(size / SIZE))
+    return COLORATION_INFO_SCALE * max(1, round(size / PREVIEW_BOX))
 
 
 def _draw_text_block(img, lines, x0, y0, avail_w, avail_h, scale, draw_bg):
@@ -317,7 +317,7 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termin
     of (see framing_info_block). mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
     first instead) - needed when `rgb` might be a shared, reused buffer
-    like self.frame."""
+    like self.image_for_export."""
     if color_location == "Overlay":
         if not mutate_ok:
             rgb = rgb.copy()

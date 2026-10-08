@@ -20,8 +20,8 @@ from .external import njit, prange
 # --------------------------------------------------------------------------- #
 # Constants: the kernel ABI (read by the kernels below, used by everything else)
 # --------------------------------------------------------------------------- #
-SIZE = 512                 # the longest side, in pixels, of the image on screen
-PIXEL = 2.0 / SIZE         # width of one pixel in world units for the default framing (it spans [-1, 1])
+PREVIEW_BOX = 512                 # the longest side, in pixels, of the image on screen
+DEFAULT_PIXEL_WORLD_WIDTH = 2.0 / PREVIEW_BOX         # width of one pixel in world units for the default framing (it spans [-1, 1])
 
 # Why a ray terminated (returned by trace_path as `term`)
 TERM_CONFINED = 0   # confined to less than one pixel
@@ -164,9 +164,9 @@ ST_HDIST = 0        # horizontal distance |x1-x2| between two points  [compariso
 ST_VDIST = 1        # vertical distance |y1-y2| between two points    [comparison]
 ST_MANHATTAN = 2    # |x1-x2| + |y1-y2| between two points            [comparison]
 ST_EUCLIDEAN = 3    # straight-line distance between two points       [comparison]
-ST_BOUNCES = 4      # bounces / iteration limit               (linear)
-ST_RAY_FRAC = 5     # bounces against ray / bounces           (linear)
-ST_BOUNDARY_FRAC = 6  # bounces against the shape / bounces   (linear)
+ST_BOUNCE_COUNT = 4      # bounces / iteration limit               (linear)
+ST_SELF_SHARE = 5     # bounces against ray / bounces           (linear)
+ST_BOUNDARY_SHARE = 6  # bounces against the shape / bounces   (linear)
 ST_LOOP_AREA = 7    # first self-loop area / same-perimeter circle (linear)
 ST_ANGLES = 8       # sum of bounce angles / (180 * bounces)  (linear)
 ST_LENGTH = 9       # total ray length                        (arctangent)
@@ -176,7 +176,7 @@ ST_LAST_RATIO = 12  # last segment length / its uncut length
 # (ST_* are the metrics a coloration can choose - see N_STATS below for how many slots a ray's stored metrics really have)
 
 # Sample points that can be picked out of a ray's path
-POINT_START = 0          # the ray's starting point (the pixel it was emitted from)
+POINT_START = 0          # the ray's starting point (the pixel it was fired from)
 POINT_END = 1            # the last point of the ray (a cut point if the distance
                          # limit ended it part-way along a segment)
 POINT_ALL_MEAN = 2       # mean of every bounce point, of any kind
@@ -235,9 +235,9 @@ POINT_ALIASES = (                                    # POINT_* number -> (sequen
     (SEQ_BOUNCES, PRED_TOP), (SEQ_BOUNCES, PRED_BOTTOM), (SEQ_BOUNCES, PRED_RIGHT), (SEQ_BOUNCES, PRED_LEFT),
     (SEQ_SELF, PRED_TOP), (SEQ_SELF, PRED_BOTTOM), (SEQ_SELF, PRED_RIGHT), (SEQ_SELF, PRED_LEFT))
 STAT_ALIASES = {                                     # ST_* number -> (sequence, reduction), where there is one
-    ST_BOUNCES: (SEQ_BOUNCES, SRED_COUNT), ST_LENGTH: (SEQ_PATH, SRED_LENGTH),
+    ST_BOUNCE_COUNT: (SEQ_BOUNCES, SRED_COUNT), ST_LENGTH: (SEQ_PATH, SRED_LENGTH),
     ST_LAST_DIR: (SEQ_PATH, SRED_LAST_DIR),
-    ST_RAY_FRAC: (SEQ_SELF, SRED_SHARE), ST_BOUNDARY_FRAC: (SEQ_BOUNDARY, SRED_SHARE)}
+    ST_SELF_SHARE: (SEQ_SELF, SRED_SHARE), ST_BOUNDARY_SHARE: (SEQ_BOUNDARY, SRED_SHARE)}
 N_LEGACY_POINTS = len(POINT_ALIASES)
 N_LEGACY_STATS = 13
 
@@ -1483,7 +1483,7 @@ def inside_boundary_grid(gx, gy, shape, bound):
 
 
 @njit(cache=True)
-def emits_ray(x, y, obstacles):
+def fires_ray(x, y, obstacles):
     """Does a ray actually start at (x, y)? True if (x, y) is inside any shape
     whose "fire rays inside" is on. Being inside shapes that have it off makes
     no difference."""
@@ -2189,7 +2189,7 @@ def compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray
     (N_POINTS, 2)) and the scalars into `out` (N_STATS slots; compute_run_measurements fills the rest). The bounce points are
     path_points[1] .. path_points[nb]; the start point and a distance-cut end point are not bounce points. A sequence with no points
     (a ray with no bounces of the relevant kind) uses the path's end point. Five of the slots are the old choices
-    ST_BOUNCES, ST_LENGTH, ST_LAST_DIR, ST_RAY_FRAC and ST_BOUNDARY_FRAC, and thirteen points are the old POINT_*
+    ST_BOUNCE_COUNT, ST_LENGTH, ST_LAST_DIR, ST_SELF_SHARE and ST_BOUNDARY_SHARE, and thirteen points are the old POINT_*
     choices (see POINT_ALIASES)."""
     for seq in range(N_SEQS):
         sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
@@ -2199,8 +2199,8 @@ def compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray
 def compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out):
     """
     Turn a traced path into the metrics of the ray's own run (each in 0..1, written to
-    `out`; compute_sequences fills the rest, among them ST_BOUNCES, ST_LENGTH,
-    ST_LAST_DIR, ST_RAY_FRAC and ST_BOUNDARY_FRAC). Also fills RAW_LENGTH, RAW_LAST, RAW_AREA, RAW_LAST_DIR and
+    `out`; compute_sequences fills the rest, among them ST_BOUNCE_COUNT, ST_LENGTH,
+    ST_LAST_DIR, ST_SELF_SHARE and ST_BOUNDARY_SHARE). Also fills RAW_LENGTH, RAW_LAST, RAW_AREA, RAW_LAST_DIR and
     RAW_DISP in `raw`. The loop-area metric is the loop's area divided by the
     area of a circle with the same perimeter as the loop, so it is
     dimensionless and needs no reference shape (1 is a perfect circle). The point-comparison metrics are written here using
@@ -2355,7 +2355,7 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
     zone.y_stop (the top row) down to zone.y_start. `counts` itself covers the world rectangle `world_rect` (the image's), which
     is where a scattered point is counted; a zone equal to the world rectangle is exactly the pixels of the image, which is
     what the "camera pixels" seeding uses. For rows [row0, row1), every seed that
-    fires a ray (see emits_ray) is traced, with the same fuzzing seed formula as trace_rows, and
+    fires a ray (see fires_ray) is traced, with the same fuzzing seed formula as trace_rows, and
     scattered into `counts` (in place; no blur here, it is applied once afterwards): the stored point of each slot
     in `slots` (see POINT_SLOT; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
     an int64 array), and whatever the four multi options asked for (see scatter_trace_points).
@@ -2378,7 +2378,7 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
         for i in range(w):
             x = zone.x_start + (i + 0.5) * step_x
             y = zone.y_stop - (j + 0.5) * step_y
-            if not emits_ray(x, y, obstacles):
+            if not fires_ray(x, y, obstacles):
                 continue
             if fuzzing:
                 np.random.seed(rng_seed_base + i * 1000003 + j * 97)
@@ -2451,7 +2451,7 @@ def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, 
         i = idx % out_w
         x = x_start + (i + 0.5) * step_x
         y = y_stop - (j + 0.5) * step_y
-        if not emits_ray(x, y, obstacles):
+        if not fires_ray(x, y, obstacles):
             pixel_state[j, i] = PIXEL_NO_RAY
             continue
         if fuzzing:

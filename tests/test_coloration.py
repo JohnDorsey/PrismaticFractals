@@ -11,9 +11,9 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # --------------------------------------------------------------------------- #
 def test_extract_point_xy_returns_constants_for_the_fixed_points():
     n = 5
-    x, y = m.extract_point_xy(None, m.POINT_ORIGIN, None, n)
+    x, y = m.extract_point_xy(None, m.CHOICE_ORIGIN, None, n)
     assert len(x) == n and (x == 0.0).all() and (y == 0.0).all()
-    x, y = m.extract_point_xy(None, m.POINT_TOP_LEFT_CORNER, None, n)
+    x, y = m.extract_point_xy(None, m.CHOICE_TOP_LEFT_CORNER, None, n)
     assert (x == -1.0).all() and (y == 1.0).all()
 
 
@@ -26,16 +26,16 @@ def test_extract_point_xy_still_reads_real_points_from_the_array():
 
 
 def test_resolve_point_xy_handles_both_constant_and_real_points():
-    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.POINT_ORIGIN) == (0.0, 0.0)
-    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.POINT_TOP_LEFT_CORNER) == (-1.0, 1.0)
+    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.CHOICE_ORIGIN) == (0.0, 0.0)
+    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.CHOICE_TOP_LEFT_CORNER) == (-1.0, 1.0)
     ray_characteristic_points = np.zeros((m.N_POINTS, 2))
     ray_characteristic_points[m.POINT_END] = [0.3, -0.4]
     assert m.resolve_point_xy(ray_characteristic_points, m.POINT_END) == (0.3, -0.4)
 
 
 def test_point_lists_include_the_two_new_fixed_points():
-    assert m.POINT_LABELS[m.POINT_ORIGIN] == "Origin"
-    assert m.POINT_LABELS[m.POINT_TOP_LEFT_CORNER] == "Top left corner"
+    assert m.POINT_LABELS[m.CHOICE_ORIGIN] == "Origin"
+    assert m.POINT_LABELS[m.CHOICE_TOP_LEFT_CORNER] == "Top left corner"
     assert len(m.POINT_LABELS) == len(m.POINT_SHORT) == len(m.POINT_DESCRIPTIONS)
     assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 2
 
@@ -49,8 +49,8 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
     characteristic_points = np.zeros((4, 4, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.full((4, 4), m.PIXEL_TRACED, dtype=np.uint8)
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
-    v.point1_choice[0] = m.POINT_ORIGIN
-    v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
+    v.point1_choice[0] = m.CHOICE_ORIGIN
+    v.point2_choice[0] = m.CHOICE_TOP_LEFT_CORNER
     v.point_metric[0] = m.ST_HDIST
     img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
                             m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
@@ -60,8 +60,8 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
 
 def test_coloration_info_lines_shows_the_new_point_names():
     v = m.ColorationConfig(0)
-    v.point1_choice[0] = m.POINT_ORIGIN
-    v.point2_choice[0] = m.POINT_TOP_LEFT_CORNER
+    v.point1_choice[0] = m.CHOICE_ORIGIN
+    v.point2_choice[0] = m.CHOICE_TOP_LEFT_CORNER
     lines = m.coloration_info_lines(v)
     assert any("Origin" in l and "TopLeft" in l for l in lines)
 
@@ -110,11 +110,11 @@ def test_make_mapping_raises_if_constant_channel_has_no_constant_choices():
 def test_make_mapping_resolves_constant_channels_from_constant_choices():
     metric_types = [m.METRIC_TYPE_OTHER] * 3
     point_metrics = [m.ST_HDIST] * 3
-    other_metrics = [m.ST_BOUNCES, m.ST_BOUNCES, m.ST_BOUNCES]   # never consulted
+    other_metrics = [m.ST_BOUNCE_COUNT, m.ST_BOUNCE_COUNT, m.ST_BOUNCE_COUNT]   # never consulted
     chan_src = [m.CHAN_SRC_CONSTANT, m.CHAN_SRC_CONSTANT, m.CHAN_SRC_QUERY]
     constant_choices = [m.NONE_ZERO, m.NONE_ONE, m.NONE_ZERO]    # [2] unused (Query)
     mapping = m.make_mapping(metric_types, point_metrics, other_metrics, chan_src, constant_choices)
-    assert mapping == (m.NONE_ZERO, m.NONE_ONE, m.ST_BOUNCES)
+    assert mapping == (m.NONE_ZERO, m.NONE_ONE, m.ST_BOUNCE_COUNT)
 
 
 def test_coloration_channel_value_and_decompose_chans_round_trip_constant_choice():
@@ -123,7 +123,7 @@ def test_coloration_channel_value_and_decompose_chans_round_trip_constant_choice
     v.constant_choice[1] = m.NONE_ONE
     chans = [m.coloration_channel_value(v, c) for c in range(3)]
     assert isinstance(chans[1], m.ChannelSettings) and chans[1].constant == m.NONE_ONE
-    vs = m.decompose_chans(v.mode, chans)
+    vs = m.decompose_chans(v.color_model, chans)
     assert vs.constant_choice[1] == m.NONE_ONE
     assert vs.constant_choice[0] == m.DEFAULT_CONSTANT_CHOICES[0]   # untouched channel
 
@@ -451,7 +451,7 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app = _fake_current_image_app()
     app.live_coloration = lambda: app.colorations[0]
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
-    counts = np.zeros((m.SIZE, m.SIZE), dtype=np.float64)
+    counts = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64)
     counts[100, 100] = 50.0
     app.buddha_counts = [counts, None, None]
     app.buddha_counts_blurred = [None, None, None]
@@ -463,7 +463,7 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app.draw = lambda: None
     app.rebuild_coloration_list = lambda: None
     app.pinned_px = None
-    app.rows_done = m.SIZE
+    app.rows_done = m.PREVIEW_BOX
     app.refresh_blur = m.App.refresh_blur.__get__(app)
     sharp = app.blurred_buddha_counts(0)
     assert np.array_equal(sharp, counts)
@@ -482,7 +482,7 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app = _fake_current_image_app()
     app.live_coloration = lambda: app.colorations[0]
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
-    app.buddha_counts = [np.zeros((m.SIZE, m.SIZE), dtype=np.float64), None, None]
+    app.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64), None, None]
     app.buddha_counts_blurred = [None, None, None]
     app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
@@ -505,14 +505,14 @@ def test_scatter_buddha_rows_invalidates_only_touched_channels():
     coloration.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
     coloration.chan_src[1] = m.CHAN_SRC_BUDDHA
     coloration.buddha_points[1] = tuple(False for _ in range(m.N_BUDDHA_POINTS))   # nothing selected
-    app.buddha_counts = [np.zeros((m.SIZE, m.SIZE), dtype=np.float64),
-                         np.zeros((m.SIZE, m.SIZE), dtype=np.float64), None]
+    app.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64),
+                         np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64), None]
     app.buddha_counts_blurred = ["sentinel0", "sentinel1", None]
-    app.pixel_state = np.full((m.SIZE, m.SIZE), m.PIXEL_TRACED, dtype=np.uint8)
-    app.characteristic_points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
-    app.stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
+    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
+    app.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
+    app.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
     app.scatter_buddha_rows = m.App.scatter_buddha_rows.__get__(app)
-    app.scatter_buddha_rows(0, m.SIZE)
+    app.scatter_buddha_rows(0, m.PREVIEW_BOX)
     assert app.buddha_counts_blurred[0] is None, "touched channel must be invalidated"
     assert app.buddha_counts_blurred[1] == "sentinel1", \
         "untouched channel (nothing selected) must not be invalidated"
@@ -574,7 +574,7 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
 # --------------------------------------------------------------------------- #
 def test_the_point_dropdowns_list_origin_and_top_left_corner_first():
     assert m.POINT_MENU_LABELS[:2] == ["Origin", "Top left corner"]
-    assert m.POINT_MENU_ORDER[:2] == [m.POINT_ORIGIN, m.POINT_TOP_LEFT_CORNER]
+    assert m.POINT_MENU_ORDER[:2] == [m.CHOICE_ORIGIN, m.CHOICE_TOP_LEFT_CORNER]
 
 
 def test_the_point_dropdowns_still_list_every_choice_exactly_once():
@@ -586,8 +586,8 @@ def test_the_point_dropdowns_still_list_every_choice_exactly_once():
 def test_choosing_from_the_reordered_dropdown_still_gives_the_same_point_ids():
     """Only the display order changed: a label maps back to its unchanged id, so
     the ids stored in colorations, keyframes and the sample arrays are untouched."""
-    assert m.POINT_LABELS.index("Origin") == m.POINT_ORIGIN == m.N_POINTS
-    assert m.POINT_LABELS.index("Top left corner") == m.POINT_TOP_LEFT_CORNER == m.N_POINTS + 1
+    assert m.POINT_LABELS.index("Origin") == m.CHOICE_ORIGIN == m.N_POINTS
+    assert m.POINT_LABELS.index("Top left corner") == m.CHOICE_TOP_LEFT_CORNER == m.N_POINTS + 1
     assert m.POINT_LABELS.index("Path: First point") == m.POINT_START == 0
     for point_id in range(m.N_POINT_CHOICES):
         label = m.POINT_LABELS[point_id]
@@ -625,9 +625,9 @@ def test_selecting_a_coloration_makes_it_the_live_one():
 
 def test_editing_the_selected_coloration_triggers_the_recolor_cascade():
     app = _fake_color_editor_app()
-    app.mode_var.set("HSV")
-    app.on_mode_changed()
-    assert app.colorations[0].mode == "HSV"
+    app.color_model_var.set("HSV")
+    app.on_color_model_changed()
+    assert app.colorations[0].color_model == "HSV"
     assert len(app.recolor_calls) == 1
     assert len(app.stat_tag_calls) == 1
 
@@ -636,7 +636,7 @@ def test_editing_the_selected_coloration_triggers_the_recolor_cascade():
 # Performance fix: a Buddha rescatter (which can involve re-tracing every
 # fired ray for a "multi" point option) must only happen when the specific
 # thing that changed could actually affect Buddha data - never for an
-# unrelated channel's edit, and never for a mode change
+# unrelated channel's edit, and never for a color model change
 # --------------------------------------------------------------------------- #
 def test_apply_mapping_change_skips_buddha_rebuild_for_unrelated_channel():
     """The core performance fix: editing a channel that isn't Buddha must
@@ -658,11 +658,11 @@ def test_apply_mapping_change_rebuilds_when_the_edited_channel_is_buddha():
 
 def test_load_value_skips_buddha_rebuild_for_mode_field():
     """Mode (RGB<->HSV) never affects Buddha scattering at all - matches
-    on_mode_changed's own behavior, which never calls this either."""
+    on_color_model_changed's own behavior, which never calls this either."""
     app = _fake_color_editor_app()
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     app.load_value = m.App.load_value.__get__(app)
-    app.load_value("coloration:0:mode", "HSV")
+    app.load_value("coloration:0:color_model", "HSV")
     assert app.rebuild_buddha_counts_calls == []
 
 
@@ -682,7 +682,7 @@ def test_load_value_rebuilds_when_the_loaded_channel_is_buddha():
     app = _fake_color_editor_app()
     app.load_value = m.App.load_value.__get__(app)
     chan0_value = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCES, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan0", chan0_value)
@@ -871,7 +871,7 @@ def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_th
     app.update_seed_zone_outline = m.App.update_seed_zone_outline.__get__(app)
     app.update_seed_zone_outline()
     (coords, options), = app.canvas.rects
-    half = m.SIZE / 2.0
+    half = m.PREVIEW_BOX / 2.0
     assert coords == (0.5 * half, 1.0 * half, 1.5 * half, 2.0 * half), "x -0.5..0.5 and y -1..0 as pixels"
     assert options["outline"] == m.SEED_ZONE_OUTLINE and options["dash"] and options["tags"] == "seedzone"
     app.buddha_notebook.selected = "blur"                # the other sub-tab: invisible

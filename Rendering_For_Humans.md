@@ -30,7 +30,7 @@ A guide to how Light Bounces turns settings into pixels, followed by assessments
  kernel arguments:  RayArgs, NaturalTerminationRule, ObstacleArrays, WorldRect     (namedtuples / numpy arrays)
         |
         v   once per pixel, in parallel:  kernels._trace_rows_parallel
- pixel centre (x, y) --emits_ray?--no--> pixel_state = PIXEL_NO_RAY (2)
+ pixel centre (x, y) --fires_ray?--no--> pixel_state = PIXEL_NO_RAY (2)
         | yes
         v
  trace_path ---> path_points (max_iter+2, 2) f64   path_point_tags (max_iter+2,) f64   raw (11,) f64   term, npts     [one ray, thrown away]
@@ -65,7 +65,7 @@ Three things the diagram does not say:
 | framing | camera: centre `x`, `y`, `diagonal`, `aspect` (width / height), world units | `lightbounces.framings.FramingConfig` (live), `FramingSnapshot` (frozen) |
 | world rectangle | the rectangle of the world a framing covers, as four floats | `lightbounces.kernels.WorldRect` (`world_rect` as a parameter) |
 | ray / path | one traced bounce path from one start point | `path_points`, `path_point_tags` inside `lightbounces.kernels.trace_path` |
-| fire | a pixel "fires" a ray if its centre is inside a shape with *fire rays inside* on | `lightbounces.kernels.emits_ray` |
+| fire | a pixel "fires" a ray if its centre is inside a shape with *fire rays inside* on | `lightbounces.kernels.fires_ray` |
 | pixel_state | `uint8` per pixel: `PIXEL_PENDING` 0 = its row is not rendered yet, `PIXEL_TRACED` 1 = its ray was traced and stored, `PIXEL_NO_RAY` 2 = reached, no ray fires there | `lightbounces.app_preview.PreviewMixin.pixel_state` (made in `make_image_buffers`) |
 | sequence | a named, filtered view of one path (`SEQ_PATH`, `SEQ_BOUNCES`, `SEQ_BOUNDARY`, `SEQ_SELF`) | `lightbounces.kernels.in_sequence` |
 | reduction | a fixed summary of a sequence: 7 point reductions (`PRED_*`), 4 scalar reductions (`SRED_*`) | `lightbounces.kernels.sequence_summary` |
@@ -84,7 +84,7 @@ Three things the diagram does not say:
 
 **A framing makes a world rectangle.** `lightbounces.framings.framing_size`: height = diagonal / sqrt(1 + aspect²), width = aspect × height. `lightbounces.framings.framing_world_rect` returns `WorldRect(x - width/2, x + width/2, y - height/2, y + height/2)` as Python floats. The default diagonal is `lightbounces.constants.DEFAULT_FRAMING_DIAGONAL` = 2·sqrt(2), chosen so that at aspect 1 the rectangle is exactly `WorldRect(-1.0, 1.0, -1.0, 1.0)` = `lightbounces.kernels.WORLD_RECT_DEFAULT` **[V]** (`framing_world_rect(DEFAULT_FRAMING) == WORLD_RECT_DEFAULT` holds exactly, and a test pins it).
 
-**A framing also makes a pixel grid.** `lightbounces.framings.framing_image_size(f, box=SIZE)`: aspect ≥ 1 gives `(512, max(1, round(512 / aspect)))`, otherwise `(max(1, round(512 * aspect)), 512)`. So the live image is at most 512 on its longer side, and pixels are only approximately square when the rounding bites. Exports choose their own width and height; if their shape differs from the rectangle's the picture stretches (as non-square exports always did).
+**A framing also makes a pixel grid.** `lightbounces.framings.framing_image_size(f, box=PREVIEW_BOX)`: aspect ≥ 1 gives `(512, max(1, round(512 / aspect)))`, otherwise `(max(1, round(512 * aspect)), 512)`. So the live image is at most 512 on its longer side, and pixels are only approximately square when the rounding bites. Exports choose their own width and height; if their shape differs from the rectangle's the picture stretches (as non-square exports always did).
 
 **Pixel centre to world** (identical arithmetic in `lightbounces.kernels._trace_rows_parallel`, `lightbounces.kernels.scatter_from_seeds`, `lightbounces.image_io.make_grid` and `lightbounces.app_preview.PreviewMixin.pixel_center`, so a hover ray starts exactly where the image's own ray did **[V]**):
 
@@ -100,7 +100,7 @@ col = floor((x - x_start) * (w / (x_stop - x_start)))
 row = floor((y_stop - y) * (h / (y_stop - y_start)))       # outside 0 <= col < w, 0 <= row < h: the point is not counted
 ```
 
-Two fixed constants survive from the era of one fixed image: `lightbounces.kernels.SIZE` = 512 (now "the longer side of the live image") and `lightbounces.kernels.PIXEL` = 2/512 (the world width of one pixel of the default framing at that size). They set the default confinement threshold and the outline thickness (section 2.4 suggests renaming them).
+Two fixed constants survive from the era of one fixed image: `lightbounces.kernels.PREVIEW_BOX` = 512 (now "the longer side of the live image") and `lightbounces.kernels.DEFAULT_PIXEL_WORLD_WIDTH` = 2/512 (the world width of one pixel of the default framing at that size). They set the default confinement threshold and the outline thickness (section 2.4 suggests renaming them).
 
 **Precision.** Kernels work in `float64`. Stored sample points are narrowed to `float32` (section 1.8); `float32` spacing near 0.75 is 5.96e-8 **[V]**, which equals one pixel's width when the world rectangle is about 3.05e-5 wide, roughly 6.6×10⁴ times narrower than the default (arithmetic **[V]**; consequence for deep zoom in section 2.3).
 
@@ -158,7 +158,7 @@ A numba limitation shapes the drivers: a `parallel=True` function cannot use a t
 | `characteristic_points` | float32 | (h, w, 28, 2) | sample points; 224 bytes per pixel |
 | `pixel_state` | uint8 | (h, w) | 0 pending, 1 ray traced and stored, 2 no ray here |
 | `img` | uint8 | (h, w, 3) | the coloured image; pre-filled with `BACKGROUND` = (12, 12, 16) |
-| `frame`, `display_frame` | uint8 | (h, w, 3) | `img` + outlines (what is exported), then + coloration-name overlay (screen only) |
+| `frame`, `image_for_screen` | uint8 | (h, w, 3) | `img` + outlines (what is exported), then + coloration-name overlay (screen only) |
 | `gx`, `gy` | float64 | (h, w) | world coordinates of every pixel centre |
 | `buddha_counts` | list of 3 | each `None` or float64 (h, w) | raw Buddha histograms per channel |
 | `buddha_counts_blurred` | list of 3 | each `None` or float64 (h, w) | cached blurred copy |
@@ -177,14 +177,14 @@ Each family below is a set of numbers whose *meaning is only the family*. Mixing
 | `SHAPE_*` | 0 ... 17 obstacle class codes (also `Shape.KIND`) | int | `lightbounces.kernels` |
 | `SEQ_*`, `PRED_*`, `SRED_*` | 4 sequences, 7 point reductions, 4 scalar reductions | int | `lightbounces.kernels` |
 | `ST_*`, `POINT_*` | 13 legacy metric slots, 13 legacy point slots (the *first* slots) | int | `lightbounces.kernels` |
-| point choice ids | 0-27 = stored slots; 28 = `POINT_ORIGIN`; 29 = `POINT_TOP_LEFT_CORNER` (no slot) | int | `lightbounces.metrics` |
+| point choice ids | 0-27 = stored slots; 28 = `CHOICE_ORIGIN`; 29 = `CHOICE_TOP_LEFT_CORNER` (no slot) | int | `lightbounces.metrics` |
 | `mapping[c]` values | a metric slot 0-23, or `NONE_ZERO` = -1, `NONE_ONE` = -2, `CHAN_BUDDHA` = -3 | int (sentinels share the field with slots) | `lightbounces.metrics` |
 | `CHAN_SRC_*` | QUERY 0, BUDDHA 1, CONSTANT 2 | int | `lightbounces.metrics` |
 | `METRIC_TYPE_POINT_PAIR`, `METRIC_TYPE_OTHER` | channel metric type: point comparison 0, other 1 (the project file's key for it is still `kind`) | int | `lightbounces.metrics` |
 | `BUDDHA_SIMPLE`, `BUDDHA_MULTI` | option style 0, 1 | int | `lightbounces.metrics` |
 | `BUDDHA_MULTI_ALL_SELF` ... | `"all_self"`, `"all_mid"`, `"prog_bounce"`, `"prog_mid"` | **str** | `lightbounces.metrics` |
 | `BUDDHA_COMPRESS_*` | ARCTAN 0, MODULUS 1 | int | `lightbounces.metrics` |
-| `ColorationSettings.mode` | `"RGB"`, `"HSV"` | **str** | `lightbounces.colorations.MODES` |
+| `ColorationSettings.mode` | `"RGB"`, `"HSV"` | **str** | `lightbounces.colorations.COLOR_MODELS` |
 
 Termination codes are not in the order of their stored metric values: `ST_TERMINATION` stores ITER 0.0, CONFINED 0.2, DIST 0.4, OBSTACLE 0.6, PERPENDICULAR 0.8, ESCAPED 1.0 (`lightbounces.constants.TERM_STAT_VALUE`, duplicated as literals in `lightbounces.kernels.compute_run_measurements`; a test, `test_every_termination_reason_maps_to_its_own_stat_value_in_compute_stats`, ties them together).
 
@@ -272,14 +272,14 @@ The remaining 8 metric slots are written by `lightbounces.kernels.compute_run_me
 
 Two observations from the formulas, confirmed in the worked pixel below **[V]**: `Path: Share of the bounces` (slot 14) and `All bounces: Share of the bounces` (slot 17) equal 1.0 for every ray that has at least one bounce, because the path has at least as many points as bounces; they carry almost no information.
 
-The 28 point slots plus the two fixed choices (`POINT_ORIGIN` = (0, 0) and `POINT_TOP_LEFT_CORNER` = (-1, 1), both unrelated to the ray, neither stored) make 30 point choices; `lightbounces.metrics.POINT_ORIGIN` is defined as `N_POINTS`, so its id would change if the number of characteristic points changed.
+The 28 point slots plus the two fixed choices (`CHOICE_ORIGIN` = (0, 0) and `CHOICE_TOP_LEFT_CORNER` = (-1, 1), both unrelated to the ray, neither stored) make 30 point choices; `lightbounces.metrics.CHOICE_ORIGIN` is defined as `N_POINTS`, so its id would change if the number of characteristic points changed.
 
 ## 1.8 Stage 4: the stored arrays and the generation loop
 
 **One pixel's journey into the arrays** (`lightbounces.kernels._trace_rows_parallel`, a `prange` over all pixels of the requested rows) **[R]**:
 
 1. Compute the pixel centre (section 1.3).
-2. `emits_ray(x, y, obstacles)`; if false, set `pixel_state[j, i] = PIXEL_NO_RAY` and `continue`.
+2. `fires_ray(x, y, obstacles)`; if false, set `pixel_state[j, i] = PIXEL_NO_RAY` and `continue`.
 3. If fuzzing, seed numba's RNG with `rng_seed_base + i * 1000003 + j * 97`, so every pixel's ray is reproducible and a re-trace elsewhere gives the same ray.
 4. Allocate `path_points`, `path_point_tags`, `raw`, `out`, `ray_characteristic_points` (fresh `np.empty` per pixel).
 5. `trace_path`, `compute_run_measurements`, `compute_sequences`.
@@ -295,7 +295,7 @@ The 28 point slots plus the two fixed choices (`POINT_ORIGIN` = (0, 0) and `POIN
 
 ## 1.9 Stage 5: from stored numbers to a colour
 
-**The coloration's data.** Ten parallel per-channel tuples in `lightbounces.colorations.ColorationSettings` (`metric_types`, `point_metric`, `other_metric`, `point1_choice`, `point2_choice`, `chan_src`, `buddha_points`, `buddha_compression`, `buddha_brightness`, `constant_choice`; plus `mode`). `lightbounces.metrics.make_mapping` reduces them to `mapping`, a tuple of 3 ints: the metric slot each channel uses, or a sentinel (`NONE_ZERO`, `NONE_ONE`, `CHAN_BUDDHA`).
+**The coloration's data.** Ten parallel per-channel tuples in `lightbounces.colorations.ColorationSettings` (`metric_types`, `point_metric`, `other_metric`, `point1_choice`, `point2_choice`, `chan_src`, `buddha_points`, `buddha_compression`, `buddha_brightness`, `constant_choice`; plus `color_model`). `lightbounces.metrics.make_mapping` reduces them to `mapping`, a tuple of 3 ints: the metric slot each channel uses, or a sentinel (`NONE_ZERO`, `NONE_ONE`, `CHAN_BUDDHA`).
 
 **A sequence never becomes a colour directly.** A channel gets to a sequence by exactly three doors:
 
@@ -319,7 +319,7 @@ So a sequence's *scalars* (count, length, last direction, share) are colours as 
 | `characteristic_points[24, 40, 1]` (Path: Last point) | (0.521502, -0.152772) |
 | channel 0 = point comparison, horizontal: abs(0.265625 - 0.521502) × 0.5 | 0.127938 (`stats[0]` holds the same value only because the default points are Path first and last, the placeholder pair) |
 | channel 1 = point comparison, vertical | 0.065969 |
-| channel 2 = other metric `ST_BOUNCES` (`stats[4]`, All bounces: count / limit = 19/40) | 0.475 |
+| channel 2 = other metric `ST_BOUNCE_COUNT` (`stats[4]`, All bounces: count / limit = 19/40) | 0.475 |
 | × 255, rounded | 33, 17, 121 |
 | `apply_coloration(...)[24, 40]` | [33, 17, 121] (identical) |
 | unfired corner pixel | [12, 12, 16] = `BACKGROUND` |
@@ -371,7 +371,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 | Re-trace, own zone | camera pixels off, **all** options | re-traced rays from a seed grid over the zone | `lightbounces.metrics.scatter_seeded_buddha` then `lightbounces.kernels.scatter_from_seeds` | no |
 | Export / thumbnail | any | same three as above, into a fresh array | `lightbounces.app_render.RenderMixin.apply_coloration` | no |
 
-`scatter_from_seeds(row0, row1, zone, world_rect, ...)` separates **where seeds are** (`zone`, a `WorldRect`; one seed per output pixel, laid at regular spacings) from **what `counts` covers** (`world_rect`). A seed fires only if `emits_ray` is true there. Because the stored-points route reads float32 points and the re-trace route float64, the two "should" agree but can differ by a point on a pixel edge: 2 of 262,144 cells in the default 512×512 image **[V, earlier session]**.
+`scatter_from_seeds(row0, row1, zone, world_rect, ...)` separates **where seeds are** (`zone`, a `WorldRect`; one seed per output pixel, laid at regular spacings) from **what `counts` covers** (`world_rect`). A seed fires only if `fires_ray` is true there. Because the stored-points route reads float32 points and the re-trace route float64, the two "should" agree but can differ by a point on a pixel edge: 2 of 262,144 cells in the default 512×512 image **[V, earlier session]**.
 
 ### After scattering
 
@@ -384,7 +384,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 
 ## 1.11 Stage 7: drawing, exporting, thumbnails, video
 
-- **On screen.** `lightbounces.app_preview.PreviewMixin.draw`: `np.copyto(frame, img)`; obstacle outlines are drawn into `frame` (ring thickness = `OBST_RING_LAYER_PX` pixels of `outline_pixel` world units, so zoom does not thicken them); `display_frame` = `frame` + the coloration-name overlay; the pixels go to Tk as a binary PPM (`"P6 w h 255\n"` + `tobytes()`) via `PhotoImage.configure(data=..., format="PPM")`. The hover ray, guide lines and seed-zone outline are Tk canvas items on top, not part of any array.
+- **On screen.** `lightbounces.app_preview.PreviewMixin.draw`: `np.copyto(image_for_export, img)`; obstacle outlines are drawn into `image_for_export` (ring thickness = `OBST_RING_LAYER_PX` pixels of `outline_pixel` world units, so zoom does not thicken them); `image_for_screen` = `image_for_export` + the coloration-name overlay; the pixels go to Tk as a binary PPM (`"P6 w h 255\n"` + `tobytes()`) via `PhotoImage.configure(data=..., format="PPM")`. The hover ray, guide lines and seed-zone outline are Tk canvas items on top, not part of any array.
 - **Current image export.** Saves `App.frame` (so outlines yes, name overlay no). With several colorations selected it recolours the stored arrays per coloration through `lightbounces.app_render.RenderMixin.render_current_image` and joins them side by side (`np.concatenate(axis=1)`).
 - **New image / video frame.** `lightbounces.app_render.RenderMixin.render_full_image(data, out_w, out_h, obst_arrays, colorations, framing)`: new arrays, one `trace_rows` over all rows with the framing's world rectangle, `apply_coloration` per coloration, outlines from `lightbounces.image_io.make_grid` and `lightbounces.shapes.ring_layer_masks`. A video resolves obstacles, colorations and the framing per frame from keyframes (`lightbounces.settings.resolve_obstacles`, `lightbounces.colorations.resolve_colorations`, `lightbounces.framings.resolve_framing`).
 - **Margins.** `lightbounces.export_text.apply_info_locations` adds the coloration text (overlay or bottom margin) and a left margin of figure settings and/or framing settings (`left_margin_blocks`, `add_left_info_margin`); the margin's size depends only on image size and obstacle count, so every video frame matches.
@@ -458,8 +458,8 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
   - `lightbounces.app_coloration.ColorationMixin.build_buddha_blur_controls`: the hint text says "A multiple of the view's smallest dimension (2 units): 0.1 means a blur radius of 0.2 units". The radius is `radius × min(w, h)` pixels, i.e. a fraction of the image's shorter side. This is wrong for every non-default framing and **is visible to the user**.
   - `lightbounces.__init__` docstring (lines 3-6): "the simulation itself always runs in that fixed square"; and `lightbounces.constants` (lines 26-31) about the blur radius being "always 2.0".
   - `lightbounces.metrics` (the "Constant source" comment): "Stored in the same slot other_metric[c] already occupies"; true before `constant_choice` existed, false now.
-  - `lightbounces.metrics.POINT_TOP_LEFT_CORNER` and its description: "the top-left corner of the simulation's [-1, 1] square". With framings it is a world point, not the image's corner.
-  - `lightbounces.kernels` module docstring lists the kernel argument types as `FuzzRule, ConfineRule, EmissionRule, ObstacleArrays`; `NaturalTerminationRule`, `RayArgs` and `Window` (now `WorldRect`) were missing. `kernels.SIZE`'s comment says "image size in pixels".
+  - `lightbounces.metrics.CHOICE_TOP_LEFT_CORNER` and its description: "the top-left corner of the simulation's [-1, 1] square". With framings it is a world point, not the image's corner.
+  - `lightbounces.kernels` module docstring lists the kernel argument types as `FuzzRule, ConfineRule, EmissionRule, ObstacleArrays`; `NaturalTerminationRule`, `RayArgs` and `Window` (now `WorldRect`) were missing. `kernels.PREVIEW_BOX`'s comment says "image size in pixels".
   - `lightbounces.metrics.buddha_compress`'s docstring says "non-negative int"; it receives blurred floats.
 - **Performance footnote.** `np.add.at` in `scatter_points_raw` (section 1.10) and a fresh `np.empty` set of five arrays per pixel inside the `prange` loop (**[R]**, believed cheap relative to a trace; not measured).
 
@@ -472,7 +472,7 @@ This is the data the scatterer has to work from. Read it top to bottom as the li
 5. **Normalisation constants are hard-wired to a 2-unit world.** `compute_run_measurements` and `point_comparison_metric` scale distances by 0.5 (a 2-unit world), and the length reduction uses `atan(length / 5)`. They are world-unit measures, so a zoomed framing yields small values: consistent, but arbitrary for an engine whose plane is a different size.
 6. **Three families named `KIND_*`, plus a local variable `kinds` that meant two things** (section 2.4). **Fixed in FILE_VERSION 146:** point tags are `TAG_*` and `path_point_tags`; a channel's metric type is `METRIC_TYPE_*` and `metric_types`; `Shape.KIND` is the one `KIND` left.
 7. **List versus tuple.** Live coloration fields are lists mutated in place; snapshots and settings are tuples; `make_mapping` returns a tuple. Correct, and a regular source of copy-or-share questions.
-8. **Where things disagree on naming the same concept** (all in section 2.4): the share-of-self-bounces metric is called `ST_RAY_FRAC` in code and "Self bounces: Share of the bounces" in the UI; `emits_ray`, "fire rays inside" and "Emissions" are three words for starting a ray.
+8. **Where things disagree on naming the same concept** (all in section 2.4): the share-of-self-bounces metric is called `ST_SELF_SHARE` in code and "Self bounces: Share of the bounces" in the UI; `fires_ray`, "fire rays inside" and "Emissions" are three words for starting a ray.
 9. **Good:** error handling is uniform by layer (strict records raise `TypeError`; `lightbounces.parsing.parse_*` return `None` for the entry to show as invalid; files raise `lightbounces.projects.ProjectError`); the project-file keys are permanent and tested; the generated label tables make UI text and file keys consistent by construction.
 
 ## 2.3 Readiness for multiple sequence engines (ray bouncing plus the Mandelbrot set)
@@ -489,12 +489,12 @@ A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) wr
 
 | Item (fully qualified) | Why it blocks | Difficulty to generalise |
 |---|---|---|
-| `lightbounces.kernels._trace_rows_parallel`, `trace_rows`, `scatter_from_seeds`, `scatter_multi_buddha` | call `emits_ray`, `trace_path`, `compute_run_measurements` directly and take `RayArgs`'s pieces as parameters | medium: an engine id switch inside the drivers (numba cannot cleanly dispatch on a function passed into a cached kernel) |
+| `lightbounces.kernels._trace_rows_parallel`, `trace_rows`, `scatter_from_seeds`, `scatter_multi_buddha` | call `fires_ray`, `trace_path`, `compute_run_measurements` directly and take `RayArgs`'s pieces as parameters | medium: an engine id switch inside the drivers (numba cannot cleanly dispatch on a function passed into a cached kernel) |
 | `lightbounces.kernels.in_sequence` plus the tags `KIND_*` | sequence membership is coded for ray tags; the Mandelbrot prototype had to pretend its points were "boundary bounces" to fill a sequence | medium: bit-mask tags (uint8) and per-engine membership masks |
 | `lightbounces.kernels.N_SEQS`, `N_POINTS`, `N_STATS`, `POINT_SLOT`, `STAT_SLOT`, `POINT_ALIASES`, `STAT_ALIASES` | compile-time globals of the ray engine: every pixel stores 28 points and 24 metrics whether an engine has one sequence or four | medium-high: per-engine layouts mean per-engine array shapes, labels, project keys |
 | `lightbounces.kernels.compute_run_measurements` and `RAW_*` | run measurements (loop area, bounce angle, last-segment ratio, `seg_mult`) are ray concepts; Mandelbrot would want smooth escape time, final modulus | medium |
 | `lightbounces.kernels.TERM_OBSTACLE`, `TERM_PERPENDICULAR` inside the shared `TERM_STAT_VALUE` spacing | adding or removing a reason respaces the termination metric for everyone | low-medium |
-| `lightbounces.kernels.emits_ray` and the per-pixel start | a pixel's role differs: ray = start point in a scene; Mandelbrot = parameter c; Julia = z₀ with a fixed c | medium: a start hook per engine |
+| `lightbounces.kernels.fires_ray` and the per-pixel start | a pixel's role differs: ray = start point in a scene; Mandelbrot = parameter c; Julia = z₀ with a fixed c | medium: a start hook per engine |
 | `lightbounces.kernels.scatter_trace_points` and the four multi options | hard-wired to the self-bounce sequence, segment midpoints and progressive means; **no option exists for "every point of a sequence, for orbits that ended with reason T"**, which is a Buddhabrot | medium |
 | `lightbounces.metrics.SEQUENCE_LABELS` ..., `BUDDHA_POINT_CATALOG`, `CONSTANT_POINT_COORDS` | one global table of labels built at import from the ray engine's sequences | medium: per-engine tables, plus a channel naming a sequence its engine lacks needs a defined behaviour |
 | `lightbounces.projects.CAT_SEQUENCE`, `CAT_POINT`, `CAT_METRIC`, `CAT_BUDDHA_POINT` | the permanent file keys are the union of one engine's names (`self_bounces_mean`...) | medium: keys across engines must be a union, added without renaming |
@@ -506,7 +506,7 @@ A throwaway Mandelbrot orbit (z ← z² + c from z = 0, c = the pixel centre) wr
 | Need | Status today |
 |---|---|
 | a pan/zoom plane | **done** (framings; default world rectangle for the set would be a different default framing) |
-| every pixel starts an orbit | needs a start rule instead of `emits_ray` |
+| every pixel starts an orbit | needs a start rule instead of `fires_ray` |
 | escape-time colouring | **available** as `Path: Point count / limit`; *smooth* colouring needs one new run-measurement slot |
 | interior detection | **available**: `TERM_ITER` plus confinement as convergence |
 | Julia sets | one extra engine setting (c) and a start rule |
@@ -534,9 +534,9 @@ My view (medium confidence): readiness is good for a **Mandelbrot image behind a
 
 Classification of cost: **internal** = identifiers and comments only; **key** = also a permanent project-file key, so it needs a format migration (the project is at format 6) and should normally be left alone, renaming only the attribute; **UI** = user-visible text.
 
-### Status after FILE_VERSION 147
+### Status after FILE_VERSION 148
 
-Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (partly) and 9**. Not done, by decision: rows 4 (done earlier, in 145), 10 and the rest of row 8.
+Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (partly), 9 and the medium-value rows 12, 13, 14, 15, 16, 17**. Not done, by decision: rows 4 (done earlier, in 145), 10, the rest of row 8, and the medium-value rows 19 and 22.
 
 - Row 1: point tags are `TAG_*` (`TAG_START` ... `TAG_PERPENDICULAR`, `TAG_COLOR`); a channel's metric type is `METRIC_TYPE_POINT_PAIR` / `METRIC_TYPE_OTHER` / `METRIC_TYPE_LABELS` / `DEFAULT_METRIC_TYPES`, `ColorationConfig.metric_types`, `ChannelSettings.metric_type`, `CAT_METRIC_TYPE` (the project file's key `kind` is unchanged). `Shape.KIND` is untouched.
 - Row 2: `FuzzParams.rng_seed`, `rng_seed_base`, `rng_seed_var` / `rng_seed_entry`, `last_rng_seed`, `randomize_rng_seed`, `parse_rng_seed`, `DEFAULT_RNG_SEED`. The setting key `seed` is unchanged. "Seed" keeps meaning a Buddha start point.
@@ -546,6 +546,13 @@ Done, by your decisions on this table: **rows 1, 2, 3, 5 (slimmed), 6, 7, 8 (par
 - Row 7: `compute_run_measurements`. Row 9: `trace_rows` / `_trace_rows_parallel`.
 - Row 8 (partly): the `RayArgs` bundle is passed around as `engine_args` (`gen_engine_args`, the tests' `_engine_args`); `RayArgs`, `ray_args` and `settings_ray_args` keep their names, and `ray` stays what it is for the `RaySettings` of a project or export. The flag in `trace_path` is `ended`.
 - Termination is never shortened to "stop" any more (your instruction in 147): the rule is `NaturalTerminationRule` (parameter `termination`, `gen_termination`), the settings `NaturalTerminationSettings` (`natural_termination`, `generated_natural_termination`, `NATURAL_TERMINATION_SETTING_SPECS`...), the UI section is "Termination limits", and the project file's section is `natural_termination` (**project format 8**, migration `_migrate_project_7_to_8`). The words "stops" / "stopped" in running text that does not name one of these (and `x_stop` / `y_stop`, the end of a range) were left alone.
+
+- Row 12: `ST_BOUNCE_COUNT`, `ST_SELF_SHARE`, `ST_BOUNDARY_SHARE` (formerly `ST_BOUNCES`, `ST_RAY_FRAC`, `ST_BOUNDARY_FRAC`).
+- Row 13: `PREVIEW_BOX` (formerly `SIZE`: the longer side of the image on screen) and `DEFAULT_PIXEL_WORLD_WIDTH` (formerly `PIXEL`). Near-conflict: `constants.PREVIEW_SIZE` (150) is the side of the Video panel's frame preview, a different "preview".
+- Row 14: `App.image_for_export` (formerly `frame`: the image plus outlines, what is exported) and `App.image_for_screen` (formerly `display_frame`).
+- Row 15: `CHOICE_ORIGIN`, `CHOICE_TOP_LEFT_CORNER` (formerly `POINT_ORIGIN`, `POINT_TOP_LEFT_CORNER`).
+- Row 16: `fires_ray` (formerly `emits_ray`) and the comments that said a ray was "emitted" from a pixel now say "fired". "Emission" now means the direction only, except in one UI label (Buddha seeding: "use camera pixels as emission seed points") that I left for you to decide.
+- Row 17: a coloration's color model is `color_model` (formerly `mode`): `ColorationConfig.color_model`, `COLOR_MODELS` / `COLOR_MODEL_NAMES` / `DEFAULT_COLOR_MODEL`, `color_model_var` / `color_model_combo`, `on_color_model_changed`, and the project keys `color_model` (in a coloration) and `coloration:<id>:color_model` (in a keyframe), through the same format-8 migration as `natural_termination` (no format 9: no format-8 file exists yet). The export margin line still reads "Mode:RGB".
 
 ### High value
 

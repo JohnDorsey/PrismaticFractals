@@ -74,12 +74,12 @@ def test_strict_records_check_every_value_against_its_annotation():
 
 
 def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
-    vs = m.ColorationSettings(mode="RGB", metric_types=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
+    vs = m.ColorationSettings(color_model="RGB", metric_types=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
                         point1_choice=(0, 0, 0), point2_choice=(0, 0, 0), chan_src=[0, 0, 0],
                         buddha_points=[(True,)] * 3, buddha_compression=(0, 0, 0),
                         buddha_brightness=(0, 0, 0), constant_choice=(0, 0, 0))
     assert vs.metric_types == (0, 1, 2) and isinstance(vs.chan_src, tuple)
-    assert _raises(TypeError, lambda: vs.replace(mode=5))
+    assert _raises(TypeError, lambda: vs.replace(color_model=5))
 
 
 def test_replace_makes_a_modified_copy_and_equality_hash_and_pickle_work():
@@ -135,9 +135,9 @@ def test_the_coloration_snapshot_record_mirrors_the_slots_of_the_live_coloration
 def test_snapshot_coloration_stores_the_channel_lists_as_tuples_unshared_with_the_live_coloration():
     v = m.ColorationConfig(2)
     snap = m.snapshot_coloration(v)
-    assert isinstance(snap, m.ColorationSnapshot) and snap.id == 2 and snap.mode == v.mode
+    assert isinstance(snap, m.ColorationSnapshot) and snap.id == 2 and snap.color_model == v.color_model
     assert all(isinstance(getattr(snap, f), tuple) for f in m.ColorationConfig.__slots__
-               if f not in ("id", "mode"))
+               if f not in ("id", "color_model"))
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     assert snap.chan_src[0] != m.CHAN_SRC_BUDDHA                # a later live edit never reaches it
     assert m.coloration_channel_value(snap, 0) == m.coloration_channel_value(m.ColorationConfig(2), 0)
@@ -434,13 +434,13 @@ def test_a_coloration_channel_is_stored_as_a_strict_record_and_decomposes_back()
     v.chan_src[2] = m.CHAN_SRC_BUDDHA
     v.buddha_points[2] = tuple(i == 1 for i in range(m.N_BUDDHA_POINTS))
     v.metric_types[1] = m.METRIC_TYPE_OTHER
-    v.other_metric[1] = m.ST_BOUNCES
+    v.other_metric[1] = m.ST_BOUNCE_COUNT
     chans = [m.coloration_channel_value(v, c) for c in range(3)]
     assert all(isinstance(ch, m.ChannelSettings) for ch in chans)
-    assert chans[1].metric_type == m.METRIC_TYPE_OTHER and chans[1].metric_slot == m.ST_BOUNCES
+    assert chans[1].metric_type == m.METRIC_TYPE_OTHER and chans[1].metric_slot == m.ST_BOUNCE_COUNT
     assert chans[2].chan_src == m.CHAN_SRC_BUDDHA and chans[2].buddha_points[1] is True
-    vs = m.decompose_chans(v.mode, chans)
-    assert vs.other_metric[1] == m.ST_BOUNCES and vs.point_metric[1] == m.DEFAULT_POINT_METRICS[1]
+    vs = m.decompose_chans(v.color_model, chans)
+    assert vs.other_metric[1] == m.ST_BOUNCE_COUNT and vs.point_metric[1] == m.DEFAULT_POINT_METRICS[1]
     assert vs.chan_src[2] == m.CHAN_SRC_BUDDHA
     assert vs.buddha_points[2] == v.buddha_points[2]
     assert chans[0] == m.coloration_channel_value(m.snapshot_coloration(v), 0)      # live coloration and snapshot agree

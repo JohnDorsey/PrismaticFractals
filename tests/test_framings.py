@@ -13,8 +13,8 @@ def test_the_default_framing_covers_exactly_the_world_every_image_covered_before
     assert m.DEFAULT_FRAMING_DIAGONAL == 2.0 * math.sqrt(2.0)
     assert (m.DEFAULT_FRAMING.x, m.DEFAULT_FRAMING.y, m.DEFAULT_FRAMING.aspect) == (0.0, 0.0, 1.0)
     assert m.framing_world_rect(m.DEFAULT_FRAMING) == m.WORLD_RECT_DEFAULT == m.WorldRect(-1.0, 1.0, -1.0, 1.0)
-    assert m.framing_image_size(m.DEFAULT_FRAMING) == (m.SIZE, m.SIZE)
-    assert m.framing_outline_pixel(m.DEFAULT_FRAMING) == m.PIXEL
+    assert m.framing_image_size(m.DEFAULT_FRAMING) == (m.PREVIEW_BOX, m.PREVIEW_BOX)
+    assert m.framing_outline_pixel(m.DEFAULT_FRAMING) == m.DEFAULT_PIXEL_WORLD_WIDTH
 
 
 def test_a_framings_diagonal_and_aspect_ratio_make_its_window_around_its_centre():
@@ -49,10 +49,10 @@ def test_an_outline_is_as_thick_in_a_zoomed_framing_as_in_the_whole_world():
     """The layers of an obstacle's outline are measured in the world, so a framing that zooms in would have drawn
     them as thick as the zoom: they are measured in the pixels of the preview now."""
     half = _framing(diagonal=m.DEFAULT_FRAMING_DIAGONAL / 2.0)
-    assert abs(m.framing_outline_pixel(half) - m.PIXEL / 2.0) < 1e-15
+    assert abs(m.framing_outline_pixel(half) - m.DEFAULT_PIXEL_WORLD_WIDTH / 2.0) < 1e-15
     wide = _framing(aspect=4.0)
     width, height = m.framing_size(wide)
-    assert m.framing_outline_pixel(wide) == width / m.SIZE, "the longer side is the 512 pixels"
+    assert m.framing_outline_pixel(wide) == width / m.PREVIEW_BOX, "the longer side is the 512 pixels"
 
 
 def test_framing_snapshots_are_strict_frozen_copies_of_live_framings_and_same_framing_ignores_ids():
@@ -167,7 +167,7 @@ def test_set_image_framing_reshapes_every_buffer_and_forgets_what_was_computed()
     assert (app.img_w, app.img_h) == (512, 256) and app.rows_done == 0
     assert app.stats.shape == (256, 512, m.N_STATS) and app.characteristic_points.shape == (256, 512, m.N_POINTS, 2)
     assert app.pixel_state.shape == (256, 512) and (app.pixel_state == m.PIXEL_PENDING).all()
-    assert app.img.shape == app.frame.shape == app.display_frame.shape == (256, 512, 3)
+    assert app.img.shape == app.image_for_export.shape == app.image_for_screen.shape == (256, 512, 3)
     assert (app.img == m.BACKGROUND).all() and app.gx.shape == (256, 512)
     assert app.image_world_rect == m.framing_world_rect(_framing(aspect=2.0))
     assert app.outline_pixel == m.framing_outline_pixel(_framing(aspect=2.0)) and app.image_framing == _framing(aspect=2.0)
@@ -198,7 +198,7 @@ def test_a_pixels_centre_is_its_grid_point_and_the_canvas_position_of_the_centre
 def test_an_obstacle_outline_is_placed_on_the_canvas_by_the_window_of_the_image():
     lune = m.LuneShape(0)
     default = np.array(lune.outline_coords())
-    assert np.array_equal(default, np.array(lune.outline_coords(m.WORLD_RECT_DEFAULT, m.SIZE, m.SIZE)))
+    assert np.array_equal(default, np.array(lune.outline_coords(m.WORLD_RECT_DEFAULT, m.PREVIEW_BOX, m.PREVIEW_BOX)))
     world_rect = m.WorldRect(-2.0, 2.0, -1.0, 1.0)
     wide = np.array(lune.outline_coords(world_rect, 512, 256)).reshape(-1, 2)
     base = default.reshape(-1, 2)
@@ -385,7 +385,7 @@ def test_a_framings_thumbnail_is_what_the_framing_sees_coloured_by_coloration_0_
     assert (whole == background).all(axis=-1)[0, 0], "the whole world's corners are outside the circle"
     assert (whole == 255).all(axis=-1)[24, 24], "and coloration 0 (white) colours the rest"
     assert (zoomed == 255).all(), "the middle of the circle fills the zoomed framing's picture"
-    app.colorations[1].mode = "HSV"
+    app.colorations[1].color_model = "HSV"
     assert np.array_equal(app.render_framing_thumbnail(m.DEFAULT_FRAMING, 48), whole), "coloration 1 plays no part"
     app.colorations[0] = m.ColorationConfig(0)
     assert not np.array_equal(app.render_framing_thumbnail(m.DEFAULT_FRAMING, 48), whole), "coloration 0 does"

@@ -32,7 +32,7 @@ def test_two_different_colorations_render_as_two_different_halves():
     data = m.resolve_frame_settings([kf], 0)
     v0 = m.ColorationConfig(0)
     v1 = m.ColorationConfig(1)
-    v1.mode = "HSV"
+    v1.color_model = "HSV"
     colorations = (_coloration_settings_from_config(v0), _coloration_settings_from_config(v1))
     combined = app.render_full_image(data, 50, 50, _starting_obst_arrays(), colorations, m.DEFAULT_FRAMING)
     assert not np.array_equal(combined[:, :50], combined[:, 50:])
@@ -40,7 +40,7 @@ def test_two_different_colorations_render_as_two_different_halves():
 
 def test_coloration_config_defaults_match_the_module_defaults():
     v = m.ColorationConfig(1)
-    assert v.mode == m.DEFAULT_MODE
+    assert v.color_model == m.DEFAULT_COLOR_MODEL
     assert list(v.chan_src) == list(m.DEFAULT_CHAN_SRCS)
     assert list(v.metric_types) == list(m.DEFAULT_METRIC_TYPES)
 
@@ -59,7 +59,7 @@ def test_resolve_colorations_falls_back_to_live_state():
     snap = m.snapshot_coloration(v)
     resolved = m.resolve_colorations([snap], [], 0)
     assert len(resolved) == 1
-    assert resolved[0].mode == v.mode
+    assert resolved[0].color_model == v.color_model
     assert list(resolved[0].chan_src) == list(v.chan_src)
 
 
@@ -67,11 +67,11 @@ def test_resolve_colorations_works_uniformly_for_id_zero():
     """id 0 must not be treated specially - it's an ordinary coloration like any
     other, resolved the same way."""
     v = m.ColorationConfig(0)
-    v.mode = "HSV"
+    v.color_model = "HSV"
     snap = m.snapshot_coloration(v)
-    kf = m.Keyframe(1, 0, {"coloration:0:mode": "Grayscale"})
+    kf = m.Keyframe(1, 0, {"coloration:0:color_model": "Grayscale"})
     resolved = m.resolve_colorations([snap], [kf], 0)[0]
-    assert resolved.mode == "Grayscale"
+    assert resolved.color_model == "Grayscale"
 
 
 def test_resolve_colorations_honors_keyframe_overrides_per_channel():
@@ -80,12 +80,12 @@ def test_resolve_colorations_honors_keyframe_overrides_per_channel():
     v = m.ColorationConfig(9)
     snap = m.snapshot_coloration(v)
     custom_chan = m.ChannelSettings(
-        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCES, point1=m.POINT_START,
+        chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=m.POINT_START,
         point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ZERO)
-    kf = m.Keyframe(1, 0, {"coloration:9:mode": "HSV", "coloration:9:chan0": custom_chan})
+    kf = m.Keyframe(1, 0, {"coloration:9:color_model": "HSV", "coloration:9:chan0": custom_chan})
     resolved = m.resolve_colorations([snap], [kf], 0)[0]
-    assert resolved.mode == "HSV"
+    assert resolved.color_model == "HSV"
     assert resolved.metric_types[0] == m.METRIC_TYPE_OTHER and resolved.buddha_brightness[0] == 3
     assert resolved.metric_types[1] == m.DEFAULT_METRIC_TYPES[1]   # untouched channel keeps the live default
 
@@ -104,10 +104,10 @@ def test_capture_all_settings_has_no_first_coloration_special_case():
     app.colorations = [v0, v1]
     d = app.capture_all_settings()
     assert d is not None
-    assert "mode" not in d and "chan0" not in d, \
+    assert "color_model" not in d and "chan0" not in d, \
         "the first coloration must not get fixed bare keys anymore"
     for v in (v0, v1):
-        assert f"coloration:{v.id}:mode" in d and d[f"coloration:{v.id}:mode"] == v.mode
+        assert f"coloration:{v.id}:color_model" in d and d[f"coloration:{v.id}:color_model"] == v.color_model
         assert all(f"coloration:{v.id}:chan{c}" in d for c in range(3))
 
 
@@ -123,10 +123,10 @@ def test_setting_fallback_handles_coloration_keys_without_crashing():
     app.setting_is_float = m.App.setting_is_float.__get__(app)
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
 
-    assert app.setting_fallback("coloration:0:mode") == m.DEFAULT_MODE
+    assert app.setting_fallback("coloration:0:color_model") == m.DEFAULT_COLOR_MODEL
     assert app.setting_fallback("coloration:0:chan0") is not None
-    assert app.setting_is_float("coloration:0:mode") is False
-    assert app.setting_fallback("coloration:99:mode") is None   # a deleted coloration: no crash
+    assert app.setting_is_float("coloration:0:color_model") is False
+    assert app.setting_fallback("coloration:99:color_model") is None   # a deleted coloration: no crash
 
 
 def test_new_coloration_inserts_right_after_the_selected_one():
@@ -149,7 +149,7 @@ def test_duplicate_coloration_copies_settings_and_inserts_after_source():
     assert app.selected_coloration_id == 3
     dup = app.coloration_by_id(3)
     src = app.coloration_by_id(0)
-    assert dup.mode == src.mode and list(dup.chan_src) == list(src.chan_src)
+    assert dup.color_model == src.color_model and list(dup.chan_src) == list(src.chan_src)
 
 
 def test_duplicate_coloration_copy_does_not_share_list_state_with_source():
@@ -208,13 +208,13 @@ def test_a_coloration_config_takes_a_channel_record_and_makes_its_coloration_set
     v.set_channel(2, point)
     assert m.coloration_channel_value(v, 2) == point and v.point_metric[2] == m.ST_EUCLIDEAN
     settings = v.settings()
-    assert isinstance(settings, m.ColorationSettings) and settings.mode == v.mode
+    assert isinstance(settings, m.ColorationSettings) and settings.color_model == v.color_model
     assert settings.chan_src[1] == m.CHAN_SRC_BUDDHA
 
 
 def test_a_coloration_config_made_from_a_snapshot_has_the_snapshots_contents():
     v = m.ColorationConfig(7)
-    v.mode = "HSV"
+    v.color_model = "HSV"
     v.set_channel(0, m.ChannelSettings(
         chan_src=m.CHAN_SRC_CONSTANT, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_HDIST, point1=1, point2=2,
         buddha_points=(True,) + (False,) * (m.N_BUDDHA_POINTS - 1), buddha_compression=0,
