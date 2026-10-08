@@ -49,9 +49,10 @@ def _sample_project(**changes):
     fields = dict(ray=ray, natural_stop=natural_stop, buddha_blur=blur, buddha_seed=m.DEFAULT_BUDDHA_SEED,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
-                  colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)), keyframes=keyframes,
-                  export=export, obstacle_counter=40, coloration_counter=9, keyframe_counter=12,
-                  selected_obstacle_id=5, selected_coloration_id=5)
+                  colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)),
+                  framings=(m.DEFAULT_FRAMING,), keyframes=keyframes,
+                  export=export, obstacle_counter=40, coloration_counter=9, framing_counter=1, keyframe_counter=12,
+                  selected_obstacle_id=5, selected_coloration_id=5, selected_framing_id=0)
     fields.update(changes)
     return m.Project(**fields)
 
@@ -214,7 +215,7 @@ def test_a_project_file_is_pretty_printed_versioned_json():
     assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 6
     assert data["program_version"] == m.FILE_VERSION
     assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
-    assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "coloration": 5}
+    assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "coloration": 5, "framing": 0}
     assert m.PROJECT_EXTENSION == ".lightbounce"
 
 
@@ -503,6 +504,7 @@ PINNED_SHAPE_KINDS = {"ellipse": "EllipseShape", "regular_polygon": "RegularPoly
 PINNED_EXPORT_CHOICES = {             # catalog -> key -> the text the control holds
     "CAT_COLOR_INFO": {"none": "None", "overlay": "Overlay", "bottom_margin": "Bottom margin"},
     "CAT_FIGURE_INFO": {"none": "None", "left_margin": "Left margin"},
+    "CAT_FRAMING_INFO": {"none": "None", "left_margin": "Left margin"},
     "CAT_IMAGE_SOURCE": {"current_image": "Current image", "new_image": "New image"},
     "CAT_IMAGE_FORMAT": {"jxl": "jxl", "png": "png", "qoi": "qoi"},
     "CAT_JXL_MODE": {"lossless": "Lossless", "lossy": "Lossy"},
@@ -526,7 +528,7 @@ PINNED_BUDDHA_BLUR_KEYS = ["buddha_blur_radius", "buddha_blur_type"]   # a secti
 PINNED_DECORATION_KEYS = ["outline", "pending", "ray_path", "ray_start", "ray_end", "guides",
                           "samples"]
 PINNED_EXPORT_KEYS = [
-    "include_all_colorations", "color_info_location", "figure_info_location", "image_source",
+    "include_all_colorations", "color_info_location", "figure_info_location", "framing_info_location", "image_source",
     "image_format", "image_jxl_mode", "image_jxl_quality", "image_width", "image_height",
     "video_fps", "video_width", "video_height", "video_start_frame",
     "video_number_files_from_start", "video_format",
@@ -1013,3 +1015,121 @@ def test_the_format_5_to_6_migration_renames_only_the_view_keys_it_finds():
     assert new["simulation"] == old["simulation"] and new["obstacles"] == old["obstacles"]
     bare = m._migrate_project_5_to_6({"format_version": 5})
     assert bare == {"format_version": 6}
+
+
+# --------------------------------------------------------------------------- #
+# Projects keep the framings
+# --------------------------------------------------------------------------- #
+PINNED_FRAMING_KEYS = ["id", "x", "y", "diagonal", "aspect"]
+
+
+def _framing_project(**changes):
+    framings = (_framing(id=0), _framing(id=4, x=0.25, y=-0.5, diagonal=1.5, aspect=2.0),
+                _framing(id=9, x=-3.0, diagonal=40.0, aspect=0.25))
+    fields = dict(framings=framings, framing_counter=12, selected_framing_id=4)
+    fields.update(changes)
+    return _sample_project(**fields)
+
+
+def test_framings_are_saved_in_a_section_of_their_own_and_come_back_with_their_counter_and_selection():
+    import json
+    project = _framing_project()
+    data = json.loads(m.project_text(project))
+    assert [sorted(f) for f in data["framings"]] == [sorted(PINNED_FRAMING_KEYS)] * 3
+    assert data["framings"][1] == {"id": 4, "x": 0.25, "y": -0.5, "diagonal": 1.5, "aspect": 2.0}
+    assert data["counters"]["framing"] == 12 and data["selected"]["framing"] == 4
+    loaded = m.project_from_dict(data)
+    assert loaded.framings == project.framings and loaded.framing_counter == 12 and loaded.selected_framing_id == 4
+    assert m.project_signature(loaded) == m.project_signature(project)
+    assert m.project_signature(project) == m.project_signature(_framing_project(selected_framing_id=0)), \
+        "the selection is not content (like the other selections)"
+    moved = (project.framings[0], project.framings[1].__class__(**{**project.framings[1].as_dict(), "x": 0.5}), project.framings[2])
+    assert m.project_signature(project) != m.project_signature(_framing_project(framings=moved)), "a number is"
+    assert m.PROJECT_FORMAT_VERSION == 6, "a section added: older files load with the defaults"
+
+
+def test_a_file_without_framings_has_the_whole_world_framing_and_the_id_counter_stays_above_the_ids():
+    import json
+    data = json.loads(m.project_text(_framing_project()))
+    del data["framings"], data["counters"]["framing"], data["selected"]["framing"]
+    loaded = m.project_from_dict(data)
+    assert loaded.framings == (m.DEFAULT_FRAMING,) and loaded.selected_framing_id == 0 and loaded.framing_counter == 1
+    data = json.loads(m.project_text(_framing_project()))
+    data["counters"]["framing"] = 2
+    data["selected"]["framing"] = 777
+    loaded = m.project_from_dict(data)
+    assert loaded.framing_counter == 10 and loaded.selected_framing_id == 0, "above the highest id; a gone one means framing 0"
+
+
+def test_a_project_with_a_damaged_framing_is_refused_and_a_missing_number_takes_its_default():
+    import json
+    good = json.loads(m.project_text(_framing_project()))
+
+    def refused(mutate, text):
+        data = json.loads(json.dumps(good))
+        mutate(data)
+        try:
+            m.project_from_dict(data)
+        except m.ProjectError as exc:
+            assert text in str(exc), str(exc)
+        else:
+            raise AssertionError(f"accepted: {text}")
+    refused(lambda d: d["framings"][1].update(id=0), "two framings have the id")
+    refused(lambda d: d["framings"][1].update(id=-1), "id must be a whole number")
+    refused(lambda d: d["framings"][1].update(x="left"), "x must be a number")
+    refused(lambda d: d["framings"][1].update(x=True), "x must be a number")
+    refused(lambda d: d["framings"][1].update(diagonal=0), "above 0")
+    refused(lambda d: d["framings"][1].update(aspect=-2.0), "above 0")
+    refused(lambda d: d["framings"][1].update(x=1e300, diagonal=1e-300), "window")
+    refused(lambda d: d["framings"].append("framing"), "must be an object")
+    data = json.loads(json.dumps(good))
+    del data["framings"][1]["aspect"]
+    assert m.project_from_dict(data).framings[1].aspect == 1.0
+
+
+def test_a_format_5_file_loads_with_the_whole_world_framing_selected():
+    import json
+    with open(V5_PROJECT_FILE, encoding="utf-8") as f:
+        assert "framings" not in json.load(f)
+    loaded = m.load_project(V5_PROJECT_FILE)
+    assert loaded.framings == (m.DEFAULT_FRAMING,) and loaded.selected_framing_id == 0
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+
+
+def test_the_keyframe_keys_of_framings_are_saved_as_numbers_and_come_back_as_floats():
+    import json
+    keyframes = (m.Keyframe(2, 0, {"framing:4:x": 0.5, "framing:4:diagonal": 3.0, "framing:0:aspect": 2.0, "iter": 40}),
+                 m.Keyframe(7, 30, {"framing:4:x": -1.5, "framing:4:y": 0.25}))
+    project = _framing_project(keyframes=keyframes)
+    data = json.loads(m.project_text(project))
+    assert data["keyframes"][0]["settings"]["framing:4:x"] == 0.5 and data["keyframes"][1]["settings"]["framing:4:y"] == 0.25
+    loaded = m.project_from_dict(data)
+    assert [kf.data for kf in loaded.keyframes] == [kf.data for kf in keyframes]
+    assert all(type(v) is float for k, v in loaded.keyframes[0].data.items() if k.startswith("framing:"))
+    assert m.project_signature(loaded) == m.project_signature(project)
+
+
+def test_a_keyframe_with_a_damaged_framing_key_is_refused():
+    import json
+    base = json.loads(m.project_text(_framing_project(keyframes=(m.Keyframe(2, 0, {"iter": 40}),))))
+
+    def refused(key, value, text):
+        data = json.loads(json.dumps(base))
+        data["keyframes"][0]["settings"][key] = value
+        try:
+            m.project_from_dict(data)
+        except m.ProjectError as exc:
+            assert text in str(exc), str(exc)
+        else:
+            raise AssertionError(f"accepted {key} = {value!r}")
+    refused("framing:4:colour", 1.0, "not a framing setting")
+    refused("framing:four:x", 1.0, "not a framing setting")
+    refused("framing:4", 1.0, "not a framing setting")
+    refused("framing:4:x:y", 1.0, "not a framing setting")
+    refused("framing:4:x", "left", "must be a number")
+    refused("framing:4:x", True, "must be a number")
+    refused("framing:4:diagonal", 0, "above 0")
+    refused("framing:4:aspect", -1.0, "above 0")
+    data = json.loads(json.dumps(base))
+    data["keyframes"][0]["settings"]["framing:4:x"] = -3
+    assert m.project_from_dict(data).keyframes[0].data["framing:4:x"] == -3.0, "a framing's x may be anything finite"

@@ -1,8 +1,9 @@
 """Turning the stored simulation data (or a freshly traced frame) into coloured images: a whole frame at any resolution, the current image composed from several colorations, one coloration's colours, and coloration thumbnails."""
 import numpy as np
-from .constants import BACKGROUND, OBST_EFFECT_RGB, TERM_STAT_VALUE
+from .constants import BACKGROUND, OBST_EFFECT_RGB, TERM_STAT_VALUE, THUMB_BACKGROUND
 from .image_io import make_grid
-from .kernels import N_POINTS, N_STATS, SIZE, ST_TERMINATION, render_rows_wh, scatter_multi_buddha
+from .framings import framing_image_size, framing_outline_pixel, framing_window, same_framing
+from .kernels import N_POINTS, N_STATS, ST_TERMINATION, WINDOW_DEFAULT, render_rows_wh, scatter_multi_buddha
 from .metrics import (
     BUDDHA_BRIGHTNESS_VALUES, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_BUDDHA,
@@ -19,7 +20,7 @@ class RenderMixin:
     def render_current_image(self, colorations):
         """The CURRENT (already fully-traced) simulation, colorized by each
         of `colorations` and composed side by side at the live preview's own
-        resolution (SIZE x SIZE per coloration) - reusing self.stats/self.points/
+        resolution (img_w x img_h per coloration) - reusing self.stats/self.points/
         self.status as already computed, no re-simulation. Each coloration gets
         the outline decoration drawn in if enabled, exactly like
         self.frame/draw(). Only called for more than one coloration - the
@@ -27,21 +28,21 @@ class RenderMixin:
         images = []
         for v in colorations:
             images.append(self.apply_coloration(v.settings(), self.stats, self.points, self.status,
-                                             SIZE, SIZE, self.current_blur_settings(),
+                                             self.img_w, self.img_h, self.current_blur_settings(),
                                              self.gen_stop, self.gen_ray,
                                              self.settings_of_current_image().fuzz.seed,
-                                             self.current_buddha_seed_settings()))
+                                             self.current_buddha_seed_settings(), self.image_window))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
                 for ring in self.obstacle_ring_specs():
                     draw_obstacle_outline(img, ring.shape, ring.bound, self.gx - ring.cx,
-                                          self.gy - ring.cy, ring.in_effect, ring.out_effect)
+                                          self.gy - ring.cy, ring.in_effect, ring.out_effect, self.outline_pixel)
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def render_full_image(self, data, out_w, out_h, obst_arrays, colorations):
-        """The full uint8 image for one frame, covering the same [-1, 1]
-        world extent as the main image regardless of out_w/out_h - safe to
+    def render_full_image(self, data, out_w, out_h, obst_arrays, colorations, framing):
+        """The full uint8 image for one frame, covering the world rectangle of `framing` (a FramingSnapshot)
+        regardless of out_w/out_h (a shape that differs from the framing's stretches it) - safe to
         call from a background thread (touches only numpy arrays, never a Tk
         widget). `data` is the resolved simulation (KeyframeData - shape,
         limits, fuzzing); `obst_arrays` is an ObstacleArrays built on the main
@@ -60,17 +61,19 @@ class RenderMixin:
         stats = np.zeros((out_h, out_w, N_STATS), dtype=np.float32)
         points = np.zeros((out_h, out_w, N_POINTS, 2), dtype=np.float32)
         status = np.zeros((out_h, out_w), dtype=np.uint8)
-        render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, stop, ray, seed)
+        window = framing_window(framing)
+        render_rows_wh(stats, points, status, 0, out_h, out_w, out_h, window, stop, ray, seed)
 
         images = [self.apply_coloration(v, stats, points, status, out_w, out_h, data.buddha_blur,
-                                     stop, ray, seed, data.buddha_seed)
+                                     stop, ray, seed, data.buddha_seed, window)
                  for v in colorations]
 
         if data.outline:
-            gx, gy = make_grid(out_w, out_h)
+            gx, gy = make_grid(out_w, out_h, window)
             ob = obst_arrays
+            pixel = framing_outline_pixel(framing)
             obst_layers = [ring_layer_masks(ob.shapes[oi], ob.bounds[oi],
-                                            gx - ob.cx[oi], gy - ob.cy[oi])
+                                            gx - ob.cx[oi], gy - ob.cy[oi], pixel=pixel)
                            + (ob.effects[oi, 0], ob.effects[oi, 1])
                            for oi in range(len(ob.shapes))]
             for img in images:
@@ -80,7 +83,8 @@ class RenderMixin:
 
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
-    def apply_coloration(self, v, stats, points, status, out_w, out_h, blur, stop, ray, seed_base, seeds=None):
+    def apply_coloration(self, v, stats, points, status, out_w, out_h, blur, stop, ray, seed_base, seeds=None,
+                         window=WINDOW_DEFAULT):
         """One coloration's (out_h, out_w, 3) uint8 image (background color where no
         ray was computed, no outline - that's applied uniformly afterwards)
         from already-traced stats/points/status. `v` is a ColorationSettings: this
@@ -91,7 +95,7 @@ class RenderMixin:
         BuddhaSeedSettings; None means the camera pixels) says where the rays that Buddha channels scatter start: by
         default the pixels of this very image, whose stored points serve the single-point options; otherwise a seed
         grid with this image's rows and columns over the seeding zone, every chosen point of which comes from
-        rays traced there."""
+        rays traced there. `window` (a Window) is the world rectangle the image covers."""
         mapping = make_mapping(v.kinds, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
@@ -107,7 +111,7 @@ class RenderMixin:
                 if s == CHAN_BUDDHA:
                     counts = np.zeros((out_h, out_w), dtype=np.float64)
                     if seeds is not None and not seeds.camera_pixels:
-                        scatter_seeded_buddha(counts, seeds, 0, out_h, v.buddha_points[c], stop, ray, seed_base)
+                        scatter_seeded_buddha(counts, window, seeds, 0, out_h, v.buddha_points[c], stop, ray, seed_base)
                         counts = blur_counts_image(counts, buddha_kernel)
                         sub = counts[computed].astype(np.float64)
                         mult = BUDDHA_BRIGHTNESS_VALUES[v.buddha_brightness[c]]
@@ -131,13 +135,13 @@ class RenderMixin:
                             continue
                         xs = points[..., ref, 0][mask]
                         ys = points[..., ref, 1][mask]
-                        col = np.floor((xs + 1.0) * (out_w / 2.0)).astype(np.int64)
-                        row = np.floor((1.0 - ys) * (out_h / 2.0)).astype(np.int64)
+                        col = np.floor((xs - window.x_start) * (out_w / (window.x_stop - window.x_start))).astype(np.int64)
+                        row = np.floor((window.y_stop - ys) * (out_h / (window.y_stop - window.y_start))).astype(np.int64)
                         valid = (col >= 0) & (col < out_w) & (row >= 0) & (row < out_h)
                         scatter_points_raw(counts, row, col, valid)
                     if any(want_multi.values()):
                         scatter_multi_buddha(
-                            0, out_h, stop, ray, seed_base,
+                            0, out_h, window, stop, ray, seed_base,
                             want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                             want_multi[BUDDHA_MULTI_PROG_BOUNCE],
                             want_multi[BUDDHA_MULTI_PROG_MID], counts)
@@ -177,21 +181,67 @@ class RenderMixin:
         reusing it is what keeps editing one coloration fast even when another
         coloration uses an expensive "multi" Buddha point option, since
         rebuild_coloration_list would otherwise redo that re-trace, unchanged,
-        every single time regardless of which coloration was actually edited."""
+        every single time regardless of which coloration was actually edited.
+
+        A coloration's thumbnail is always of framing 0, though: when the image on screen is of another framing,
+        its data is of no use here, and the thumbnail is a small simulation of framing 0's own
+        (render_thumbnail)."""
+        framing_zero = self.framings[0]
+        if not same_framing(self.image_framing, framing_zero):
+            return self.render_thumbnail(framing_zero, coloration_obj.settings(), size)
         if coloration_obj is self.live_coloration():
-            ys = (np.arange(size) * SIZE / size).astype(np.int64)
-            xs = (np.arange(size) * SIZE / size).astype(np.int64)
+            ys = (np.arange(size) * self.img_h / size).astype(np.int64)
+            xs = (np.arange(size) * self.img_w / size).astype(np.int64)
             return self.img[np.ix_(ys, xs)]
         cached = self.coloration_thumb_cache.get(coloration_obj.id)
         if cached is not None and cached[0] == (self.rows_done, size):
             return cached[1]
         v = coloration_obj.settings()
-        full = self.apply_coloration(v, self.stats, self.points, self.status, SIZE, SIZE,
+        full = self.apply_coloration(v, self.stats, self.points, self.status, self.img_w, self.img_h,
                                   self.current_blur_settings(), self.gen_stop, self.gen_ray,
                                   self.settings_of_current_image().fuzz.seed,
-                                  self.current_buddha_seed_settings())
-        ys = (np.arange(size) * SIZE / size).astype(np.int64)
-        xs = (np.arange(size) * SIZE / size).astype(np.int64)
+                                  self.current_buddha_seed_settings(), self.image_window)
+        ys = (np.arange(size) * self.img_h / size).astype(np.int64)
+        xs = (np.arange(size) * self.img_w / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]
         self.coloration_thumb_cache[coloration_obj.id] = ((self.rows_done, size), thumb)
         return thumb
+
+    def simulated_thumbnail_data(self, framing, size):
+        """The generated figure as `framing` sees it, simulated on a grid that fits a `size` pixel square:
+        (stats, points, status, window, width, height). Made once per framing and size until the next generation
+        (self.thumb_sims), since every coloration's thumbnail of it shares it."""
+        key = (framing.x, framing.y, framing.diagonal, framing.aspect, size)
+        data = self.thumb_sims.get(key)
+        if data is None:
+            w, h = framing_image_size(framing, size)
+            window = framing_window(framing)
+            stats = np.zeros((h, w, N_STATS), dtype=np.float32)
+            points = np.zeros((h, w, N_POINTS, 2), dtype=np.float32)
+            status = np.zeros((h, w), dtype=np.uint8)
+            render_rows_wh(stats, points, status, 0, h, w, h, window, self.gen_stop, self.gen_ray,
+                           self.settings_of_current_image().fuzz.seed)
+            data = (stats, points, status, window, w, h)
+            self.thumb_sims[key] = data
+        return data
+
+    def render_thumbnail(self, framing, coloration_settings, size):
+        """A size x size RGB thumbnail of what `framing` sees of the generated figure, coloured by a
+        ColorationSettings: a small simulation of its own (see simulated_thumbnail_data), in the framing's shape
+        centred on a grey square. Before anything has been generated, the blank image in that shape."""
+        picture = np.empty((size, size, 3), dtype=np.uint8)
+        picture[:] = THUMB_BACKGROUND
+        w, h = framing_image_size(framing, size)
+        y0, x0 = (size - h) // 2, (size - w) // 2
+        if self.generated_settings is None:
+            picture[y0:y0 + h, x0:x0 + w] = BACKGROUND
+            return picture
+        stats, points, status, window, w, h = self.simulated_thumbnail_data(framing, size)
+        picture[y0:y0 + h, x0:x0 + w] = self.apply_coloration(
+            coloration_settings, stats, points, status, w, h, self.current_blur_settings(), self.gen_stop,
+            self.gen_ray, self.settings_of_current_image().fuzz.seed, self.current_buddha_seed_settings(), window)
+        return picture
+
+    def render_framing_thumbnail(self, framing_obj, size):
+        """A framing's thumbnail: what it sees, coloured by coloration 0."""
+        return self.render_thumbnail(framing_obj, self.colorations[0].settings(), size)

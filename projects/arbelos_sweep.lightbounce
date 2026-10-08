@@ -1,0 +1,164 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 6,
+  "program_version": 141,
+  "simulation": {
+    "seg_mult": 1.0,
+    "emit_mode": "up",
+    "emit_target_r": 0.0,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": 360.0,
+    "fuzz_on": false,
+    "emit_jitter": 0.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 0
+  },
+  "natural_stop": {
+    "iter": 256,
+    "dist": 0,
+    "escape_radius": 2.0,
+    "confine_window": 4,
+    "confine_method": "box",
+    "confine_threshold": 0.00390625
+  },
+  "buddha_blur": {
+    "buddha_blur_radius": 0.0,
+    "buddha_blur_type": "gaussian"
+  },
+  "buddha_seeding": {
+    "buddha_seed_camera": true,
+    "buddha_seed_x_start": 0.0,
+    "buddha_seed_x_stop": 1.0,
+    "buddha_seed_y_start": -1.0,
+    "buddha_seed_y_stop": 1.0
+  },
+  "decorations": {
+    "outline": false,
+    "pending": true,
+    "ray_path": true,
+    "ray_start": true,
+    "ray_end": true,
+    "guides": true,
+    "samples": false
+  },
+  "obstacles": [
+    {
+      "kind": "arbelos",
+      "id": 11,
+      "fields": {
+        "rotation": 0.0,
+        "radius": 1.0,
+        "split": 0.05,
+        "r": 0.0,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    }
+  ],
+  "colorations": [
+    {
+      "id": 0,
+      "mode": "RGB",
+      "channels": [
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_self_bounces"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_segment_midpoints"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "path_last_confined"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "4x"
+        }
+      ]
+    }
+  ],
+  "framings": [
+    {
+      "id": 0,
+      "x": -0.9,
+      "y": -0.25,
+      "diagonal": 1.0,
+      "aspect": 1.0
+    }
+  ],
+  "keyframes": [
+    {
+      "id": 0,
+      "frame_index": 0,
+      "settings": {
+        "obst:11:split": 0.05
+      }
+    },
+    {
+      "id": 1,
+      "frame_index": 3599,
+      "settings": {
+        "obst:11:split": 0.95
+      }
+    }
+  ],
+  "export": {
+    "include_all_colorations": true,
+    "color_info_location": "bottom_margin",
+    "figure_info_location": "left_margin",
+    "framing_info_location": "none",
+    "image_source": "new_image",
+    "image_format": "jxl",
+    "image_jxl_mode": "lossless",
+    "image_jxl_quality": 90,
+    "image_width": "4320",
+    "image_height": "4320",
+    "video_fps": "60",
+    "video_width": "1080",
+    "video_height": "1080",
+    "video_start_frame": "0",
+    "video_number_files_from_start": true,
+    "video_format": "mkv_ffv1",
+    "video_bitrate_mode": "target_bitrate",
+    "video_quality": 90,
+    "video_bitrate": "78256",
+    "video_vbr_target": "512",
+    "video_vbr_max": "1024",
+    "video_downsample_factor": "none",
+    "video_downsample_method": "mean",
+    "video_jxl_mode": "lossy",
+    "video_jxl_quality": 5
+  },
+  "counters": {
+    "obstacle": 12,
+    "coloration": 1,
+    "framing": 1,
+    "keyframe": 2
+  },
+  "selected": {
+    "obstacle": 11,
+    "coloration": 0,
+    "framing": 0
+  }
+}

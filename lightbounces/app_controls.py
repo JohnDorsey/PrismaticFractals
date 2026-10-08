@@ -13,7 +13,7 @@ from .constants import (
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
     FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, PIXEL, SIZE
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, PIXEL
 from .parsing import (
     parse_confine_threshold, parse_confine_window, parse_dist_limit, parse_escape_radius,
     parse_iter_limit,
@@ -666,7 +666,7 @@ class ControlsMixin:
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
             has_image = (self.generated_settings is not None and not self.running
-                         and self.rows_done >= SIZE)
+                         and self.rows_done >= self.img_h)
             self.save_btn.state(["!disabled"] if has_image else ["disabled"])
             self.save_as_btn.state(["!disabled"] if has_image else ["disabled"])
             tip = ("" if has_image else

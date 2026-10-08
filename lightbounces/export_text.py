@@ -12,6 +12,7 @@ from .metrics import (
     constant_stat_to_label
 )
 from .colorations import MODES
+from .framings import framing_info_block
 from . import paths
 
 
@@ -40,6 +41,7 @@ VIDEO_BITRATE_MODES = ["Constant quality", "Target bitrate", "Variable bitrate"]
 # Export designer: where (if anywhere) each kind of info text goes
 COLOR_INFO_LOCATIONS = ["None", "Overlay", "Bottom margin"]
 FIGURE_INFO_LOCATIONS = ["None", "Left margin"]
+FRAMING_INFO_LOCATIONS = ["None", "Left margin"]
 
 
 def default_filename(ray=None, natural_stop=None, ext="png", quality_tag=None):
@@ -71,11 +73,11 @@ COLORATION_INFO_LINE_GAP = 2
 
 def coloration_info_lines(coloration):
     """One coloration's settings as a list of text lines, mirroring how
-    the Coloration tab itself is organized: the color model, then each
+    the Colorations tab itself is organized: the color model, then each
     channel's Source and either its Metric (+ Point 1/2, if it's a point-
     comparison metric) or its Buddha points (one per line, as in the
     checkbox list itself) and compression/brightness. Uses the same long
-    names shown in the Coloration tab's own dropdowns - the metric's Type
+    names shown in the Colorations tab's own dropdowns - the metric's Type
     (point comparison/other) is never shown on its own, though; it's
     implied by which metric is named."""
     lines = [f"Mode:{coloration.mode}"]
@@ -110,6 +112,7 @@ def coloration_info_lines(coloration):
 
 
 FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines up to this long
+FIGURE_INFO_SEPARATOR = "-" * FIGURE_INFO_COLUMN_CHARS   # the line between the figure's settings and the framing's
 
 
 def figure_info_blocks(ray, natural_stop, obstacles):
@@ -261,21 +264,35 @@ def add_bottom_color_margin(img, colorations, coloration_width):
     return out
 
 
-def add_left_figure_margin(img, ray, natural_stop, obstacles):
+def left_margin_blocks(ray, natural_stop, obstacles, framing, figure_location, framing_location):
+    """The blocks of text lines of the left margin, as the Export designer's two "settings location" choices have
+    it: the figure's settings (figure_info_blocks) if that location is "Left margin", then the framing's
+    (framing_info_block) if its location is, below them with a line of dashes between (just the framing's, with
+    no line, if the figure's are elsewhere). No blocks at all when neither location is "Left margin". Their sizes
+    depend only on how many obstacles there are."""
+    blocks = []
+    if figure_location == "Left margin":
+        blocks += figure_info_blocks(ray, natural_stop, obstacles)
+    if framing_location == "Left margin":
+        block = framing_info_block(framing)
+        blocks.append([FIGURE_INFO_SEPARATOR] + block if blocks else block)
+    return blocks
+
+
+def add_left_info_margin(img, blocks):
     """Returns a new, wider copy of `img`: a solid black strip added to its
-    left edge, as tall as `img` itself, holding every setting that defines
-    the figure (see figure_info_blocks). The strip is half as wide as `img`
-    - or wider, with more columns of text, if the settings need more room
-    than that - and its size depends only on `img`'s size and the number of
-    obstacles, so every frame of a video gets the same one. Never mutates
+    left edge, as tall as `img` itself, holding `blocks` of text lines (see left_margin_blocks: the settings that
+    define the figure, and the framing's). The strip is half as wide as `img`
+    - or wider, with more columns of text, if the text needs more room
+    than that - and its size depends only on `img`'s size and the blocks' sizes (which depend only on the number of
+    obstacles), so every frame of a video gets the same one. Never mutates
     `img`."""
     h, w, _ = img.shape
     scale = resolution_scale(h)   # the coloration's own size, not the margin's (see
                                   # add_bottom_color_margin's identical fix)
     m = COLORATION_INFO_MARGIN * scale
     line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
-    columns = layout_info_columns(figure_info_blocks(ray, natural_stop, obstacles),
-                                  max(1, (h - 2 * m) // line_h))
+    columns = layout_info_columns(blocks, max(1, (h - 2 * m) // line_h))
     col_w = 6 * FIGURE_INFO_COLUMN_CHARS * scale
     col_gap = 12 * scale
     margin_w = max(w // 2, 2 * m + len(columns) * col_w + (len(columns) - 1) * col_gap)
@@ -289,14 +306,15 @@ def add_left_figure_margin(img, ray, natural_stop, obstacles):
 
 
 def apply_info_locations(rgb, colorations, coloration_width, ray, natural_stop, obstacles, color_location,
-                         figure_location, mutate_ok):
-    """Applies the Export designer's Color info location and Figure settings
-    location choices to `rgb` (already composed, before any margin
+                         figure_location, framing, framing_location, mutate_ok):
+    """Applies the Export designer's Color info location, Figure settings
+    location and Framing settings location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
     module-level function, safe to call from a background thread, since it
-    never reads a Tk variable directly (callers capture color_location/
-    figure_location on the main thread first). `ray`, `natural_stop` and `obstacles` are
-    what defines the figure being exported (see figure_info_blocks). mutate_ok=False never draws
+    never reads a Tk variable directly (callers capture the locations
+    on the main thread first). `ray`, `natural_stop` and `obstacles` are
+    what defines the figure being exported (see figure_info_blocks), `framing` the framing it is an image
+    of (see framing_info_block). mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
     first instead) - needed when `rgb` might be a shared, reused buffer
     like self.frame."""
@@ -306,6 +324,7 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_stop, 
         draw_coloration_info(rgb, colorations, coloration_width)
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, colorations, coloration_width)
-    if figure_location == "Left margin":
-        rgb = add_left_figure_margin(rgb, ray, natural_stop, obstacles)
+    blocks = left_margin_blocks(ray, natural_stop, obstacles, framing, figure_location, framing_location)
+    if blocks:
+        rgb = add_left_info_margin(rgb, blocks)
     return rgb

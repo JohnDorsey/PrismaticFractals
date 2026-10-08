@@ -1,5 +1,5 @@
 """Small Tk building blocks that know nothing about the simulation: the blue outline around a modified control, tooltips,
-a number entry with a slider-like interface, a scrollable tab, and the JPEG XL mode/quality row."""
+a number entry with a slider-like interface, a scrollable tab, a strip of thumbnails, and the JPEG XL mode/quality row."""
 import tkinter as tk
 from tkinter import ttk
 from .image_io import JXL_LOSSY_MAX_QUALITY, JXL_MODES
@@ -24,6 +24,59 @@ def make_scrollable_tab(tab):
     inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
     return canvas, inner
+
+
+class ThumbnailStrip:
+    """A strip of captioned thumbnails with New / Dupe / Del stacked to its left: the Obstacles tab's list turned
+    sideways. The Colorations tab's list and the Framing tab's are this widget twice, so that they look and behave
+    the same: grid `strip.frame` where it belongs, give `rebuild` the items to show, and the commands are called when
+    a button is pressed or a thumbnail clicked (the selected thumbnail has a coloured frame around it)."""
+
+    def __init__(self, parent, thumb_size, font, outline_color, outline_px, on_new, on_dupe, on_delete, on_select):
+        self.thumb_size, self.font = thumb_size, font
+        self.outline_color, self.outline_px = outline_color, outline_px
+        self.on_select = on_select
+        self.frame = ttk.Frame(parent)
+        self.frame.columnconfigure(1, weight=1)
+        btn_col = ttk.Frame(self.frame)
+        btn_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
+        ttk.Button(btn_col, text="New", width=6, command=on_new).pack(fill="x", pady=(0, 3))
+        ttk.Button(btn_col, text="Dupe", width=6, command=on_dupe).pack(fill="x", pady=(0, 3))
+        self.delete_button = ttk.Button(btn_col, text="Del", width=6, command=on_delete)
+        self.delete_button.pack(fill="x")
+
+        list_container = ttk.Frame(self.frame)
+        list_container.grid(row=0, column=1, sticky="ew")
+        list_container.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(list_container, height=thumb_size + 34, highlightthickness=0)
+        hsb = ttk.Scrollbar(list_container, orient="horizontal", command=canvas.xview)
+        canvas.configure(xscrollcommand=hsb.set)
+        canvas.grid(row=0, column=0, sticky="ew")
+        hsb.grid(row=1, column=0, sticky="ew")
+        self.items_frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=self.items_frame, anchor="nw")
+        self.items_frame.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # (unlike the vertical obstacle list, the inner frame's WIDTH is never pinned to the canvas's - it needs to
+        # grow past it, since scrolling sideways to reach it is the whole point)
+
+    def rebuild(self, items):
+        """Show `items`, [(id, caption, png bytes of the thumbnail, selected), ...], left to right; Del is
+        disabled while there is only one."""
+        for w in self.items_frame.winfo_children():
+            w.destroy()
+        for idx, (item_id, caption, png, selected) in enumerate(items):
+            cell = tk.Frame(self.items_frame, highlightthickness=self.outline_px if selected else 0,
+                            highlightbackground=self.outline_color, highlightcolor=self.outline_color)
+            cell.grid(row=0, column=idx, sticky="n", padx=2, pady=1)
+            thumb = tk.PhotoImage(data=png, format="png")
+            thumb_lbl = tk.Label(cell, image=thumb, bd=0, cursor="hand2")
+            thumb_lbl.image = thumb              # keep a reference alive
+            thumb_lbl.grid(row=0, column=0, padx=2, pady=(2, 0))
+            thumb_lbl.bind("<Button-1>", lambda _e, i=item_id: self.on_select(i))
+            lbl = tk.Label(cell, text=caption, cursor="hand2", font=self.font)
+            lbl.grid(row=1, column=0, pady=(0, 2))
+            lbl.bind("<Button-1>", lambda _e, i=item_id: self.on_select(i))
+        self.delete_button.state(["disabled"] if len(items) <= 1 else ["!disabled"])
 
 
 MODIFIED_OUTLINE = "#1e88e5"     # blue: a setting changed since the selected keyframe was

@@ -151,10 +151,27 @@ Coloration
   image without regenerating it (Buddha channels rebuild their histograms
   first; that never restarts the generation either).
 
-  Several colorations can exist at once, listed in the Coloration tab. Whichever
-  one is selected is the one shown in the preview (with its name overlaid,
-  in the preview only); exports and videos can include all of them, side by
-  side, so more than three channels' worth of information can be shown at once.
+  Several colorations can exist at once, listed in the Colorations tab (of the
+  Perception tab). Whichever one is selected is the one shown in the preview
+  (with its name overlaid, in the preview only), and the one an export
+  includes unless "Include all colorations" is on: then exports and videos
+  include all of them, side by side, so more than three channels' worth of
+  information can be shown at once.
+
+Framing
+  A framing is the camera: where it is (x, y: the middle of what it sees), how
+  far across it sees (its diagonal) and the shape of that (its aspect ratio,
+  width / height). Framings are listed in the Framing tab (of the Perception
+  tab), the same way colorations are; whichever is selected is the one the image
+  on screen and every export are of. The default one, diagonal 2 sqrt 2 and
+  aspect ratio 1, sees the whole world, -1 to 1 both ways. The image on screen
+  takes the shape of the aspect ratio; selecting a framing, or editing the
+  selected one, generates the image again - of the same figure, without a new
+  Start. A framing is not part of the figure, and its four numbers can be animated
+  by keyframes (the camera pans, zooms and changes shape between them; a video
+  has the framing of each frame). Buddha seeding with the camera's
+  pixels seeds from the pixels of the framing's image. A coloration's picture in
+  the list is of framing 0 and a framing's is coloured by coloration 0.
 
 Decorations
   The outline of each obstacle is drawn into the image and so appears in
@@ -213,11 +230,12 @@ Timeline and video
 Exporting a still image
   Export designer: whether the export includes all colorations or only the selected
   one, where to put the coloration description (none, overlaid on the image,
-  or in a bottom margin) and where to put the figure settings (none, or a left
+  or in a bottom margin), where to put the figure settings (none, or a left
   margin listing every setting that defines the figure: the stopping limits,
   segment length, fuzzing and every obstacle's own fields; the margin grows
-  extra columns if they need the room); these apply to videos as well, with
-  the values of that frame. Export: either the
+  extra columns if they need the room) and where to put the framing settings
+  (none, or the same left margin, below the figure's with a line of dashes
+  between them); these apply to videos as well, with the values of that frame. Export: either the
   Current image (the preview as it was generated) or a New image generated
   afresh at its own width and height (per coloration), saved as jxl (the default),
   png or qoi (jxl lossless, or lossy with a quality setting). "Export" saves into the
@@ -225,12 +243,13 @@ Exporting a still image
   disabled until an image has finished generating.
 
 Window layout (six panels, in three columns)
-  top left       the generated image (512x512). Hover to preview a ray; click
+  top left       the generated image (up to 512x512, in the shape of the framing's
+                 aspect ratio). Hover to preview a ray; click
                  to pin the preview to that pixel, freeing the mouse.
-  top middle     Controls, in six tabs: Simulation (stopping limits and the
-                 segment length), Fuzzing, Coloration, Buddha blur, Decorations
-                 and Obstacles (which scroll where they need to); Start and
-                 Revert settings are always visible
+  top middle     Controls, in eight tabs: Emissions, Termination, Mutations,
+                 Perception (Framing, Colorations), Buddha (Buddha seeding, Buddha
+                 blur), Decorations, Obstacles and Simulation (empty for now);
+                 Start and Revert settings are always visible
   top right      Timeline: the keyframe list, each
                  keyframe's settings, and the selected keyframe's controls
   bottom left    Sequence preview: the previewed ray, in Numbers, Bar graph and Corkscrew tabs
@@ -277,7 +296,7 @@ Development aids (screenshots and dumps)
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
 """
-from . import app_coloration, app_controls, app_debug, app_export, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, export_text, external, geometry, image_io, kernels, metrics, parsing, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
+from . import app_coloration, app_controls, app_debug, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, export_text, framings, external, geometry, image_io, kernels, metrics, parsing, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
@@ -287,7 +306,7 @@ PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": 
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, metrics, colorations, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_obstacles, app_coloration, app_controls, app_layout, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, metrics, colorations, framings, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a

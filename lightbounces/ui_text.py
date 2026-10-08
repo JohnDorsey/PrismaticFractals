@@ -1,4 +1,4 @@
-"""Short texts the interface shows about settings: the keyframe settings list (section headers, a value as text, the presence filter) and the Coloration tab's help line."""
+"""Short texts the interface shows about settings: the keyframe settings list (section headers, a value as text, the presence filter) and the Colorations tab's help line."""
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, OBSTACLE_EFFECT_NAMES
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT, CHAN_SRC_BUDDHA,
@@ -47,6 +47,8 @@ def short_value_text(key, val):
         if fmt == "angle":
             return f"{val:.1f}\u00b0"
         return str(val)                          # "int" fields, and anything else
+    if key.startswith("framing:"):
+        return f"{val:.6g}"
     if key.startswith("coloration:"):
         field = key.split(":", 2)[2]
         if field == "mode":

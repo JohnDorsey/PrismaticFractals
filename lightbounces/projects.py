@@ -10,12 +10,13 @@ index arrays with, which may be renumbered freely). So the program is free to re
 test_the_keys_in_project_files_never_change pins the keys. Object ids (obstacles, colorations, keyframes) stay the whole numbers they are.
 Older files are converted one format version at a time by PROJECT_MIGRATIONS."""
 import json
+import math
 import re
 from .constants import (
     BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC, BUDDHA_BLUR_GAUSSIAN, BUDDHA_BLUR_TRIANGULAR
 )
 from .export_text import (
-    COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS, VIDEO_BITRATE_MODES,
+    COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS, VIDEO_BITRATE_MODES,
     VIDEO_FORMATS
 )
 from .image_io import DOWNSAMPLE_FACTORS, DOWNSAMPLE_METHODS, JXL_MODES, SAVE_NEW_FORMATS
@@ -39,6 +40,9 @@ from .settings import (
 from .shapes import SHAPE_CLASSES
 from .version import FILE_VERSION
 from .colorations import ChannelSettings, MODES, ColorationConfig, snapshot_coloration, coloration_channel_value
+from .framings import (
+    DEFAULT_FRAMING, FRAMING_FIELDS, FramingConfig, framing_is_usable, snapshot_framing
+)
 
 
 PROJECT_EXTENSION = ".lightbounce"
@@ -154,6 +158,8 @@ CAT_COLOR_INFO = _string_catalog("colour info location", ["none", "overlay", "bo
                                  COLOR_INFO_LOCATIONS)
 CAT_FIGURE_INFO = _string_catalog("figure info location", ["none", "left_margin"],
                                   FIGURE_INFO_LOCATIONS)
+CAT_FRAMING_INFO = _string_catalog("framing info location", ["none", "left_margin"],
+                                   FRAMING_INFO_LOCATIONS)
 CAT_IMAGE_SOURCE = _string_catalog("image to export", ["current_image", "new_image"],
                                    SAVE_SOURCE_OPTIONS)
 CAT_IMAGE_FORMAT = _string_catalog("image format", ["jxl", "png", "qoi"], SAVE_NEW_FORMATS)
@@ -176,6 +182,7 @@ EXPORT_OPTIONS = [
     ("include_all_colorations", "include_all_colorations_var", "bool", None),
     ("color_info_location", "color_info_location_var", "choice", CAT_COLOR_INFO),
     ("figure_info_location", "figure_info_location_var", "choice", CAT_FIGURE_INFO),
+    ("framing_info_location", "framing_info_location_var", "choice", CAT_FRAMING_INFO),
     ("image_source", "save_source_var", "choice", CAT_IMAGE_SOURCE),
     ("image_format", "save_format_var", "choice", CAT_IMAGE_FORMAT),
     ("image_jxl_mode", "save_jxl_mode_var", "choice", CAT_JXL_MODE),
@@ -211,13 +218,16 @@ class Project:
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
     colorations: tuple                  # ColorationSnapshots, in list order
+    framings: tuple                     # FramingSnapshots, in list order
     keyframes: tuple                    # Keyframes, in list order
     export: dict                        # EXPORT_OPTIONS key -> the control's value
-    obstacle_counter: int               # the next new obstacle's / coloration's / keyframe's id
+    obstacle_counter: int               # the next new obstacle's / coloration's / framing's / keyframe's id
     coloration_counter: int
+    framing_counter: int
     keyframe_counter: int
     selected_obstacle_id: int           # -1 for none
     selected_coloration_id: int
+    selected_framing_id: int
 
 
 def coloration_config_from_snapshot(snapshot):
@@ -322,16 +332,18 @@ def project_to_dict(project):
         "colorations": [{"id": v.id, "mode": v.mode,
                          "channels": [_channel_to_json(coloration_channel_value(v, c)) for c in range(3)]}
                         for v in project.colorations],
+        "framings": [{"id": f.id, **{field: getattr(f, field) for field in FRAMING_FIELDS}}
+                     for f in project.framings],
         "keyframes": [{"id": kf.id, "frame_index": kf.frame_index,
                        "settings": {key: _setting_to_json(key, value)
                                     for key, value in kf.data.items()}}
                       for kf in project.keyframes],
         "export": export,
         "counters": {"obstacle": project.obstacle_counter, "coloration": project.coloration_counter,
-                     "keyframe": project.keyframe_counter},
+                     "framing": project.framing_counter, "keyframe": project.keyframe_counter},
         "selected": {"obstacle": (project.selected_obstacle_id
                                   if project.selected_obstacle_id >= 0 else None),
-                     "coloration": project.selected_coloration_id},
+                     "coloration": project.selected_coloration_id, "framing": project.selected_framing_id},
     }
 
 
@@ -470,6 +482,24 @@ def _coloration_from_json(data, seen_ids):
     return snapshot_coloration(coloration)
 
 
+def _framing_from_json(data, seen_ids):
+    _expect(isinstance(data, dict), "a framing must be an object")
+    framing_id = data.get("id")
+    _expect(isinstance(framing_id, int) and not isinstance(framing_id, bool) and framing_id >= 0,
+            "a framing's id must be a whole number")
+    _expect(framing_id not in seen_ids, f"two framings have the id {framing_id}")
+    seen_ids.add(framing_id)
+    framing = FramingConfig(framing_id)
+    for field in FRAMING_FIELDS:
+        value = data.get(field, getattr(framing, field))
+        _expect(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value),
+                f"framing {framing_id}: {field} must be a number")
+        setattr(framing, field, float(value))
+    _expect(framing.diagonal > 0.0 and framing.aspect > 0.0 and framing_is_usable(framing),
+            f"framing {framing_id}: its diagonal and aspect ratio must be above 0 and leave it a window to see through")
+    return snapshot_framing(framing)
+
+
 def _keyframe_from_json(data, seen_ids):
     _expect(isinstance(data, dict), "a keyframe must be an object")
     kf_id, frame_index, settings = data.get("id"), data.get("frame_index"), data.get("settings")
@@ -486,6 +516,14 @@ def _keyframe_from_json(data, seen_ids):
             channel_number = key.rsplit(":chan", 1)[1]
             _expect(channel_number in ("0", "1", "2"), f"keyframe {kf_id}: {key!r} is not a channel")
             values[key] = _channel_from_json(value, f"keyframe {kf_id} {key}", int(channel_number))
+        elif key.startswith("framing:"):
+            parts = key.split(":")
+            _expect(len(parts) == 3 and parts[1].isdigit() and parts[2] in FRAMING_FIELDS,
+                    f"keyframe {kf_id}: {key!r} is not a framing setting")
+            _expect(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+                    and (parts[2] in ("x", "y") or value > 0.0),
+                    f"keyframe {kf_id}: {key!r} must be a number (above 0 for a diagonal or an aspect ratio)")
+            values[key] = float(value)
         else:
             values[key] = _setting_from_json(key, value, f"keyframe {kf_id}")
     return Keyframe(kf_id, frame_index, values)
@@ -731,21 +769,29 @@ def _project_from_dict(data):
         elif isinstance(value, (bool, int, float, str)):
             export[key] = value
 
-    obstacle_ids, coloration_ids, keyframe_ids = set(), set(), set()
+    obstacle_ids, coloration_ids, framing_ids, keyframe_ids = set(), set(), set(), set()
     obstacles = tuple(_shape_from_json(o, obstacle_ids) for o in data.get("obstacles", []))
     colorations = tuple(_coloration_from_json(v, coloration_ids) for v in data.get("colorations", []))
     _expect(colorations, "The project has no colorations.")
+    framings = tuple(_framing_from_json(f, framing_ids) for f in data.get("framings") or [])
+    if not framings:                                # (a file from before framings existed: the whole world)
+        framings = (DEFAULT_FRAMING,)
+        framing_ids.add(DEFAULT_FRAMING.id)
     keyframes = tuple(_keyframe_from_json(kf, keyframe_ids) for kf in data.get("keyframes", []))
 
     counters = data.get("counters") or {}
     selected = data.get("selected") or {}
     selected_obstacle = selected.get("obstacle")
     selected_coloration = selected.get("coloration")
+    selected_framing = selected.get("framing")
     return Project(
         ray=ray, natural_stop=natural_stop, buddha_blur=buddha_blur, buddha_seed=buddha_seed,
-        decorations=decorations, obstacles=obstacles, colorations=colorations, keyframes=keyframes, export=export,
+        decorations=decorations, obstacles=obstacles, colorations=colorations, framings=framings,
+        keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
         coloration_counter=max(counters.get("coloration", 0), max(coloration_ids) + 1),
+        framing_counter=max(counters.get("framing", 0), max(framing_ids) + 1),
         keyframe_counter=max(counters.get("keyframe", 0), max(keyframe_ids, default=-1) + 1),
         selected_obstacle_id=selected_obstacle if selected_obstacle in obstacle_ids else -1,
-        selected_coloration_id=selected_coloration if selected_coloration in coloration_ids else colorations[0].id)
+        selected_coloration_id=selected_coloration if selected_coloration in coloration_ids else colorations[0].id,
+        selected_framing_id=selected_framing if selected_framing in framing_ids else framings[0].id)

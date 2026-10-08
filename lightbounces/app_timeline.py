@@ -15,12 +15,13 @@ from .ui_text import (
     short_value_text
 )
 from .colorations import COLORATION_FIELD_INFO, coloration_channel_value, coloration_field_value
+from .framings import FRAMING_FIELD_INFO, FRAMING_FIELDS, framing_is_usable
 from .widgets import MODIFIED_OUTLINE, MODIFIED_OUTLINE_PX, ModifiedOutline, detect_modified_keys
 
 
 class TimelineMixin:
     def purge_keyframe_settings(self, prefix):
-        """Removes a just-deleted obstacle's or coloration's settings from every
+        """Removes a just-deleted obstacle's, coloration's or framing's settings from every
         keyframe right away (see remove_keyframe_keys), so no keyframe is ever
         left holding settings for something that no longer exists - they
         would otherwise be invisible in the Timeline's settings list, and so
@@ -150,8 +151,8 @@ class TimelineMixin:
     # ---- timeline: keyframes ------------------------------------------------ #
     def capture_all_settings(self, show_error=True):
         """dict of every canonical setting's current value (plus every current
-        obstacle's fields and every current coloration's fields, as dynamic
-        "obst:<id>:<field>" / "coloration:<id>:<field>" keys), or None (with an
+        obstacle's fields, every current coloration's and every current framing's, as dynamic
+        "obst:<id>:<field>" / "coloration:<id>:<field>" / "framing:<id>:<field>" keys), or None (with an
         error dialog, unless show_error is False - for passive/reactive
         callers like refresh_timeline_diffs, which already show their own
         gentle inline message and run on every keystroke, where a popup
@@ -171,6 +172,9 @@ class TimelineMixin:
             d[f"coloration:{v.id}:mode"] = v.mode
             for c in range(3):
                 d[f"coloration:{v.id}:chan{c}"] = coloration_channel_value(v, c)
+        for f in self.framings:
+            for field in FRAMING_FIELDS:
+                d[f"framing:{f.id}:{field}"] = getattr(f, field)
         return d
 
     def new_keyframe(self):
@@ -238,11 +242,31 @@ class TimelineMixin:
                     self.update_preview(*self.pinned_px)
             self.rebuild_coloration_list()
             return
+        if key.startswith("framing:"):
+            _prefix, framing_id, field = key.split(":", 2)
+            f = self.framing_by_id(int(framing_id))
+            if f is not None and field in FRAMING_FIELDS:
+                setattr(f, field, float(val))
+                self.framings_loaded = True        # (on_framings_loaded, once the batch is in)
+            return
         if key == "outline":
             self.deco["outline"].set(val)
             self.on_decoration_changed("outline")
         else:
             self.set_setting_control(key, val)
+
+    def on_framings_loaded(self):
+        """Framings' numbers were just loaded from a keyframe (by load_value, which only sets them): show the
+        selected one's, make the image an image of it - one new generation however many of its four numbers
+        changed - and refresh the thumbnails. A framing made unusable by the mix of numbers (no window to see
+        through) is left on screen as it was."""
+        if not self.framings_loaded:
+            return
+        self.framings_loaded = False
+        self.refresh_framing_controls_for_selected_framing()
+        if framing_is_usable(self.selected_framing_obj()):
+            self.apply_selected_framing()
+        self.rebuild_coloration_list()             # (which also rebuilds the framings' list)
 
     def set_setting_control(self, key, val):
         """Write a setting (a SETTING_SPECS key) into its control, as the
@@ -264,8 +288,8 @@ class TimelineMixin:
         """The value to fall back to when no keyframe defines `key` at all:
         the static default for a normal setting, that obstacle's own current
         value (None if it no longer exists) for an obst:<id>:<field> key, or
-        that coloration's own current value (None if it no longer exists) for a
-        coloration:<id>:<field> key."""
+        that coloration's (or framing's) own current value (None if it no longer exists)
+        for a coloration:<id>:<field> (framing:<id>:<field>) key."""
         if key.startswith("obst:"):
             _prefix, obst_id, field = key.split(":", 2)
             o = next((o for o in self.obstacles if o.id == int(obst_id)), None)
@@ -274,6 +298,10 @@ class TimelineMixin:
             _prefix, coloration_id, field = key.split(":", 2)
             v = self.coloration_by_id(int(coloration_id))
             return coloration_field_value(v, field) if v is not None else None
+        if key.startswith("framing:"):
+            _prefix, framing_id, field = key.split(":", 2)
+            f = self.framing_by_id(int(framing_id))
+            return getattr(f, field) if f is not None else None
         return DEFAULT_SETTING_VALUES[key]
 
     def setting_is_float(self, key):
@@ -282,6 +310,9 @@ class TimelineMixin:
         if key.startswith("coloration:"):
             field = key.split(":", 2)[2]
             return next(is_f for f, _label, is_f in COLORATION_FIELD_INFO if f == field)
+        if key.startswith("framing:"):
+            field = key.split(":", 2)[2]
+            return next(is_f for f, _label, is_f in FRAMING_FIELD_INFO if f == field)
         return key in SETTING_FLOAT_KEYS
 
     def load_animated_setting(self, kf, key, refresh=True):
@@ -298,6 +329,7 @@ class TimelineMixin:
         self.load_value(key, val)
         if refresh:
             self.on_limit_var_changed()
+            self.on_framings_loaded()
             self.on_shape_param_changed()
             self.on_fuzz_changed()
             self.on_buddha_blur_changed()
@@ -388,6 +420,7 @@ class TimelineMixin:
             self.on_fuzz_changed()
             self.on_buddha_blur_changed()
             self.on_buddha_seeds_changed()
+            self.on_framings_loaded()
         finally:
             self.kf_applying = False
 
@@ -422,7 +455,7 @@ class TimelineMixin:
 
     def widgets_for_setting(self, key):
         """The main control(s) currently showing setting `key`: [] when it has
-        none visible now (an obstacle or coloration other than the one being edited)."""
+        none visible now (an obstacle, coloration or framing other than the one being edited)."""
         def attr(name):
             obj = getattr(self, name, None)
             return getattr(obj, "widget", obj) if obj is not None else None
@@ -445,6 +478,12 @@ class TimelineMixin:
             else:
                 blocks = getattr(self, "chan_blocks", [])
                 widget = blocks[int(field[-1])] if int(field[-1]) < len(blocks) else None
+            return [widget] if widget is not None else []
+        if key.startswith("framing:"):
+            _prefix, framing_id, field = key.split(":", 2)
+            if self.selected_framing_id != int(framing_id):
+                return []
+            widget = attr(f"framing_{field}_entry")
             return [widget] if widget is not None else []
         widget = attr(SETTING_WIDGET_ATTRS[key])
         return [widget] if widget is not None else []
@@ -497,13 +536,18 @@ class TimelineMixin:
                 entries.append(SettingEntry(key=f"coloration:{v.id}:{field}", tab=tab, label=label,
                                             is_float=is_float,
                                             fallback=coloration_field_value(v, field)))
+        for idx, f in enumerate(self.framings):
+            for field, label, is_float in FRAMING_FIELD_INFO:
+                entries.append(SettingEntry(key=f"framing:{f.id}:{field}", tab=f"Framing {idx}", label=label,
+                                            is_float=is_float, fallback=getattr(f, field)))
         return entries
 
     def all_setting_tabs(self):
         """Tab names in display order: the fixed ones, then one per
-        obstacle, then one per coloration."""
+        obstacle, then one per coloration, then one per framing."""
         return (SETTING_TABS_ORDER + [obstacle_tab_title(i, o) for i, o in enumerate(self.obstacles)]
-               + [f"Coloration {i}" for i in range(len(self.colorations))])
+               + [f"Coloration {i}" for i in range(len(self.colorations))]
+               + [f"Framing {i}" for i in range(len(self.framings))])
 
     def refresh_timeline_diffs(self):
         """Rebuild the settings list (see _rebuild_timeline_diffs), then refit its

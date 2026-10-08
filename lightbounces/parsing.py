@@ -59,6 +59,15 @@ def parse_escape_radius(text):
     return value if math.isfinite(value) and value > 0.0 else None
 
 
+def parse_positive_number(text):
+    """Any finite number above 0 from entry text (a framing's diagonal or aspect ratio), else None."""
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and value > 0.0 else None
+
+
 def parse_target_coordinate(text):
     """A coordinate of the emission target point from entry text: any finite
     number, negative or positive, however large or small (plain or scientific

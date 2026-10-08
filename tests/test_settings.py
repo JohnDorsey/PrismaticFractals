@@ -175,7 +175,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     seen = []
 
-    def fake_colorize(coloration, stats, points, status, w, h, blur, stop, ray, seed_base, seeds=None):
+    def fake_colorize(coloration, stats, points, status, w, h, blur, stop, ray, seed_base, seeds=None, window=None):
         seen.append((blur, stop, ray, seed_base))
         return np.zeros((h, w, 3), dtype=np.uint8)
     app.apply_coloration = fake_colorize
@@ -453,6 +453,7 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_framings(app)
     o1, o2 = m.EllipseShape(4), m.EllipseShape(9)
     o2.width = 0.7
     app.obstacles = [o1, o2]

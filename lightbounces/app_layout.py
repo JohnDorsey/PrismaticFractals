@@ -7,7 +7,7 @@ from .constants import (
     CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, KIND_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
     SEG_CANVAS_W
 )
-from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
+from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
     KIND_BOUNDARY, KIND_ESCAPED, KIND_OBSTACLE_TERM, KIND_SELF, KIND_START, N_STATS, SIZE
@@ -89,7 +89,7 @@ class LayoutMixin:
         emissions_tab = ttk.Frame(notebook)
         termination_tab = ttk.Frame(notebook)
         mutations_tab = ttk.Frame(notebook)
-        color_tab = ttk.Frame(notebook)
+        perception_tab = ttk.Frame(notebook)
         buddha_tab = ttk.Frame(notebook)
         self.buddha_tab = buddha_tab
         deco_tab = ttk.Frame(notebook)
@@ -98,18 +98,18 @@ class LayoutMixin:
         notebook.add(emissions_tab, text="Emissions")
         notebook.add(termination_tab, text="Termination")
         notebook.add(mutations_tab, text="Mutations")
-        notebook.add(color_tab, text="Coloration")
+        notebook.add(perception_tab, text="Perception")
         notebook.add(buddha_tab, text="Buddha")
         notebook.add(deco_tab, text="Decorations")
         notebook.add(obst_tab, text="Obstacles")
         notebook.add(sim_tab, text="Simulation")
-        for tab in (emissions_tab, termination_tab, mutations_tab, color_tab, buddha_tab,
+        for tab in (emissions_tab, termination_tab, mutations_tab, perception_tab, buddha_tab,
                     deco_tab, obst_tab, sim_tab):
             tab.columnconfigure(0, weight=1)
 
         # The Emissions, Termination, Mutations and Obstacles tabs can hold more than fits in their
         # height (and how much depends on the user's font size and display scaling), so
-        # they scroll, like the Coloration tab's channel editor.
+        # they scroll, like the Colorations tab's channel editor.
         self.emissions_canvas, emissions_inner = make_scrollable_tab(emissions_tab)
         self.build_emission_controls(emissions_inner)
         self.termination_canvas, termination_inner = make_scrollable_tab(termination_tab)
@@ -118,21 +118,23 @@ class LayoutMixin:
         self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)
         self.build_fuzzing_controls(mutations_inner)
         self.build_segment_mult_controls(mutations_inner)
-        # The Coloration tab has two tabs of its own: Framing (what part of the world the image shows - empty for
-        # now) and Colorations (the list of colorations and the editor of the selected one).
-        coloration_notebook = ttk.Notebook(color_tab)
-        coloration_notebook.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-        color_tab.rowconfigure(0, weight=1)
-        self.coloration_notebook = coloration_notebook
-        framing_tab = ttk.Frame(coloration_notebook)
-        colorations_tab = ttk.Frame(coloration_notebook)
+        # The Perception tab has two tabs of its own: Framing (the list of framings - what part of the world the image
+        # shows - and the editor of the selected one) and Colorations (the list of colorations and the editor of the
+        # selected one).
+        perception_notebook = ttk.Notebook(perception_tab)
+        perception_notebook.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        perception_tab.rowconfigure(0, weight=1)
+        self.perception_notebook = perception_notebook
+        framing_tab = ttk.Frame(perception_notebook)
+        colorations_tab = ttk.Frame(perception_notebook)
         self.framing_tab = framing_tab
         self.colorations_tab = colorations_tab
-        coloration_notebook.add(framing_tab, text="Framing")
-        coloration_notebook.add(colorations_tab, text="Colorations")
+        perception_notebook.add(framing_tab, text="Framing")
+        perception_notebook.add(colorations_tab, text="Colorations")
         framing_tab.columnconfigure(0, weight=1)
         colorations_tab.columnconfigure(0, weight=1)
-        coloration_notebook.select(colorations_tab)    # Framing is empty: open on the controls that are there
+        perception_notebook.select(colorations_tab)    # open on what this tab always showed
+        self.build_framing_controls(framing_tab)
         self.build_color_controls(colorations_tab)
         # The Buddha tab has two tabs of its own: where the rays that are scattered start (the seed points), and
         # the blur of the scattered points.
@@ -422,12 +424,19 @@ class LayoutMixin:
                     values=COLOR_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
 
         figure_info_row = ttk.Frame(designer)
-        figure_info_row.grid(row=2, column=0, sticky="w", padx=8, pady=(2, 6))
+        figure_info_row.grid(row=2, column=0, sticky="w", padx=8, pady=2)
         ttk.Label(figure_info_row, text="Figure settings location:").pack(
             side="left", padx=(0, 6))
         self.figure_info_location_var = tk.StringVar(value=FIGURE_INFO_LOCATIONS[0])
         ttk.Combobox(figure_info_row, textvariable=self.figure_info_location_var,
                     values=FIGURE_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
+
+        framing_info_row = ttk.Frame(designer)
+        framing_info_row.grid(row=3, column=0, sticky="w", padx=8, pady=(2, 6))
+        ttk.Label(framing_info_row, text="Framing settings location:").pack(side="left", padx=(0, 6))
+        self.framing_info_location_var = tk.StringVar(value=FRAMING_INFO_LOCATIONS[0])
+        ttk.Combobox(framing_info_row, textvariable=self.framing_info_location_var,
+                    values=FRAMING_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
 
         # ---- Export: what to export, its format, and the buttons ----
         exp = ttk.LabelFrame(container, text="Export")

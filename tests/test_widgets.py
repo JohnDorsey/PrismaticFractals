@@ -63,12 +63,11 @@ def test_the_buddha_tab_holds_a_seeding_tab_then_a_blur_tab_each_with_its_own_co
     assert '"<<NotebookTabChanged>>"' in source and "update_seed_zone_outline" in source
 
 
-def test_the_coloration_tab_holds_an_empty_framing_tab_then_a_colorations_tab_with_all_its_controls():
+def test_the_perception_tab_holds_a_framing_tab_then_a_colorations_tab_each_with_its_own_controls():
     import inspect
     source = inspect.getsource(m.App.build_controls_quadrant)
-    assert 'notebook.add(color_tab, text="Coloration")' in source
-    assert source.index('coloration_notebook.add(framing_tab, text="Framing")') < \
-        source.index('coloration_notebook.add(colorations_tab, text="Colorations")'), "Framing is the left tab"
+    assert 'notebook.add(perception_tab, text="Perception")' in source
+    assert source.index('perception_notebook.add(framing_tab, text="Framing")') < \
+        source.index('perception_notebook.add(colorations_tab, text="Colorations")'), "Framing is the left tab"
+    assert "self.build_framing_controls(framing_tab)" in source
     assert "self.build_color_controls(colorations_tab)" in source, "the controls the tab always held are in Colorations"
-    uses = [line.strip() for line in source.splitlines() if "framing_tab" in line]
-    assert not any(line.startswith("self.build_") for line in uses), "Framing is empty for now"

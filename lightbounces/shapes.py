@@ -40,8 +40,8 @@ from .kernels import (
     OBSTACLE_EFFECT_REFLECT, ObstacleArrays, PIXEL, SHAPE_ARBELOS, SHAPE_CAPSULE, SHAPE_ELLIPSE,
     SHAPE_EGG, SHAPE_FG_SQUIRCLE, SHAPE_FLOWER, SHAPE_LENS, SHAPE_LUNE, SHAPE_MOSS_EGG, SHAPE_POLYGON, SHAPE_QUATREFOIL,
     SHAPE_REULEAUX, SHAPE_SECTOR, SHAPE_SEGMENT, SHAPE_SNAIL, SHAPE_SPIRAL, SHAPE_SUPERELLIPSE,
-    SHAPE_TREFOIL, SIZE, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid, spiral_distance_grid,
-    squircle_distance_grid
+    SHAPE_TREFOIL, SIZE, WINDOW_DEFAULT, egg_distance_grid, flower_distance_grid, inside_boundary_grid, snail_near_grid,
+    spiral_distance_grid, squircle_distance_grid
 )
 from .settings import resolve_obstacles, strict_record
 
@@ -252,13 +252,13 @@ class Shape:
         """(x, y) arrays tracing its edge around its own centre."""
         return sample_boundary_xy(self.KIND, self.bound())
 
-    def outline_coords(self):
+    def outline_coords(self, window=WINDOW_DEFAULT, w=SIZE, h=SIZE):
         """Canvas coordinates (flat list) of a polygon tracing the shape, at its
-        centre (polar position plus x/y offset)."""
+        centre (polar position plus x/y offset), on a canvas w x h pixels that shows the world `window`."""
         wx, wy = self.boundary_xy()
         ocx, ocy = self.center()
-        xs = (wx + ocx + 1.0) * (SIZE / 2.0)
-        ys = (1.0 - (wy + ocy)) * (SIZE / 2.0)
+        xs = (wx + ocx - window.x_start) * (w / (window.x_stop - window.x_start))
+        ys = (window.y_stop - (wy + ocy)) * (h / (window.y_stop - window.y_start))
         return np.column_stack((xs, ys)).ravel().tolist()
 
 
@@ -905,11 +905,12 @@ def arc_loop_distance(bound, x, y):
     return best
 
 
-def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
+def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX, pixel=PIXEL):
     """(outer, inner) boolean masks on the world-coordinate grid (x, y) for a
     shape's two-layer outline: `outer` is the band just outside its edge and
-    `inner` the band just inside it, each `layer_px` pixels thick."""
-    w = layer_px * PIXEL
+    `inner` the band just inside it, each `layer_px` pixels of `pixel` world units thick (the world width of a pixel
+    of the 512-pixel preview: PIXEL for the whole world, less for a framing that zooms in)."""
+    w = layer_px * pixel
     layout = SHAPE_CLASSES[shape].LAYOUT
     if layout == LAYOUT_ELLIPSE:
         m11, m12, m22 = bound[1], bound[2], bound[3]
@@ -949,12 +950,12 @@ def ring_layer_masks(shape, bound, x, y, layer_px=OBST_RING_LAYER_PX):
     return bigger & ~inside, inside & ~smaller
 
 
-def draw_obstacle_outline(img, shape, bound, x, y, in_effect, out_effect):
+def draw_obstacle_outline(img, shape, bound, x, y, in_effect, out_effect, pixel=PIXEL):
     """Draws an obstacle's two-layer outline into `img` (in place), on the
     world-coordinate grid (x, y) already shifted to be relative to the
     obstacle's centre: the outer layer in its incoming effect's color, the
-    inner layer in its outgoing effect's."""
-    outer, inner = ring_layer_masks(shape, bound, x, y)
+    inner layer in its outgoing effect's (each ring_layer_masks' layer thick, in `pixel` world units)."""
+    outer, inner = ring_layer_masks(shape, bound, x, y, pixel=pixel)
     img[outer] = OBST_EFFECT_RGB[int(in_effect)]
     img[inner] = OBST_EFFECT_RGB[int(out_effect)]
 

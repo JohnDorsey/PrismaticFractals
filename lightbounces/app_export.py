@@ -9,6 +9,7 @@ from .paths import ensure_export_dir
 from .settings import Keyframe, resolve_frame_settings, resolve_obstacles
 from .shapes import build_obstacle_arrays
 from .colorations import resolve_colorations, snapshot_coloration
+from .framings import resolve_framing
 
 
 class ExportMixin:
@@ -72,7 +73,8 @@ class ExportMixin:
         rgb = apply_info_locations(
             rgb, colorations, rgb.shape[1] // len(colorations), self.generated_settings,
             self.generated_natural_stop, self.gen_obstacle_snapshots, self.color_info_location_var.get(),
-            self.figure_info_location_var.get(), mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
+            self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
+            mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.frame
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -124,8 +126,10 @@ class ExportMixin:
         obst_arrays = build_obstacle_arrays(obst_values)
         coloration_snapshots = [snapshot_coloration(v) for v in self.colorations_to_export()]
         colorations = resolve_colorations(coloration_snapshots, [fake_kf], 0)
+        framing = resolve_framing(self.selected_framing_snapshot(), [fake_kf], 0)
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
+        framing_location = self.framing_info_location_var.get()
         if path_or_none is None:
             path = os.path.join(ensure_export_dir(),
                                 image_filename(data.ray, data.natural_stop, fmt, jxl_lossless,
@@ -136,21 +140,21 @@ class ExportMixin:
         self.save_as_btn.state(["disabled"])
         thread = threading.Thread(
             target=self._save_new_image_worker,
-            args=(data, w, h, obst_arrays, obst_values, colorations, fmt, jxl_lossless,
-                 jxl_quality, path, color_location, figure_location),
+            args=(data, w, h, obst_arrays, obst_values, colorations, framing, fmt, jxl_lossless,
+                 jxl_quality, path, color_location, figure_location, framing_location),
             daemon=True)
         thread.start()
 
-    def _save_new_image_worker(self, data, w, h, obst_arrays, obst_values, colorations, fmt,
+    def _save_new_image_worker(self, data, w, h, obst_arrays, obst_values, colorations, framing, fmt,
                                jxl_lossless, jxl_quality, path, color_location,
-                               figure_location):
+                               figure_location, framing_location):
         """Runs on a background thread: never touches a Tk widget directly,
         only via self.root.after(0, ...)."""
         try:
-            rgb = self.render_full_image(data, w, h, obst_arrays, colorations)
+            rgb = self.render_full_image(data, w, h, obst_arrays, colorations, framing)
             rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_stop,
                                        obst_values, color_location, figure_location,
-                                       mutate_ok=True)
+                                       framing, framing_location, mutate_ok=True)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
         except Exception as exc:                    # noqa: BLE001
             self.root.after(0, lambda m=str(exc): self._save_new_image_failed(path, m))

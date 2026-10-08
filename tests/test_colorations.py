@@ -9,7 +9,7 @@ def test_render_full_image_with_a_single_coloration_matches_pre_colorations_beha
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
     data = m.resolve_frame_settings([kf], 0)
     colorations = (_coloration_settings_from_config(m.ColorationConfig(0)),)
-    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), colorations)
+    img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), colorations, m.DEFAULT_FRAMING)
     assert img.shape == (40, 40, 3)
 
 
@@ -19,8 +19,8 @@ def test_two_identical_colorations_render_as_two_identical_halves():
     data = m.resolve_frame_settings([kf], 0)
     obst_arrays = _starting_obst_arrays()
     one_coloration = (_coloration_settings_from_config(m.ColorationConfig(0)),)
-    single = app.render_full_image(data, 50, 50, obst_arrays, one_coloration)
-    doubled = app.render_full_image(data, 50, 50, obst_arrays, one_coloration * 2)
+    single = app.render_full_image(data, 50, 50, obst_arrays, one_coloration, m.DEFAULT_FRAMING)
+    doubled = app.render_full_image(data, 50, 50, obst_arrays, one_coloration * 2, m.DEFAULT_FRAMING)
     assert doubled.shape == (50, 100, 3)
     assert np.array_equal(doubled[:, :50], doubled[:, 50:])
     assert np.array_equal(doubled[:, :50], single)
@@ -34,7 +34,7 @@ def test_two_different_colorations_render_as_two_different_halves():
     v1 = m.ColorationConfig(1)
     v1.mode = "HSV"
     colorations = (_coloration_settings_from_config(v0), _coloration_settings_from_config(v1))
-    combined = app.render_full_image(data, 50, 50, _starting_obst_arrays(), colorations)
+    combined = app.render_full_image(data, 50, 50, _starting_obst_arrays(), colorations, m.DEFAULT_FRAMING)
     assert not np.array_equal(combined[:, :50], combined[:, 50:])
 
 

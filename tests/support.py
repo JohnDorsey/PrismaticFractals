@@ -78,16 +78,51 @@ def _make_fake_app_for_snapshot():
     for field in m.EMIT_TARGET_FIELDS:
         setattr(app, f"emit_target_{field}_var", _Get("0.0"))
     app.emit_offset_scale = _Get(m.DEFAULT_EMIT_OFFSET)
+    _give_framings(app)
     return app
 
 
 # --------------------------------------------------------------------------- #
 # Colorations (multiple side-by-side colorations of the same simulation)
 # --------------------------------------------------------------------------- #
+def _framing(**changes):
+    values = dict(id=0, x=0.0, y=0.0, diagonal=m.DEFAULT_FRAMING_DIAGONAL, aspect=1.0)
+    values.update(changes)
+    return m.FramingSnapshot(**values)
+
+
+def _give_image_geometry(app, framing=None):
+    """Give a fake app the state of the image on screen that the real App has (its framing, size in pixels and world
+    window, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world."""
+    app.set_image_framing = m.App.set_image_framing.__get__(app)
+    app.make_image_buffers = m.App.make_image_buffers.__get__(app)
+    app.pixel_center = m.App.pixel_center.__get__(app)
+    app.world_to_canvas = m.App.world_to_canvas.__get__(app)
+    app.set_image_framing(m.DEFAULT_FRAMING if framing is None else framing)
+    return app
+
+
+def _give_framings(app):
+    """Give a fake app the list of framings the real App holds (the whole-world framing, selected) and the methods
+    that find the selected one."""
+    app.framings = [m.FramingConfig(0)]
+    app._framing_counter = 1
+    app.selected_framing_id = 0
+    app.framing_by_id = m.App.framing_by_id.__get__(app)
+    app.selected_framing_obj = m.App.selected_framing_obj.__get__(app)
+    app.selected_framing_snapshot = m.App.selected_framing_snapshot.__get__(app)
+    app.all_framing_ids = m.App.all_framing_ids.__get__(app)
+    app.framings_loaded = False
+    app.on_framings_loaded = lambda: None
+    return app
+
+
 def _fake_render_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
+    _give_framings(app)
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.apply_coloration = m.App.apply_coloration.__get__(app)
     return app
@@ -111,6 +146,7 @@ def _fake_coloration_list_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.colorations = [m.ColorationConfig(0)]
     app._coloration_counter = 1
     app.selected_coloration_id = 0
@@ -193,12 +229,14 @@ def _fake_export_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.colorations = [m.ColorationConfig(0)]
     app._coloration_counter = 1
     app.selected_coloration_id = 0
     app.include_all_colorations_var = _StubVar(True)
     app.color_info_location_var = _StubVar("None")
     app.figure_info_location_var = _StubVar("None")
+    app.framing_info_location_var = _StubVar("None")
     app.generated_settings = m.DEFAULT_RAY_SETTINGS
     app.generated_natural_stop = m.DEFAULT_NATURAL_STOP_SETTINGS
     app.coloration_by_id = m.App.coloration_by_id.__get__(app)
@@ -206,6 +244,7 @@ def _fake_export_app():
     app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
     app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
     app.colorations_to_export = m.App.colorations_to_export.__get__(app)
+    _give_framings(app)
     app.new_coloration = m.App.new_coloration.__get__(app)
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app.rebuild_buddha_counts = lambda: None
@@ -406,6 +445,8 @@ def _fake_color_editor_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
+    _give_framings(app)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
     app.colorations[1].mode = "HSV"
     app._coloration_counter = 2

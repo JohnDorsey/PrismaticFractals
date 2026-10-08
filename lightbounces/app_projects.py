@@ -2,7 +2,7 @@
 import os
 import sys
 from tkinter import filedialog, messagebox
-from .constants import BACKGROUND, PROJECT_POLL_MS
+from .constants import PROJECT_POLL_MS
 from .paths import ensure_project_dir
 from .projects import (
     EXPORT_OPTIONS, PROJECT_EXTENSION, PROJECT_FILE_TYPES, Project, ProjectError, _is_number,
@@ -14,6 +14,7 @@ from .settings import (
 )
 from .shapes import build_obstacle_arrays
 from .colorations import snapshot_coloration
+from .framings import framing_config_from_snapshot, snapshot_framing
 
 
 class ProjectsMixin:
@@ -88,11 +89,13 @@ class ProjectsMixin:
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
             colorations=tuple(snapshot_coloration(v) for v in self.colorations),
+            framings=tuple(snapshot_framing(f) for f in self.framings),
             keyframes=tuple(snapshot_keyframes(self.keyframes)),
             export=self.capture_export_options(), obstacle_counter=self._obst_counter,
-            coloration_counter=self._coloration_counter, keyframe_counter=self._kf_counter,
+            coloration_counter=self._coloration_counter, framing_counter=self._framing_counter,
+            keyframe_counter=self._kf_counter,
             selected_obstacle_id=selected.id if selected is not None else -1,
-            selected_coloration_id=self.selected_coloration_id)
+            selected_coloration_id=self.selected_coloration_id, selected_framing_id=self.selected_framing_id)
 
     def discard_generated_image(self):
         """Back to the blank state before the first Start (stopping a generation in progress)."""
@@ -109,12 +112,9 @@ class ProjectsMixin:
         self.gen_obstacles_sig = ()
         self.gen_obstacle_snapshots = []
         self.gen_obstacles_by_id = {}
-        self.stats[:] = 0
-        self.points[:] = 0
-        self.status[:] = 0
-        self.img[:] = BACKGROUND
-        self.rows_done = 0
+        self.set_image_framing(self.selected_framing_snapshot())    # (a blank image of the selected framing)
         self.batch_rows = 1
+        self.thumb_sims = {}
         self.coloration_thumb_cache = {}
         self.canvas.delete("pending")
         self.pinned_px = None
@@ -143,6 +143,9 @@ class ProjectsMixin:
             self.colorations = [coloration_config_from_snapshot(v) for v in project.colorations]
             self._coloration_counter = project.coloration_counter
             self.selected_coloration_id = project.selected_coloration_id
+            self.framings = [framing_config_from_snapshot(f) for f in project.framings]
+            self._framing_counter = project.framing_counter
+            self.selected_framing_id = project.selected_framing_id
             self.keyframes = snapshot_keyframes(project.keyframes)
             self._kf_counter = project.keyframe_counter
             self.selected_keyframe = None
@@ -161,8 +164,10 @@ class ProjectsMixin:
         self.on_downsample_factor_changed()
         self.refresh_obstacle_editor()
         self.rebuild_obstacle_list()
+        self.set_image_framing(self.selected_framing_snapshot())    # (the image is blank: nothing generated yet)
+        self.refresh_framing_controls_for_selected_framing()
         self.refresh_color_controls_for_selected_coloration()
-        self.rebuild_coloration_list()
+        self.rebuild_coloration_list()                  # (which also rebuilds the framings' list)
         self.refresh_live_preview_state()
         self.on_buddha_seeds_changed()
         self.on_decoration_changed("outline")

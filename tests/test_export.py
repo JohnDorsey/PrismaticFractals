@@ -105,7 +105,7 @@ def test_video_frame_render_widens_when_a_second_coloration_is_added_and_include
 
     coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
-    img_one_coloration = app.render_full_image(data, 20, 20, obst_arrays, colorations)
+    img_one_coloration = app.render_full_image(data, 20, 20, obst_arrays, colorations, m.DEFAULT_FRAMING)
     assert img_one_coloration.shape == (20, 20, 3)
 
     app.new_coloration()
@@ -113,7 +113,7 @@ def test_video_frame_render_widens_when_a_second_coloration_is_added_and_include
                                                                            # launch site
                                                                            # re-snapshots
     colorations2 = m.resolve_colorations(coloration_snapshot2, keyframes, 0)
-    img_two_colorations = app.render_full_image(data, 20, 20, obst_arrays, colorations2)
+    img_two_colorations = app.render_full_image(data, 20, 20, obst_arrays, colorations2, m.DEFAULT_FRAMING)
     assert img_two_colorations.shape == (20, 40, 3), \
         f"adding a second coloration should double the video frame width, got {img_two_colorations.shape}"
 
@@ -434,7 +434,7 @@ def test_layout_info_columns_keeps_blocks_together_and_splits_only_oversized_one
 
 def test_left_margin_is_half_the_image_width_for_an_ordinary_scene():
     img = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out = m.add_left_figure_margin(img, *_generation(), _start_scene())
+    out = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(), _start_scene()))
     assert out.shape == (m.SIZE, m.SIZE + m.SIZE // 2, 3)
     assert np.array_equal(out[:, m.SIZE // 2:], img), "the image itself is untouched"
     assert (out[:, :m.SIZE // 2] != m.COLORATION_INFO_BG).any(), "and the text is drawn"
@@ -447,7 +447,7 @@ def test_left_margin_grows_extra_columns_when_the_settings_need_the_room():
         o = m.default_starting_obstacle(i)
         o.r = 0.1 * i
         scene.append(o)
-    out = m.add_left_figure_margin(img, *_generation(), scene)
+    out = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(), scene))
     margin_w = out.shape[1] - m.SIZE
     assert margin_w > m.SIZE // 2
     assert margin_w % 2 == 0, "video encoders want even widths"
@@ -463,28 +463,28 @@ def test_left_margin_size_is_the_same_for_every_frame_of_an_animated_video():
     for o in moved:
         o.r, o.rotation = 0.25, 5.0
     fuzz_on = m.DEFAULT_FUZZ.replace(enabled=True)
-    a = m.add_left_figure_margin(img, *_generation(), scene)
-    b = m.add_left_figure_margin(img, *_generation(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
-                                 moved)
+    a = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(), scene))
+    b = m.add_left_info_margin(img, m.figure_info_blocks(*_generation(max_dist=3.0, seg_mult=0.5, fuzz=fuzz_on),
+                                 moved))
     assert a.shape == b.shape
     assert not np.array_equal(a, b), "but they do show the different values"
 
 
-def test_add_left_figure_margin_does_not_mutate_input():
+def test_add_left_info_margin_does_not_mutate_input():
     img = np.full((40, 60, 3), 33, dtype=np.uint8)
     original = img.copy()
-    m.add_left_figure_margin(img, m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS, _start_scene())
+    m.add_left_info_margin(img, m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS, _start_scene()))
     assert np.array_equal(img, original)
 
 
-def test_add_left_figure_margin_does_not_crash_for_any_setting_combination():
+def test_add_left_info_margin_does_not_crash_for_any_setting_combination():
     img = np.full((30, 30, 3), 10, dtype=np.uint8)
     for fuzz_on in (False, True):
         for seg_mult in (1.0, 0.5):
             for scene in ([], _start_scene(), _every_kind_of_obstacle()):
                 settings = _generation(seg_mult=seg_mult,
                                        fuzz=m.DEFAULT_FUZZ.replace(enabled=fuzz_on))
-                m.add_left_figure_margin(img, *settings, scene)   # must not raise
+                m.add_left_info_margin(img, m.figure_info_blocks(*settings, scene))   # must not raise
 
 
 def test_export_designer_calls_them_figure_settings_not_simulation_info():
@@ -570,6 +570,7 @@ def test_export_writes_the_current_image_into_the_export_dir():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
     app.save_jxl_mode_var = _StubVar("Lossless")
@@ -597,6 +598,7 @@ def test_export_as_dialog_opens_in_the_export_dir():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.root = None
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar("png")
@@ -665,6 +667,7 @@ def _fake_button_gating_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.ready = True
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_STOP_SETTINGS)
     app.generated_settings = None

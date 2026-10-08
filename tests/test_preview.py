@@ -15,6 +15,7 @@ def _fake_preview_app(pinned):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.update_preview = m.App.update_preview.__get__(app)
     app.pinned_px = pinned
     app.hover_px = None
@@ -62,6 +63,7 @@ def _fake_click_app(pinned, obstacles):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.on_click = m.App.on_click.__get__(app)
     app.pinned_px = pinned
     app.hover_px = "stale"
@@ -297,12 +299,12 @@ def test_left_margin_text_scales_with_the_colorations_own_size_not_the_margin():
     the (narrow) margin width at a larger scale, which isn't itself a bug."""
     settings = _generation()
     img_512 = np.full((m.SIZE, m.SIZE, 3), 128, dtype=np.uint8)
-    out_512 = m.add_left_figure_margin(img_512, *settings, _start_scene())
+    out_512 = m.add_left_info_margin(img_512, m.figure_info_blocks(*settings, _start_scene()))
     margin_w_512 = m.SIZE // 2
     h1 = (out_512[:, :margin_w_512] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
     img_1080 = np.full((1080, 1080, 3), 128, dtype=np.uint8)
-    out_1080 = m.add_left_figure_margin(img_1080, *settings, _start_scene())
+    out_1080 = m.add_left_info_margin(img_1080, m.figure_info_blocks(*settings, _start_scene()))
     margin_w_1080 = 1080 // 2
     h2 = (out_1080[:, :margin_w_1080] != m.COLORATION_INFO_BG).any(axis=-1).any(axis=1).sum()
 
@@ -368,9 +370,9 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
 
-    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations)
+    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations, m.DEFAULT_FRAMING)
     rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop, [],
-                                 "Overlay", "None", mutate_ok=True)
+                                 "Overlay", "None", m.DEFAULT_FRAMING, "None", mutate_ok=True)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
 
@@ -384,10 +386,10 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
 
-    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations)
+    rgb = app.render_full_image(data, 40, 40, obst_arrays, colorations, m.DEFAULT_FRAMING)
     original_width = rgb.shape[1]
     rgb = m.apply_info_locations(rgb, colorations, 40, data.ray, data.natural_stop,
-                                 _start_scene(), "None", "Left margin", mutate_ok=True)
+                                 _start_scene(), "None", "Left margin", m.DEFAULT_FRAMING, "None", mutate_ok=True)
     assert rgb.shape[1] >= original_width + 40 // 2       # (more, at this tiny size)
     assert (rgb == m.COLORATION_INFO_BG).all(axis=-1).any()
 
@@ -402,7 +404,7 @@ def test_apply_info_locations_none_leaves_the_image_unchanged():
     settings = _generation()
     v = m.ColorationConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
-    out = m.apply_info_locations(img, [v], 40, *settings, [], "None", "None", mutate_ok=True)
+    out = m.apply_info_locations(img, [v], 40, *settings, [], "None", "None", m.DEFAULT_FRAMING, "None", mutate_ok=True)
     assert out.shape == img.shape
     assert (out == 77).all()
 
@@ -416,7 +418,7 @@ def test_apply_info_locations_margin_cases_never_mutate_when_not_ok():
     v = m.ColorationConfig(0)
     img = np.full((40, 40, 3), 77, dtype=np.uint8)
     original = img.copy()
-    m.apply_info_locations(img, [v], 40, *settings, [], "Overlay", "None", mutate_ok=False)
+    m.apply_info_locations(img, [v], 40, *settings, [], "Overlay", "None", m.DEFAULT_FRAMING, "None", mutate_ok=False)
     assert np.array_equal(img, original), "mutate_ok=False must not draw into the input array"
 
 

@@ -125,6 +125,14 @@ EmissionRule = namedtuple("EmissionRule", [
     "target_x", "target_y",                          # the point rays are fired towards
     "offset"])                                       # degrees, positive = counterclockwise
 
+# A window onto the world: the rectangle of world coordinates an image covers - or that a grid of seed points is laid
+# over. An image's top row is at y_stop. The window (-1, 1, -1, 1), WINDOW_DEFAULT, is what every image covered before
+# framings existed (the default framing's). All floats. Build it from a framing with framing_window.
+Window = namedtuple("Window", [
+    "x_start", "x_stop",                             # left and right edge (world units)
+    "y_start", "y_stop"])                            # bottom and top edge
+WINDOW_DEFAULT = Window(-1.0, 1.0, -1.0, 1.0)
+
 # What brings ANY sequence of points to its natural end - not something in the sequence's own rules (a terminating
 # obstacle, a hit at exactly perpendicular incidence) but that it has gone on long enough, gone far enough, got far
 # enough from the origin or stopped getting anywhere: the limits every engine that produces sequences of points
@@ -2278,121 +2286,69 @@ def compute_stats(pts, npts, raw, max_iter, seg_mult, out):
         out[ST_LAST_RATIO] = 1.0
 
 
-# A numba limitation shapes the two parallel drivers below: a parallel function cannot take a tuple that contains
-# other tuples (a NaturalStopRule holds a ConfineRule, a RayArgs holds a FuzzRule, an EmissionRule and an
-# ObstacleArrays) and use it inside its prange loop - compiling fails with "'str' object has no attribute 'loc'" (or
-# "scalar type ... given for non scalar argument") - but a parallel function that is given their one-level pieces
-# can put the whole tuples together again INSIDE its loop (verified). So render_rows / render_rows_wh take the
-# rules whole, like trace_path, and hand their pieces to _render_rows_parallel / _render_rows_wh_parallel, which
-# rebuild them for each pixel's trace_path. Any other engine's driver has the same constraint.
-@njit(nogil=True, cache=True)
-def render_rows(stats, points, status, row0, row1, stop, ray, seed_base):
-    """
-    Simulate rows [row0, row1). For each pixel that actually fires a ray, fill
-    in stats[j, i, :] and points[j, i, :, :] and set status[j, i] = 1. When
-    fuzzing is enabled, each pixel's ray gets its own reproducible seed.
-    `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
-    """
-    _render_rows_parallel(stats, points, status, row0, row1, stop.max_iter, stop.max_dist,
-                          stop.escape_radius, stop.confine, ray.seg_mult, ray.fuzz, ray.emission,
-                          ray.obstacles, seed_base)
-
-
-@njit(nogil=True, parallel=True, cache=True)
-def _render_rows_parallel(stats, points, status, row0, row1, max_iter, max_dist, escape_radius,
-                          confine, seg_mult, fuzz, emission, obstacles, seed_base):
-    """render_rows with the rules in pieces (see above)."""
-    fuzzing = fuzz.enabled
-    n = (row1 - row0) * SIZE
-    for idx in prange(n):
-        j = row0 + idx // SIZE
-        i = idx % SIZE
-        x = (i + 0.5) * PIXEL - 1.0
-        y = 1.0 - (j + 0.5) * PIXEL
-        if not emits_ray(x, y, obstacles):
-            continue
-        if fuzzing:
-            np.random.seed(seed_base + i * 1000003 + j * 97)
-        pts = np.empty((max_iter + 2, 2))
-        kinds = np.empty(max_iter + 2)
-        raw = np.empty(N_RAW)
-        out = np.empty(N_STATS)
-        sp = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, pts, kinds,
-                                NaturalStopRule(max_iter, max_dist, escape_radius, confine),
-                                RayArgs(seg_mult, fuzz, emission, obstacles), raw)
-        compute_stats(pts, npts, raw, max_iter, seg_mult, out)
-        compute_sequences(pts, npts, kinds, int(raw[RAW_BOUNCES]), max_iter, out, sp)
-        for s in range(N_STATS):
-            stats[j, i, s] = out[s]
-        for p in range(N_POINTS):
-            points[j, i, p, 0] = sp[p, 0]
-            points[j, i, p, 1] = sp[p, 1]
-        status[j, i] = 1
-
-
 @njit(cache=True)
-def scatter_one_buddha_point(counts, x, y, w, h):
+def scatter_one_buddha_point(counts, x, y, window):
     """Scatters one point's weight of 1 into `counts` at its own pixel -
-    cheap, no blur kernel applied here at all. Blur (if any) is applied
+    cheap, no blur kernel applied here at all. `counts` covers the world `window`. Blur (if any) is applied
     once, afterward, to the whole accumulated counts array - see
     blur_counts_image - rather than per point, which is both mathematically
     identical (convolution distributes over sums) and vastly cheaper."""
-    col = int(floor((x + 1.0) * (w / 2.0)))
-    row = int(floor((1.0 - y) * (h / 2.0)))
+    h, w = counts.shape
+    col = int(floor((x - window.x_start) * (w / (window.x_stop - window.x_start))))
+    row = int(floor((window.y_stop - y) * (h / (window.y_stop - window.y_start))))
     if 0 <= row < h and 0 <= col < w:
         counts[row, col] += 1
 
 
 @njit(cache=True)
-def scatter_trace_points(counts, pts, kinds, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
+def scatter_trace_points(counts, window, pts, kinds, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
                          want_prog_mid):
-    """Scatter into `counts` (in place) the points of one traced ray that the four "multi-point" Buddha options
-    ask for: every self bounce, every segment midpoint, the progressive means of the bounce points and of the
-    segment midpoints. (pts, kinds, npts, nb: as trace_path made them.)"""
-    h, w = counts.shape
+    """Scatter into `counts` (in place; it covers the world `window`) the points of one traced ray that the four
+    "multi-point" Buddha options ask for: every self bounce, every segment midpoint, the progressive means of the
+    bounce points and of the segment midpoints. (pts, kinds, npts, nb: as trace_path made them.)"""
     if want_all_self:
         for k in range(1, nb + 1):
             if in_sequence(SEQ_SELF, k, kinds, nb, npts):
-                scatter_one_buddha_point(counts, pts[k, 0], pts[k, 1], w, h)
+                scatter_one_buddha_point(counts, pts[k, 0], pts[k, 1], window)
 
     if want_all_mid:
         for k in range(npts - 1):
             mx = 0.5 * (pts[k, 0] + pts[k + 1, 0])
             my = 0.5 * (pts[k, 1] + pts[k + 1, 1])
-            scatter_one_buddha_point(counts, mx, my, w, h)
+            scatter_one_buddha_point(counts, mx, my, window)
 
     if want_prog_bounce and nb >= 2:
         sx = pts[1, 0] + pts[2, 0]
         sy = pts[1, 1] + pts[2, 1]
-        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
+        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, window)
         for c in range(3, nb + 1):
             sx += pts[c, 0]
             sy += pts[c, 1]
-            scatter_one_buddha_point(counts, sx / c, sy / c, w, h)
+            scatter_one_buddha_point(counts, sx / c, sy / c, window)
 
     if want_prog_mid and npts - 1 >= 2:
         sx = 0.5 * (pts[0, 0] + pts[1, 0]) + 0.5 * (pts[1, 0] + pts[2, 0])
         sy = 0.5 * (pts[0, 1] + pts[1, 1]) + 0.5 * (pts[1, 1] + pts[2, 1])
-        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, w, h)
+        scatter_one_buddha_point(counts, sx / 2.0, sy / 2.0, window)
         cnt = 2
         for k in range(2, npts - 1):
             sx += 0.5 * (pts[k, 0] + pts[k + 1, 0])
             sy += 0.5 * (pts[k, 1] + pts[k + 1, 1])
             cnt += 1
-            scatter_one_buddha_point(counts, sx / cnt, sy / cnt, w, h)
+            scatter_one_buddha_point(counts, sx / cnt, sy / cnt, window)
 
 
 @njit(cache=True)
-def scatter_from_seeds(row0, row1, x_start, x_stop, y_start, y_stop, stop, ray, seed_base, slots, end_terms,
+def scatter_from_seeds(row0, row1, zone, window, stop, ray, seed_base, slots, end_terms,
                        want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts):
     """
     Buddha scattering from a grid of seed points. The grid has the shape of `counts` (h rows of w seeds) and is
-    laid over the zone x_start..x_stop by y_start..y_stop at regular spacings, so its size depends on the output's
-    resolution and not on the zone: a seed is the centre of its cell, columns going from x_start to x_stop and
-    rows from y_stop (the top row) down to y_start. The zone (-1, 1, -1, 1) is exactly the pixels of an image
-    covering the world, which is what the "camera pixels" seeding uses. For rows [row0, row1), every seed that
-    fires a ray (see emits_ray) is traced, with the same fuzzing seed formula as render_rows / render_rows_wh, and
+    laid over the Window `zone` at regular spacings, so its size depends on the output's resolution and not on the
+    zone: a seed is the centre of its cell, columns going from zone.x_start to zone.x_stop and rows from
+    zone.y_stop (the top row) down to zone.y_start. `counts` itself covers the world `window` (the image's), which
+    is where a scattered point is counted; a zone equal to the window is exactly the pixels of the image, which is
+    what the "camera pixels" seeding uses. For rows [row0, row1), every seed that
+    fires a ray (see emits_ray) is traced, with the same fuzzing seed formula as render_rows_wh, and
     scattered into `counts` (in place; no blur here, it is applied once afterwards): the stored point of each slot
     in `slots` (see POINT_SLOT; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
     an int64 array), and whatever the four multi options asked for (see scatter_trace_points).
@@ -2403,8 +2359,8 @@ def scatter_from_seeds(row0, row1, x_start, x_stop, y_start, y_stop, stop, ray, 
     obstacles = ray.obstacles
     fuzzing = ray.fuzz.enabled
     h, w = counts.shape
-    step_x = (x_stop - x_start) / w
-    step_y = (y_stop - y_start) / h
+    step_x = (zone.x_stop - zone.x_start) / w
+    step_y = (zone.y_stop - zone.y_start) / h
     pts = np.empty((max_iter + 2, 2))
     kinds = np.empty(max_iter + 2)
     raw = np.empty(N_RAW)
@@ -2413,8 +2369,8 @@ def scatter_from_seeds(row0, row1, x_start, x_stop, y_start, y_stop, stop, ray, 
     stored = len(slots) > 0 or len(end_terms) > 0
     for j in range(row0, row1):
         for i in range(w):
-            x = x_start + (i + 0.5) * step_x
-            y = y_stop - (j + 0.5) * step_y
+            x = zone.x_start + (i + 0.5) * step_x
+            y = zone.y_stop - (j + 0.5) * step_y
             if not emits_ray(x, y, obstacles):
                 continue
             if fuzzing:
@@ -2424,60 +2380,69 @@ def scatter_from_seeds(row0, row1, x_start, x_stop, y_start, y_stop, stop, ray, 
             if stored:
                 compute_sequences(pts, npts, kinds, nb, max_iter, out, sp)
                 for slot in slots:
-                    scatter_one_buddha_point(counts, sp[slot, 0], sp[slot, 1], w, h)
+                    scatter_one_buddha_point(counts, sp[slot, 0], sp[slot, 1], window)
                 for t in end_terms:
                     if term == t:
-                        scatter_one_buddha_point(counts, sp[POINT_END, 0], sp[POINT_END, 1], w, h)
-            scatter_trace_points(counts, pts, kinds, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
-                                 want_prog_mid)
+                        scatter_one_buddha_point(counts, sp[POINT_END, 0], sp[POINT_END, 1], window)
+            scatter_trace_points(counts, window, pts, kinds, npts, nb, want_all_self, want_all_mid,
+                                 want_prog_bounce, want_prog_mid)
 
 
 @njit(cache=True)
-def scatter_multi_buddha(row0, row1, stop, ray, seed_base, want_all_self, want_all_mid,
+def scatter_multi_buddha(row0, row1, window, stop, ray, seed_base, want_all_self, want_all_mid,
                          want_prog_bounce, want_prog_mid, counts):
     """
     For rows [row0, row1), re-trace every ray that actually fires (starting at the centre of each pixel of
-    `counts`' own grid, which covers the world [-1, 1] on both axes, and using the exact same seed formula as
-    render_rows / render_rows_wh, so this reproduces the identical rays already shown, at whatever resolution that
+    `counts`' own grid, which covers the world `window`, and using the exact same seed formula as
+    render_rows_wh, so this reproduces the identical rays already shown, at whatever resolution that
     is) and scatter into `counts` the points of the "multi-point" Buddha options asked for - scatter_from_seeds
-    over the zone (-1, 1, -1, 1) with no stored points. `stop` is a NaturalStopRule and `ray` a RayArgs
+    with the window as its zone and no stored points. `stop` is a NaturalStopRule and `ray` a RayArgs
     (see trace_path).
     """
     no_slots = np.empty(0, dtype=np.int64)
-    scatter_from_seeds(row0, row1, -1.0, 1.0, -1.0, 1.0, stop, ray, seed_base, no_slots, no_slots,
+    scatter_from_seeds(row0, row1, window, window, stop, ray, seed_base, no_slots, no_slots,
                        want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts)
 
 
+# A numba limitation shapes the parallel driver below: a parallel function cannot take a tuple that contains
+# other tuples (a NaturalStopRule holds a ConfineRule, a RayArgs holds a FuzzRule, an EmissionRule and an
+# ObstacleArrays) and use it inside its prange loop - compiling fails with "'str' object has no attribute 'loc'" (or
+# "scalar type ... given for non scalar argument") - but a parallel function that is given their one-level pieces
+# can put the whole tuples together again INSIDE its loop (verified). So render_rows_wh takes the
+# rules whole, like trace_path, and hands their pieces to _render_rows_wh_parallel, which
+# rebuilds them for each pixel's trace_path. Any other engine's driver has the same constraint.
 @njit(nogil=True, cache=True)
-def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, stop, ray, seed_base):
+def render_rows_wh(stats, points, status, row0, row1, out_w, out_h, window, stop, ray, seed_base):
     """
-    Like render_rows, but for an arbitrary out_w x out_h output grid (used for
-    video frames) instead of the fixed SIZE x SIZE main image. The grid still
-    covers the same [-1, 1] world extent on both axes, so a non-square output
-    stretches the shape to fit; the "confined to less than a pixel" physics
-    stays tied to the main image's fixed PIXEL size, not to out_w/out_h, so a
-    ray behaves identically regardless of the resolution it's sampled at.
-    `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
+    Simulate rows [row0, row1) of an out_w x out_h output grid (the preview image, an exported image, a video frame,
+    a thumbnail). For each pixel that actually fires a ray, fill in stats[j, i, :] and points[j, i, :, :] and set
+    status[j, i] = 1; a ray starts at its pixel's centre. The grid covers the world `window` (a Window), so an
+    output whose shape differs from the window's stretches the picture to fit; the "confined to less than a pixel"
+    physics is in world units (the confinement threshold), not in the output's pixels, so a ray behaves identically
+    whatever resolution or window it's sampled with. When fuzzing is enabled, each pixel's ray gets its own
+    reproducible seed. `stop` is a NaturalStopRule and `ray` a RayArgs (see trace_path).
     """
-    _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, stop.max_iter,
+    _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, window, stop.max_iter,
                              stop.max_dist, stop.escape_radius, stop.confine, ray.seg_mult,
                              ray.fuzz, ray.emission, ray.obstacles, seed_base)
 
 
 @njit(nogil=True, parallel=True, cache=True)
-def _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, max_iter, max_dist,
+def _render_rows_wh_parallel(stats, points, status, row0, row1, out_w, out_h, window, max_iter, max_dist,
                              escape_radius, confine, seg_mult, fuzz, emission, obstacles,
                              seed_base):
     """render_rows_wh with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
-    step_x = 2.0 / out_w
-    step_y = 2.0 / out_h
+    x_start = window.x_start
+    y_stop = window.y_stop
+    step_x = (window.x_stop - window.x_start) / out_w
+    step_y = (window.y_stop - window.y_start) / out_h
     n = (row1 - row0) * out_w
     for idx in prange(n):
         j = row0 + idx // out_w
         i = idx % out_w
-        x = (i + 0.5) * step_x - 1.0
-        y = 1.0 - (j + 0.5) * step_y
+        x = x_start + (i + 0.5) * step_x
+        y = y_stop - (j + 0.5) * step_y
         if not emits_ray(x, y, obstacles):
             continue
         if fuzzing:

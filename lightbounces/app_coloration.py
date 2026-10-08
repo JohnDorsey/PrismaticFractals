@@ -1,4 +1,4 @@
-"""Colorations and the Coloration tab: the list of colorations with thumbnails, creating/duplicating/deleting/selecting a coloration, the colour editor, and the Buddha blur tab (a change recolours at once)."""
+"""Colorations and the Colorations tab: the list of colorations with thumbnails, creating/duplicating/deleting/selecting a coloration, the colour editor, and the Buddha blur tab (a change recolours at once)."""
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
@@ -8,6 +8,7 @@ from .constants import (
     SELECTED_OUTLINE_PX, THUMB_SIZE
 )
 from .image_io import encode_png_bytes
+from .widgets import ThumbnailStrip
 from .parsing import parse_target_coordinate
 from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
@@ -20,7 +21,7 @@ from .colorations import MODES, MODE_NAMES, ColorationConfig
 
 
 class ColorationMixin:
-    # ---- colorations (Coloration tab) -------------------------------------------- #
+    # ---- colorations (Colorations tab) -------------------------------------------- #
     def coloration_by_id(self, coloration_id):
         """The live ColorationConfig for one coloration id, or None if it doesn't exist."""
         for v in self.colorations:
@@ -30,7 +31,7 @@ class ColorationMixin:
 
     def live_coloration(self):
         """The coloration the top-left preview shows: whichever coloration is currently
-        selected in the Coloration tab. Selecting a coloration always shows it
+        selected in the Colorations tab. Selecting a coloration always shows it
         here - there's no separate "focus" step."""
         return self.selected_coloration_obj()
 
@@ -125,10 +126,10 @@ class ColorationMixin:
 
     def refresh_color_controls_for_selected_coloration(self):
         """Populate every Color mapping control from the selected coloration (or
-        leave them as-is if the Coloration tab hasn't been built yet, or no
+        leave them as-is if the Colorations tab hasn't been built yet, or no
         coloration is selected). Mirrors refresh_obstacle_editor."""
         if not hasattr(self, "mode_var"):
-            return                                  # Coloration tab not built yet
+            return                                  # Colorations tab not built yet
         coloration = self.selected_coloration_obj()
         if coloration is None:
             return
@@ -154,70 +155,26 @@ class ColorationMixin:
 
     def build_colorations_list(self, parent):
         """New/Dupe/Del stacked to the left of a horizontally-scrolling strip
-        of coloration thumbnails - visually the Obstacles tab's list turned
-        sideways, since (unlike obstacles) colorations are always shown in a fixed
-        left-to-right order in an exported image, so browsing them side by
-        side mirrors how they'll actually be laid out."""
-        top_row = ttk.Frame(parent)
-        top_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
-        top_row.columnconfigure(1, weight=1)
-
-        btn_col = ttk.Frame(top_row)
-        btn_col.grid(row=0, column=0, sticky="n", padx=(0, 6))
-        ttk.Button(btn_col, text="New", width=6, command=self.new_coloration).pack(
-            fill="x", pady=(0, 3))
-        ttk.Button(btn_col, text="Dupe", width=6, command=self.duplicate_coloration).pack(
-            fill="x", pady=(0, 3))
-        self.coloration_del_btn = ttk.Button(btn_col, text="Del", width=6, command=self.delete_coloration)
-        self.coloration_del_btn.pack(fill="x")
-
-        list_container = ttk.Frame(top_row)
-        list_container.grid(row=0, column=1, sticky="ew")
-        list_container.columnconfigure(0, weight=1)
-        coloration_canvas = tk.Canvas(list_container, height=THUMB_SIZE + 34, highlightthickness=0)
-        coloration_hsb = ttk.Scrollbar(list_container, orient="horizontal",
-                                 command=coloration_canvas.xview)
-        coloration_canvas.configure(xscrollcommand=coloration_hsb.set)
-        coloration_canvas.grid(row=0, column=0, sticky="ew")
-        coloration_hsb.grid(row=1, column=0, sticky="ew")
-        self.coloration_list_frame = ttk.Frame(coloration_canvas)
-        coloration_canvas.create_window((0, 0), window=self.coloration_list_frame, anchor="nw")
-        self.coloration_list_frame.bind(
-            "<Configure>",
-            lambda _e: coloration_canvas.configure(scrollregion=coloration_canvas.bbox("all")))
-        # (unlike the vertical obstacle list, the inner frame's WIDTH is never
-        # pinned to the canvas's - it needs to grow past it, since scrolling
-        # sideways to reach it is the whole point)
-
+        of coloration thumbnails (a ThumbnailStrip, which the Framing tab's list is too) - visually the Obstacles
+        tab's list turned sideways, since (unlike obstacles) colorations are always shown in a fixed
+        left-to-right order in an exported image, so browsing them side by side mirrors how they'll actually
+        be laid out."""
+        self.coloration_strip = ThumbnailStrip(
+            parent, THUMB_SIZE, self.small_font, SELECTED_OUTLINE, SELECTED_OUTLINE_PX, self.new_coloration,
+            self.duplicate_coloration, self.delete_coloration, self.select_coloration)
+        self.coloration_strip.frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
         self.rebuild_coloration_list()
 
     def rebuild_coloration_list(self):
-        for w in self.coloration_list_frame.winfo_children():
-            w.destroy()
-        for idx, coloration_id in enumerate(self.all_coloration_ids()):
-            selected = coloration_id == self.selected_coloration_id
-            cell = tk.Frame(self.coloration_list_frame,
-                            highlightthickness=SELECTED_OUTLINE_PX if selected else 0,
-                            highlightbackground=SELECTED_OUTLINE,
-                            highlightcolor=SELECTED_OUTLINE)
-            cell.grid(row=0, column=idx, sticky="n", padx=2, pady=1)
-
-            coloration_obj = self.coloration_by_id(coloration_id)
-            thumb = tk.PhotoImage(
-                data=encode_png_bytes(self.render_coloration_thumbnail(coloration_obj, THUMB_SIZE)),
-                format="png")
-            thumb_lbl = tk.Label(cell, image=thumb, bd=0, cursor="hand2")
-            thumb_lbl.image = thumb              # keep a reference alive
-            thumb_lbl.grid(row=0, column=0, padx=2, pady=(2, 0))
-            thumb_lbl.bind("<Button-1>", lambda _e, vid=coloration_id: self.select_coloration(vid))
-
-            lbl = tk.Label(cell, text=f"coloration {idx}", cursor="hand2", font=self.small_font)
-            lbl.grid(row=1, column=0, pady=(0, 2))
-            lbl.bind("<Button-1>", lambda _e, vid=coloration_id: self.select_coloration(vid))
-
-        if hasattr(self, "coloration_del_btn"):
-            self.coloration_del_btn.state(
-                ["disabled"] if len(self.colorations) <= 1 else ["!disabled"])
+        """Show every coloration's thumbnail (of framing 0), the selected one framed. The framings' list is rebuilt
+        too: its thumbnails are coloured by coloration 0, and every change that comes here may be one of it."""
+        items = [(coloration_id, f"coloration {idx}",
+                  encode_png_bytes(self.render_coloration_thumbnail(self.coloration_by_id(coloration_id), THUMB_SIZE)),
+                  coloration_id == self.selected_coloration_id)
+                 for idx, coloration_id in enumerate(self.all_coloration_ids())]
+        self.coloration_strip.rebuild(items)
+        if hasattr(self, "framing_strip"):
+            self.rebuild_framing_list()
 
     def build_color_controls(self, parent):
         """The colorations list (New/Dupe/Del + a horizontal strip of coloration
@@ -525,7 +482,7 @@ class ColorationMixin:
         point-scattering blur - one setting for the whole image (a
         BuddhaBlurSettings, beside the ray simulation's settings and not part of
         them), not a per-coloration/per-channel one, so it lives in its own tab rather
-        than inside the Coloration tab's per-channel Buddha controls. A change
+        than inside the Colorations tab's per-channel Buddha controls. A change
         recolors the image at once (the blur is applied to the stored scatter
         counts, never to the simulation, so no Start is needed)."""
         rf = ttk.LabelFrame(parent, text="Radius")

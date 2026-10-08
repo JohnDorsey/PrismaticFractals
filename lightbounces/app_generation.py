@@ -2,13 +2,13 @@
 import time
 import numpy as np
 from .constants import (
-    BACKGROUND, COMPUTE_FRACTION, DEFAULT_HEIGHT, DEFAULT_ROTATION, DEFAULT_SEGMENT_MULT,
+    COMPUTE_FRACTION, DEFAULT_HEIGHT, DEFAULT_ROTATION, DEFAULT_SEGMENT_MULT,
     DEFAULT_ESCAPE_RADIUS, DEFAULT_WIDTH, DIST_LIMIT_MAX, OBST_BOUND_LEN, WARM_ITER
 )
 from .geometry import ellipse_bound
 from .kernels import (
-    ObstacleArrays, SHAPE_ELLIPSE, SIZE, compute_sequences, compute_stats, emits_ray,
-    inside_boundary, render_rows, trace_path
+    ObstacleArrays, SHAPE_ELLIPSE, compute_sequences, compute_stats, emits_ray,
+    inside_boundary, render_rows_wh, trace_path
 )
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
@@ -39,7 +39,8 @@ class GenerationMixin:
         trace_path(0.0, 0.0, self.hover_pts, self.hover_kinds, stop, ray, self.hover_raw)
         compute_stats(self.hover_pts, 4, self.hover_raw, WARM_ITER, DEFAULT_SEGMENT_MULT, self.hover_vec)
         compute_sequences(self.hover_pts, 4, self.hover_kinds, 0, WARM_ITER, self.hover_vec, self.hover_sp)
-        render_rows(self.stats, self.points, self.status, 0, 1, stop, ray, 0)
+        render_rows_wh(self.stats, self.points, self.status, 0, 1, self.img_w, self.img_h, self.image_window,
+                       stop, ray, 0)
         self.stats[:] = 0
         self.points[:] = 0
         self.status[:] = 0
@@ -66,14 +67,20 @@ class GenerationMixin:
         self.gen_obstacles_sig = obstacles_signature(self.obstacles)
         self.gen_obstacles_by_id = {o.id: o.state() for o in self.obstacles}
         self.gen_obstacle_snapshots = [o.snapshot() for o in self.obstacles]
+        self.begin_generation()
+
+    def begin_generation(self):
+        """Generate, from its first row, an image of the figure this program holds (generated_settings,
+        generated_natural_stop, gen_stop and gen_ray: set by start, which is what makes a new figure) as seen by the
+        selected framing - which is also what a change of framing does, with the same figure."""
+        if self.tick_id is not None:
+            self.root.after_cancel(self.tick_id)
+            self.tick_id = None
         self.canvas.delete("pending")
-        self.stats[:] = 0
-        self.points[:] = 0
-        self.status[:] = 0
-        self.img[:] = BACKGROUND
-        self.rows_done = 0
+        self.set_image_framing(self.selected_framing_snapshot())    # (also clears everything computed so far)
         self.batch_rows = 1
         self.rebuild_buddha_counts()
+        self.thumb_sims = {}
         self.coloration_thumb_cache = {}   # every non-live coloration's cached thumbnail is for the
                                      # previous generation's data - none of it applies here
         self.done = False
@@ -95,11 +102,11 @@ class GenerationMixin:
         rows_before = self.rows_done
         g = self.settings_of_current_image()
 
-        while self.rows_done < SIZE:
+        while self.rows_done < self.img_h:
             t0 = time.perf_counter()
-            row1 = min(self.rows_done + self.batch_rows, SIZE)
-            render_rows(self.stats, self.points, self.status, self.rows_done, row1,
-                        self.gen_stop, self.gen_ray, g.fuzz.seed)
+            row1 = min(self.rows_done + self.batch_rows, self.img_h)
+            render_rows_wh(self.stats, self.points, self.status, self.rows_done, row1, self.img_w, self.img_h,
+                           self.image_window, self.gen_stop, self.gen_ray, g.fuzz.seed)
             self.rows_done = row1
             now = time.perf_counter()
 
@@ -120,7 +127,7 @@ class GenerationMixin:
         self.elapsed = time.perf_counter() - self.start_time
         self.draw()
 
-        if self.rows_done >= SIZE:
+        if self.rows_done >= self.img_h:
             self.on_finished()
             return
 
@@ -142,7 +149,7 @@ class GenerationMixin:
             self.update_preview(*self.pinned_px)
         self.rebuild_coloration_list()                   # every coloration's thumbnail reflects the
                                                     # simulation that just finished, even
-                                                    # if the Coloration tab isn't showing
+                                                    # if the Colorations tab isn't showing
 
     def settings_of_current_image(self):
         """The RaySettings the current image was generated with (the defaults, for

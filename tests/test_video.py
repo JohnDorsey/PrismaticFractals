@@ -189,6 +189,7 @@ def _fake_save_app(fmt, lossless, quality):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.save_source_var = _StubVar(m.SAVE_SOURCE_OPTIONS[0])
     app.save_format_var = _StubVar(fmt)
     app.save_jxl_mode_var = _StubVar("Lossless" if lossless else "Lossy")

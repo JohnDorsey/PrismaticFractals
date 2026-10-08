@@ -13,10 +13,10 @@ from tkinter import ttk
 import numpy as np
 
 
-from .image_io import make_grid
-from .kernels import N_POINTS, N_RAW, N_STATS, ObstacleArrays, SIZE
+from .framings import FramingConfig, snapshot_framing
+from .kernels import N_POINTS, N_RAW, N_STATS, ObstacleArrays
 from .constants import (
-    BACKGROUND, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
+    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_WINDOW, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_FUZZ_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
@@ -31,6 +31,7 @@ from .metrics import make_mapping
 from .colorations import ColorationConfig
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
+from .app_framing import FramingMixin
 from .app_render import RenderMixin
 from .app_video import VideoMixin
 from .app_timeline import TimelineMixin
@@ -47,7 +48,7 @@ from .app_layout import LayoutMixin
 # --------------------------------------------------------------------------- #
 # GUI
 # --------------------------------------------------------------------------- #
-class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, DebugMixin, GenerationMixin,
+class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, TimelineMixin, DebugMixin, GenerationMixin,
           PreviewMixin, RecolorMixin, ObstaclesMixin, ColorationMixin, ControlsMixin, LayoutMixin):
     PERIOD = 1.0 / REFRESH_HZ
 
@@ -99,11 +100,11 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
         self._coloration_counter = 1
         self.selected_coloration_id = 0         # which coloration is selected - both for editing in
-                                           # the Coloration tab AND shown in the preview
+                                           # the Colorations tab AND shown in the preview
         self.mapping = make_mapping(self.live_coloration().kinds, self.live_coloration().point_metric,
                                     self.live_coloration().other_metric, self.live_coloration().chan_src,
                                     self.live_coloration().constant_choice)
-        self.buddha_counts = [None, None, None]   # per channel of the live coloration: (SIZE, SIZE)
+        self.buddha_counts = [None, None, None]   # per channel of the live coloration: (img_h, img_w)
                                                    # float64 RAW (unblurred) visit counts,
                                                    # or None while unused/before Start
         self.buddha_counts_blurred = [None, None, None]   # per channel: the lazily-computed,
@@ -168,23 +169,19 @@ class App(ProjectsMixin, ExportMixin, RenderMixin, VideoMixin, TimelineMixin, De
         self.gen_obstacles_by_id = {}      # obstacle id -> frozen settings, for the
                                            # dashed "changed since last generation" guide
 
-        # ---- per-pixel data ----
-        self.stats = np.zeros((SIZE, SIZE, N_STATS), dtype=np.float32)
-        self.points = np.zeros((SIZE, SIZE, N_POINTS, 2), dtype=np.float32)
-        self.status = np.zeros((SIZE, SIZE), dtype=np.uint8)   # 0 = not computed yet
+        # ---- framings ---- (the camera: where it is and how far it sees; the selected one is what the image on
+        # screen and every export are of, and the first one, "framing 0", is what every coloration's thumbnail shows)
+        self.framings = [FramingConfig(0)]       # list[FramingConfig], in list order
+        self._framing_counter = 1
+        self.selected_framing_id = 0
+        self.framings_loaded = False             # a keyframe just set framings' numbers (see on_framings_loaded)
+        self.thumb_sims = {}                     # (framing numbers, size) -> a small simulation of the generated
+                                                 # figure as that framing sees it, for thumbnails (see
+                                                 # simulated_thumbnail_data); cleared by every new generation
 
-        # ---- image buffers ----
-        self.img = np.empty((SIZE, SIZE, 3), dtype=np.uint8)
-        self.img[:] = BACKGROUND
-        self.frame = np.empty_like(self.img)      # img + white outline; this is what
-                                                   # gets exported/saved, so it must never
-                                                   # hold a preview-only decoration
-        self.display_frame = np.empty_like(self.img)   # self.frame + the coloration-name
-                                                        # overlay; only ever pushed to
-                                                        # self.photo, never written to disk
-
-        # World coordinates of every pixel centre (also each ray's start point)
-        self.gx, self.gy = make_grid(SIZE, SIZE)
+        # ---- the image on screen ---- its framing (a FramingSnapshot), size in pixels, the world rectangle it
+        # covers, and the per-pixel data and image buffers (see set_image_framing)
+        self.set_image_framing(snapshot_framing(self.framings[0]))
 
         self.build_image_quadrant()
         self.build_controls_quadrant()

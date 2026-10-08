@@ -192,6 +192,7 @@ def test_render_text_line_produces_legible_glyphs_for_every_digit():
 
 def test_coloration_name_overlay_draws_in_the_bottom_left_corner_only():
     app = type("FakeApp", (), {})()
+    _give_image_geometry(app)
     app.display_frame = np.full((m.SIZE, m.SIZE, 3), 100, dtype=np.uint8)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
     app.selected_coloration_id = 1
@@ -215,6 +216,7 @@ def test_coloration_name_overlay_draws_in_the_bottom_left_corner_only():
 
 def test_coloration_name_overlay_reflects_the_live_colorations_position():
     app = type("FakeApp", (), {})()
+    _give_image_geometry(app)
     app.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1), m.ColorationConfig(2)]
     app.selected_coloration_id = 2
@@ -228,6 +230,7 @@ def test_coloration_name_overlay_reflects_the_live_colorations_position():
     text_pixels_with_id_2 = (app.display_frame == m.COLORATION_NAME_OVERLAY_FG).all(axis=-1).sum()
 
     app2 = type("FakeApp", (), {})()
+    _give_image_geometry(app2)
     app2.display_frame = np.zeros((m.SIZE, m.SIZE, 3), dtype=np.uint8)
     app2.colorations = app.colorations
     app2.selected_coloration_id = 0
@@ -252,6 +255,7 @@ def test_draw_never_lets_the_coloration_name_overlay_leak_into_the_export_buffer
     ending up in exported files. self.frame must stay untouched by the
     overlay; only self.display_frame (never written to disk) should carry it."""
     app = type("FakeApp", (), {})()
+    _give_image_geometry(app)
     app.img = np.full((m.SIZE, m.SIZE, 3), 50, dtype=np.uint8)
     app.frame = np.empty_like(app.img)
     app.display_frame = np.empty_like(app.img)

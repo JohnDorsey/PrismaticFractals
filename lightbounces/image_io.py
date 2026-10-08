@@ -391,12 +391,15 @@ def downsample_image(rgb, factor, method):
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
-def make_grid(w, h):
-    """World-coordinate (x, y) grids for a w x h array of pixel centres,
-    spanning [-1, 1] on both axes (the same world extent regardless of w, h)."""
-    cx = (np.arange(w) + 0.5) * (2.0 / w) - 1.0
-    cy = (np.arange(h) + 0.5) * (2.0 / h) - 1.0
-    return np.meshgrid(cx, -cy)
+def make_grid(w, h, window=None):
+    """World-coordinate (x, y) grids for a w x h array of pixel centres covering `window` (anything with x_start,
+    x_stop, y_start and y_stop; the whole world [-1, 1] on both axes if None), the same extent regardless of w, h.
+    The same arithmetic as the kernels' (render_rows_wh), so a grid point is exactly where its pixel's ray starts."""
+    x_start, x_stop, y_start, y_stop = ((-1.0, 1.0, -1.0, 1.0) if window is None
+                                        else (window.x_start, window.x_stop, window.y_start, window.y_stop))
+    cx = x_start + (np.arange(w) + 0.5) * ((x_stop - x_start) / w)
+    cy = y_stop - (np.arange(h) + 0.5) * ((y_stop - y_start) / h)
+    return np.meshgrid(cx, cy)
 
 
 def lerp_color(c1, c2, t):

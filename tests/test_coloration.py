@@ -401,6 +401,7 @@ def _fake_blur_refresh_app(buddha_channel=True):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.calls, app.pending = [], []
     app.blur_job = None
     app.root = type("Root", (), {"after_idle": lambda self, fn: app.pending.append(fn) or "job"})()
@@ -704,11 +705,12 @@ def test_delete_coloration_recolors_the_preview_to_match_the_new_selection():
 
 def test_on_finished_refreshes_the_colorations_list():
     """The thumbnails must reflect a just-finished generation even if the
-    Coloration tab isn't the active notebook tab - rebuild_coloration_list is a
+    Colorations tab isn't the active notebook tab - rebuild_coloration_list is a
     plain method call, not gated on tab visibility."""
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.tick_id = "irrelevant"
     app.update_buttons = lambda: None
     app.pinned_px = None
@@ -789,6 +791,7 @@ def _fake_seeding_app(camera=True, **zone):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     defaults = dict(x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
     defaults.update(zone)
     app.last_buddha_seed = dict(defaults)
@@ -890,7 +893,7 @@ def _buddha_image(app, points_choice, seeds, zone_scene=None):
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, stop, ray, 0)
     v = m.ColorationConfig(0)
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = _buddha_choice(*points_choice)
@@ -924,12 +927,14 @@ def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_ho
     stop, ray = _stop(40), _ray(m.build_obstacle_arrays(_start_scene()))
     for zone, expected_rows in ((whole, (0, n)), (small, (n // 4, 3 * n // 4))):
         counts = np.zeros((n, n))
-        m.scatter_from_seeds(0, n, zone.x_start, zone.x_stop, zone.y_start, zone.y_stop, stop, ray, 0,
+        m.scatter_from_seeds(0, n, m.Window(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), m.WINDOW_DEFAULT,
+                             stop, ray, 0,
                              np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                              False, False, False, False, counts)
         assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
     full = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, small.x_start, small.x_stop, small.y_start, small.y_stop, stop, ray, 0,
+    m.scatter_from_seeds(0, n, m.Window(small.x_start, small.x_stop, small.y_start, small.y_stop), m.WINDOW_DEFAULT,
+                         stop, ray, 0,
                          np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                          False, False, False, False, full)
     assert full.sum() == n * n, "all n x n seeds of the shrunken zone fire, and all are scattered"

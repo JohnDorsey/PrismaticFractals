@@ -1,6 +1,7 @@
 """The program's fixed numbers: allowed ranges, defaults, colours and sizes of the user interface, and the lookup
 tables built from them. None of these is read by a numba kernel (those are in kernels.py, see its docstring); a
 value that is both needed here and by a kernel lives in kernels.py and is imported from there."""
+import math
 from .kernels import (
     CONFINE_BOX, EMIT_UP, KIND_BOUNDARY, KIND_DISTCUT, KIND_ESCAPED, KIND_OBSTACLE_TERM,
     KIND_SELF, KIND_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
@@ -45,6 +46,10 @@ DEFAULT_BUDDHA_SEED_X_STOP = 1.0
 DEFAULT_BUDDHA_SEED_Y_START = -1.0
 DEFAULT_BUDDHA_SEED_Y_STOP = 1.0
 SEED_ZONE_OUTLINE = "#a040e0"      # the seeding zone's dashed outline on the preview (purple)
+DEFAULT_FRAMING_X = 0.0            # a framing: where the camera is (the middle of what it sees) ...
+DEFAULT_FRAMING_Y = 0.0
+DEFAULT_FRAMING_DIAGONAL = 2.0 * math.sqrt(2.0)   # ... how far across it sees (world units): the whole world at aspect 1
+DEFAULT_FRAMING_ASPECT = 1.0       # ... and the shape of what it sees (width / height)
 DEFAULT_BUDDHA_BLUR_RADIUS = 0.0     # no blur - exactly the pre-blur single-pixel behavior
 DEFAULT_BUDDHA_BLUR_TYPE = BUDDHA_BLUR_GAUSSIAN
 BUDDHA_BLUR_GAUSSIAN_TRUNCATE = 3.0   # gaussian is truncated past this many standard

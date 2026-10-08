@@ -10,17 +10,16 @@ from .constants import (
 )
 from .kernels import (
     N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, scatter_from_seeds
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, Window, scatter_from_seeds
 )
 
 
 def world_radius_to_pixels(radius_control, out_w, out_h):
     """The blur radius control's value -> a radius in pixels for an out_w x
-    out_h output. The control is a multiple of the world view's smallest
-    dimension (always 2.0 units on both axes here), and pixels-per-unit is
-    min(out_w, out_h) / 2.0 for a same-scale (never-distorted) circular
-    blur footprint - the 2.0s cancel, leaving radius_px = radius_control *
-    min(out_w, out_h)."""
+    out_h output. The control is a multiple of the output's smallest
+    dimension (the framing's whole picture, whatever world it shows), which for
+    a same-scale (never-distorted) circular blur footprint is
+    radius_px = radius_control * min(out_w, out_h)."""
     return radius_control * min(out_w, out_h)
 
 
@@ -367,11 +366,12 @@ BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(per
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 
-def scatter_seeded_buddha(counts, seeds, row0, row1, chosen, stop, ray, seed_base):
-    """Scatter, into `counts` (in place), the Buddha points `chosen` (a channel's tuple of flags, one per entry of
-    BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a BuddhaSeedSettings: its zone,
-    laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen option - the stored points
-    too - is made from those rays, not from the image's own. Returns whether anything was chosen."""
+def scatter_seeded_buddha(counts, window, seeds, row0, row1, chosen, stop, ray, seed_base):
+    """Scatter, into `counts` (in place; it covers the world `window`), the Buddha points `chosen` (a channel's tuple
+    of flags, one per entry of BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a
+    BuddhaSeedSettings: its zone, laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen
+    option - the stored points too - is made from those rays, not from the image's own. Returns whether anything
+    was chosen."""
     slots, end_terms = [], []
     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
                   BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
@@ -387,7 +387,8 @@ def scatter_seeded_buddha(counts, seeds, row0, row1, chosen, stop, ray, seed_bas
             end_terms.append(term_filter)
     if not (slots or end_terms or any(want_multi.values())):
         return False
-    scatter_from_seeds(row0, row1, seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop, stop, ray, seed_base,
+    scatter_from_seeds(row0, row1, Window(seeds.x_start, seeds.x_stop, seeds.y_start, seeds.y_stop), window,
+                       stop, ray, seed_base,
                        np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
                        want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                        want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)

@@ -1,7 +1,7 @@
-"""Colour mapping on the live image: the Coloration tab's handlers (model, source, metric, points...), the Buddha count buffers and their blur cache, and recolouring rows from the stored per-pixel data."""
+"""Colour mapping on the live image: the Colorations tab's handlers (model, source, metric, points...), the Buddha count buffers and their blur cache, and recolouring rows from the stored per-pixel data."""
 import numpy as np
 from .constants import BACKGROUND, TERM_STAT_VALUE
-from .kernels import N_STATS, SIZE, ST_TERMINATION, scatter_multi_buddha
+from .kernels import N_STATS, ST_TERMINATION, scatter_multi_buddha
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_BRIGHTNESS_VALUES, BUDDHA_COMPRESSION_LABELS,
     BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF, BUDDHA_MULTI_PROG_BOUNCE,
@@ -252,7 +252,8 @@ class RecolorMixin:
         coloration = self.live_coloration()
         if r1 <= r0 or not any(s == CHAN_SRC_BUDDHA for s in coloration.chan_src):
             return
-        h, w = SIZE, SIZE
+        h, w = self.img_h, self.img_w
+        window = self.image_window
         seeds = self.current_buddha_seed_settings()
         fired = self.status[r0:r1] == 1
         if seeds.camera_pixels and not fired.any():
@@ -264,7 +265,7 @@ class RecolorMixin:
             if not seeds.camera_pixels:
                 # seeded from their own grid: every chosen point comes from rays fired there (rows of the grid
                 # correspond to the rows of the image as they are done)
-                if scatter_seeded_buddha(self.buddha_counts[c], seeds, r0, r1, coloration.buddha_points[c],
+                if scatter_seeded_buddha(self.buddha_counts[c], window, seeds, r0, r1, coloration.buddha_points[c],
                                          self.gen_stop, self.gen_ray,
                                          self.settings_of_current_image().fuzz.seed):
                     self.buddha_counts_blurred[c] = None
@@ -287,15 +288,15 @@ class RecolorMixin:
                     continue
                 xs = self.points[r0:r1, :, ref, 0][mask]
                 ys = self.points[r0:r1, :, ref, 1][mask]
-                col = np.floor((xs + 1.0) * (w / 2.0)).astype(np.int64)
-                row = np.floor((1.0 - ys) * (h / 2.0)).astype(np.int64)
+                col = np.floor((xs - window.x_start) * (w / (window.x_stop - window.x_start))).astype(np.int64)
+                row = np.floor((window.y_stop - ys) * (h / (window.y_stop - window.y_start))).astype(np.int64)
                 valid = (col >= 0) & (col < w) & (row >= 0) & (row < h)
                 scatter_points_raw(self.buddha_counts[c], row, col, valid)
                 touched = True
             if any(want_multi.values()):
                 g = self.settings_of_current_image()
                 scatter_multi_buddha(
-                    r0, r1, self.gen_stop, self.gen_ray, g.fuzz.seed,
+                    r0, r1, window, self.gen_stop, self.gen_ray, g.fuzz.seed,
                     want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
                     want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
                     self.buddha_counts[c])
@@ -313,7 +314,7 @@ class RecolorMixin:
             return None
         if self.buddha_counts_blurred[c] is None:
             blur = self.current_blur_settings()
-            radius_px = world_radius_to_pixels(blur.radius, SIZE, SIZE)
+            radius_px = world_radius_to_pixels(blur.radius, self.img_w, self.img_h)
             kernel = build_buddha_blur_kernel(radius_px, blur.type)
             self.buddha_counts_blurred[c] = blur_counts_image(self.buddha_counts[c], kernel)
         return self.buddha_counts_blurred[c]
@@ -325,7 +326,7 @@ class RecolorMixin:
         Buddha mode at all) - the existing counts would otherwise be for the
         wrong selection - and when starting a fresh render."""
         self.buddha_counts = [
-            np.zeros((SIZE, SIZE), dtype=np.float64) if s == CHAN_SRC_BUDDHA else None
+            np.zeros((self.img_h, self.img_w), dtype=np.float64) if s == CHAN_SRC_BUDDHA else None
             for s in self.live_coloration().chan_src]
         self.buddha_counts_blurred = [None] * 3
         self.scatter_buddha_rows(0, self.rows_done)
@@ -382,9 +383,9 @@ class RecolorMixin:
                 if counts is None:
                     v = 0.0
                 else:
-                    col = int(np.floor((x0 + 1.0) * (SIZE / 2.0)))
-                    row = int(np.floor((1.0 - y0) * (SIZE / 2.0)))
-                    if 0 <= row < SIZE and 0 <= col < SIZE:
+                    cx, cy = self.world_to_canvas(x0, y0)
+                    col, row = int(np.floor(cx)), int(np.floor(cy))
+                    if 0 <= row < self.img_h and 0 <= col < self.img_w:
                         mult = BUDDHA_BRIGHTNESS_VALUES[coloration.buddha_brightness[c]]
                         v = float(buddha_compress(counts[row, col], coloration.buddha_compression[c],
                                                   mult))

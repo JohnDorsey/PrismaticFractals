@@ -340,7 +340,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     stats = np.zeros((m.SIZE, m.SIZE, m.N_STATS), dtype=np.float32)
     points = np.zeros((m.SIZE, m.SIZE, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((m.SIZE, m.SIZE), dtype=np.uint8)
-    m.render_rows(stats, points, status, 0, m.SIZE, _stop(8), _ray(arrays), 0)
+    m.render_rows_wh(stats, points, status, 0, m.SIZE, m.SIZE, m.SIZE, m.WINDOW_DEFAULT, _stop(8), _ray(arrays), 0)
     ys, xs = np.nonzero(status)
     wx = (xs + 0.5) * m.PIXEL - 1.0
     wy = 1.0 - (ys + 0.5) * m.PIXEL
@@ -355,7 +355,7 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
 def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.SIZE, m.SIZE))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
-    m.scatter_multi_buddha(250, 252, _stop(8), _ray(m.build_obstacle_arrays([circle])), 0,
+    m.scatter_multi_buddha(250, 252, m.WINDOW_DEFAULT, _stop(8), _ray(m.build_obstacle_arrays([circle])), 0,
                            False, True, False, False, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
@@ -531,7 +531,7 @@ def _render_scene(scene, n):
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
     arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
-    m.render_rows_wh(stats, points, status, 0, n, n, n,
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT,
                      _stop(scene["iters"], scene.get("dist", 0.0)),
                      _ray(arrays, scene.get("seg_mult", 1.0), fuzz), fuzz.seed)
     return stats, points, status
@@ -756,6 +756,7 @@ def _fake_limits_app(window="4", method="Box", threshold="0.00390625"):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_image_geometry(app)
     app.on_limit_var_changed = m.App.on_limit_var_changed.__get__(app)
     app.on_limit_commit = m.App.on_limit_commit.__get__(app)
     app.iter_var, app.dist_var = _StubVar("256"), _StubVar("0")
@@ -1011,7 +1012,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
     up = _emission(UP, offset=0.0)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(1), _ray(arrays, emission=up), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, _stop(1), _ray(arrays, emission=up), 0)
     fired = status == 1
     xs = ((np.arange(n) + 0.5) * (2.0 / n) - 1.0)[None, :].repeat(n, axis=0)
     ys = (1.0 - (np.arange(n) + 0.5) * (2.0 / n))[:, None].repeat(n, axis=1)
@@ -1020,7 +1021,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert np.allclose(ends[..., 0][fired], xs[fired], atol=1e-6), "straight up keeps x"
     assert (ends[..., 1][fired] > ys[fired]).all(), "and goes up"
     toward = _emission(TOWARDS, 0.0, 0.0, 0.0)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(1), _ray(arrays, emission=toward), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, _stop(1), _ray(arrays, emission=toward), 0)
     ends = points[..., m.POINT_END, :]
     fired = status == 1
     start_r = np.hypot(xs, ys)[fired]
@@ -1304,7 +1305,7 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
     totals, densities = {}, {}
     for w in (64, 128, 256):
         counts = np.zeros((w, w))
-        m.scatter_multi_buddha(0, w, _stop(40), _ray(arrays), 0, False, True, False, False, counts)
+        m.scatter_multi_buddha(0, w, m.WINDOW_DEFAULT, _stop(40), _ray(arrays), 0, False, True, False, False, counts)
         gx, gy = m.make_grid(w, w)
         inside = int((np.hypot(gx, gy) < 1.0).sum())
         totals[w], densities[w] = counts.sum(), counts.sum() / inside
@@ -1397,7 +1398,7 @@ def _fired_from_the_pixel_grid(shape, n=24, max_iter=12):
     shape.in_effect = shape.out_effect = m.OBSTACLE_EFFECT_REFLECT
     shape.fire_inside = True
     arrays = m.build_obstacle_arrays([shape])
-    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(max_iter), _ray(arrays), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, _stop(max_iter), _ray(arrays), 0)
     return stats, points, status
 
 
@@ -1504,7 +1505,7 @@ def test_rays_fired_inside_a_closed_sine_flower_never_escape_it():
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(60), _ray(m.build_obstacle_arrays([o])), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, _stop(60), _ray(m.build_obstacle_arrays([o])), 0)
     fired = status > 0
     assert fired.sum() > 1000
     assert not (stats[:, :, m.ST_TERMINATION][fired] == m.TERM_STAT_VALUE[m.TERM_ESCAPED]).any()
@@ -1745,7 +1746,7 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, stop, ray, 0)
     checked = 0
     for j in range(0, n, 2):
         for i in range(0, n, 2):
@@ -1778,7 +1779,7 @@ def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequen
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, _stop(400), _ray(arrays), 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, _stop(400), _ray(arrays), 0)
     fired = status == 1
     perpendicular = fired & (np.abs(stats[..., m.ST_TERMINATION] - m.TERM_STAT_VALUE[m.TERM_PERPENDICULAR]) < 0.01)
     assert perpendicular.sum() > 10, "the scene must include rays that end perpendicularly"
@@ -1816,7 +1817,8 @@ _NO_SLOTS = np.empty(0, dtype=np.int64)
 def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, False), rows=None, fuzz_seed=0):
     stop, ray = _seeding_scene()
     counts = np.zeros((n, n))
-    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], *zone, stop, ray, fuzz_seed,
+    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.Window(*zone), m.WINDOW_DEFAULT, stop, ray,
+                         fuzz_seed,
                          np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, counts)
     return counts
 
@@ -1828,7 +1830,7 @@ def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_coveri
     n = 24
     for multi in [(True, False, False, False), (False, True, False, False), (False, False, True, True)]:
         old = np.zeros((n, n))
-        m.scatter_multi_buddha(0, n, stop, ray, 0, *multi, old)
+        m.scatter_multi_buddha(0, n, m.WINDOW_DEFAULT, stop, ray, 0, *multi, old)
         assert old.sum() > 0
         assert np.array_equal(old, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), multi=multi))
 
@@ -1841,7 +1843,7 @@ def test_seeding_the_stored_points_equals_scattering_those_stored_points_of_an_i
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     status = np.zeros((n, n), dtype=np.uint8)
-    m.render_rows_wh(stats, points, status, 0, n, n, n, stop, ray, 0)
+    m.render_rows_wh(stats, points, status, 0, n, n, n, m.WINDOW_DEFAULT, stop, ray, 0)
     for slot in (m.POINT_ALL_MEAN, m.point_slot(m.SEQ_SELF, m.PRED_LAST), m.POINT_END):
         xs, ys = points[..., slot, 0][status == 1], points[..., slot, 1][status == 1]
         col = np.floor((xs + 1.0) * (n / 2.0)).astype(np.int64)

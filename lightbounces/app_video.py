@@ -18,6 +18,7 @@ from .paths import ensure_export_dir
 from .settings import resolve_frame_settings, resolve_obstacles, snapshot_keyframes
 from .shapes import build_obstacle_arrays
 from .colorations import resolve_colorations, snapshot_coloration
+from .framings import resolve_framing
 from .widgets import JxlQualityControls
 from . import external, paths
 
@@ -420,8 +421,10 @@ class VideoMixin:
                                                    # while rendering must not leak in
         obst_snapshot = [o.snapshot() for o in self.obstacles]
         coloration_snapshot = [snapshot_coloration(v) for v in self.colorations_to_export()]
+        framing_snapshot = self.selected_framing_snapshot()
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
+        framing_location = self.framing_info_location_var.get()
 
         self.render_cancel = threading.Event()
         self.render_btn.configure(text="Cancel Render")
@@ -433,8 +436,8 @@ class VideoMixin:
         self.video_progress["value"] = 0
         self.render_thread = threading.Thread(
             target=self._render_worker,
-            args=(kf_snapshot, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot,
-                 color_location, figure_location, file_offset),
+            args=(kf_snapshot, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot, framing_snapshot,
+                 color_location, figure_location, framing_location, file_offset),
             daemon=True)
         self.render_thread.start()
 
@@ -551,8 +554,8 @@ class VideoMixin:
                 if os.path.exists(jxl_apng_temp):
                     os.remove(jxl_apng_temp)
 
-    def _render_worker(self, keyframes, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot,
-                       color_location, figure_location, file_offset):
+    def _render_worker(self, keyframes, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot, framing_snapshot,
+                       color_location, figure_location, framing_location, file_offset):
         """Runs on a background thread: never touches a Tk widget directly, only
         via self.root.after(0, ...). Frame `fn` is written to the file numbered
         fn - frame_lo + file_offset (see frame_file_offset)."""
@@ -572,15 +575,17 @@ class VideoMixin:
                 obst_values = resolve_obstacles(obst_snapshot, assigned_sorted, fn)
                 obst_arrays = build_obstacle_arrays(obst_values)
                 colorations = resolve_colorations(coloration_snapshot, assigned_sorted, fn)
+                framing = resolve_framing(framing_snapshot, assigned_sorted, fn)
                 rgb = self.render_full_image(data, rs["video_w"], rs["video_h"], obst_arrays,
-                                             colorations)
+                                             colorations, framing)
                 # The figure's settings can be keyframe-animated, so this is
                 # resolved per frame - but the margin's own size depends only on
                 # the fixed video_w/video_h and the number of obstacles, so every
                 # frame still comes out the same size.
                 rgb = apply_info_locations(rgb, colorations, rs["video_w"],
                                            data.ray, data.natural_stop, obst_values,
-                                           color_location, figure_location, mutate_ok=True)
+                                           color_location, figure_location, framing, framing_location,
+                                           mutate_ok=True)
                 path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo + file_offset:05d}.png")
                 write_png(path, rgb)
                 done = n + 1

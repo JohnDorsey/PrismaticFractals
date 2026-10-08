@@ -36,12 +36,12 @@ MODE_NAMES = list(MODES)
 # Colorations: showing more than 3 channels' worth of information at once, by
 # rendering the same simulation multiple times with different colorations
 # and placing the results side by side in an exported image or video. Each
-# coloration is exactly what the Coloration tab already controls for a single
+# coloration is exactly what the Colorations tab already controls for a single
 # image - a color model plus up to 3 channels - bundled as a ColorationConfig.
 #
 # self.colorations is one uniform list of ColorationConfig objects. The top-left preview
 # shows self.live_coloration() - whichever coloration is currently selected
-# (self.selected_coloration_id) in the Coloration tab; selecting a coloration for
+# (self.selected_coloration_id) in the Colorations tab; selecting a coloration for
 # editing is what makes it the preview too, there's no separate step. Every
 # coloration uses the same dynamic "coloration:<id>:..." keyframe keys, mirroring
 # Shape/self.obstacles and "obst:<id>:<field>" exactly, since the two
@@ -53,7 +53,7 @@ MODE_NAMES = list(MODES)
 # ever needed, because no coloration's keyframe data is tied to its list position.
 class ColorationConfig:
     """One coloration's live state: a color model plus up to 3 channels - exactly
-    what the Coloration tab controls. Position in self.colorations has no special
+    what the Colorations tab controls. Position in self.colorations has no special
     meaning; which one the top-left preview shows is whichever is selected
     (see live_coloration/select_coloration), not necessarily self.colorations[0]."""
     __slots__ = ("id", "mode", "chan_src", "kinds", "point_metric", "other_metric",

@@ -150,6 +150,7 @@ def _fake_diff_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_framings(app)
     app.diff_expanded = set()
     app.diff_presence_var = m.tk.StringVar(value="present or absent")
     app.diff_list_frame = types.SimpleNamespace(winfo_children=lambda: [])
@@ -339,6 +340,7 @@ def _fake_kf_app():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_framings(app)
     app.keyframes = [m.Keyframe(0, 0, {"a": 0.0, "c": 0.0}), m.Keyframe(1, 5, {"b": 5}),
                      m.Keyframe(2, 10, {"a": 10.0, "c": 10.0})]
     app._kf_counter = 10

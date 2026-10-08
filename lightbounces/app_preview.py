@@ -4,12 +4,13 @@ import numpy as np
 from .constants import (
     CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
-    COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE
+    COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
-from .image_io import bilinear_resize, encode_png_bytes, preview_placeholder, render_text_line
+from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_placeholder, render_text_line
+from .framings import framing_image_size, framing_outline_pixel, framing_window
 from .kernels import (
-    N_STATS, PIXEL, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, SIZE, compute_sequences, compute_stats, emits_ray,
+    N_POINTS, N_STATS, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_stats, emits_ray,
     in_sequence, trace_path
 )
 from .metrics import POINT_STATS, resolve_point_xy
@@ -19,6 +20,58 @@ from .colorations import MODES
 
 
 class PreviewMixin:
+    # ---- the image on screen: its framing, its pixels and the world they cover ---------------------------- #
+    def set_image_framing(self, framing):
+        """The image on screen is, from now on, an image of `framing` (a FramingSnapshot): the pixel grid is
+        its aspect ratio's size (see framing_image_size), covers the world rectangle it makes (image_window), and
+        everything computed so far is discarded (nothing is computed for the new grid yet: rows_done is 0). The
+        canvas takes the new size. Every conversion between a pixel and the world goes through image_window,
+        img_w and img_h (pixel_center, world_to_canvas)."""
+        self.image_framing = framing
+        self.image_window = framing_window(framing)
+        self.img_w, self.img_h = framing_image_size(framing)
+        self.outline_pixel = framing_outline_pixel(framing)
+        self.rows_done = 0
+        self.make_image_buffers()
+        if hasattr(self, "canvas"):
+            self.canvas.configure(width=self.img_w, height=self.img_h)
+            self.photo.configure(width=self.img_w, height=self.img_h)
+
+    def make_image_buffers(self):
+        """The per-pixel data and the image buffers for an img_w x img_h image of image_window, all empty (the
+        buffers of the same size as the last are cleared, not made again) and the grid of the world coordinates of
+        every pixel centre (which is also each ray's start point)."""
+        shape = (self.img_h, self.img_w)
+        if getattr(self, "status", None) is not None and self.status.shape == shape:
+            self.stats[:] = 0
+            self.points[:] = 0
+            self.status[:] = 0
+            self.img[:] = BACKGROUND
+        else:
+            self.stats = np.zeros(shape + (N_STATS,), dtype=np.float32)
+            self.points = np.zeros(shape + (N_POINTS, 2), dtype=np.float32)
+            self.status = np.zeros(shape, dtype=np.uint8)           # 0 = not computed yet
+            self.img = np.empty(shape + (3,), dtype=np.uint8)
+            self.img[:] = BACKGROUND
+            self.frame = np.empty_like(self.img)        # img + the outlines; this is what gets exported/saved, so
+                                                        # it must never hold a preview-only decoration
+            self.display_frame = np.empty_like(self.img)   # self.frame + the coloration-name overlay; only ever
+                                                           # pushed to self.photo, never written to disk
+        self.gx, self.gy = make_grid(self.img_w, self.img_h, self.image_window)
+
+    def pixel_center(self, i, j):
+        """The world coordinates of the centre of pixel (i, j) of the image on screen: where its ray starts (the same
+        arithmetic as render_rows_wh's, so a hover ray is exactly the one the image has)."""
+        window = self.image_window
+        return (window.x_start + (i + 0.5) * ((window.x_stop - window.x_start) / self.img_w),
+                window.y_stop - (j + 0.5) * ((window.y_stop - window.y_start) / self.img_h))
+
+    def world_to_canvas(self, x, y):
+        """The canvas (pixel) coordinates of the world point (x, y) - numbers or arrays - on the image on screen."""
+        window = self.image_window
+        return ((x - window.x_start) * (self.img_w / (window.x_stop - window.x_start)),
+                (window.y_stop - y) * (self.img_h / (window.y_stop - window.y_start)))
+
     def set_preview_image(self, rgb):
         """Show `rgb` (an (H, W, 3) uint8 array) bilinearly resized into the
         frame-preview box, or the 'preview will go here' placeholder if rgb
@@ -63,10 +116,10 @@ class PreviewMixin:
         if outline is None or outline.get():
             for ring in self.obstacle_ring_specs():
                 draw_obstacle_outline(self.frame, ring.shape, ring.bound, self.gx - ring.cx,
-                                      self.gy - ring.cy, ring.in_effect, ring.out_effect)
+                                      self.gy - ring.cy, ring.in_effect, ring.out_effect, self.outline_pixel)
         np.copyto(self.display_frame, self.frame)
         self.draw_coloration_name_overlay()
-        header = f"P6 {SIZE} {SIZE} 255\n".encode()
+        header = f"P6 {self.img_w} {self.img_h} 255\n".encode()
         self.photo.configure(data=header + self.display_frame.tobytes(), format="PPM")
 
     def draw_coloration_name_overlay(self):
@@ -80,10 +133,12 @@ class PreviewMixin:
         h, w = mask.shape
         pad = COLORATION_NAME_OVERLAY_PAD
         margin = COLORATION_NAME_OVERLAY_MARGIN
-        y1 = SIZE - margin
+        y1 = self.img_h - margin
         y0 = y1 - h - 2 * pad
         x0 = margin
         x1 = x0 + w + 2 * pad
+        if y0 < 0 or x1 > self.img_w:
+            return                                 # the image is too small to hold it
         self.display_frame[y0:y1, x0:x1] = COLORATION_NAME_OVERLAY_BG
         region = self.display_frame[y0 + pad:y0 + pad + h, x0 + pad:x0 + pad + w]
         region[mask] = COLORATION_NAME_OVERLAY_FG
@@ -131,10 +186,9 @@ class PreviewMixin:
 
     def on_click(self, event):
         i, j = event.x, event.y
-        if not (0 <= i < SIZE and 0 <= j < SIZE):
+        if not (0 <= i < self.img_w and 0 <= j < self.img_h):
             return
-        x = (i + 0.5) * PIXEL - 1.0
-        y = 1.0 - (j + 0.5) * PIXEL
+        x, y = self.pixel_center(i, j)
         ps = self.preview_settings()
         obstacles = build_obstacle_arrays(self.obstacles)
         if (self.pinned_px != (i, j) and not emits_ray(x, y, obstacles)):
@@ -152,11 +206,10 @@ class PreviewMixin:
 
     def update_preview(self, i, j):
         """(Re)compute and draw the preview for pixel (i, j) of the canvas."""
-        if not (0 <= i < SIZE and 0 <= j < SIZE):
+        if not (0 <= i < self.img_w and 0 <= j < self.img_h):
             self.clear_overlay()
             return
-        x = (i + 0.5) * PIXEL - 1.0
-        y = 1.0 - (j + 0.5) * PIXEL
+        x, y = self.pixel_center(i, j)
         ps = self.preview_settings()
         obstacles = build_obstacle_arrays(self.obstacles)
         # A hovered pixel that fires no ray has no preview - but a pinned one
@@ -183,9 +236,7 @@ class PreviewMixin:
         self.draw_corkscrew(pts, kinds, n)
 
         # ---- overlay on the canvas (never part of the image) ----
-        half = SIZE / 2.0
-        xs = (pts[:n, 0] + 1.0) * half
-        ys = (1.0 - pts[:n, 1]) * half
+        xs, ys = self.world_to_canvas(pts[:n, 0], pts[:n, 1])
         coords = np.column_stack((xs, ys)).ravel().tolist()
         show = {key: var.get() for key, var in self.deco.items()}
 
@@ -194,15 +245,15 @@ class PreviewMixin:
 
         # Semi-transparent grey guide lines through the end of the ray
         if show["guides"]:
-            gx = min(max(int(xs[-1]), 0), SIZE - 1)
-            gy = min(max(int(ys[-1]), 0), SIZE - 1)
+            gx = min(max(int(xs[-1]), 0), self.img_w - 1)
+            gy = min(max(int(ys[-1]), 0), self.img_h - 1)
             if self.hline_img is not None:
                 cv.create_image(0, gy, anchor="nw", image=self.hline_img, tags="ray")
                 cv.create_image(gx, 0, anchor="nw", image=self.vline_img, tags="ray")
             else:                                   # no alpha support: stipple instead
-                cv.create_line(0, gy + 0.5, SIZE, gy + 0.5, fill=GUIDE_FALLBACK_HEX,
+                cv.create_line(0, gy + 0.5, self.img_w, gy + 0.5, fill=GUIDE_FALLBACK_HEX,
                                stipple="gray50", tags="ray")
-                cv.create_line(gx + 0.5, 0, gx + 0.5, SIZE, fill=GUIDE_FALLBACK_HEX,
+                cv.create_line(gx + 0.5, 0, gx + 0.5, self.img_h, fill=GUIDE_FALLBACK_HEX,
                                stipple="gray50", tags="ray")
 
         # The ray's path
@@ -230,8 +281,7 @@ class PreviewMixin:
                     for p, rad in ((live_coloration.point1_choice[c], base_rad),
                                   (live_coloration.point2_choice[c], base_rad + 3)):
                         px, py = resolve_point_xy(sp, p)
-                        cx = (px + 1.0) * half
-                        cy = (1.0 - py) * half
+                        cx, cy = self.world_to_canvas(px, py)
                         cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, width=2,
                                       outline=SAMPLE_COLORS[live_coloration.mode][c], tags="ray")
 
@@ -284,11 +334,10 @@ class PreviewMixin:
         if not self.seed_tab_focused():
             return
         zone = self.current_buddha_seed_settings()
-        half = SIZE / 2.0
-        self.canvas.create_rectangle(
-            (zone.x_start + 1.0) * half, (1.0 - zone.y_stop) * half,
-            (zone.x_stop + 1.0) * half, (1.0 - zone.y_start) * half,
-            outline=SEED_ZONE_OUTLINE, width=2, dash=(6, 4), tags="seedzone")
+        left, top = self.world_to_canvas(zone.x_start, zone.y_stop)
+        right, bottom = self.world_to_canvas(zone.x_stop, zone.y_start)
+        self.canvas.create_rectangle(left, top, right, bottom,
+                                     outline=SEED_ZONE_OUTLINE, width=2, dash=(6, 4), tags="seedzone")
 
     def on_leave(self, _event):
         if self.pinned_px is None:                 # a pinned preview stays put
