@@ -7,13 +7,13 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 # --------------------------------------------------------------------------- #
-# Fixed (non-ray-dependent) point choices: Origin and Top left corner
+# Fixed (non-ray-dependent) point choices: Origin and (-1,1)
 # --------------------------------------------------------------------------- #
 def test_extract_point_xy_returns_constants_for_the_fixed_points():
     n = 5
     x, y = m.extract_point_xy(None, m.CHOICE_ORIGIN, None, n)
     assert len(x) == n and (x == 0.0).all() and (y == 0.0).all()
-    x, y = m.extract_point_xy(None, m.CHOICE_TOP_LEFT_CORNER, None, n)
+    x, y = m.extract_point_xy(None, m.CHOICE_POINT_NEG1_POS1, None, n)
     assert (x == -1.0).all() and (y == 1.0).all()
 
 
@@ -27,7 +27,7 @@ def test_extract_point_xy_still_reads_real_points_from_the_array():
 
 def test_resolve_point_xy_handles_both_constant_and_real_points():
     assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.CHOICE_ORIGIN) == (0.0, 0.0)
-    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.CHOICE_TOP_LEFT_CORNER) == (-1.0, 1.0)
+    assert m.resolve_point_xy(np.zeros((m.N_POINTS, 2)), m.CHOICE_POINT_NEG1_POS1) == (-1.0, 1.0)
     ray_characteristic_points = np.zeros((m.N_POINTS, 2))
     ray_characteristic_points[m.POINT_END] = [0.3, -0.4]
     assert m.resolve_point_xy(ray_characteristic_points, m.POINT_END) == (0.3, -0.4)
@@ -35,7 +35,7 @@ def test_resolve_point_xy_handles_both_constant_and_real_points():
 
 def test_point_lists_include_the_two_new_fixed_points():
     assert m.POINT_LABELS[m.CHOICE_ORIGIN] == "Origin"
-    assert m.POINT_LABELS[m.CHOICE_TOP_LEFT_CORNER] == "Top left corner"
+    assert m.POINT_LABELS[m.CHOICE_POINT_NEG1_POS1] == "(-1,1)"
     assert len(m.POINT_LABELS) == len(m.POINT_SHORT) == len(m.POINT_DESCRIPTIONS)
     assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 2
 
@@ -50,20 +50,20 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
     pixel_state = np.full((4, 4), m.PIXEL_TRACED, dtype=np.uint8)
     v = m.ColorationConfig(0)                  # mutable; converted for apply_coloration below
     v.point1_choice[0] = m.CHOICE_ORIGIN
-    v.point2_choice[0] = m.CHOICE_TOP_LEFT_CORNER
+    v.point2_choice[0] = m.CHOICE_POINT_NEG1_POS1
     v.point_metric[0] = m.ST_HDIST
     img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
                             m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == img[0, 0, 0]).all()
-    assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, top-left) = 0.5 -> ~127.5
+    assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, (-1,1)) = 0.5 -> ~127.5
 
 
 def test_coloration_info_lines_shows_the_new_point_names():
     v = m.ColorationConfig(0)
     v.point1_choice[0] = m.CHOICE_ORIGIN
-    v.point2_choice[0] = m.CHOICE_TOP_LEFT_CORNER
+    v.point2_choice[0] = m.CHOICE_POINT_NEG1_POS1
     lines = m.coloration_info_lines(v)
-    assert any("Origin" in l and "TopLeft" in l for l in lines)
+    assert any("Origin" in l and "(-1,1)" in l for l in lines)
 
 
 # --------------------------------------------------------------------------- #
@@ -350,7 +350,7 @@ def test_capture_and_resolve_round_trip_buddha_blur_settings():
     assert data["buddha_blur_type"] == m.BUDDHA_BLUR_BOKEH
 
     kf = m.Keyframe(0, 0, data)
-    resolved = m.resolve_frame_settings([kf], 0)
+    resolved = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     assert resolved.buddha_blur == m.BuddhaBlurSettings(radius=0.2, type=m.BUDDHA_BLUR_BOKEH)
     assert resolved.ray == app.current_ray_settings()
 
@@ -570,11 +570,11 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
 
 
 # --------------------------------------------------------------------------- #
-# "Origin" and "Top left corner" head the point dropdowns
+# "Origin" and "(-1,1)" head the point dropdowns
 # --------------------------------------------------------------------------- #
-def test_the_point_dropdowns_list_origin_and_top_left_corner_first():
-    assert m.POINT_MENU_LABELS[:2] == ["Origin", "Top left corner"]
-    assert m.POINT_MENU_ORDER[:2] == [m.CHOICE_ORIGIN, m.CHOICE_TOP_LEFT_CORNER]
+def test_the_point_dropdowns_list_origin_and_the_fixed_point_minus_1_1_first():
+    assert m.POINT_MENU_LABELS[:2] == ["Origin", "(-1,1)"]
+    assert m.POINT_MENU_ORDER[:2] == [m.CHOICE_ORIGIN, m.CHOICE_POINT_NEG1_POS1]
 
 
 def test_the_point_dropdowns_still_list_every_choice_exactly_once():
@@ -587,7 +587,7 @@ def test_choosing_from_the_reordered_dropdown_still_gives_the_same_point_ids():
     """Only the display order changed: a label maps back to its unchanged id, so
     the ids stored in colorations, keyframes and the sample arrays are untouched."""
     assert m.POINT_LABELS.index("Origin") == m.CHOICE_ORIGIN == m.N_POINTS
-    assert m.POINT_LABELS.index("Top left corner") == m.CHOICE_TOP_LEFT_CORNER == m.N_POINTS + 1
+    assert m.POINT_LABELS.index("(-1,1)") == m.CHOICE_POINT_NEG1_POS1 == m.N_POINTS + 1
     assert m.POINT_LABELS.index("Path: First point") == m.POINT_START == 0
     for point_id in range(m.N_POINT_CHOICES):
         label = m.POINT_LABELS[point_id]
@@ -1213,7 +1213,7 @@ def test_a_large_export_keeps_only_what_its_colorations_read():
     layout, in a fraction of the memory (measured with tracemalloc, which sees numpy's arrays)."""
     import tracemalloc
     app = _fake_render_app()
-    data = m.resolve_frame_settings([m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))], 0).replace(outline=False)
+    data = m.resolve_frame_settings([m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))], 0, m.DEFAULT_SETTING_VALUES).replace(outline=False)
     obst_arrays = _starting_obst_arrays()
     n = 256
     buddha = m.ColorationConfig(1)

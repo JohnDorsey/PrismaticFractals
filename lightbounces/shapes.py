@@ -701,31 +701,32 @@ class ArchimedeanSpiralShape(Shape):
 
 class PythagorasSnailShape(Shape):
     """The snail of Pythagoras (the spiral of Theodorus): right triangles with legs 1 and sqrt(k), laid round a common
-    vertex, `snail_segments` of them (see snail_bound). Scaled so that its farthest corner is 1 from the centre."""
+    vertex, `snail_segments` of them (see snail_bound). Scaled so that its farthest corner is `radius` from the centre."""
     KIND = SHAPE_SNAIL
     LAYOUT = LAYOUT_SNAIL
     KEY = "snail_of_pythagoras"
     NAME = "Snail of Pythagoras"
     SHORT_NAME = "Snail"
     PARAMS = (_count("snail_segments", "Segments", DEFAULT_SNAIL_SEGMENTS, SNAIL_MIN_SEGMENTS,
-                     SNAIL_MAX_SEGMENTS),)
-    __slots__ = ("snail_segments",)
+                     SNAIL_MAX_SEGMENTS),
+              RADIUS_PARAM)
+    __slots__ = ("snail_segments", "radius")
 
     def params(self):
-        return (self.snail_segments, self.rotation)
+        return (self.snail_segments, self.rotation, self.radius)
 
     @classmethod
     def bound_from_params(cls, params):
         return snail_bound(*params)
 
     def shape_text(self):
-        return f"Snail {self.snail_segments} segments, rot {self.rotation:.1f}\u00b0"
+        return f"Snail {self.snail_segments} segments r{self.radius:.2f}, rot {self.rotation:.1f}\u00b0"
 
     def extent(self):
-        return 1.0
+        return self.radius
 
     def info_param_line(self):
-        return f"  segments {int(round(self.snail_segments))}"
+        return f"  segments {int(round(self.snail_segments))} r{self.radius:.2f}"
 
     def boundary_xy(self):
         return snail_outline_xy(self.bound())

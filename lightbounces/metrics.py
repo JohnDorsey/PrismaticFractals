@@ -128,10 +128,10 @@ OTHER_METRICS = (tuple(slot for slot in RUN_METRIC_INFO if slot not in POINT_MET
 # characteristic points' slots), so any code reading a chosen point's coordinates must check
 # CONSTANT_POINT_COORDS first.
 CHOICE_ORIGIN = N_POINTS                       # the fixed point (0, 0)
-CHOICE_TOP_LEFT_CORNER = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
-                                              # default framing (not of the selected one)
+CHOICE_POINT_NEG1_POS1 = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
+                                              # world the program first showed (not of any framing)
 N_POINT_CHOICES = N_POINTS + 2                # total selectable points (every stored one + 2 fixed)
-CONSTANT_POINT_COORDS = {CHOICE_ORIGIN: (0.0, 0.0), CHOICE_TOP_LEFT_CORNER: (-1.0, 1.0)}
+CONSTANT_POINT_COORDS = {CHOICE_ORIGIN: (0.0, 0.0), CHOICE_POINT_NEG1_POS1: (-1.0, 1.0)}
 
 POINT_LABELS = []
 POINT_DESCRIPTIONS = []
@@ -141,12 +141,12 @@ for _slot in range(N_POINTS):
     POINT_LABELS.append(f"{SEQUENCE_LABELS[_seq]}: {POINT_REDUCTION_LABELS[_red]}")
     POINT_DESCRIPTIONS.append(POINT_REDUCTION_DESCRIPTIONS[_red] + _sequence_note(_seq))
     POINT_SHORT.append(f"{SEQUENCE_SHORT[_seq]}.{POINT_REDUCTION_SHORT[_red]}")
-POINT_LABELS += ["Origin", "Top left corner"]
+POINT_LABELS += ["Origin", "(-1,1)"]
 POINT_DESCRIPTIONS += ["the fixed point (0, 0) - unrelated to the ray, always the same.",
-                       "the fixed world point (-1, 1), the top-left corner of the default framing (whichever framing "
-                       "is selected) - unrelated to the ray, always the same."]
-POINT_SHORT += ["Origin", "TopLeft"]
-POINT_NOTE = (" (Origin and Top left corner don't depend on the ray at all; a sequence the ray has no points in "
+                       "the fixed world point (-1, 1), whichever framing is selected - unrelated to the ray, "
+                       "always the same."]
+POINT_SHORT += ["Origin", "(-1,1)"]
+POINT_NOTE = (" (Origin and (-1,1) don't depend on the ray at all; a sequence the ray has no points in "
               "falls back to the ray's end point.)")
 
 # The order the two point dropdowns list the choices in: the two fixed points
@@ -154,7 +154,7 @@ POINT_NOTE = (" (Origin and Top left corner don't depend on the ray at all; a se
 # order - a point's id (its index in POINT_LABELS, and into the per-ray characteristic points for
 # every one but the fixed two) does not depend on it, and choosing by label still maps back
 # through POINT_LABELS.index().
-POINT_MENU_ORDER = [CHOICE_ORIGIN, CHOICE_TOP_LEFT_CORNER] + [
+POINT_MENU_ORDER = [CHOICE_ORIGIN, CHOICE_POINT_NEG1_POS1] + [
     point_slot(seq, red) for seq in range(N_SEQS) for red in range(N_PRED)]
 POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
 
@@ -228,7 +228,7 @@ def extract_point_xy(characteristic_points, point_idx, computed, n, layout=None)
     """(x, y) arrays of length n holding the chosen point's coordinates for every computed pixel: read from
     `characteristic_points` (an (H, W, K, 2) array of the characteristic points the image keeps: all N_POINTS of them,
     or - when `layout`, a stored_layout.StoredLayout, says which are kept - only those) for a real simulation point, or
-    a constant-filled array for CHOICE_ORIGIN/CHOICE_TOP_LEFT_CORNER, which was never written into
+    a constant-filled array for CHOICE_ORIGIN/CHOICE_POINT_NEG1_POS1, which was never written into
     `characteristic_points` at all."""
     if point_idx in CONSTANT_POINT_COORDS:
         cx, cy = CONSTANT_POINT_COORDS[point_idx]

@@ -7,7 +7,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 def test_render_full_image_with_a_single_coloration_matches_pre_colorations_behavior():
     app = _fake_render_app()
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
-    data = m.resolve_frame_settings([kf], 0)
+    data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     colorations = (_coloration_settings_from_config(m.ColorationConfig(0)),)
     img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), colorations, m.DEFAULT_FRAMING)
     assert img.shape == (40, 40, 3)
@@ -16,7 +16,7 @@ def test_render_full_image_with_a_single_coloration_matches_pre_colorations_beha
 def test_two_identical_colorations_render_as_two_identical_halves():
     app = _fake_render_app()
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
-    data = m.resolve_frame_settings([kf], 0)
+    data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     obst_arrays = _starting_obst_arrays()
     one_coloration = (_coloration_settings_from_config(m.ColorationConfig(0)),)
     single = app.render_full_image(data, 50, 50, obst_arrays, one_coloration, m.DEFAULT_FRAMING)
@@ -29,7 +29,7 @@ def test_two_identical_colorations_render_as_two_identical_halves():
 def test_two_different_colorations_render_as_two_different_halves():
     app = _fake_render_app()
     kf = m.Keyframe(1, 0, dict(m.DEFAULT_SETTING_VALUES))
-    data = m.resolve_frame_settings([kf], 0)
+    data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     v0 = m.ColorationConfig(0)
     v1 = m.ColorationConfig(1)
     v1.color_model = "HSV"

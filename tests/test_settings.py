@@ -116,7 +116,7 @@ def test_records_pickle_by_field_name_not_position():
 
 
 def test_a_keyframes_data_holds_the_ray_settings_the_natural_termination_and_the_buddha_blur_side_by_side():
-    data = m.resolve_frame_settings([], 0)
+    data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     assert [f.name for f in dataclasses.fields(m.KeyframeData)] == [
         "ray", "natural_termination", "buddha_blur", "buddha_seed", "outline"]
     assert isinstance(data.ray, m.RaySettings) and isinstance(data.buddha_blur, m.BuddhaBlurSettings)
@@ -151,8 +151,8 @@ def test_resolved_obstacles_are_frozen_shapes_and_colorations_and_settings_are_s
     assert _raises(AttributeError, lambda: setattr(resolved[0], "r", 1.0))     # frozen
     colorations = m.resolve_colorations([m.snapshot_coloration(m.ColorationConfig(0))], [], 0)
     assert isinstance(colorations[0], m.ColorationSettings)
-    assert isinstance(m.resolve_frame_settings([], 0), m.KeyframeData)
-    assert isinstance(m.resolve_frame_settings([], 0).ray, m.RaySettings)
+    assert isinstance(m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES), m.KeyframeData)
+    assert isinstance(m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES).ray, m.RaySettings)
 
 
 def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was_generated_with():
@@ -455,10 +455,13 @@ def test_all_setting_entries_are_strict_records_in_display_order():
     o2.width = 0.7
     app.obstacles = [o1, o2]
     app.colorations = [m.ColorationConfig(3)]
+    app.live_setting_values = lambda: {**m.DEFAULT_SETTING_VALUES, "iter": 77}
     entries = m.App.all_setting_entries(app)
     assert all(isinstance(e, m.SettingEntry) for e in entries)
     static = entries[:len(m.SETTING_INFO)]
     assert [(e.key, e.tab, e.label) for e in static] == m.SETTING_INFO
+    assert {e.key: e.fallback for e in static} == {**m.DEFAULT_SETTING_VALUES, "iter": 77}, \
+        "a setting no keyframe defines is shown with the value the controls hold, not the default"
     assert [e.is_float for e in static] == [e.key in m.SETTING_FLOAT_KEYS for e in static]
     width = next(e for e in entries if e.key == "obst:9:width")
     assert (width.tab, width.fallback, width.is_float) == (m.obstacle_tab_title(1, o2), 0.7, True)

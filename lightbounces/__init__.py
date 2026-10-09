@@ -130,7 +130,7 @@ Coloration
   ray terminated - one of six reasons, spaced evenly from 0 to 1). Fifteen sample points can be chosen: thirteen picked out of the
   ray's path (its start and end, the means of its bounce points, its
   uppermost/lowermost/rightmost/leftmost bounces overall and among only its
-  self-bounces) plus two fixed ones (the origin and the top-left corner).
+  self-bounces) plus two fixed ones (the origin and the point (-1,1)).
 
   A coloration is a color model (RGB or HSV) plus three channels. Each channel has a
   source:

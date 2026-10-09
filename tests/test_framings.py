@@ -426,7 +426,7 @@ def _white_coloration_config():
 def _render(framing, w, h, outline=False):
     app = _fake_render_app()
     kf = m.Keyframe(0, 0, {**m.DEFAULT_SETTING_VALUES, "outline": outline})
-    data = m.resolve_frame_settings([kf], 0)
+    data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     colorations = (_coloration_settings_from_config(_white_coloration_config()),)
     return app.render_full_image(data, w, h, _starting_obst_arrays(), colorations, framing)
 
@@ -451,7 +451,7 @@ def test_the_two_layers_of_an_outline_are_as_thick_in_pixels_in_a_zoomed_image_a
     def thickness(framing):
         app = _fake_render_app()
         kf = m.Keyframe(0, 0, {**m.DEFAULT_SETTING_VALUES, "outline": True})
-        data = m.resolve_frame_settings([kf], 0)
+        data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
         colorations = (_coloration_settings_from_config(_white_coloration_config()),)
         img = app.render_full_image(data, 256, 256, m.build_obstacle_arrays([small]), colorations, framing)
         row = img[128]
@@ -609,6 +609,7 @@ def _keyframe_framing_app(generated=True):
     for name in ("load_value", "on_framings_loaded", "setting_fallback", "setting_is_float", "all_setting_entries",
                  "all_setting_tabs", "widgets_for_setting"):
         setattr(app, name, getattr(m.App, name).__get__(app))
+    app.live_setting_values = lambda: m.DEFAULT_SETTING_VALUES
     app.obstacles, app.colorations = [], []
     app.framing_x_entry = object()
     app.framing_aspect_entry = object()

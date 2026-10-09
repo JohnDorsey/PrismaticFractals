@@ -560,19 +560,23 @@ def resolve_obstacles(obstacle_snapshots, keyframes_sorted, frame_number):
     return resolved
 
 
-def resolve_setting(key, keyframes_sorted, frame_number):
-    """resolve_value() for one of the static settings in SETTING_INFO."""
-    return resolve_value(key, keyframes_sorted, frame_number,
-                         DEFAULT_SETTING_VALUES[key], key in SETTING_FLOAT_KEYS)
+def resolve_setting(key, keyframes_sorted, frame_number, base):
+    """resolve_value() for one of the static settings in SETTING_INFO. `base` ({setting key: value}, every static
+    setting) holds the value of a setting that no keyframe defines: what the controls held when the export began (never
+    the program's defaults - a missing key is a KeyError, not a silent default)."""
+    return resolve_value(key, keyframes_sorted, frame_number, base[key], key in SETTING_FLOAT_KEYS)
 
 
-def resolve_frame_settings(keyframes_sorted, frame_number):
+def resolve_frame_settings(keyframes_sorted, frame_number, base):
     """A full KeyframeData for one video frame - the ray engine's settings, the natural termination
     limits and the Buddha blur, side by side - with every setting resolved independently via
-    resolve_setting(). The colorations are not part of this - see resolve_colorations(),
+    resolve_setting(). `base` is the value of every static setting as the controls held it when the export began
+    (App.capture_all_settings; its dynamic keys are ignored): a setting no keyframe defines keeps that value at every
+    frame, as an obstacle, coloration or framing no keyframe animates keeps its own value (resolve_obstacles,
+    resolve_colorations, resolve_framing). The colorations are not part of this - see resolve_colorations(),
     called separately (mirroring resolve_obstacle_arrays), since colorations are a dynamic list
     like obstacles, not a fixed set of settings."""
-    v = {key: resolve_setting(key, keyframes_sorted, frame_number)
+    v = {key: resolve_setting(key, keyframes_sorted, frame_number, base)
         for key, _tab, _label in SETTING_INFO}
     return KeyframeData(ray=settings_from_dict(RaySettings, v),
                         natural_termination=settings_from_dict(NaturalTerminationSettings, v),

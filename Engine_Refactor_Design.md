@@ -297,3 +297,8 @@ Where the default choice of a setting is not offered by the Mandelbrot engine, t
 place (D7, D17). The default coloration's bounce count becomes the Path count, and the default Buddha option "Bounces:
 Mean point" becomes "Path: Mean point".
 
+## D40. An export takes what no keyframe defines from the live values when it began
+
+A video, and a new still image, take the value of a setting that no keyframe defines from what the controls held when the
+export began, not from the program's default values. (This was already so for obstacles, colorations and framings; it
+was not for the other settings, which fell back to the defaults.) The keyframe editor shows the same value.

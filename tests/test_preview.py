@@ -365,7 +365,7 @@ def test_video_render_worker_draws_coloration_info_when_enabled():
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [o.snapshot() for o in app.obstacles]
-    data = m.resolve_frame_settings(keyframes, 0)
+    data = m.resolve_frame_settings(keyframes, 0, m.DEFAULT_SETTING_VALUES)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
     coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)
@@ -381,7 +381,7 @@ def test_video_render_worker_adds_figure_settings_left_margin_when_enabled():
     kf = m.Keyframe(0, 0, dict(m.DEFAULT_SETTING_VALUES))
     keyframes = [kf]
     obst_snapshot = [o.snapshot() for o in app.obstacles]
-    data = m.resolve_frame_settings(keyframes, 0)
+    data = m.resolve_frame_settings(keyframes, 0, m.DEFAULT_SETTING_VALUES)
     obst_arrays = m.resolve_obstacle_arrays(obst_snapshot, keyframes, 0)
     coloration_snapshot = [m.snapshot_coloration(v) for v in app.colorations_to_export()]
     colorations = m.resolve_colorations(coloration_snapshot, keyframes, 0)

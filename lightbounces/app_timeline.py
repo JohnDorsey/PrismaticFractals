@@ -284,12 +284,21 @@ class TimelineMixin:
         else:                                       # "number" (a slider or number entry), "bool"
             control.set(val)
 
+    def live_setting_values(self):
+        """{static setting key: the value its control holds right now}: what an export (a video, or a new image) uses for
+        a setting that no keyframe defines - the values the controls held when the export began, never the program's
+        defaults. (If the limit fields hold nonsense the controls cannot be read, and the defaults stand in; this is
+        only for showing a value in the keyframe list - an export refuses to start then.)"""
+        current = self.capture_all_settings(show_error=False)
+        return DEFAULT_SETTING_VALUES if current is None else current
+
     def setting_fallback(self, key):
-        """The value to fall back to when no keyframe defines `key` at all:
-        the static default for a normal setting, that obstacle's own current
+        """The value to fall back to when no keyframe defines `key` at all, which is the value an export would use for
+        it: what the controls hold now for a normal setting (live_setting_values), that obstacle's own current
         value (None if it no longer exists) for an obst:<id>:<field> key, or
         that coloration's (or framing's) own current value (None if it no longer exists)
-        for a coloration:<id>:<field> (framing:<id>:<field>) key."""
+        for a coloration:<id>:<field> (framing:<id>:<field>) key. An export takes a copy of these when it begins
+        (resolve_frame_settings' `base`, and the obstacle, coloration and framing snapshots)."""
         if key.startswith("obst:"):
             _prefix, obst_id, field = key.split(":", 2)
             o = next((o for o in self.obstacles if o.id == int(obst_id)), None)
@@ -302,7 +311,7 @@ class TimelineMixin:
             _prefix, framing_id, field = key.split(":", 2)
             f = self.framing_by_id(int(framing_id))
             return getattr(f, field) if f is not None else None
-        return DEFAULT_SETTING_VALUES[key]
+        return self.live_setting_values()[key]
 
     def setting_is_float(self, key):
         if key.startswith("obst:"):
@@ -521,9 +530,11 @@ class TimelineMixin:
 
     def all_setting_entries(self):
         """[SettingEntry, ...] for every static setting plus every current
-        obstacle's and coloration's fields, in display order."""
+        obstacle's and coloration's fields, in display order. Each entry's `fallback` is the value an export would use
+        if no keyframe defined the setting: the controls' value now (see setting_fallback)."""
+        live = self.live_setting_values()
         entries = [SettingEntry(key=key, tab=tab, label=label, is_float=key in SETTING_FLOAT_KEYS,
-                                fallback=DEFAULT_SETTING_VALUES[key])
+                                fallback=live[key])
                    for key, tab, label in SETTING_INFO]
         for idx, o in enumerate(self.obstacles):
             tab = obstacle_tab_title(idx, o)

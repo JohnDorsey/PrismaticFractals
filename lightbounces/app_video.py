@@ -419,6 +419,9 @@ class VideoMixin:
         file_offset = frame_file_offset(frame_lo, self.number_files_from_start_var.get())
         kf_snapshot = snapshot_keyframes(self.keyframes)   # independent copies: edits made
                                                    # while rendering must not leak in
+        base_settings = self.capture_all_settings()        # (a copy: a fresh dict) - what no keyframe defines
+        if base_settings is None:                          # the limit fields are invalid (it said so)
+            return
         obst_snapshot = [o.snapshot() for o in self.obstacles]
         coloration_snapshot = [snapshot_coloration(v) for v in self.colorations_to_export()]
         framing_snapshot = self.selected_framing_snapshot()
@@ -436,7 +439,7 @@ class VideoMixin:
         self.video_progress["value"] = 0
         self.render_thread = threading.Thread(
             target=self._render_worker,
-            args=(kf_snapshot, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot, framing_snapshot,
+            args=(kf_snapshot, frame_lo, frame_hi, rs, base_settings, obst_snapshot, coloration_snapshot, framing_snapshot,
                  color_location, figure_location, framing_location, file_offset),
             daemon=True)
         self.render_thread.start()
@@ -554,11 +557,12 @@ class VideoMixin:
                 if os.path.exists(jxl_apng_temp):
                     os.remove(jxl_apng_temp)
 
-    def _render_worker(self, keyframes, frame_lo, frame_hi, rs, obst_snapshot, coloration_snapshot, framing_snapshot,
-                       color_location, figure_location, framing_location, file_offset):
+    def _render_worker(self, keyframes, frame_lo, frame_hi, rs, base_settings, obst_snapshot, coloration_snapshot,
+                       framing_snapshot, color_location, figure_location, framing_location, file_offset):
         """Runs on a background thread: never touches a Tk widget directly, only
         via self.root.after(0, ...). Frame `fn` is written to the file numbered
-        fn - frame_lo + file_offset (see frame_file_offset)."""
+        fn - frame_lo + file_offset (see frame_file_offset). `base_settings` is every static setting as the controls
+        held it when the render started: the value of a setting no keyframe defines."""
         ext, suffix = self.output_extension_and_suffix(rs)
         out_name = f"{paths.PROGRAM_NAME}-video-{time.strftime('%Y%m%d-%H%M%S')}{suffix}.{ext}"
         out_path = os.path.join(ensure_export_dir(), out_name)
@@ -571,7 +575,7 @@ class VideoMixin:
                 if self.render_cancel.is_set():
                     self.root.after(0, lambda: self.set_video_status("Cancelled."))
                     return
-                data = resolve_frame_settings(assigned_sorted, fn)
+                data = resolve_frame_settings(assigned_sorted, fn, base_settings)
                 obst_values = resolve_obstacles(obst_snapshot, assigned_sorted, fn)
                 obst_arrays = build_obstacle_arrays(obst_values)
                 colorations = resolve_colorations(coloration_snapshot, assigned_sorted, fn)

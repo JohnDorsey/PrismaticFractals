@@ -121,7 +121,7 @@ class ExportMixin:
         jxl_lossless = self.save_jxl_mode_var.get() == "Lossless"
         jxl_quality = int(round(float(self.save_jxl_quality_scale.get())))
         fake_kf = Keyframe(-1, 0, settings_dict)
-        data = resolve_frame_settings([fake_kf], 0)
+        data = resolve_frame_settings([fake_kf], 0, settings_dict)
         obst_snapshots = [o.snapshot() for o in self.obstacles]
         obst_values = resolve_obstacles(obst_snapshots, [fake_kf], 0)
         obst_arrays = build_obstacle_arrays(obst_values)

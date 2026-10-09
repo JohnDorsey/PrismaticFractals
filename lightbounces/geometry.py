@@ -494,19 +494,20 @@ def spiral_outline_xy(bound, per_turn=90):
 # from bound[3], already turned by the rotation. In the unscaled figure |O A_k| = sqrt(k), the right angle is at
 # A_k and |A_k A_{k+1}| = 1, so A_{k+1} is the direction of A_k turned by atan(1 / sqrt(k)); the scale makes the
 # farthest corner, A_{n+1}, one unit from the centre.
-def snail_bound(segments, rotation):
+def snail_bound(segments, rotation, radius=1.0):
     """The snail of Pythagoras made of `segments` triangles, turned counterclockwise by `rotation` degrees (the
-    first corner A_1 is along +x at rotation 0), scaled so that its farthest corner is 1 from the centre."""
+    first corner A_1 is along +x at rotation 0), scaled so that its farthest corner is `radius` from the centre (1:
+    the size it had before it had a size; 0: no shape at all)."""
     n = min(max(int(round(segments)), SNAIL_MIN_SEGMENTS), SNAIL_MAX_SEGMENTS)
     theta = np.concatenate(([0.0], np.cumsum(np.arctan(1.0 / np.sqrt(np.arange(1, n + 1))))))
-    scale = 1.0 / sqrt(n + 1.0)
+    scale = radius / sqrt(n + 1.0)
     angle = theta + radians(rotation)
-    radius = scale * np.sqrt(np.arange(1, n + 2))
+    corner_distance = scale * np.sqrt(np.arange(1, n + 2))
     bound = np.zeros(3 + 2 * (n + 1), dtype=np.float64)
     bound[1] = n
     bound[2] = scale
-    bound[3:] = np.column_stack((radius * np.cos(angle), radius * np.sin(angle))).ravel()
-    bound[0] = estimate_area_numeric(SHAPE_SNAIL, bound, 1.05)
+    bound[3:] = np.column_stack((corner_distance * np.cos(angle), corner_distance * np.sin(angle))).ravel()
+    bound[0] = estimate_area_numeric(SHAPE_SNAIL, bound, 1.05 * radius) if radius > 0.0 else 0.0
     return bound
 
 

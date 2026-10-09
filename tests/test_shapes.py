@@ -578,7 +578,7 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
 
 
 def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():
-    data = m.resolve_frame_settings([], 0)
+    data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     assert data.ray == m.DEFAULT_RAY_SETTINGS
     assert data.buddha_blur == m.DEFAULT_BUDDHA_BLUR
     assert data.outline is True
@@ -618,7 +618,7 @@ def test_every_shape_kind_has_the_shared_fields_and_only_the_parameters_its_geom
            m.SuperellipseShape: {"width", "height", "exponent"},
            m.FernandezGuastiShape: {"radius", "squareness"},
            m.ArchimedeanSpiralShape: {"radius", "spiral_pitch", "spiral_fill"},
-           m.PythagorasSnailShape: {"snail_segments"},
+           m.PythagorasSnailShape: {"snail_segments", "radius"},
            m.HugelschafferEggShape: {"egg_a", "egg_b", "egg_shift"},
            m.SineFlowerShape: {"radius", "flower_petals", "flower_amplitude"}}
     shared = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect", "fire_inside"}
@@ -866,7 +866,7 @@ def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_r
     app = _fake_render_app()
     start = m.default_starting_obstacle(0)
     start.out_effect = P
-    data = m.resolve_frame_settings([], 0)
+    data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     img = app.render_full_image(data, 40, 40, m.build_obstacle_arrays([start]),
                                 (_terminated_coloration(),), m.DEFAULT_FRAMING)
     assert tuple(img[20, 20]) == (255, 0, 0), "escaped rays are termination value 1.0"
@@ -875,14 +875,14 @@ def test_render_full_image_colors_escaped_rays_when_the_starting_obstacle_lets_r
 
 def test_render_full_image_with_the_starting_obstacle_produces_no_escaped_rays():
     app = _fake_render_app()
-    data = m.resolve_frame_settings([], 0)
+    data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     img = app.render_full_image(data, 40, 40, _starting_obst_arrays(), (_terminated_coloration(),), m.DEFAULT_FRAMING)
     assert img[20, 20][0] != 255
 
 
 def test_render_full_image_of_an_empty_scene_is_just_the_background():
     app = _fake_render_app()
-    data = m.resolve_frame_settings([], 0)
+    data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     empty = m.build_obstacle_arrays([])
     img = app.render_full_image(data, 24, 24, empty, (_terminated_coloration(),), m.DEFAULT_FRAMING)
     assert (img == np.array(m.BACKGROUND, dtype=np.uint8)).all()
@@ -1108,3 +1108,31 @@ def test_the_sine_flowers_ring_layers_stay_close_to_its_outline():
         assert len(ring) > 50 and outer.any() and inner.any(), (radius, petals, amplitude)
         far = np.sqrt(((ring[:, None, :] - curve[None, ::3, :]) ** 2).sum(-1)).min(axis=1).max()
         assert far < 0.02, (radius, petals, amplitude, far)
+
+
+# --------------------------------------------------------------------------- #
+# The snail of Pythagoras has a size: its radius
+# --------------------------------------------------------------------------- #
+def test_the_snail_radius_is_the_distance_to_its_farthest_corner_and_one_is_the_size_it_had():
+    o = m.PythagorasSnailShape(0)
+    assert o.radius == m.DEFAULT_RADIUS == 1.0 and "radius" in o.FIELD_NAMES and o.FIELD_TYPES["radius"] is float
+    assert np.array_equal(m.snail_bound(17, 20.0), m.snail_bound(17, 20.0, 1.0))
+    for n, radius in ((17, 1.0), (9, 2.5), (60, 0.4)):
+        bound = m.snail_bound(n, 33.0, radius)
+        corners = bound[3:3 + 2 * (n + 1)].reshape(-1, 2)
+        assert abs(np.hypot(corners[:, 0], corners[:, 1]).max() - radius) < 1e-12 * max(1.0, radius), (n, radius)
+        assert np.allclose(corners, m.snail_bound(n, 33.0, 1.0)[3:3 + 2 * (n + 1)].reshape(-1, 2) * radius, rtol=1e-12, atol=0)
+        assert abs(bound[0] / (m.snail_bound(n, 33.0, 1.0)[0] * radius * radius) - 1.0) < 0.05, "area grows as radius squared"
+    assert o.extent() == 1.0 and (o.extent(), type(o.extent())) == (1.0, float)
+    o.radius = 2.0
+    assert o.extent() == 2.0 and "r2.00" in o.info_param_line() and "r2.00" in o.shape_text()
+    assert np.array_equal(o.bound(), m.snail_bound(o.snail_segments, o.rotation, 2.0))
+
+
+def test_a_snail_of_radius_zero_is_nothing_and_a_larger_one_is_the_same_shape_scaled():
+    nothing = m.snail_bound(17, 0.0, 0.0)
+    assert nothing[0] == 0.0 and not any(m.inside_boundary(x, y, m.SHAPE_SNAIL, nothing) for x in (-0.3, 0.0, 0.2) for y in (-0.1, 0.0, 0.4))
+    small, big = m.snail_bound(17, 20.0, 1.0), m.snail_bound(17, 20.0, 2.0)
+    rng = np.random.RandomState(4)
+    for x, y in rng.uniform(-1.3, 1.3, size=(400, 2)):
+        assert m.inside_boundary(x, y, m.SHAPE_SNAIL, small) == m.inside_boundary(2.0 * x, 2.0 * y, m.SHAPE_SNAIL, big)

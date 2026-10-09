@@ -208,11 +208,11 @@ def test_a_project_that_cannot_be_saved_counts_as_having_unsaved_changes():
 def test_a_project_file_is_pretty_printed_versioned_json():
     import json
     text = m.project_text(_sample_project())
-    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 8,')
+    assert text.startswith('{\n  "format": "light-bounces-project",\n  "format_version": 9,')
     assert text.endswith("}\n") and "\r" not in text
     assert all(len(line) < 120 for line in text.split("\n"))            # one value per line
     data = json.loads(text)
-    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 8
+    assert data["format"] == m.PROJECT_FORMAT_NAME and data["format_version"] == 9
     assert data["program_version"] == m.FILE_VERSION
     assert [o["kind"] for o in data["obstacles"]] == [cls.KEY for cls in m.SHAPE_CLASSES]
     assert data["obstacles"][10]["kind"] == "lune" and data["selected"] == {"obstacle": 5, "coloration": 5, "framing": 0}
@@ -437,7 +437,7 @@ PINNED_KEYS = {
         "bounces_rightmost": "POINT_RIGHT", "bounces_leftmost": "POINT_LEFT",
         "self_bounces_uppermost": "POINT_SELF_TOP", "self_bounces_lowermost": "POINT_SELF_BOTTOM",
         "self_bounces_rightmost": "POINT_SELF_RIGHT", "self_bounces_leftmost": "POINT_SELF_LEFT",
-        "origin": "CHOICE_ORIGIN", "top_left_corner": "CHOICE_TOP_LEFT_CORNER"},
+        "origin": "CHOICE_ORIGIN", "(-1,1)": "CHOICE_POINT_NEG1_POS1"},
     "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
                                "modulus": "BUDDHA_COMPRESS_MODULUS"},
     "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
@@ -479,7 +479,7 @@ FORMAT_4_KEYS = {
         "leftmost_bounce": "POINT_LEFT", "uppermost_self_bounce": "POINT_SELF_TOP",
         "lowermost_self_bounce": "POINT_SELF_BOTTOM", "rightmost_self_bounce": "POINT_SELF_RIGHT",
         "leftmost_self_bounce": "POINT_SELF_LEFT", "origin": "CHOICE_ORIGIN",
-        "top_left_corner": "CHOICE_TOP_LEFT_CORNER"}}
+        "top_left_corner": "CHOICE_POINT_NEG1_POS1"}}
 FORMAT_4_BUDDHA_POINT_KEYS = {        # key -> the format-5 key of the same thing
     "all_bounces_mean": "bounces_mean", "self_bounces_mean": "self_bounces_mean",
     "boundary_bounces_mean": "boundary_bounces_mean", "termination_point": "path_last",
@@ -546,7 +546,7 @@ PINNED_OBSTACLE_FIELDS = {            # kind key -> the fields its project entry
     "superelliptical_squircle": {"width", "height", "exponent"},
     "fernandez_guasti_squircle": {"radius", "squareness"},
     "archimedean_spiral": {"radius", "spiral_pitch", "spiral_fill"},
-    "snail_of_pythagoras": {"snail_segments"},
+    "snail_of_pythagoras": {"snail_segments", "radius"},
     "hugelschaffer_egg": {"egg_a", "egg_b", "egg_shift"},
     "sine_flower": {"radius", "flower_petals", "flower_amplitude"}}
 SHARED_OBSTACLE_FIELDS = {"rotation", "r", "theta", "cx", "cy", "in_effect", "out_effect",
@@ -609,7 +609,7 @@ def test_every_key_a_format_4_file_can_hold_still_means_the_same_once_migrated()
     Every old key must come out of the migration as a key that means what the old one did."""
     for catalog_name, renames in (("CAT_METRIC", m._FORMAT_4_METRIC_RENAMES), ("CAT_POINT", m._FORMAT_4_POINT_RENAMES)):
         for old_key, constant in FORMAT_4_KEYS[catalog_name].items():
-            new_key = renames.get(old_key, old_key)
+            new_key = m._FORMAT_8_POINT_RENAMES.get(renames.get(old_key, old_key), renames.get(old_key, old_key))
             assert getattr(m, catalog_name).by_key.get(new_key) == getattr(m, constant), (catalog_name, old_key)
     assert set(m._FORMAT_4_METRIC_RENAMES) <= set(FORMAT_4_KEYS["CAT_METRIC"])
     assert set(m._FORMAT_4_POINT_RENAMES) <= set(FORMAT_4_KEYS["CAT_POINT"])
@@ -703,7 +703,7 @@ def test_a_format_1_project_file_is_converted_when_loaded():
     assert isinstance(old["simulation"]["emit_mode"], int)
     loaded = m.load_project(V1_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
-    assert m.project_text(loaded).count('"format_version": 8') == 1
+    assert m.project_text(loaded).count('"format_version": 9') == 1
 
 
 V2_PROJECT_FILE = os.path.join(ROOT, "dev", "testing",
@@ -724,7 +724,7 @@ def test_a_format_2_project_file_is_converted_when_loaded():
     assert loaded.ray == _sample_project().ray
     assert m.project_signature(loaded) == m.project_signature(_legacy_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8
+    assert converted["format_version"] == 9
     assert converted["buddha_blur"] == {"buddha_blur_radius": 0.03, "buddha_blur_type": "bokeh"}
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)      # the two moved, none was copied
     assert old["simulation"]["iter"] == converted["natural_termination"]["iter"] == 77
@@ -910,7 +910,7 @@ def test_a_format_3_project_file_is_converted_when_loaded():
     assert loaded.obstacles and len(loaded.obstacles) == len(m.SHAPE_CLASSES)
     assert loaded.natural_termination.max_iter == 77 and loaded.natural_termination.confine_lookback == 6
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8
+    assert converted["format_version"] == 9
     assert set(converted["natural_termination"]) == set(m.NATURAL_TERMINATION_SETTING_SPECS)      # the six moved ...
     assert set(converted["simulation"]) == set(m.RAY_SETTING_SPECS)                 # ... and none stayed
     assert converted["natural_termination"]["iter"] == old["simulation"]["iter"] == 77
@@ -948,7 +948,7 @@ def test_a_format_4_project_file_is_converted_when_loaded():
     loaded = m.load_project(V4_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8
+    assert converted["format_version"] == 9
     assert converted["colorations"][0]["channels"][0]["point1"] == "path_first"
     assert converted["colorations"][0]["channels"][0]["point2"] == "path_last"
     assert converted["colorations"][1]["channels"][1]["buddha_points"] == ["boundary_bounces_mean", "self_bounces_mean"]
@@ -987,7 +987,7 @@ def test_a_format_5_project_file_is_converted_when_loaded():
     loaded = m.load_project(V5_PROJECT_FILE)
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8 and "views" not in converted
+    assert converted["format_version"] == 9 and "views" not in converted
     assert [c["id"] for c in converted["colorations"]] == [0, 5]
     assert converted["counters"]["coloration"] == 9 and "view" not in converted["counters"]
     assert converted["selected"]["coloration"] == 5 and "view" not in converted["selected"]
@@ -1033,7 +1033,7 @@ def test_a_format_6_project_file_is_converted_when_loaded():
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     assert loaded.natural_termination.confine_lookback == 6
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8 and converted["natural_termination"]["confine_lookback"] == 6
+    assert converted["format_version"] == 9 and converted["natural_termination"]["confine_lookback"] == 6
     assert "confine_window" not in m.project_text(loaded)
 
 
@@ -1080,7 +1080,7 @@ def test_a_format_7_project_file_is_converted_when_loaded():
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
     assert loaded.natural_termination.max_iter == 77
     converted = json.loads(m.project_text(loaded))
-    assert converted["format_version"] == 8 and converted["natural_termination"] == old["natural_stop"]
+    assert converted["format_version"] == 9 and converted["natural_termination"] == old["natural_stop"]
     assert "natural_stop" not in converted
     assert [c["color_model"] for c in converted["colorations"]] == [c["mode"] for c in old["colorations"]]
     assert all("mode" not in c for c in converted["colorations"])
@@ -1132,7 +1132,7 @@ def test_framings_are_saved_in_a_section_of_their_own_and_come_back_with_their_c
         "the selection is not content (like the other selections)"
     moved = (project.framings[0], project.framings[1].__class__(**{**project.framings[1].as_dict(), "x": 0.5}), project.framings[2])
     assert m.project_signature(project) != m.project_signature(_framing_project(framings=moved)), "a number is"
-    assert m.PROJECT_FORMAT_VERSION == 8, "framings were a section added (older files load with the defaults): no new format"
+    assert m.PROJECT_FORMAT_VERSION >= 8, "framings were a section added (older files load with the defaults): no new format"
 
 
 def test_a_file_without_framings_has_the_whole_world_framing_and_the_id_counter_stays_above_the_ids():
@@ -1220,3 +1220,138 @@ def test_a_keyframe_with_a_damaged_framing_key_is_refused():
     data = json.loads(json.dumps(base))
     data["keyframes"][0]["settings"]["framing:4:x"] = -3
     assert m.project_from_dict(data).keyframes[0].data["framing:4:x"] == -3.0, "a framing's x may be anything finite"
+
+
+# --------------------------------------------------------------------------- #
+# Format 9: a file says explicitly what format 8 left to the defaults of its time
+# --------------------------------------------------------------------------- #
+V8_PROJECT_FILE = os.path.join(ROOT, "dev", "testing", "project_v8.lightbounce")
+
+
+def test_a_format_8_project_file_is_converted_when_loaded():
+    """dev/testing/project_v8.lightbounce is a real file written by format 8 from _sample_project() (program version 151)."""
+    import json
+    with open(V8_PROJECT_FILE, encoding="utf-8") as f:
+        old = json.load(f)
+    assert old["format_version"] == 8 and old["program_version"] == 151
+    loaded = m.load_project(V8_PROJECT_FILE)
+    assert m.project_signature(loaded) == m.project_signature(_sample_project())
+    assert json.loads(m.project_text(loaded))["format_version"] == 9
+
+
+def _format_8_file(**sections):
+    """A parsed format-8 file with a coloration and what `sections` say (the rest is what a file may leave out)."""
+    data = {"format": m.PROJECT_FORMAT_NAME, "format_version": 8,
+            "colorations": [{"id": 0, "color_model": "RGB", "channels": [
+                {"source": "constant", "constant": "zero"}, {"source": "constant", "constant": "zero"},
+                {"source": "constant", "constant": "zero"}]}]}
+    data.update(sections)
+    return data
+
+
+def test_the_format_9_migration_writes_the_defaults_of_format_8_that_a_file_leaves_out():
+    data = _format_8_file(obstacles=[{"kind": "ellipse", "id": 0, "fields": {"cx": 0.25}},
+                                     {"kind": "snail_of_pythagoras", "id": 1, "fields": {"snail_segments": 9}},
+                                     {"kind": "capsule", "id": 2, "fields": {"capsule_radius": 0.3}}])
+    migrated = m._migrate_project_8_to_9(data)
+    assert migrated["format_version"] == 9 and data["format_version"] == 8, "the input is not touched"
+    assert migrated["natural_termination"] == {"escape_radius": 2.0, "confine_threshold": 2.0 / 512}
+    assert migrated["buddha_seeding"] == {"buddha_seed_camera": True, "buddha_seed_x_start": -1.0,
+                                          "buddha_seed_x_stop": 1.0, "buddha_seed_y_start": -1.0, "buddha_seed_y_stop": 1.0}
+    assert migrated["framings"] == [{"id": 0, "x": 0.0, "y": 0.0, "diagonal": 2.0 * 2.0 ** 0.5, "aspect": 1.0}]
+    assert migrated["obstacles"][0]["fields"] == {"cx": 0.25, "width": 1.0, "height": 1.0}
+    assert migrated["obstacles"][1]["fields"] == {"snail_segments": 9, "radius": 1.0}
+    assert migrated["obstacles"][2]["fields"] == {"capsule_radius": 0.3, "capsule_length": 1.0}, "what the file holds stays"
+    loaded = m.project_from_dict(data)
+    assert loaded.natural_termination.escape_radius == 2.0 and loaded.natural_termination.confine_threshold == 2.0 / 512
+    assert loaded.framings[0].diagonal == 2.0 * 2.0 ** 0.5
+    assert (loaded.obstacles[0].width, loaded.obstacles[1].radius, loaded.obstacles[2].capsule_length) == (1.0, 1.0, 1.0)
+
+
+def test_the_format_9_migration_keeps_every_value_a_file_holds():
+    data = _format_8_file(
+        natural_termination={"escape_radius": 3.5, "confine_threshold": 0.01, "iter": 10},
+        buddha_seeding={"buddha_seed_camera": False, "buddha_seed_x_start": -0.5},
+        framings=[{"id": 3, "x": 0.5, "diagonal": 1.5}],
+        obstacles=[{"kind": "ellipse", "id": 0, "fields": {"width": 1.7, "height": 0.4}}])
+    migrated = m._migrate_project_8_to_9(data)
+    assert migrated["natural_termination"] == {"escape_radius": 3.5, "confine_threshold": 0.01, "iter": 10}
+    assert migrated["buddha_seeding"]["buddha_seed_x_start"] == -0.5 and migrated["buddha_seeding"]["buddha_seed_camera"] is False
+    assert migrated["buddha_seeding"]["buddha_seed_x_stop"] == 1.0, "only what the file leaves out is written"
+    assert migrated["framings"] == [{"id": 3, "x": 0.5, "y": 0.0, "diagonal": 1.5, "aspect": 1.0}]
+    assert migrated["obstacles"][0]["fields"] == {"width": 1.7, "height": 0.4}
+
+
+def test_the_format_9_migration_leaves_the_keyframes_alone_apart_from_the_renamed_point():
+    """A setting no keyframe defines is not written into one: an export takes it from what the controls held when it began."""
+    keyframes = [{"id": 5, "frame_index": 30, "settings": {"escape_radius": 5.0, "iter": 20}},
+                 {"id": 2, "frame_index": 10, "settings": {"seg_mult": 0.5}}]
+    migrated = m._migrate_project_8_to_9(_format_8_file(keyframes=keyframes))["keyframes"]
+    assert migrated == keyframes
+    assert m._migrate_project_8_to_9(_format_8_file(keyframes=[]))["keyframes"] == []
+    assert "keyframes" not in m._migrate_project_8_to_9(_format_8_file())
+
+
+def test_a_migrated_file_does_not_depend_on_the_defaults_of_the_program():
+    """The point of the migration: change the defaults (the world is going to be twice as large) and every file of format
+    8 or before still loads to the same project, and an export of it - which takes a setting no keyframe defines from the
+    controls, here the project's own - resolves the same settings at every keyframe."""
+    import json
+    files = [os.path.join(ROOT, "dev", "testing", f"project_v{n}.lightbounce") for n in range(1, 9)]
+    files += [os.path.join(ROOT, "projects", name) for name in sorted(os.listdir(os.path.join(ROOT, "projects")))
+              if name.endswith(".lightbounce")]
+    changes = {"escape_radius": 4.0, "confine_threshold": 4.0 / 512, "buddha_seed_x_start": -2.0, "buddha_seed_x_stop": 2.0,
+               "buddha_seed_y_start": -2.0, "buddha_seed_y_stop": 2.0}
+
+    def read(path):
+        project = m.load_project(path)
+        base = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed)
+        base["outline"] = bool(project.decorations.get("outline", True))
+        ordered = sorted(project.keyframes, key=lambda k: k.frame_index)
+        frames = [m.resolve_frame_settings(ordered, kf.frame_index, base) for kf in ordered]
+        return m.project_text(project), frames
+
+    before = {path: read(path) for path in files}
+    saved_settings, saved_framing = dict(m.DEFAULT_SETTING_VALUES), m.projects.DEFAULT_FRAMING
+    saved_diagonal = m.framings.DEFAULT_FRAMING_DIAGONAL
+    try:
+        m.DEFAULT_SETTING_VALUES.update(changes)
+        m.framings.DEFAULT_FRAMING_DIAGONAL = 4.0 * 2.0 ** 0.5          # (a framing a file leaves a number of out)
+        m.projects.DEFAULT_FRAMING = m.FramingSnapshot(id=0, x=0.0, y=0.0, diagonal=4.0 * 2.0 ** 0.5, aspect=1.0)
+        after = {path: read(path) for path in files}
+    finally:
+        m.DEFAULT_SETTING_VALUES.clear()
+        m.DEFAULT_SETTING_VALUES.update(saved_settings)
+        m.projects.DEFAULT_FRAMING = saved_framing
+        m.framings.DEFAULT_FRAMING_DIAGONAL = saved_diagonal
+    for path in files:
+        assert before[path][0] == after[path][0], path
+        assert before[path][1] == after[path][1], path
+    assert any(len(frames) > 0 for _text, frames in before.values()), "some file has keyframes"
+    assert json.loads(before[files[0]][0])["format_version"] == 9
+
+
+def test_the_point_choice_top_left_corner_is_the_key_minus_one_one_from_format_9_on():
+    channel = {"source": "query", "kind": "point_metric", "metric": "horizontal_distance",
+               "point1": "top_left_corner", "point2": "origin"}
+    other = {"source": "query", "kind": "point_metric", "metric": "euclidean_distance",
+             "point1": "path_first", "point2": "top_left_corner"}
+    data = _format_8_file(keyframes=[{"id": 1, "frame_index": 0, "settings": {"coloration:0:chan1": other, "iter": 5}}])
+    data["colorations"][0]["channels"][0] = channel
+    migrated = m._migrate_project_8_to_9(data)
+    assert migrated["colorations"][0]["channels"][0]["point1"] == "(-1,1)"
+    assert migrated["colorations"][0]["channels"][0]["point2"] == "origin"
+    assert migrated["keyframes"][0]["settings"]["coloration:0:chan1"] == {**other, "point2": "(-1,1)"}
+    assert channel["point1"] == "top_left_corner", "the input is not touched"
+    loaded = m.project_from_dict(data)
+    assert m.CAT_POINT.by_key["(-1,1)"] == m.CHOICE_POINT_NEG1_POS1 == m.N_POINTS + 1
+    assert "top_left_corner" not in m.CAT_POINT.by_key
+    assert m.coloration_channel_value(loaded.colorations[0], 0).point1 == m.CHOICE_POINT_NEG1_POS1
+    assert '"point1": "(-1,1)"' in m.project_text(loaded)
+    assert m.POINT_LABELS[m.CHOICE_POINT_NEG1_POS1] == "(-1,1)"
+
+
+def test_a_key_may_be_the_coordinates_of_a_fixed_point_and_nothing_else_odd():
+    pattern = m.PROJECT_KEY_PATTERN
+    assert all(pattern.fullmatch(key) for key in ("(-1,1)", "(-2,2)", "(0,0)", "(10,-3)", "self_bounces_mean", "1x"))
+    assert not any(pattern.fullmatch(key) for key in ("(-1, 1)", "(-1.5,1)", "(1)", "(-1,1", "Top left", "", "a-b", "(a,b)"))

@@ -31,7 +31,7 @@ from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
     CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, CHOICE_ORIGIN,
-    POINT_METRICS, CHOICE_TOP_LEFT_CORNER, point_slot, stat_slot
+    POINT_METRICS, CHOICE_POINT_NEG1_POS1, point_slot, stat_slot
 )
 from .settings import (
     BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalTerminationSettings, RaySettings, SETTING_TABLES,
@@ -47,9 +47,11 @@ from .framings import (
 
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
-PROJECT_FORMAT_VERSION = 8
+PROJECT_FORMAT_VERSION = 9
 PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
-PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+")
+# A key is lower-case words joined by underscores, or the coordinates of a fixed point, "(-1,1)": a point that is named
+# by where it is can never change what it means (a different point is a different key).
+PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+|\(-?\d+,-?\d+\)")
 
 
 class ProjectError(Exception):
@@ -115,7 +117,7 @@ CAT_METRIC = Catalog("metric", [          # the measurements of a ray's own run,
 CAT_POINT = Catalog("point", [
     (f"{CAT_SEQUENCE.key(seq)}_{CAT_POINT_REDUCTION.key(red)}", point_slot(seq, red))
     for seq in range(N_SEQS) for red in range(N_PRED)]
-    + [("origin", CHOICE_ORIGIN), ("top_left_corner", CHOICE_TOP_LEFT_CORNER)])
+    + [("origin", CHOICE_ORIGIN), ("(-1,1)", CHOICE_POINT_NEG1_POS1)])
 _BUDDHA_TERM_KEYS = {TERM_DIST: "distance_limit", TERM_PERPENDICULAR: "perpendicular_collision",
                      TERM_CONFINED: "confined"}
 _BUDDHA_MULTI_KEYS = {BUDDHA_MULTI_ALL_SELF: "all_self_bounces", BUDDHA_MULTI_ALL_MID: "all_segment_midpoints",
@@ -757,13 +759,89 @@ def _migrate_project_7_to_8(data):
     return data
 
 
+# What a format-8 file meant by a value it does not hold: the defaults of that time (the program's defaults have been
+# changed since - the world is twice as large - and a file must keep its picture). Frozen history, spelt out.
+_FORMAT_8_NATURAL_TERMINATION = {"escape_radius": 2.0, "confine_threshold": 2.0 / 512}
+_FORMAT_8_BUDDHA_SEEDING = {"buddha_seed_camera": True, "buddha_seed_x_start": -1.0, "buddha_seed_x_stop": 1.0,
+                            "buddha_seed_y_start": -1.0, "buddha_seed_y_stop": 1.0}
+_FORMAT_8_FRAMING = {"x": 0.0, "y": 0.0, "diagonal": 2.0 * math.sqrt(2.0), "aspect": 1.0}      # the whole world [-1, 1]
+_FORMAT_8_OBSTACLE_DEFAULTS = {            # kind key -> field -> the default of a field that is a distance
+    "ellipse": {"width": 1.0, "height": 1.0},
+    "regular_polygon": {"radius": 1.0},
+    "moss_egg": {"moss_size": 0.9},
+    "circular_sector": {"radius": 1.0},
+    "circular_segment": {"radius": 1.0},
+    "two_circle_lens": {"lens_radius1": 1.0, "lens_radius2": 1.0, "lens_sep": 1.0},
+    "reuleaux_polygon": {"radius": 1.0},
+    "capsule": {"capsule_length": 1.0, "capsule_radius": 0.5},
+    "trefoil": {"radius": 1.0},
+    "quatrefoil": {"radius": 1.0},
+    "lune": {"radius": 1.0, "cut_radius": 0.8, "cut_offset": 0.6},
+    "arbelos": {"radius": 1.0},
+    "superelliptical_squircle": {"width": 1.0, "height": 1.0},
+    "fernandez_guasti_squircle": {"radius": 1.0},
+    "archimedean_spiral": {"radius": 1.0, "spiral_pitch": 0.25},
+    "snail_of_pythagoras": {"radius": 1.0},          # (the snail had no size: its farthest corner was 1 from the centre)
+    "hugelschaffer_egg": {"egg_a": 1.0, "egg_b": 0.7},
+    "sine_flower": {"radius": 1.0}}
+_FORMAT_8_POINT_RENAMES = {"top_left_corner": "(-1,1)"}
+
+
+def _migrate_project_8_to_9(data):
+    """Format 9 is written with the world twice as large by default, so a file now says explicitly what a format-8 file
+    left to the defaults of its time: the escape radius and confinement threshold, the Buddha seeding zone, the framing
+    (a file with none had the whole world [-1, 1]), the size of every obstacle (a field it does not hold). It also renames
+    the point choice "top_left_corner" (the fixed point (-1, 1)) to its key "(-1,1)", in the colorations and in the
+    keyframes' channels. The keyframes are not otherwise touched: a setting no keyframe defines is taken, by an export,
+    from what the controls held when it began (resolve_frame_settings), which is the file's section, now explicit.
+    The picture the live image makes does not change. Converts a parsed format-8 file."""
+    import copy
+    data = copy.deepcopy(data)
+    for section, defaults in (("natural_termination", _FORMAT_8_NATURAL_TERMINATION),
+                              ("buddha_seeding", _FORMAT_8_BUDDHA_SEEDING)):
+        if not isinstance(data.get(section), dict):
+            data[section] = {}
+        for key, value in defaults.items():
+            data[section].setdefault(key, value)
+    framings = data.get("framings")
+    if not framings:
+        data["framings"] = [{"id": 0, **_FORMAT_8_FRAMING}]
+    else:
+        for framing in framings:
+            if isinstance(framing, dict):
+                for field, value in _FORMAT_8_FRAMING.items():
+                    framing.setdefault(field, value)
+    for obstacle in data.get("obstacles", []):
+        fields = obstacle.get("fields") if isinstance(obstacle, dict) else None
+        if isinstance(fields, dict):
+            for name, value in _FORMAT_8_OBSTACLE_DEFAULTS.get(obstacle.get("kind"), {}).items():
+                fields.setdefault(name, value)
+
+    def rename_points(channel):
+        if isinstance(channel, dict):
+            for name in ("point1", "point2"):
+                if channel.get(name) in _FORMAT_8_POINT_RENAMES:
+                    channel[name] = _FORMAT_8_POINT_RENAMES[channel[name]]
+    for coloration in data.get("colorations", []):
+        for channel in (coloration.get("channels") or []) if isinstance(coloration, dict) else []:
+            rename_points(channel)
+    keyframes = [kf for kf in data.get("keyframes", []) if isinstance(kf, dict) and isinstance(kf.get("settings"), dict)]
+    for kf in keyframes:
+        for key, value in kf["settings"].items():
+            if key.startswith("coloration:") and ":chan" in key:
+                rename_points(value)
+    data["format_version"] = 9
+    return data
+
+
 PROJECT_MIGRATIONS = {1: _migrate_project_1_to_2,      # format n -> format n + 1
                       2: _migrate_project_2_to_3,
                       3: _migrate_project_3_to_4,
                       4: _migrate_project_4_to_5,
                       5: _migrate_project_5_to_6,
                       6: _migrate_project_6_to_7,
-                      7: _migrate_project_7_to_8}
+                      7: _migrate_project_7_to_8,
+                      8: _migrate_project_8_to_9}
 
 
 def project_from_dict(data):

@@ -663,3 +663,59 @@ def test_every_setting_and_obstacle_field_resolves_to_a_control():
     assert [w.name for w in app.widgets_for_setting("coloration:2:color_model")] == ["color_model_combo"]
     assert [w.name for w in app.widgets_for_setting("coloration:2:chan1")] == ["block1"]
     assert app.widgets_for_setting("coloration:3:chan1") == []
+
+
+# --------------------------------------------------------------------------- #
+# A setting no keyframe defines: an export uses what the controls held when it began, never the defaults
+# --------------------------------------------------------------------------- #
+def _live_values(**changes):
+    return {**m.DEFAULT_SETTING_VALUES, **changes}
+
+
+def test_a_setting_no_keyframe_defines_takes_the_base_values_at_every_frame_and_never_the_defaults():
+    """Regression test: a video took such a setting from the program's defaults (a project with segment multiplier 0.05
+    on its controls rendered with 1.0), while obstacles, colorations and framings took their own current values."""
+    base = _live_values(seg_mult=0.05, iter=128, escape_radius=3.0, buddha_blur_radius=0.002, outline=False)
+    kfs = [m.Keyframe(1, 0, {"dist": 1.0}), m.Keyframe(2, 10, {"dist": 3.0, "confine_lookback": 9})]
+    for frame in (0, 5, 10, 25):
+        data = m.resolve_frame_settings(kfs, frame, base)
+        assert data.ray.seg_mult == 0.05 and data.natural_termination.max_iter == 128
+        assert data.natural_termination.escape_radius == 3.0 and data.buddha_blur.radius == 0.002 and data.outline is False
+    assert m.resolve_frame_settings(kfs, 5, base).natural_termination.max_dist == 2.0, "what a keyframe defines still animates"
+    assert m.resolve_frame_settings(kfs, 5, base).natural_termination.confine_lookback == 9, \
+        "a setting one keyframe defines is held at every frame, before it too"
+    assert m.resolve_frame_settings(kfs, 5, m.DEFAULT_SETTING_VALUES).ray.seg_mult == m.DEFAULT_RAY_SETTINGS.seg_mult
+
+
+def test_resolving_a_frame_needs_every_static_setting_in_its_base_so_a_default_can_never_creep_back_in():
+    base = _live_values()
+    del base["escape_radius"]
+    assert _raises(KeyError, lambda: m.resolve_frame_settings([], 0, base))
+    assert _raises(TypeError, lambda: m.resolve_frame_settings([], 0))
+
+
+def test_a_base_with_the_dynamic_keys_of_capture_all_settings_is_fine():
+    base = {**_live_values(), "obst:3:width": 0.5, "coloration:0:chan0": "x", "framing:0:x": 1.0}
+    assert m.resolve_frame_settings([], 0, base).ray == m.DEFAULT_RAY_SETTINGS
+
+
+def test_the_video_and_the_new_image_export_take_the_controls_as_their_base():
+    import inspect
+    start = inspect.getsource(m.App.start_or_cancel_render)
+    assert "base_settings = self.capture_all_settings()" in start and "base_settings," in start
+    worker = inspect.getsource(m.App._render_worker)
+    assert "resolve_frame_settings(assigned_sorted, fn, base_settings)" in worker
+    assert "DEFAULT_SETTING_VALUES" not in worker and "DEFAULT_SETTING_VALUES" not in start
+    assert "resolve_frame_settings([fake_kf], 0, settings_dict)" in inspect.getsource(m.App.save_new_image)
+
+
+def test_the_keyframe_editor_shows_a_setting_no_keyframe_defines_with_the_controls_value():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.capture_all_settings = lambda show_error=True: {**_live_values(seg_mult=0.3), "obst:1:width": 0.5}
+    app.live_setting_values = m.App.live_setting_values.__get__(app)
+    app.setting_fallback = m.App.setting_fallback.__get__(app)
+    assert app.setting_fallback("seg_mult") == 0.3 and app.setting_fallback("iter") == m.DEFAULT_SETTING_VALUES["iter"]
+    app.capture_all_settings = lambda show_error=True: None                  # the limit fields hold nonsense
+    assert app.setting_fallback("seg_mult") == m.DEFAULT_SETTING_VALUES["seg_mult"], "only for showing a value"

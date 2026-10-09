@@ -24,7 +24,7 @@ def test_dist_is_not_rounded_during_keyframe_resolution():
     which means "no limit" in this program's convention. A short-distance
     keyframe would silently become an unlimited-distance one."""
     kf = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.4})
-    data = m.resolve_frame_settings([kf], 0)
+    data = m.resolve_frame_settings([kf], 0, m.DEFAULT_SETTING_VALUES)
     assert data.natural_termination.max_dist == 0.4
     assert m.effective_dist(data.natural_termination.max_dist) == 0.4
 
@@ -36,7 +36,7 @@ def test_dist_animates_smoothly_between_keyframes():
     until the very last frame" of a video animating the distance limit."""
     kf0 = m.Keyframe(1, 0, {**m.DEFAULT_SETTING_VALUES, "dist": 0.01})
     kf1 = m.Keyframe(2, 59, {**m.DEFAULT_SETTING_VALUES, "dist": 16})
-    dists = [m.resolve_frame_settings([kf0, kf1], fn).natural_termination.max_dist for fn in range(60)]
+    dists = [m.resolve_frame_settings([kf0, kf1], fn, m.DEFAULT_SETTING_VALUES).natural_termination.max_dist for fn in range(60)]
     assert dists[0] == 0.01 and dists[59] == 16
     assert all(dists[i] < dists[i + 1] for i in range(59)), \
         "dist should increase strictly monotonically across every frame"

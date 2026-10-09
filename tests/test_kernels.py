@@ -720,7 +720,7 @@ def test_confinement_settings_round_trip_through_capture_and_resolve():
     data = app.capture_all_settings()
     assert data["confine_lookback"] == 9 and data["confine_method"] == PATH
     assert data["confine_threshold"] == 1e-12
-    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).natural_termination
+    resolved = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0, m.DEFAULT_SETTING_VALUES).natural_termination
     assert (resolved.confine_lookback, resolved.confine_method, resolved.confine_threshold) \
         == (9, PATH, 1e-12)
 
@@ -730,10 +730,10 @@ def test_confinement_threshold_interpolates_but_lookback_and_method_hold():
                             "confine_threshold": 0.0})
     kf1 = m.Keyframe(1, 10, {"confine_lookback": 20, "confine_method": PATH,
                              "confine_threshold": 1.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).natural_termination
+    mid = m.resolve_frame_settings([kf0, kf1], 5, m.DEFAULT_SETTING_VALUES).natural_termination
     assert mid.confine_lookback == 4 and mid.confine_method == BOX
     assert np.isclose(mid.confine_threshold, 0.5)
-    end = m.resolve_frame_settings([kf0, kf1], 10).natural_termination
+    end = m.resolve_frame_settings([kf0, kf1], 10, m.DEFAULT_SETTING_VALUES).natural_termination
     assert end.confine_lookback == 20 and end.confine_method == PATH
 
 
@@ -1111,7 +1111,7 @@ def test_emission_settings_round_trip_through_capture_and_resolve():
     assert (data["emit_mode"], data["emit_target_r"], data["emit_target_theta"],
             data["emit_target_cx"], data["emit_target_cy"],
             data["emit_offset"]) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
-    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0).ray
+    snap = m.resolve_frame_settings([m.Keyframe(0, 0, data)], 0, m.DEFAULT_SETTING_VALUES).ray
     assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
             snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -2500.0, 90.0, 0.75, -4.0, 12.5)
 
@@ -1123,11 +1123,11 @@ def test_emission_target_and_offset_interpolate_but_the_mode_holds():
     kf1 = m.Keyframe(1, 10, {"emit_mode": TOWARDS, "emit_target_r": 2.0,
                              "emit_target_theta": 90.0, "emit_target_cx": 1.0,
                              "emit_target_cy": 4.0, "emit_offset": 45.0})
-    mid = m.resolve_frame_settings([kf0, kf1], 5).ray
+    mid = m.resolve_frame_settings([kf0, kf1], 5, m.DEFAULT_SETTING_VALUES).ray
     assert mid.emit_mode == UP
     assert (mid.emit_target_r, mid.emit_target_theta, mid.emit_target_cx, mid.emit_target_cy,
             mid.emit_offset) == (1.0, 45.0, 0.0, 2.0, 0.0)
-    assert m.resolve_frame_settings([kf0, kf1], 10).ray.emit_mode == TOWARDS
+    assert m.resolve_frame_settings([kf0, kf1], 10, m.DEFAULT_SETTING_VALUES).ray.emit_mode == TOWARDS
 
 
 def test_short_value_text_for_the_emission_settings():
