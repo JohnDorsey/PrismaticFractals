@@ -10,6 +10,7 @@ from .metrics import (
     other_metric_to_label
 )
 from .color_pipeline import paint, ray_values
+from .stored_layout import FULL_LAYOUT
 from .ui_text import default_map_help
 from .colorations import COLOR_MODELS, channels_to_rgb
 
@@ -211,12 +212,12 @@ class RecolorMixin:
                 counts = self.blurred_buddha_counts(c) if self.mapping[c] == CHAN_BUDDHA else None
                 blurred[c] = None if counts is None else counts[r0:r1]
         paint(self.img[r0:r1], self.live_coloration(), self.mapping, self.stats[r0:r1],
-              self.characteristic_points[r0:r1], computed, blurred)
+              self.characteristic_points[r0:r1], computed, blurred, self.current_figure().layout)
 
-    def component_values(self, vec, ray_characteristic_points, x0, y0):
+    def component_values(self, vec, ray_characteristic_points, x0, y0, layout=FULL_LAYOUT):
         """The three channel values (0..1) for one ray under the current mapping. vec: its metrics,
         ray_characteristic_points: its characteristic points, (x0, y0): the pixel it was fired from (used to look up a
-        Buddha channel's already-accumulated count at that same pixel)."""
+        Buddha channel's already-accumulated count at that same pixel). `layout` says which metrics and points they keep."""
         at_pixel = [None] * 3
         for c in range(3):
             if self.mapping[c] != CHAN_BUDDHA:
@@ -227,7 +228,7 @@ class RecolorMixin:
                 col, row = int(np.floor(cx)), int(np.floor(cy))
                 inside = 0 <= row < self.img_h and 0 <= col < self.img_w
                 at_pixel[c] = counts[row, col] if inside else 0.0
-        return ray_values(self.live_coloration(), self.mapping, vec, ray_characteristic_points, at_pixel)
+        return ray_values(self.live_coloration(), self.mapping, vec, ray_characteristic_points, at_pixel, layout)
 
     def map_color(self, vals):
         """Color (r, g, b) from three channel values under the current model."""

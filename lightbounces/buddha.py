@@ -101,6 +101,14 @@ def blur_counts_image(counts, kernel):
     return full[max_offset:max_offset + h, max_offset:max_offset + w]
 
 
+def _engine_point(engine_args, point):
+    """The position of characteristic point `point` (an id) in the per-path points of the engine `engine_args` (a PathArgs) is for."""
+    position = int(engine_args.tables.point_pos[point])
+    if position < 0:
+        raise KeyError(f"the engine does not store the characteristic point {point}")
+    return position
+
+
 def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base,
                           kinds=ALL_PATH_KINDS):
     """Scatter, into `counts` (in place; it covers the world rectangle `world_rect`), the Buddha points `chosen` (a channel's tuple
@@ -118,7 +126,7 @@ def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termina
         if style == BUDDHA_MULTI:
             want_multi[ref] = True
         elif term_filter is None:
-            slots.append(ref)
+            slots.append(_engine_point(engine_args, ref))
         else:
             end_terms.append(term_filter)
     if not (slots or end_terms or any(want_multi.values())):

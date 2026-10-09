@@ -236,7 +236,7 @@ class BuddhaMixin:
                 continue
             if scatter_buddha_channel(self.buddha_counts[c], coloration.buddha_points[c], r0, r1, self.image_world_rect,
                                       seeds, fired, stats, characteristic_points, figure.termination,
-                                      figure.engine_args, figure.rng_seed, kinds=coloration.buddha_path_kinds[c]):
+                                      figure.engine_args, figure.rng_seed, figure.layout, coloration.buddha_path_kinds[c]):
                 self.buddha_counts_blurred[c] = None
 
     def blurred_buddha_counts(self, c):

@@ -7,8 +7,8 @@ from .constants import (
 )
 from .geometry import ellipse_bound
 from .kernels import (
-    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, compute_sequences, compute_run_measurements, fires_ray,
-    inside_boundary, trace_rows, trace_engine_path, ENGINE_RAY_BOUNCING
+    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, fires_ray, inside_boundary, measure_path, trace_rows, trace_engine_path,
+    ENGINE_RAY_BOUNCING
 )
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
@@ -35,10 +35,10 @@ class GenerationMixin:
             effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)
         fires_ray(0.0, 0.0, no_obstacles)
         termination = natural_termination_rule(WARM_ITER, big, DEFAULT_ESCAPE_RADIUS, CONFINE_DEFAULT)
-        engine_args = path_args(ENGINE_RAY_BOUNCING, ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT, no_obstacles))
+        engine_args = path_args(ENGINE_RAY_BOUNCING, ray_args(DEFAULT_SEGMENT_MULT, fz, EMISSION_DEFAULT), no_obstacles)
         trace_engine_path(0.0, 0.0, self.hover_path_points, self.hover_path_point_tags, termination, engine_args, self.hover_raw)
-        compute_run_measurements(self.hover_path_points, 4, self.hover_raw, WARM_ITER, DEFAULT_SEGMENT_MULT, self.hover_vec)
-        compute_sequences(self.hover_path_points, 4, self.hover_path_point_tags, 0, WARM_ITER, self.hover_vec, self.hover_ray_characteristic_points)
+        measure_path(ENGINE_RAY_BOUNCING, self.hover_path_points, 4, self.hover_path_point_tags, self.hover_raw, WARM_ITER,
+                     DEFAULT_SEGMENT_MULT, engine_args.tables, self.hover_vec, self.hover_ray_characteristic_points)
         trace_rows(self.stats, self.characteristic_points, self.pixel_state, 0, 1, self.img_w, self.img_h, self.image_world_rect,
                        termination, engine_args, 0)
         self.stats[:] = 0

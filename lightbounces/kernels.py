@@ -12,7 +12,7 @@ and imports nothing from the rest of the package except numba's njit/prange (dec
 freezes in). test_the_numba_kernels_read_only_names_defined_in_their_own_file enforces this. Every other module imports
 these names from here (never the other way round)."""
 from collections import namedtuple
-from math import acos, atan, atan2, cos, floor, pi, sin, sqrt
+from math import acos, atan, atan2, cos, floor, isfinite, pi, sin, sqrt
 import numpy as np
 from .external import njit, prange
 
@@ -102,6 +102,7 @@ TAG_DISTCUT = 3.0
 TAG_OBSTACLE_TERM = 4.0   # the point where a "terminate" obstacle ended the ray
 TAG_ESCAPED = 5.0         # the point where an escaping ray reaches the escape radius
 TAG_PERPENDICULAR = 6.0   # the point where a ray hit a surface at exactly perpendicular incidence and ended (no bounce)
+TAG_ORBIT = 7.0           # an ordinary point of an orbit (z_1, z_2...; the orbit engine's; in no sequence but the whole path)
 
 # What the renderer knows about a pixel (the `pixel_state` array of an image, one uint8 each)
 PIXEL_PENDING = 0          # not reached yet (the state of every pixel before its row is rendered)
@@ -159,13 +160,12 @@ NaturalTerminationRule = namedtuple("NaturalTerminationRule", [
     "escape_radius",                                 # how far from the origin a sequence ends, in world units
     "confine"])                                      # a ConfineRule: stopped getting anywhere
 
-# Everything the ray-bouncing engine takes besides the natural termination rule: the part of its arguments that another
-# engine would replace with its own. Build it only with ray_args.
+# Everything the ray-bouncing engine takes besides the natural termination rule and the obstacles: the part of its arguments
+# that another engine would replace with its own. Build it only with ray_args.
 RayArgs = namedtuple("RayArgs", [
     "seg_mult",                                      # how much of each bounce's segment is travelled (0..1)
     "fuzz",                                          # a FuzzRule
-    "emission",                                      # an EmissionRule
-    "obstacles"])                                    # an ObstacleArrays
+    "emission"])                                     # an EmissionRule
 
 # The escape-time orbit engine's own arguments (the Mandelbrot set and its Julia sets: z -> z^p + c): the part of its
 # arguments that is not the natural termination rule and not the obstacles, which every engine shares. Build it only with
@@ -179,12 +179,14 @@ OrbitArgs = namedtuple("OrbitArgs", [
     "clip_escape"])                                  # does an escaping orbit end where its segment crosses the escape radius?
 
 # Everything one path engine job needs that the engines do not share, whichever engine runs: which engine, and the arguments of
-# each (the unused one is a dummy). The drivers (trace_rows..., scatter_from_seeds) take this where they took a RayArgs and
+# each (the unused one is a dummy), and the obstacles. The drivers (trace_rows..., scatter_from_seeds) take this where they took a RayArgs and
 # switch on `engine` once per path, in trace_engine_path. Build it only with path_args.
 PathArgs = namedtuple("PathArgs", [
     "engine",                                        # an ENGINE_* code
-    "ray",                                           # a RayArgs (the ray-bouncing engine's; its obstacles are every engine's)
-    "orbit"])                                        # an OrbitArgs
+    "ray",                                           # a RayArgs (the ray-bouncing engine's)
+    "orbit",                                         # an OrbitArgs
+    "obstacles",                                     # an ObstacleArrays: the scene, which no engine owns (every engine meets it)
+    "tables"])                                       # the SequenceTables of the engine: where it stores what (see below)
 
 # How a size in the world becomes a metric between 0 and 1 (the default world is [-2, 2], four wide): a point distance is
 # divided by DISTANCE_METRIC_DIVISOR and clipped to 0..1, a path's length L becomes (2/pi) arctan(L / LENGTH_METRIC_DIVISOR).
@@ -295,6 +297,22 @@ STAT_SLOT = _number_slots(N_SEQS, N_SRED, list(STAT_ALIASES.items()), N_LEGACY_S
 N_POINTS = N_SEQS * N_PRED            # the points stored for each ray: every reduction of every sequence
 N_STATS = N_LEGACY_STATS + N_SEQS * N_SRED - len(STAT_ALIASES)   # the metrics stored: the 13 a coloration can choose (three of
                                                                 # them reductions of a sequence), then the other reductions
+
+# What one engine stores about a path, as a map from the GLOBAL ids of the choices (the ids above are shared by every engine, D34 of
+# Engine_Refactor_Design.md) to POSITIONS in the engine's own arrays: a ray's stored metrics `out` (n_stats numbers) and
+# characteristic points (n_points rows of (x, y)). An id the engine does not store has position -1 and is not written. The ray-bouncing
+# engine stores every id, in order, so its positions ARE the ids. `seqs` lists the sequences (SEQ_*) the engine reduces. The reductions
+# (sequence_summary, compute_sequences) write through these tables, so another engine brings its own. Build one with
+# stored_layout.sequence_tables; the ray's is RAY_SEQUENCE_TABLES.
+SequenceTables = namedtuple("SequenceTables", [
+    "seqs",                                          # int64 array: the SEQ_* ids of the sequences the engine reduces
+    "point_pos",                                     # int64 array indexed by a characteristic point id (POINT_SLOT): its row, or -1
+    "stat_pos",                                      # int64 array indexed by a metric id (STAT_SLOT, ST_*): its place in `out`, or -1
+    "n_points",                                      # how many characteristic points the engine stores per path
+    "n_stats"])                                      # how many metrics
+
+RAY_SEQUENCE_TABLES = SequenceTables(seqs=np.arange(N_SEQS, dtype=np.int64), point_pos=np.arange(N_POINTS, dtype=np.int64),
+                                     stat_pos=np.arange(N_STATS, dtype=np.int64), n_points=N_POINTS, n_stats=N_STATS)
 
 # Raw measurements filled in by trace_path / compute_run_measurements
 RAW_SELF_K = 0      # index of the segment hit at the first self-touch (-1: never)
@@ -1751,7 +1769,7 @@ def unit_direction(deg):
 
 
 @njit(nogil=True, cache=True)
-def trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw):
+def trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, obstacles, raw):
     """
     Trace one ray, storing the start point and every
     bounce point in path_points (needs at least termination.max_iter + 2 rows, 2 columns), the
@@ -1765,7 +1783,7 @@ def trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, r
     `termination` is a NaturalTerminationRule (see natural_termination_rule): what ends the ray without anything in the scene ending it -
     the iteration limit `max_iter` (TERM_ITER), the distance limit `max_dist` (TERM_DIST), the `escape_radius` an
     escaping ray ends at (TERM_ESCAPED) and the `confine` rule (TERM_CONFINED, below). `engine_args` is a RayArgs (see
-    ray_args): `seg_mult`, `fuzz`, `emission` and `obstacles`, described below.
+    ray_args): `seg_mult`, `fuzz` and `emission`, described below.
 
     `engine_args.seg_mult` (0 < seg_mult <= 1) shortens every ordinary bounce's recorded
     segment to that fraction of its true length - the endpoint moves back
@@ -1778,7 +1796,7 @@ def trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, r
     still reaches its true, unshortened endpoint, since there's no next
     segment to continue into.
 
-    `engine_args.obstacles` is an ObstacleArrays describing every obstacle (parallel
+    `obstacles` is an ObstacleArrays describing every obstacle (parallel
     arrays; each obstacle's own bound is centred on (cx[i], cy[i]); `effects`
     is an (n, 2) array of
     OBSTACLE_EFFECT_* codes: column 0 for rays coming in from outside, column
@@ -1819,7 +1837,6 @@ def trace_path(x0, y0, path_points, path_point_tags, termination, engine_args, r
     seg_mult = engine_args.seg_mult
     fuzz = engine_args.fuzz
     emission = engine_args.emission
-    obstacles = engine_args.obstacles
     obst_shapes = obstacles.shapes
     obst_bounds = obstacles.bounds
     obst_cx = obstacles.cx
@@ -2134,12 +2151,27 @@ def in_sequence(seq, k, path_point_tags):
 
 
 @njit(cache=True)
-def sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points):
+def put_point(ray_characteristic_points, position, x, y):
+    """Store (x, y) as the characteristic point at `position`, unless it is -1 (the engine does not store that point)."""
+    if position >= 0:
+        ray_characteristic_points[position, 0] = x
+        ray_characteristic_points[position, 1] = y
+
+
+@njit(cache=True)
+def put_stat(out, position, value):
+    """Store `value` as the metric at `position`, unless it is -1 (the engine does not store that metric)."""
+    if position >= 0:
+        out[position] = value
+
+
+@njit(cache=True)
+def sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, tables, out, ray_characteristic_points):
     """Reduce the named sequence `seq` of a traced path, in one pass over its points, to everything that is stored
-    about it: its point reductions (PRED_*, into their rows of `ray_characteristic_points`, shape (N_POINTS, 2); a sequence with no points
-    reports the path's end point for each) and its scalar reductions (SRED_*, into their slots of `out`: how many
+    about it: its point reductions (PRED_*, into their rows of `ray_characteristic_points`, shape (tables.n_points, 2); a sequence with no
+    points reports the path's end point for each) and its scalar reductions (SRED_*, into their slots of `out`: how many
     points it has over the iteration limit, the length and last direction of the polyline through them in order, and
-    its share of the path's bounces)."""
+    its share of the path's bounces). `tables` (SequenceTables) says where the engine keeps each of them, and which it does not."""
     count = 0
     sx = 0.0
     sy = 0.0
@@ -2195,37 +2227,62 @@ def sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, out,
     else:
         mean_x = sx / count
         mean_y = sy / count
-    ray_characteristic_points[POINT_SLOT[seq, PRED_FIRST], 0] = path_points[i_first, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_FIRST], 1] = path_points[i_first, 1]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_LAST], 0] = path_points[i_last, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_LAST], 1] = path_points[i_last, 1]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_MEAN], 0] = mean_x
-    ray_characteristic_points[POINT_SLOT[seq, PRED_MEAN], 1] = mean_y
-    ray_characteristic_points[POINT_SLOT[seq, PRED_TOP], 0] = path_points[i_top, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_TOP], 1] = path_points[i_top, 1]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_BOTTOM], 0] = path_points[i_bottom, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_BOTTOM], 1] = path_points[i_bottom, 1]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_RIGHT], 0] = path_points[i_right, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_RIGHT], 1] = path_points[i_right, 1]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_LEFT], 0] = path_points[i_left, 0]
-    ray_characteristic_points[POINT_SLOT[seq, PRED_LEFT], 1] = path_points[i_left, 1]
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_FIRST]], path_points[i_first, 0], path_points[i_first, 1])
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_LAST]], path_points[i_last, 0], path_points[i_last, 1])
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_MEAN]], mean_x, mean_y)
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_TOP]], path_points[i_top, 0], path_points[i_top, 1])
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_BOTTOM]], path_points[i_bottom, 0], path_points[i_bottom, 1])
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_RIGHT]], path_points[i_right, 0], path_points[i_right, 1])
+    put_point(ray_characteristic_points, tables.point_pos[POINT_SLOT[seq, PRED_LEFT]], path_points[i_left, 0], path_points[i_left, 1])
     ang = atan2(last_dy, last_dx) if count >= 2 else 0.0
-    out[STAT_SLOT[seq, SRED_COUNT]] = min(count / max_iter, 1.0)
-    out[STAT_SLOT[seq, SRED_LENGTH]] = atan(total / LENGTH_METRIC_DIVISOR) * 2.0 / pi
-    out[STAT_SLOT[seq, SRED_LAST_DIR]] = min(max((ang + pi) / (2.0 * pi), 0.0), 1.0)
-    out[STAT_SLOT[seq, SRED_SHARE]] = min(count / nb, 1.0) if nb > 0 else 0.0
+    put_stat(out, tables.stat_pos[STAT_SLOT[seq, SRED_COUNT]], min(count / max_iter, 1.0))
+    put_stat(out, tables.stat_pos[STAT_SLOT[seq, SRED_LENGTH]], atan(total / LENGTH_METRIC_DIVISOR) * 2.0 / pi)
+    put_stat(out, tables.stat_pos[STAT_SLOT[seq, SRED_LAST_DIR]], min(max((ang + pi) / (2.0 * pi), 0.0), 1.0))
+    put_stat(out, tables.stat_pos[STAT_SLOT[seq, SRED_SHARE]], min(count / nb, 1.0) if nb > 0 else 0.0)
 
 
 @njit(cache=True)
-def compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points):
-    """Fill every stored reduction of every named sequence (SEQ_*) of a traced path: the points into `ray_characteristic_points` (shape
-    (N_POINTS, 2)) and the scalars into `out` (N_STATS slots; compute_run_measurements fills the rest). The bounce points are
+def compute_sequences(path_points, npts, path_point_tags, nb, max_iter, tables, out, ray_characteristic_points):
+    """Fill every stored reduction of every named sequence (SEQ_*) the engine reduces (`tables.seqs`) of a traced path: the points into
+    `ray_characteristic_points` (shape (tables.n_points, 2)) and the scalars into `out` (tables.n_stats slots; compute_run_measurements
+    fills the rest, for the ray engine), each where `tables` (SequenceTables) puts it. The bounce points are
     path_points[1] .. path_points[nb]; the start point and a distance-cut end point are not bounce points. A sequence with no points
     (a ray with no bounces of the relevant kind) uses the path's end point. Five of the slots are the old choices
     ST_BOUNCE_COUNT, ST_LENGTH, ST_LAST_DIR, ST_SELF_SHARE and ST_BOUNDARY_SHARE, and thirteen points are the old POINT_*
     choices (see POINT_ALIASES)."""
-    for seq in range(N_SEQS):
-        sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
+    for k in range(len(tables.seqs)):
+        sequence_summary(tables.seqs[k], path_points, npts, path_point_tags, nb, max_iter, tables, out, ray_characteristic_points)
+
+
+@njit(cache=True)
+def measure_path(engine, path_points, npts, path_point_tags, raw, max_iter, seg_mult, tables, out, ray_characteristic_points):
+    """Everything stored about a traced path, by the engine that traced it (the second switch on the engine, beside trace_engine_path):
+    the ray engine's own measurements of its run (compute_run_measurements, which writes at the global ids: the ray's positions are
+    its ids) and then the reductions of its sequences; the orbit engine's measurements (compute_orbit_measurements, written where its
+    tables put them) and then the reductions of its sequences. `out` and `ray_characteristic_points` have the engine's
+    own sizes (tables.n_stats numbers, tables.n_points rows)."""
+    if engine == ENGINE_RAY_BOUNCING:
+        compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out)
+    else:
+        out[:] = 0.0
+        compute_orbit_measurements(path_points, npts, raw, tables, out)
+    compute_sequences(path_points, npts, path_point_tags, int(raw[RAW_BOUNCES]), max_iter, tables, out, ray_characteristic_points)
+
+
+@njit(cache=True)
+def termination_stat_value(term):
+    """The stored value (0..1, evenly spaced) of a termination reason (TERM_STAT_VALUE in constants.py is the same table in Python)."""
+    if term == TERM_ITER:
+        return 0.0
+    if term == TERM_CONFINED:
+        return 0.2
+    if term == TERM_DIST:
+        return 0.4
+    if term == TERM_OBSTACLE:
+        return 0.6
+    if term == TERM_PERPENDICULAR:
+        return 0.8
+    return 1.0                                     # TERM_ESCAPED
 
 
 @njit(cache=True)
@@ -2305,25 +2362,42 @@ def compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out):
     else:
         out[ST_LOOP_AREA] = 0.0
 
-    term = int(raw[RAW_TERM])
-    if term == TERM_ITER:
-        out[ST_TERMINATION] = 0.0
-    elif term == TERM_CONFINED:
-        out[ST_TERMINATION] = 0.2
-    elif term == TERM_DIST:
-        out[ST_TERMINATION] = 0.4
-    elif term == TERM_OBSTACLE:
-        out[ST_TERMINATION] = 0.6
-    elif term == TERM_PERPENDICULAR:
-        out[ST_TERMINATION] = 0.8
-    else:                                          # TERM_ESCAPED
-        out[ST_TERMINATION] = 1.0
+    out[ST_TERMINATION] = termination_stat_value(int(raw[RAW_TERM]))
 
     full = raw[RAW_LAST_FULL]
     if full > 0.0:
         out[ST_LAST_RATIO] = min(last / full, 1.0)
     else:
         out[ST_LAST_RATIO] = 1.0
+
+
+@njit(cache=True)
+def compute_orbit_measurements(path_points, npts, raw, tables, out):
+    """The orbit engine's measurements of its run, written where `tables` (SequenceTables) puts them (not at all for a metric the engine
+    does not store): the four point distances between the first and the last point of the path (placeholders, as for a ray: a channel
+    that compares two other points gets its value from those points) and the termination reason; and RAW_LENGTH, RAW_LAST,
+    RAW_LAST_DIR (degrees) and RAW_DISP, which the preview's numbers read. The sequences' reductions (count, length, direction)
+    are compute_sequences'."""
+    total = 0.0
+    last = 0.0
+    for k in range(npts - 1):
+        last = sqrt((path_points[k + 1, 0] - path_points[k, 0]) ** 2 + (path_points[k + 1, 1] - path_points[k, 1]) ** 2)
+        total += last
+    ang = 0.0
+    if npts > 1:
+        ang = atan2(path_points[npts - 1, 1] - path_points[npts - 2, 1], path_points[npts - 1, 0] - path_points[npts - 2, 0])
+    sdx = path_points[npts - 1, 0] - path_points[0, 0]
+    sdy = path_points[npts - 1, 1] - path_points[0, 1]
+    disp = sqrt(sdx * sdx + sdy * sdy)
+    raw[RAW_LENGTH] = total
+    raw[RAW_LAST] = last
+    raw[RAW_LAST_DIR] = ang * (180.0 / pi)
+    raw[RAW_DISP] = disp
+    put_stat(out, tables.stat_pos[ST_HDIST], min(abs(sdx) / DISTANCE_METRIC_DIVISOR, 1.0))
+    put_stat(out, tables.stat_pos[ST_VDIST], min(abs(sdy) / DISTANCE_METRIC_DIVISOR, 1.0))
+    put_stat(out, tables.stat_pos[ST_MANHATTAN], min((abs(sdx) + abs(sdy)) / DISTANCE_METRIC_DIVISOR, 1.0))
+    put_stat(out, tables.stat_pos[ST_EUCLIDEAN], min(disp / DISTANCE_METRIC_DIVISOR, 1.0))
+    put_stat(out, tables.stat_pos[ST_TERMINATION], termination_stat_value(int(raw[RAW_TERM])))
 
 
 @njit(cache=True)
@@ -2340,27 +2414,212 @@ def scatter_one_buddha_point(counts, x, y, world_rect):
         counts[row, col] += 1
 
 
+@njit(cache=True)
+def complex_power(zx, zy, p):
+    """z^p as (re, im), for any real p. A whole number p is computed by plain multiplication (repeated squaring), so z^2 is exactly
+    z*z and a cycle such as c = -1 closes exactly; other exponents use the principal value, |z|^p (cos(p theta), sin(p theta)). Zero
+    raised to a negative power, and anything that overflows, comes out infinite or NaN (the caller treats that as an escape); 0^0 is 1."""
+    if p == floor(p) and abs(p) <= 1073741824.0:
+        n = int(abs(p))
+        rx = 1.0
+        ry = 0.0
+        bx = zx
+        by = zy
+        while n > 0:
+            if n & 1:
+                rx, ry = rx * bx - ry * by, rx * by + ry * bx
+            n >>= 1
+            if n > 0:
+                bx, by = bx * bx - by * by, 2.0 * bx * by
+        if p < 0.0:
+            d = rx * rx + ry * ry
+            if d == 0.0:
+                return 1e308 * 10.0, 1e308 * 10.0
+            return rx / d, -ry / d
+        return rx, ry
+    r = sqrt(zx * zx + zy * zy)
+    if r == 0.0:
+        if p > 0.0:
+            return 0.0, 0.0
+        return 1e308 * 10.0, 1e308 * 10.0
+    mag = r ** p
+    ang = p * atan2(zy, zx)
+    return mag * cos(ang), mag * sin(ang)
+
+
 @njit(nogil=True, cache=True)
 def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacles, raw):
-    """The escape-time orbit engine's path function. Not written yet (step 9 of Engine_Refactor_Plan.md): for now a path of its
-    start point alone, ended by the iteration limit, so that the engine switch has two real branches to measure. Same contract as
-    trace_path: fills `path_points`, `path_point_tags` and `raw`, returns (termination reason, number of points)."""
-    path_points[0, 0] = x0
-    path_points[0, 1] = y0
-    path_point_tags[0] = TAG_START
+    """The escape-time orbit engine's path function: the orbit z_0, z_1, ... of z -> z^p + c (the Mandelbrot set and its Julia sets), as
+    a path of points like trace_path's: `path_points` (needs at least termination.max_iter + 2 rows), their tags in `path_point_tags`
+    (TAG_START for z_0, TAG_ORBIT for the rest, the last one TAG_ESCAPED / TAG_OBSTACLE_TERM / TAG_DISTCUT where the path ended so)
+    and `raw` (N_RAW entries; only RAW_TERM, RAW_LAST_FULL and the zeros the other engine's measurements expect). Returns
+    (termination reason, number of points). (x0, y0) is where the pixel is: with orbit.julia it is z_0 and the constant c is
+    (julia_re, julia_im); otherwise it is c and z_0 is c if orbit.z0_is_c, else 0. (In the second case the path begins at the
+    origin and not at the pixel: which shapes it starts inside is decided there, whether it begins at all by the driver, at the pixel.)
+
+    The same natural termination as a ray (`termination`): TERM_ITER after max_iter steps, TERM_DIST when the polyline's length
+    reaches max_dist (the last segment is cut there, TAG_DISTCUT), TERM_CONFINED by the shared is_confined (for an orbit, convergence),
+    TERM_ESCAPED at the first point beyond_escape_radius (the shared test). An orbit that escapes ends where its segment crosses
+    the escape radius if orbit.clip_escape, else at the point that went beyond it; a point that is not finite (an overflow, or zero
+    to a negative power) is an escape too, ending at the last finite point. A starting point already beyond the radius is a path of
+    that point alone. Every segment z_k -> z_(k+1) is tested against the `obstacles` (an ObstacleArrays), not only the points: a shape
+    that passes rays in the direction of the crossing is passed through (flipping whether the orbit is inside it); one that terminates,
+    or reflects (which an orbit cannot do: the last resort), ends the path at the crossing (TERM_OBSTACLE). A perpendicular
+    collision ends nothing, and nothing here is fuzzed or emitted."""
+    max_iter = termination.max_iter
+    max_dist = termination.max_dist
+    escape_radius = termination.escape_radius
+    confine = termination.confine
+    obst_shapes = obstacles.shapes
+    obst_bounds = obstacles.bounds
+    obst_cx = obstacles.cx
+    obst_cy = obstacles.cy
+    obst_effects = obstacles.effects
+    n_obst = len(obst_shapes)
+    exponent = orbit.exponent
     for k in range(N_RAW):
         raw[k] = 0.0
-    return TERM_ITER, 1
+    raw[RAW_SELF_K] = -1.0
+    raw[RAW_SELF_M] = -1.0
+
+    if orbit.julia:
+        cx = orbit.julia_re
+        cy = orbit.julia_im
+        zx = x0
+        zy = y0
+    else:
+        cx = x0
+        cy = y0
+        if orbit.z0_is_c:
+            zx = x0
+            zy = y0
+        else:
+            zx = 0.0
+            zy = 0.0
+    path_points[0, 0] = zx
+    path_points[0, 1] = zy
+    path_point_tags[0] = TAG_START
+    npts = 1
+    term = TERM_ITER
+    dist = 0.0
+    last_full = 0.0
+    if beyond_escape_radius(zx, zy, escape_radius):
+        term = TERM_ESCAPED
+        max_iter = 0
+    inside = np.zeros(n_obst, dtype=np.bool_)
+    for oi in range(n_obst):
+        inside[oi] = inside_boundary(zx - obst_cx[oi], zy - obst_cy[oi], obst_shapes[oi], obst_bounds[oi])
+    max_cross = 2 * n_obst + 2
+
+    for _ in range(max_iter):
+        px, py = complex_power(zx, zy, exponent)
+        px += cx
+        py += cy
+        if not (isfinite(px) and isfinite(py)):
+            term = TERM_ESCAPED                       # it went off to infinity: it ends at its last finite point
+            if npts > 1:
+                path_point_tags[npts - 1] = TAG_ESCAPED
+            break
+        ex = px - zx
+        ey = py - zy
+        seg = sqrt(ex * ex + ey * ey)
+        end_t = seg                                   # where this segment ends: the whole of it, unless something cuts it short
+        event = 0                                     # 1: a terminating shape, 2: the escape radius (clipped)
+        beyond = beyond_escape_radius(px, py, escape_radius)
+        dx = 0.0
+        dy = 0.0
+        if seg > 0.0:
+            dx = ex / seg
+            dy = ey / seg
+            if beyond and orbit.clip_escape:
+                end_t = min(escape_exit_t(zx, zy, dx, dy, escape_radius), seg)
+                event = 2
+            t_off = 0.0
+            n_cross = 0
+            while n_obst > 0:
+                qx = zx + t_off * dx
+                qy = zy + t_off * dy
+                best_t = 1e30
+                best = -1
+                hit_eff = OBSTACLE_EFFECT_PASS
+                for si in range(n_obst):
+                    e_in = obst_effects[si, 0]
+                    e_out = obst_effects[si, 1]
+                    if e_in == OBSTACLE_EFFECT_PASS and e_out == OBSTACLE_EFFECT_PASS:
+                        continue
+                    if inside[si]:
+                        t, hnx, hny = boundary_hit(qx - obst_cx[si], qy - obst_cy[si], dx, dy, obst_shapes[si], obst_bounds[si])
+                    else:
+                        t, hnx, hny = obstacle_hit(qx - obst_cx[si], qy - obst_cy[si], dx, dy, obst_shapes[si], obst_bounds[si])
+                    if t >= 0.0 and t < best_t:
+                        best_t = t
+                        best = si
+                        hit_eff = e_out if inside[si] else e_in
+                if best < 0 or t_off + best_t > end_t:
+                    break                             # nothing more on this segment
+                if hit_eff == OBSTACLE_EFFECT_PASS:
+                    inside[best] = not inside[best]
+                    t_off += best_t
+                    n_cross += 1
+                    if n_cross > max_cross:           # coincident edges etc.: cannot happen normally
+                        break
+                    continue
+                end_t = t_off + best_t                # terminating (or, for an orbit, reflecting) edge: the path ends here
+                event = 1
+                break
+        # The distance limit: cut this segment where it is reached
+        if dist + end_t > max_dist:
+            rem = max_dist - dist
+            if rem > 1e-12:
+                path_points[npts, 0] = zx + rem * dx
+                path_points[npts, 1] = zy + rem * dy
+                path_point_tags[npts] = TAG_DISTCUT
+                npts += 1
+                last_full = end_t
+            term = TERM_DIST
+            break
+        if event == 1:
+            path_points[npts, 0] = zx + end_t * dx
+            path_points[npts, 1] = zy + end_t * dy
+            path_point_tags[npts] = TAG_OBSTACLE_TERM
+            npts += 1
+            term = TERM_OBSTACLE
+            break
+        if event == 2:
+            path_points[npts, 0] = zx + end_t * dx
+            path_points[npts, 1] = zy + end_t * dy
+            path_point_tags[npts] = TAG_ESCAPED
+            npts += 1
+            term = TERM_ESCAPED
+            break
+        path_points[npts, 0] = px
+        path_points[npts, 1] = py
+        dist += seg
+        zx = px
+        zy = py
+        if beyond:                                    # not clipped: the point that went beyond the radius is where it ends
+            path_point_tags[npts] = TAG_ESCAPED
+            npts += 1
+            term = TERM_ESCAPED
+            break
+        path_point_tags[npts] = TAG_ORBIT
+        npts += 1
+        if is_confined(path_points, npts, confine):
+            term = TERM_CONFINED
+            break
+    raw[RAW_TERM] = term
+    raw[RAW_LAST_FULL] = last_full
+    return term, npts
 
 
 @njit(nogil=True, cache=True)
 def trace_engine_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw):
     """Trace one path with the engine `engine_args.engine` (a PathArgs): trace_path for the ray-bouncing engine, orbit_path for the
-    orbit engine, which meets the same obstacles (every engine's: they are held in the RayArgs). The one place that switches on
+    orbit engine, which meets the same obstacles (every engine's: they are in the PathArgs). The one place that switches on
     the engine, so the gating of pixels, the storing and the Buddha scatters exist once (the drivers call this)."""
     if engine_args.engine == ENGINE_RAY_BOUNCING:
-        return trace_path(x0, y0, path_points, path_point_tags, termination, engine_args.ray, raw)
-    return orbit_path(x0, y0, path_points, path_point_tags, termination, engine_args.orbit, engine_args.ray.obstacles, raw)
+        return trace_path(x0, y0, path_points, path_point_tags, termination, engine_args.ray, engine_args.obstacles, raw)
+    return orbit_path(x0, y0, path_points, path_point_tags, termination, engine_args.orbit, engine_args.obstacles, raw)
 
 
 @njit(cache=True)
@@ -2418,14 +2677,14 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
     what the "camera pixels" seeding uses. For rows [row0, row1), every seed that
     fires a ray (see fires_ray) is traced, with the same fuzzing seed formula as trace_rows, and
     scattered into `counts` (in place; no blur here, it is applied once afterwards): the stored point of each slot
-    in `slots` (see POINT_SLOT; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
+    in `slots` (positions in the engine's characteristic points, see SequenceTables; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
     an int64 array), and whatever the multi options asked for (see scatter_trace_points). `term_allowed` is a bool array
     with a flag for each TERM_* code (N_TERM): a ray that ended for a reason whose flag is False scatters nothing at all.
     Deliberately single-threaded (no prange): a scattered point can land on any pixel, so a parallel version would
     risk concurrent writes. `termination` is a NaturalTerminationRule and `engine_args` a PathArgs (see trace_engine_path).
     """
     max_iter = termination.max_iter
-    obstacles = engine_args.ray.obstacles
+    obstacles = engine_args.obstacles
     fuzzing = engine_args.ray.fuzz.enabled
     h, w = counts.shape
     step_x = (zone.x_stop - zone.x_start) / w
@@ -2433,8 +2692,10 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
     path_points = np.empty((max_iter + 2, 2))
     path_point_tags = np.empty(max_iter + 2)
     raw = np.empty(N_RAW)
-    out = np.empty(N_STATS)
-    ray_characteristic_points = np.empty((N_POINTS, 2))
+    tables = engine_args.tables
+    out = np.empty(tables.n_stats)
+    ray_characteristic_points = np.empty((tables.n_points, 2))
+    end_point = tables.point_pos[POINT_END]
     stored = len(slots) > 0 or len(end_terms) > 0
     for j in range(row0, row1):
         for i in range(w):
@@ -2449,12 +2710,12 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
                 continue
             nb = int(raw[RAW_BOUNCES])
             if stored:
-                compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
+                compute_sequences(path_points, npts, path_point_tags, nb, max_iter, tables, out, ray_characteristic_points)
                 for slot in slots:
                     scatter_one_buddha_point(counts, ray_characteristic_points[slot, 0], ray_characteristic_points[slot, 1], world_rect)
                 for t in end_terms:
                     if term == t:
-                        scatter_one_buddha_point(counts, ray_characteristic_points[POINT_END, 0], ray_characteristic_points[POINT_END, 1], world_rect)
+                        scatter_one_buddha_point(counts, ray_characteristic_points[end_point, 0], ray_characteristic_points[end_point, 1], world_rect)
             scatter_trace_points(counts, world_rect, path_points, path_point_tags, npts, nb, want_all_self, want_all_mid,
                                  want_prog_bounce, want_prog_mid, want_all_path)
 
@@ -2488,7 +2749,8 @@ def trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out
     """
     trace_rows storing only some of what it computes: slot k of the last axis of `stats` receives metric
     stat_ids[k] of each traced ray, and slot k of the points axis of `characteristic_points` receives characteristic
-    point point_ids[k] (the shapes are (out_h, out_w, len(stat_ids)) and (out_h, out_w, len(point_ids), 2)). Every
+    point point_ids[k] (the shapes are (out_h, out_w, len(stat_ids)) and (out_h, out_w, len(point_ids), 2)); `stat_ids` and `point_ids`
+    are POSITIONS in the engine's own per-path arrays (`engine_args.tables`: for the ray engine they are the ids of the choices). Every
     reduction of every sequence is still computed for each ray; what is not asked for is not kept, which is what
     makes an export of a large image affordable (see StoredLayout in stored_layout.py: a coloration needs only some of the
     slots). With every slot, in order, it is exactly trace_rows.
@@ -2496,7 +2758,8 @@ def trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out
     ray = engine_args.ray
     _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination.max_iter,
                          termination.max_dist, termination.escape_radius, termination.confine, engine_args.engine, ray.seg_mult,
-                         ray.fuzz, ray.emission, ray.obstacles, engine_args.orbit, rng_seed_base, stat_ids, point_ids)
+                         ray.fuzz, ray.emission, engine_args.obstacles, engine_args.orbit, engine_args.tables, rng_seed_base,
+                         stat_ids, point_ids)
 
 
 @njit(nogil=True, cache=True)
@@ -2512,12 +2775,12 @@ def trace_rows(stats, characteristic_points, pixel_state, row0, row1, out_w, out
     reproducible seed. `termination` is a NaturalTerminationRule and `engine_args` a PathArgs (see trace_engine_path).
     """
     trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args,
-                      rng_seed_base, np.arange(N_STATS), np.arange(N_POINTS))
+                      rng_seed_base, np.arange(engine_args.tables.n_stats), np.arange(engine_args.tables.n_points))
 
 
 @njit(nogil=True, parallel=True, cache=True)
 def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, max_iter, max_dist,
-                             escape_radius, confine, engine, seg_mult, fuzz, emission, obstacles, orbit,
+                             escape_radius, confine, engine, seg_mult, fuzz, emission, obstacles, orbit, tables,
                              rng_seed_base, stat_ids, point_ids):
     """trace_rows with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
@@ -2539,13 +2802,12 @@ def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, 
         path_points = np.empty((max_iter + 2, 2))
         path_point_tags = np.empty(max_iter + 2)
         raw = np.empty(N_RAW)
-        out = np.empty(N_STATS)
-        ray_characteristic_points = np.empty((N_POINTS, 2))
+        out = np.empty(tables.n_stats)
+        ray_characteristic_points = np.empty((tables.n_points, 2))
         term, npts = trace_engine_path(x, y, path_points, path_point_tags,
                                        NaturalTerminationRule(max_iter, max_dist, escape_radius, confine),
-                                       PathArgs(engine, RayArgs(seg_mult, fuzz, emission, obstacles), orbit), raw)
-        compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out)
-        compute_sequences(path_points, npts, path_point_tags, int(raw[RAW_BOUNCES]), max_iter, out, ray_characteristic_points)
+                                       PathArgs(engine, RayArgs(seg_mult, fuzz, emission), orbit, obstacles, tables), raw)
+        measure_path(engine, path_points, npts, path_point_tags, raw, max_iter, seg_mult, tables, out, ray_characteristic_points)
         for k in range(len(stat_ids)):
             stats[j, i, k] = out[stat_ids[k]]
         for k in range(len(point_ids)):

@@ -168,13 +168,13 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     blur = m.BuddhaBlurSettings(radius=0.2, type=m.BUDDHA_BLUR_TRIANGULAR)
     app = _fake_current_image_app()
     _give_generated(app, ray=generated, natural_termination=generated_termination,
-                    engine_args=m.path_args(m.ENGINE_RAY_BOUNCING, m.settings_ray_args(generated, app.generated.engine_args.ray.obstacles)))
+                    engine_args=m.path_args(m.ENGINE_RAY_BOUNCING, m.settings_ray_args(generated), app.generated.engine_args.obstacles))
     app.current_blur_settings = lambda: blur
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     seen = []
 
-    def fake_colorize(coloration, stats, characteristic_points, pixel_state, w, h, blur, termination, engine_args, rng_seed_base, seeds=None, world_rect=None):
+    def fake_colorize(coloration, stats, characteristic_points, pixel_state, w, h, blur, termination, engine_args, rng_seed_base, seeds=None, world_rect=None, layout=None):
         seen.append((blur, termination, engine_args, rng_seed_base))
         return np.zeros((h, w, 3), dtype=np.uint8)
     app.apply_coloration = fake_colorize
@@ -560,10 +560,10 @@ def test_the_kernel_tuples_are_built_from_the_records():
                                         confine=m.ConfineRule(lookback=6, method=m.CONFINE_PATH, threshold=0.1))
     assert type(limited.escape_radius) is float                     # an int is made the float the kernels need
     arrays = _starting_obst_arrays()
-    engine_args = m.settings_ray_args(_varied_ray_settings(), arrays)
-    assert isinstance(engine_args, m.RayArgs) and engine_args._fields == ("seg_mult", "fuzz", "emission", "obstacles")
+    engine_args = m.settings_ray_args(_varied_ray_settings())
+    assert isinstance(engine_args, m.RayArgs) and engine_args._fields == ("seg_mult", "fuzz", "emission")
     assert engine_args.seg_mult == 0.8 and engine_args.fuzz == m.fuzz_rule(_varied_ray_settings().fuzz)
-    assert engine_args.emission == m.settings_emission(_varied_ray_settings()) and engine_args.obstacles is arrays
+    assert engine_args.emission == m.settings_emission(_varied_ray_settings())
 
 
 # --------------------------------------------------------------------------- #
@@ -576,7 +576,7 @@ def test_a_generated_figure_holds_the_settings_the_kernel_arguments_and_the_obst
     figure = m.generated_figure(ray, termination, scene)
     assert figure.ray is ray and figure.natural_termination is termination
     assert figure.termination == m.settings_natural_termination(termination)
-    assert figure.engine_args.ray.obstacles.shapes.tolist() == m.build_obstacle_arrays(scene).shapes.tolist()
+    assert figure.engine_args.obstacles.shapes.tolist() == m.build_obstacle_arrays(scene).shapes.tolist()
     assert figure.engine_args.ray.seg_mult == ray.seg_mult and figure.rng_seed == ray.fuzz.rng_seed
     assert figure.obstacles_signature == m.obstacles_signature(scene)
     assert figure.obstacle_states == {0: scene[0].state(), 3: scene[1].state()}
@@ -591,7 +591,7 @@ def test_the_placeholder_figure_is_the_defaults_with_no_obstacle():
     assert figure.ray is m.DEFAULT_RAY_SETTINGS and figure.natural_termination is m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     assert figure.termination == m.NATURAL_TERMINATION_DEFAULT
     assert figure.engine_args.ray.seg_mult == m.DEFAULT_RAY_SETTINGS.seg_mult and figure.engine_args.ray.emission == m.EMISSION_DEFAULT
-    assert figure.engine_args.ray.fuzz == m.fuzz_rule(m.DEFAULT_FUZZ) and len(figure.engine_args.ray.obstacles.shapes) == 0
+    assert figure.engine_args.ray.fuzz == m.fuzz_rule(m.DEFAULT_FUZZ) and len(figure.engine_args.obstacles.shapes) == 0
     assert figure.obstacles_signature == () and figure.obstacle_snapshots == () and figure.obstacle_states == {}
     assert m.settings_of(None) == (None, None) and m.settings_of(figure) == (figure.ray, figure.natural_termination)
 

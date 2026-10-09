@@ -10,9 +10,9 @@ from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_plac
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
     N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, fires_ray,
-    in_sequence, trace_engine_path
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
 )
+from .engines import layout_of_engine, tables_of_engine
 from .metrics import POINT_METRICS, resolve_point_xy
 from .settings import NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
@@ -42,14 +42,15 @@ class PreviewMixin:
         buffers of the same size as the last are cleared, not made again) and the grid of the world coordinates of
         every pixel centre (which is also each ray's start point)."""
         shape = (self.img_h, self.img_w)
-        if getattr(self, "pixel_state", None) is not None and self.pixel_state.shape == shape:
+        layout = self.current_figure().layout
+        if (getattr(self, "pixel_state", None) is not None and self.pixel_state.shape == shape
+                and self.stats.shape[-1] == layout.n_stats and self.characteristic_points.shape[-2] == layout.n_points):
             self.stats[:] = 0
             self.characteristic_points[:] = 0
             self.pixel_state[:] = PIXEL_PENDING
             self.img[:] = BACKGROUND
         else:
-            self.stats = np.zeros(shape + (N_STATS,), dtype=np.float32)
-            self.characteristic_points = np.zeros(shape + (N_POINTS, 2), dtype=np.float32)
+            self.stats, self.characteristic_points = self.current_figure().layout.allocate(*shape)
             self.pixel_state = np.full(shape, PIXEL_PENDING, dtype=np.uint8)
             self.img = np.empty(shape + (3,), dtype=np.uint8)
             self.img[:] = BACKGROUND
@@ -89,7 +90,7 @@ class PreviewMixin:
         the frozen set if an image has been generated (matching what was actually
         simulated/saved), else the live (current) set."""
         if self.generated is not None:
-            g = self.generated.engine_args.ray.obstacles
+            g = self.generated.engine_args.obstacles
             return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
                                  cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
                                  out_effect=int(g.effects[i, 1]))
@@ -232,11 +233,12 @@ class PreviewMixin:
             np.random.seed(ps.fuzz.rng_seed + i * 1000003 + j * 97)
         path_points, path_point_tags = self.hover_path_points, self.hover_path_point_tags
         raw, vec, ray_characteristic_points = self.hover_raw, self.hover_vec, self.hover_ray_characteristic_points
-        term, n = trace_engine_path(x, y, path_points, path_point_tags, settings_natural_termination(pn),
-                                    path_args(self.preview_engine_settings().engine, settings_ray_args(ps, obstacles)), raw)
-        compute_run_measurements(path_points, n, raw, pn.max_iter, ps.seg_mult, vec)
-        compute_sequences(path_points, n, path_point_tags, int(raw[RAW_BOUNCES]), pn.max_iter, vec, ray_characteristic_points)
-        vals = self.component_values(vec, ray_characteristic_points, x, y)
+        engine = self.preview_engine_settings().engine
+        args = path_args(engine, settings_ray_args(ps), obstacles, tables=tables_of_engine(engine))
+        term, n = trace_engine_path(x, y, path_points, path_point_tags, settings_natural_termination(pn), args, raw)
+        measure_path(engine, path_points, n, path_point_tags, raw, pn.max_iter, ps.seg_mult, args.tables, vec, ray_characteristic_points)
+        layout = layout_of_engine(engine)
+        vals = self.component_values(vec, ray_characteristic_points, x, y, layout)
         self.draw_segments(path_points, path_point_tags, n)
         self.draw_corkscrew(path_points, path_point_tags, n)
 
@@ -318,7 +320,7 @@ class PreviewMixin:
         v["components"].set("   ".join(f"{letters[c]} {vals[c]:.3f}" for c in range(3)))
         v["color"].set(hexcol)
         for s in range(N_STATS):
-            self.stat_vars[s].set(f"{vec[s]:.3f}")
+            self.stat_vars[s].set(f"{vec[layout.stat_position(s)]:.3f}" if layout.has_stat(s) else "-")
         self.swatch.configure(bg=hexcol)
         self.info_placeholder.grid_remove()
         self.info_rows.grid()

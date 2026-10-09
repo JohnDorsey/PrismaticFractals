@@ -4,7 +4,7 @@ value that is both needed here and by a kernel lives in kernels.py and is import
 import math
 from .kernels import (
     CONFINE_BOX, EMIT_UP, TAG_BOUNDARY, TAG_DISTCUT, TAG_ESCAPED, TAG_OBSTACLE_TERM,
-    TAG_PERPENDICULAR, TAG_SELF, TAG_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
+    TAG_ORBIT, TAG_PERPENDICULAR, TAG_SELF, TAG_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
     OBSTACLE_EFFECT_TERMINATE, DEFAULT_PIXEL_WORLD_WIDTH, ENGINE_MANDELBROT, ENGINE_RAY_BOUNCING, PREVIEW_BOX, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
     TERM_OBSTACLE, TERM_PERPENDICULAR
 )
@@ -294,7 +294,8 @@ TAG_COLOR = {TAG_START: (67, 160, 71), TAG_DISTCUT: (67, 160, 71),   # green
              TAG_SELF: (30, 136, 229),                                 # blue
              TAG_OBSTACLE_TERM: (255, 235, 59),                        # yellow
              TAG_ESCAPED: (0, 229, 255),                               # cyan
-             TAG_PERPENDICULAR: (124, 77, 255)}                        # purple (as TERM_END_COLOR's)
+             TAG_PERPENDICULAR: (124, 77, 255),                        # purple (as TERM_END_COLOR's)
+             TAG_ORBIT: (255, 152, 0)}                                 # orange: an ordinary point of an orbit
 
 # Solid outline colors for obstacles (part of the saved image/video, drawn with
 # the same "outline" decoration flag), by ray effect

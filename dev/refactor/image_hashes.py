@@ -196,11 +196,11 @@ def live_hashes():
                 path_points = np.empty((62, 2))
                 tags = np.empty(62)
                 raw = np.empty(m.N_RAW)
-                term, npts = m.trace_path(x, y, path_points, tags, rule, engine_args.ray, raw)
+                term, npts = m.trace_path(x, y, path_points, tags, rule, engine_args.ray, engine_args.obstacles, raw)
                 vec = np.zeros(m.N_STATS)
                 sp = np.zeros((m.N_POINTS, 2))
                 m.compute_run_measurements(path_points, npts, raw, 60, 0.9, vec)
-                m.compute_sequences(path_points, npts, tags, int(raw[m.RAW_BOUNCES]), 60, vec, sp)
+                m.compute_sequences(path_points, npts, tags, int(raw[m.RAW_BOUNCES]), 60, m.RAY_SEQUENCE_TABLES, vec, sp)
                 vals = app.component_values(vec, sp, x, y)
                 hover.append([repr(float(t)) for t in vals] + [repr(app.map_color(vals))])
             res[tag + " hover"] = hover

@@ -63,15 +63,16 @@ def paint(out, coloration, mapping, stats, characteristic_points, computed, blur
         out[computed] = color_pixels(coloration, mapping, stats, characteristic_points, computed, blurred_counts, layout)
 
 
-def ray_values(coloration, mapping, metrics, ray_characteristic_points, blurred_counts_at_pixel):
-    """The three channel values (floats in 0..1) of ONE ray: `metrics` is its (N_STATS,) array of metrics,
-    `ray_characteristic_points` its (N_POINTS, 2) array of points, and `blurred_counts_at_pixel` a list of three: for
+def ray_values(coloration, mapping, metrics, ray_characteristic_points, blurred_counts_at_pixel, layout=FULL_LAYOUT):
+    """The three channel values (floats in 0..1) of ONE ray: `metrics` is its array of metrics,
+    `ray_characteristic_points` its array of points (both kept as `layout` says: all of the ray engine's by default), and
+    `blurred_counts_at_pixel` a list of three: for
     each Buddha channel the blurred visit count at the pixel the ray was fired from (None for any other, or when it
     has none)."""
     computed = np.ones((1, 1), dtype=bool)
     counts = [None if count is None else np.full((1, 1), count, dtype=np.float64) for count in blurred_counts_at_pixel]
     return [float(v[0]) for v in channel_values(coloration, mapping, np.asarray(metrics, dtype=np.float64)[None, None, :],
-                                                np.asarray(ray_characteristic_points)[None, None, :, :], computed, counts)]
+                                                np.asarray(ray_characteristic_points)[None, None, :, :], computed, counts, layout)]
 
 
 def demand_layout(colorations, seeds=None):

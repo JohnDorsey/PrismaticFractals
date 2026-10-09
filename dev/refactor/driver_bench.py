@@ -24,8 +24,8 @@ imported = time.perf_counter()
 
 def engine_args(arrays, seg_mult=1.0):
     """The drivers' engine arguments, whichever form the package under test has them in."""
-    ray = m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, arrays)
-    return m.path_args(m.ENGINE_RAY_BOUNCING, ray) if hasattr(m, "path_args") else ray
+    ray = m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT)
+    return m.path_args(m.ENGINE_RAY_BOUNCING, ray, arrays)
 
 
 def scene_two_shapes():

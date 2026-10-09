@@ -18,14 +18,17 @@ from .colorations import (
 )
 from .constants import ENGINE_NAMES, OBSTACLE_EFFECT_NAMES
 from .kernels import (
-    ENGINE_RAY_BOUNCING, OBSTACLE_EFFECT_REFLECT, POINT_ALL_MEAN, POINT_START, ST_BOUNCE_COUNT, ST_HDIST, N_STATS
+    ENGINE_MANDELBROT, ENGINE_RAY_BOUNCING, N_POINTS, N_PRED, N_STATS, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
+    OBSTACLE_EFFECT_TERMINATE, POINT_ALL_MEAN, POINT_START, PRED_MEAN, SEQ_PATH, SRED_COUNT, SRED_LAST_DIR, SRED_LENGTH, ST_BOUNCE_COUNT,
+    ST_HDIST, ST_TERMINATION
 )
 from .metrics import (
-    BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA, CHAN_SRC_QUERY, METRIC_LABELS, METRIC_TYPE_POINT_PAIR, N_BUDDHA_POINTS,
-    N_POINT_CHOICES, POINT_LABELS
+    BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA, CHAN_SRC_QUERY, CHOICE_ORIGIN, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, METRIC_LABELS,
+    METRIC_TYPE_POINT_PAIR, N_BUDDHA_POINTS, N_POINT_CHOICES, POINT_LABELS, POINT_METRICS, point_slot, stat_slot
 )
 from .settings import DEFAULT_SETTING_VALUES, SETTING_SPECS, SETTING_TAB, SETTING_TABS_ORDER, SETTING_LABEL, strict_record
 from .shapes import EFFECT_FIELDS
+from .stored_layout import StoredLayout, sequence_tables
 
 
 @strict_record
@@ -62,7 +65,31 @@ RAY_BOUNCING_ENGINE = EngineDescription(
     default_point_metric=ST_HDIST, default_other_metric=ST_BOUNCE_COUNT, default_point=POINT_START,
     default_buddha_option=POINT_ALL_MEAN, choices={}, fallbacks={}, ranges={}, ignored_tabs=(), ignored_keys=frozenset())
 
-ENGINE_DESCRIPTIONS = {ENGINE_RAY_BOUNCING: RAY_BOUNCING_ENGINE}
+def _mandelbrot_description():
+    """The Mandelbrot engine (Engine_Refactor_Design.md D31, D38, D39, D11, D35, D5): one sequence, "Path", with its seven point
+    reductions; the metrics iteration count (the path's point count), path length, last direction, termination reason and the four
+    point distances; the Buddha options of the path (its stored points, the last point for a distance limit or confinement - not
+    for a perpendicular collision, which it has none of - and every point of the path), none of the bounce-based ones; no Reflect
+    (pass-through in its place); its own defaults (Path count, Path: Mean point); and the Emissions and Mutations tabs unused."""
+    path_points = {point_slot(SEQ_PATH, red) for red in range(N_PRED)}
+    metrics = set(POINT_METRICS) | {stat_slot(SEQ_PATH, SRED_COUNT), stat_slot(SEQ_PATH, SRED_LENGTH),
+                                    stat_slot(SEQ_PATH, SRED_LAST_DIR), ST_TERMINATION}
+    options = set(path_points) | {BUDDHA_POINT_LABELS.index(label) for label in
+                                  ("Path: Last point (distance limit)", "Path: Last point (confined)", "All path points")}
+    effects = frozenset({OBSTACLE_EFFECT_TERMINATE, OBSTACLE_EFFECT_PASS})
+    return EngineDescription(
+        engine=ENGINE_MANDELBROT, name=ENGINE_NAMES[ENGINE_MANDELBROT], metrics=frozenset(metrics),
+        points=frozenset(path_points | {CHOICE_ORIGIN, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT}),
+        buddha_options=frozenset(options), default_point_metric=ST_HDIST, default_other_metric=stat_slot(SEQ_PATH, SRED_COUNT),
+        default_point=POINT_START, default_buddha_option=point_slot(SEQ_PATH, PRED_MEAN),
+        choices={"obst:*:in_effect": effects, "obst:*:out_effect": effects},
+        fallbacks={"obst:*:in_effect": OBSTACLE_EFFECT_PASS, "obst:*:out_effect": OBSTACLE_EFFECT_PASS}, ranges={},
+        ignored_tabs=("Emissions", "Mutations"), ignored_keys=frozenset())
+
+
+MANDELBROT_ENGINE = _mandelbrot_description()
+
+ENGINE_DESCRIPTIONS = {ENGINE_RAY_BOUNCING: RAY_BOUNCING_ENGINE, ENGINE_MANDELBROT: MANDELBROT_ENGINE}
 
 
 def engine_description(engine):
@@ -72,6 +99,33 @@ def engine_description(engine):
     except KeyError:
         raise KeyError(f"the path engine {engine!r} ({ENGINE_NAMES[engine] if 0 <= engine < len(ENGINE_NAMES) else '?'}) has no "
                        f"description yet") from None
+
+
+def engine_layout(engine):
+    """The StoredLayout of everything the engine described by `engine` (an EngineDescription) stores per path: the metrics and the
+    characteristic points it offers (the fixed points have no slot), in the order of their ids. Its positions are where the engine's
+    per-path arrays keep them; for the ray engine, which offers every id, they are the ids."""
+    return StoredLayout.of(sorted(engine.metrics), sorted(point for point in engine.points if point < N_POINTS))
+
+
+_LAYOUTS = {}
+
+
+def layout_of_engine(code):
+    """engine_layout of the engine with code `code`, kept."""
+    if code not in _LAYOUTS:
+        _LAYOUTS[code] = engine_layout(engine_description(code))
+    return _LAYOUTS[code]
+
+
+_TABLES = {}
+
+
+def tables_of_engine(code):
+    """The SequenceTables of the engine with code `code` (see layout_of_engine), kept."""
+    if code not in _TABLES:
+        _TABLES[code] = sequence_tables(layout_of_engine(code))
+    return _TABLES[code]
 
 
 # --------------------------------------------------------------------------- #

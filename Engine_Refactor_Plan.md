@@ -258,9 +258,28 @@ Goal: D3. The ray engine's tables are passed in instead of read as globals, so a
 
 Done when: identical hashes and memory numbers (the quoted 860 MB default export is re-measured). Decisions: D3, D34.
 
+Result (done; `FILE_VERSION` 159; 822 tests pass, 7 new): `SequenceTables` (the id -> position maps of an engine's metrics and
+characteristic points, and its sequences) travel in `PathArgs.tables`; `sequence_summary` / `compute_sequences` write through them, the
+drivers size their per-path arrays by them, and `measure_path` is the third engine switch. `in_sequence` was NOT given tables: the
+sequences' ids are global like the metrics' (D34), so its rule by tag stays one function and an engine lists the sequences it has.
+`StoredLayout` is the id -> position map of an engine (`engine_layout(description)`, `GeneratedFigure.layout`); an export's kept layout is
+mapped onto the engine's positions (`stat_sources` / `point_sources`).
+- Verified: hashes and project pictures identical; the 3840 x 2160 default export has the same image hash and 874 -> 880 MB peak
+  (985 -> 988 MB with two simple Buddha options); the golden test passes; the test double's tables are exercised by the reductions,
+  the drivers (the orbit branch) and the seeded Buddha scatter; four deliberate breakages each make a test fail (tried).
+- Measured (alternating old/new): warm run times within noise; first kernel calls cold 15.1 -> 15.5 s (+3%), from the cache 8.5 -> 9.3 s (+10%).
+  The first `trace_rows` call from the cache (the parallel kernel is reloaded) went 5.8 s (before step 7) -> 6.7 s (step 7) -> 7.5 s (step 8):
+  about 1.7 s of start-up time in all, of which the engine switch is ~0.8 s and `measure_path` ~0.4 s (attributed by removing each in turn).
+  Step 9's real orbit function will add more. If start-up time matters, the switch could move out of the parallel loop (one parallel
+  driver per engine behind the same wrapper), which D28 puts the other way round; say if you want that looked at.
+
 ## Step 9. The Mandelbrot path function and its tests  (effort: high)
 
 Goal: the engine itself, reachable only from tests.
+
+- FIRST, decide (the user asked for this reminder at step 7): do the obstacles stay inside the ray engine's `RayArgs`
+  (`engine_args.ray.obstacles`, which `orbit_path` is handed) or move out into the `PathArgs` beside the two engines' bundles?
+  Moving them changes `trace_path`'s signature and every test that calls it.
 
 - A path function in `kernels.py` (D2): the orbit of z_0 under z -> z^p + c, or the Julia form; p any real number
   (integers by multiplication; a non-finite value ends the path as an escape, D26); z_0 chosen between 0 and c;
@@ -270,11 +289,30 @@ Goal: the engine itself, reachable only from tests.
   honoured, and an incompatible Reflect terminates the path (D11, last resort). Gating by the pixel's location,
   flagging at the first point (D30).
 - Its own sequence ("Path") and metrics (D31) built on step 8's tables.
-- Tests (D26): known counts at known points (with the escape radius 2 set explicitly: c = 0 never escapes, c = 1 and
-  c = 2 escape at the third point, c = -1 cycles to the limit, c = -2 under the `>=` test), a Julia case, a real-exponent
-  case, the clip behaviour, an obstacle that terminates on a segment, and an estimate of the set's area (about 1.5066).
+- Tests (D26): known counts at known points (with the escape radius 2 set explicitly: c = 0 never escapes, c = 1 escapes at
+  the third point, c = 2 and c = -2 at the second (the test is `>=`; this list first said c = 2 escapes at the third, which is
+  wrong), c = -1 cycles to the limit), a Julia case, a real-exponent case, the clip behaviour, an obstacle that terminates on a
+  segment, and an estimate of the set's area (about 1.5066).
 
 Done when: those tests pass and the ray engine's hashes are untouched. Decisions: D12, D26, D28, D29, D30, D31.
+
+Result (done; `FILE_VERSION` 160; 847 tests pass, 25 new): the obstacles decision was made first (they leave `RayArgs`; `PathArgs`
+has an `obstacles` field and `trace_path` takes them as an argument; hashes identical). `orbit_path` is the real function (see
+CLAUDE.md, "The orbit engine"): the orbit of z -> z^p + c or the Julia form, a whole exponent by multiplication and another by the
+principal value, non-finite points ending the path as an escape at the last finite point, the shared iteration, distance, escape
+(`>=`) and confinement ends, clip or no clip, every segment tested against the obstacles (terminate and pass honoured, reflect
+terminating as the last resort), the path beginning at the origin for z_0 = 0 while the driver gates at the pixel (D30), a new
+point tag `TAG_ORBIT`, its measurements (`compute_orbit_measurements`) and its Path sequence through step 8's tables.
+- Done here although the plan puts it in step 11: the Mandelbrot `EngineDescription` (`engines.MANDELBROT_ENGINE`), because the
+  tables need its layout - the metrics, points and Buddha options of D31 and D38, the defaults of D39, no Reflect and pass-through
+  for a new obstacle (D11, D35), Emissions and Mutations ignored (D5). Step 11 keeps: the controls, the switch's popup, the hover
+  preview and its legend for an orbit, and the real-engine runs of the step 6 tests (two now exist).
+- Verified: the ray engine's hashes and project pictures identical; four deliberate breakages of the orbit function (flags taken at the
+  pixel, segments untested, no clip, the pass-through flip forgotten) each make tests fail (tried); the set's area from the drivers
+  is 1.5249 (500 x 500, 200 iterations) and 1.5079 (1000 x 1000, 2000 iterations) against 1.50659.
+- Measured: warm run times unchanged; first kernel calls cold 15.5 -> 17.0 s, from the cache 9.3 -> 10.6 s. Since before step 7 the
+  start-up cost is +3 s (cold +22%, the parallel kernel's load from the cache +49%), all of it the switches inside the parallel loop.
+  Not looked at: nothing offers the engine, so nothing in the window.
 
 ## Step 10. The Mandelbrot settings and the Simulation tab  (effort: medium)
 
@@ -290,6 +328,8 @@ Done when: save, Open and keyframes round-trip them; a hand check in the window.
 ## Step 11. The Mandelbrot catalog, defaults and obstacle effects  (effort: high)
 
 Goal: what the Mandelbrot engine offers and uses.
+
+(Step 9 already wrote the engine's `EngineDescription`: offered choices, defaults, effects and ignored tabs. What is left is below.)
 
 - Offered choices (D31, D38): Path sequence, its seven point reductions, the metrics of D31, Buddha options (the
   Path stored points, "Last point (distance limit)" and "(confined)", "All path points"; not the midpoints, the self

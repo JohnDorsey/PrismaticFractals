@@ -8,7 +8,7 @@ from .constants import (
     TERM_STAT_VALUE
 )
 from .kernels import (
-    ENGINE_RAY_BOUNCING, N_ENGINES, N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_TERM, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
+    ENGINE_RAY_BOUNCING, N_ENGINES, N_LEGACY_POINTS, RAY_SEQUENCE_TABLES, N_LEGACY_STATS, N_POINTS, N_TERM, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
     POINT_BOTTOM, POINT_BOUNDARY_MEAN, POINT_END, POINT_LEFT, POINT_RIGHT, POINT_SELF_BOTTOM, POINT_SELF_LEFT,
     POINT_SELF_MEAN, POINT_SELF_RIGHT, POINT_SELF_TOP, POINT_SLOT, POINT_START, POINT_TOP, STAT_ALIASES, STAT_SLOT
 )
@@ -33,7 +33,8 @@ from .settings import (
 )
 from .shapes import SHAPE_CLASSES
 from .colorations import DEFAULT_BUDDHA_POINTS_PER_CHAN, ColorationConfig
-from .engines import ENGINE_DESCRIPTIONS, key_pattern
+from .engines import ENGINE_DESCRIPTIONS, engine_layout, key_pattern
+from .stored_layout import layout_of_tables, sequence_tables
 
 
 def run_self_checks():
@@ -80,6 +81,17 @@ def run_self_checks():
     if set(OFFERED_ENGINES) - set(ENGINE_DESCRIPTIONS):
         raise AssertionError("an engine the dropdown offers needs a description of what it offers and accepts (engines.py)")
     ray = ENGINE_DESCRIPTIONS[ENGINE_RAY_BOUNCING]
+    for description in ENGINE_DESCRIPTIONS.values():
+        tables = sequence_tables(engine_layout(description))
+        back = layout_of_tables(tables)
+        if (back.stat_ids.tolist() != sorted(description.metrics)
+                or back.point_ids.tolist() != sorted(p for p in description.points if p < N_POINTS)):
+            raise AssertionError(f"the sequence tables of {description.name} do not give back what it stores")
+    ray_tables = sequence_tables(engine_layout(ray))
+    if not (ray_tables.n_points == RAY_SEQUENCE_TABLES.n_points and ray_tables.n_stats == RAY_SEQUENCE_TABLES.n_stats
+            and (ray_tables.point_pos == RAY_SEQUENCE_TABLES.point_pos).all() and (ray_tables.stat_pos == RAY_SEQUENCE_TABLES.stat_pos).all()
+            and (ray_tables.seqs == RAY_SEQUENCE_TABLES.seqs).all()):
+        raise AssertionError("RAY_SEQUENCE_TABLES (kernels.py) is not what the ray engine's description makes: its positions are its ids")
     if (ray.metrics != set(range(N_STATS)) or ray.points != set(range(N_POINT_CHOICES))
             or ray.buddha_options != set(range(N_BUDDHA_POINTS))):
         raise AssertionError("the ray-bouncing engine offers every choice there is: its ids are the catalogs' own")

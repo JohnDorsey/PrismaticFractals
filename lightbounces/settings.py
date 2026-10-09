@@ -16,7 +16,9 @@ from .constants import (
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
     EMIT_MODE_NAMES
 )
-from .kernels import ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, OrbitArgs, PathArgs, RayArgs
+from .kernels import (
+    ENGINE_RAY_BOUNCING, RAY_SEQUENCE_TABLES, ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, OrbitArgs, PathArgs, RayArgs
+)
 
 
 def strict_record(cls):
@@ -520,16 +522,16 @@ def settings_natural_termination(settings):
 NATURAL_TERMINATION_DEFAULT = settings_natural_termination(DEFAULT_NATURAL_TERMINATION_SETTINGS)
 
 
-def ray_args(seg_mult, fuzz, emission, obstacles):
-    """The ray-bouncing engine's own arguments in the form the simulation kernels expect: `fuzz` a fuzz_rule,
-    `emission` an emission_rule and `obstacles` an ObstacleArrays (see build_obstacle_arrays)."""
-    return RayArgs(seg_mult=float(seg_mult), fuzz=fuzz, emission=emission, obstacles=obstacles)
+def ray_args(seg_mult, fuzz, emission):
+    """The ray-bouncing engine's own arguments in the form the simulation kernels expect: `fuzz` a fuzz_rule and
+    `emission` an emission_rule. (The obstacles are no engine's: they travel beside it, see path_args.)"""
+    return RayArgs(seg_mult=float(seg_mult), fuzz=fuzz, emission=emission)
 
 
-def settings_ray_args(settings, obstacles):
-    """ray_args() for a RaySettings and the obstacles' ObstacleArrays. (The fuzzing seed is not part of
-    it: callers pass `settings.fuzz.rng_seed` to the kernels themselves.)"""
-    return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings), obstacles)
+def settings_ray_args(settings):
+    """ray_args() for a RaySettings. (The fuzzing seed is not part of it: callers pass `settings.fuzz.rng_seed` to the
+    kernels themselves.)"""
+    return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings))
 
 
 def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape):
@@ -542,10 +544,14 @@ def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape):
 ORBIT_ARGS_DEFAULT = orbit_args(2.0, False, False, 0.0, 0.0, True)
 
 
-def path_args(engine, ray, orbit=ORBIT_ARGS_DEFAULT):
-    """What the drivers take as `engine_args`: the `engine` (an ENGINE_* code) to run and both engines' arguments, the one
-    not run a dummy (`orbit` defaults to ORBIT_ARGS_DEFAULT). `ray` is a RayArgs (see ray_args), whose obstacles every engine uses."""
-    return PathArgs(engine=int(engine), ray=ray, orbit=orbit)
+def path_args(engine, ray, obstacles, orbit=ORBIT_ARGS_DEFAULT, tables=RAY_SEQUENCE_TABLES):
+    """What the drivers take as `engine_args`: the `engine` (an ENGINE_* code) to run, both engines' arguments, the one
+    not run a dummy (`orbit` defaults to ORBIT_ARGS_DEFAULT), and the `obstacles` (an ObstacleArrays, see build_obstacle_arrays),
+    which every engine meets. `ray` is a RayArgs (see ray_args).
+    `tables` (SequenceTables) is where the engine stores what it measures (engines.tables_of_engine; the default is the ray engine's)."""
+    if engine == ENGINE_RAY_BOUNCING and (tables.n_stats != RAY_SEQUENCE_TABLES.n_stats or tables.n_points != RAY_SEQUENCE_TABLES.n_points):
+        raise ValueError("the ray-bouncing engine stores every metric and point, at their ids: its own measurements are written there")
+    return PathArgs(engine=int(engine), ray=ray, orbit=orbit, obstacles=obstacles, tables=tables)
 
 
 def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):

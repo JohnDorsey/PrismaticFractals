@@ -38,15 +38,15 @@ def test_the_ray_engine_offers_every_choice_so_nothing_is_ever_corrected_under_i
     assert m.RAY_BOUNCING_ENGINE.metrics == frozenset(range(m.N_STATS)), "the ray engine's ids are the catalogs' own (D34)"
     assert m.RAY_BOUNCING_ENGINE.points == frozenset(range(m.N_POINT_CHOICES))
     assert m.RAY_BOUNCING_ENGINE.buddha_options == frozenset(range(m.N_BUDDHA_POINTS))
-    assert m.ENGINE_DESCRIPTIONS == {m.ENGINE_RAY_BOUNCING: m.RAY_BOUNCING_ENGINE}
+    assert m.ENGINE_DESCRIPTIONS == {m.ENGINE_RAY_BOUNCING: m.RAY_BOUNCING_ENGINE, m.ENGINE_MANDELBROT: m.MANDELBROT_ENGINE}
     assert m.engine_description(m.ENGINE_RAY_BOUNCING) is m.RAY_BOUNCING_ENGINE
 
 
 def test_an_engine_without_a_description_says_so_by_name():
     try:
-        m.engine_description(m.ENGINE_MANDELBROT)
+        m.engine_description(m.N_ENGINES)
     except KeyError as exc:
-        assert "Mandelbrot" in str(exc) and "no description" in str(exc)
+        assert "no description" in str(exc)
     else:
         raise AssertionError("expected a KeyError")
 
@@ -356,6 +356,41 @@ def test_switching_and_switching_back_with_nothing_changed_gives_back_the_same_s
 
 
 # --------------------------------------------------------------------------- #
+# The real second engine: Mandelbrot (D5, D11, D31, D35, D38, D39)
+# --------------------------------------------------------------------------- #
+def test_the_mandelbrot_engine_offers_one_sequence_its_metrics_and_the_buddha_options_of_its_path():
+    engine = m.MANDELBROT_ENGINE
+    assert m.engine_description(m.ENGINE_MANDELBROT) is engine and engine.name == "Mandelbrot"
+    assert {m.METRIC_LABELS[i] for i in engine.metrics} == {
+        "Horizontal distance", "Vertical distance", "Manhattan distance", "Euclidean distance", "Path: Point count / limit",
+        "Path: Length (arctan)", "Path: Last segment direction", "Termination reason"}
+    assert {m.POINT_LABELS[i] for i in engine.points} == {f"Path: {r}" for r in m.POINT_REDUCTION_LABELS} | {"Origin", "(-1,1)", "Top left point"}
+    assert {m.BUDDHA_POINT_LABELS[i] for i in engine.buddha_options} == (
+        {f"Path: {r}" for r in m.POINT_REDUCTION_LABELS} | {"Path: Last point (distance limit)", "Path: Last point (confined)", "All path points"}),         "no midpoints, no self bounces, no perpendicular collision (D38)"
+    assert (m.METRIC_LABELS[engine.default_other_metric], m.POINT_LABELS[engine.default_point],
+            m.BUDDHA_POINT_LABELS[engine.default_buddha_option]) == ("Path: Point count / limit", "Path: First point", "Path: Mean point")
+    assert m.new_obstacle_effects(engine) == (m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS)
+    assert engine.ignores("seg_mult") and engine.ignores("emit_offset") and engine.ignores("seed") and not engine.ignores("escape_radius")
+
+
+def test_switching_to_mandelbrot_resets_reflect_the_bounce_count_and_the_bounce_mean_to_the_engines_own_defaults():
+    channels = [_channel(),
+                _channel(chan_src=m.CHAN_SRC_BUDDHA, buddha_points=_ticked("All bounces: Mean point")),
+                _channel(metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT)]
+    values = settings_dict_with_lists(obstacle_effects=[(m.OBSTACLE_EFFECT_REFLECT, m.OBSTACLE_EFFECT_REFLECT)], channels=channels)
+    out = m.switch_engine(values, m.RAY_BOUNCING_ENGINE, m.MANDELBROT_ENGINE)
+    assert out.settings["engine"] == m.ENGINE_MANDELBROT
+    assert (out.settings["obst:1:in_effect"], out.settings["obst:1:out_effect"]) == (m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS)
+    assert out.settings["coloration:1:chan0"] == channels[0], "(distances between Path points are offered as they are)"
+    assert out.settings["coloration:1:chan1"].buddha_points == _ticked("Path: Mean point")
+    assert m.METRIC_LABELS[out.settings["coloration:1:chan2"].metric_slot] == "Path: Point count / limit"
+    assert out.settings["seg_mult"] == values["seg_mult"] and out.settings["emit_offset"] == values["emit_offset"], "(ignored, not reset)"
+    assert len(out.corrections) == 4
+    back = m.switch_engine(out.settings, m.MANDELBROT_ENGINE, m.RAY_BOUNCING_ENGINE, out.memory)
+    assert back.settings == values
+
+
+# --------------------------------------------------------------------------- #
 # The self-checks
 # --------------------------------------------------------------------------- #
 def test_self_checks_catch_an_engine_description_that_is_inconsistent():
@@ -374,6 +409,10 @@ def test_self_checks_catch_an_engine_description_that_is_inconsistent():
     fresh = load_module()
     fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(ranges={"obst:3:radius": (0, 1)})}
     _breaks_a_self_check(fresh, "key pattern")
+    fresh = load_module()
+    shifted = fresh.RAY_SEQUENCE_TABLES._replace(stat_pos=fresh.RAY_SEQUENCE_TABLES.stat_pos[::-1].copy())
+    fresh.selfchecks.RAY_SEQUENCE_TABLES = shifted
+    _breaks_a_self_check(fresh, "its positions are its ids")
 
 
 # --------------------------------------------------------------------------- #

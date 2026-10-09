@@ -94,7 +94,11 @@ def _framing(**changes):
 
 def _give_image_geometry(app, framing=None):
     """Give a fake app the state of the image on screen that the real App has (its framing, size in pixels and world
-    rectangle, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world."""
+    rectangle, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world. The buffers
+    are those of the figure the app holds (the placeholder one, unless `_give_generated` gave it another before)."""
+    if not hasattr(app, "current_figure"):
+        app.generated = getattr(app, "generated", None)
+        app.current_figure = m.App.current_figure.__get__(app)
     app.set_image_framing = m.App.set_image_framing.__get__(app)
     app.make_image_buffers = m.App.make_image_buffers.__get__(app)
     app.pixel_center = m.App.pixel_center.__get__(app)
@@ -384,9 +388,9 @@ def _termination(max_iter, max_dist=0.0, escape_radius=None, confine=None):
 
 def _engine_args(obstacles, seg_mult=1.0, fuzz=None, emission=None):
     """The drivers' engine arguments (a PathArgs of the ray-bouncing engine) for an ObstacleArrays; `fuzz` is a FuzzParams
-    (default: fuzzing off). `.ray` is the RayArgs that trace_path takes."""
+    (default: fuzzing off). `.ray` and `.obstacles` are what trace_path takes."""
     return m.path_args(m.ENGINE_RAY_BOUNCING, m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz),
-                                                         m.EMISSION_DEFAULT if emission is None else emission, obstacles))
+                                                         m.EMISSION_DEFAULT if emission is None else emission), obstacles)
 
 
 def _start_scene():
@@ -469,7 +473,7 @@ def _first_direction(x0, y0, emission, fuzz=None, seed=0):
     fz = m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz)
     _seed_kernel_rng(seed)
     term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(4),
-                              m.ray_args(1.0, fz, emission, arrays), raw)
+                              m.ray_args(1.0, fz, emission), arrays, raw)
     assert term == m.TERM_ESCAPED and npts == 2
     delta = path_points[1] - path_points[0]
     return delta / np.hypot(*delta)
@@ -806,6 +810,11 @@ def settings_dict_with_lists(obstacle_effects=((0, 0),), channels=None):
     for c in range(3):
         values[f"coloration:1:chan{c}"] = channels[c] if channels else m.coloration_channel_value(coloration, c)
     return values
+
+
+def small_tables():
+    """The SequenceTables of the test double `small_engine()`: its Path sequence only, stored densely."""
+    return m.sequence_tables(m.engine_layout(small_engine()))
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

@@ -19,7 +19,7 @@ def _trace(seg_mult, x0=-0.3, y0=-0.2, max_iter=8, width=2.0, height=1.4):
     path_point_tags = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
     term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(max_iter),
-                              m.ray_args(seg_mult, fz, m.EMISSION_DEFAULT, arrays), raw)
+                              m.ray_args(seg_mult, fz, m.EMISSION_DEFAULT), arrays, raw)
     return path_points[:npts], path_point_tags[:npts], term, raw, bound
 
 
@@ -150,7 +150,7 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     path_point_tags = np.empty(max_iter + 2)
     raw = np.empty(m.N_RAW)
     term, npts = m.trace_path(x0, y0, path_points, path_point_tags, _termination(max_iter, max_dist, escape_radius, confine),
-                              m.ray_args(seg_mult, fz, emission, arrays), raw)
+                              m.ray_args(seg_mult, fz, emission), arrays, raw)
     return path_points[:npts].copy(), path_point_tags[:npts].copy(), term, raw
 
 
@@ -310,7 +310,7 @@ def test_stats_and_points_are_sane_for_an_escaped_ray():
     out = np.empty(m.N_STATS)
     ray_characteristic_points = np.empty((m.N_POINTS, 2))
     m.compute_run_measurements(path_points, len(path_points), raw, 12, 1.0, out)
-    m.compute_sequences(path_points, len(path_points), path_point_tags, int(raw[m.RAW_BOUNCES]), 12, out, ray_characteristic_points)
+    m.compute_sequences(path_points, len(path_points), path_point_tags, int(raw[m.RAW_BOUNCES]), 12, m.RAY_SEQUENCE_TABLES, out, ray_characteristic_points)
     assert out[m.ST_TERMINATION] == 1.0
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
     assert np.allclose(ray_characteristic_points[m.POINT_END], (np.sqrt(UNIT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
@@ -1663,7 +1663,7 @@ def _stored_for_path(path_points, path_point_tags, nb, max_iter=20):
     out = np.full(m.N_STATS, np.nan)
     ray_characteristic_points = np.full((m.N_POINTS, 2), np.nan)
     m.compute_run_measurements(path_points, npts, raw, max_iter, 1.0, out)
-    m.compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
+    m.compute_sequences(path_points, npts, path_point_tags, nb, max_iter, m.RAY_SEQUENCE_TABLES, out, ray_characteristic_points)
     return ray_characteristic_points, out
 
 
@@ -1722,7 +1722,7 @@ def test_membership_by_tag_alone_equals_the_bounce_count_rule_on_every_ray_of_a_
         for j in range(n):
             for i in range(n):
                 path_points, path_point_tags, raw = np.empty((82, 2)), np.empty(82), np.empty(m.N_RAW)
-                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, raw)
+                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, arrays, raw)
                 nb = int(raw[m.RAW_BOUNCES])
                 for seq in range(m.N_SEQS):
                     got = [k for k in range(npts) if m.in_sequence(seq, k, path_point_tags)]
@@ -1828,7 +1828,7 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
             if pixel_state[j, i] != m.PIXEL_TRACED:
                 continue
             path_points, path_point_tags, raw = np.empty((62, 2)), np.empty(62), np.empty(m.N_RAW)
-            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, raw)
+            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, arrays, raw)
             nb = int(raw[m.RAW_BOUNCES])
             for seq in range(m.N_SEQS):
                 for red in range(m.N_PRED):
@@ -2030,14 +2030,14 @@ def test_a_fresh_start_draws_in_the_default_world_what_it_drew_in_the_world_half
 # The engine switch inside the drivers (Engine_Refactor_Design.md D28)
 # --------------------------------------------------------------------------- #
 def test_the_arguments_of_the_drivers_hold_the_engine_and_both_engines_bundles():
-    ray = m.ray_args(0.5, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, m.build_obstacle_arrays([]))
-    args = m.path_args(m.ENGINE_RAY_BOUNCING, ray)
-    assert isinstance(args, m.PathArgs) and args._fields == ("engine", "ray", "orbit")
-    assert args.engine == 0 and args.ray is ray and args.orbit == m.ORBIT_ARGS_DEFAULT
+    ray, scene = m.ray_args(0.5, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT), m.build_obstacle_arrays([])
+    args = m.path_args(m.ENGINE_RAY_BOUNCING, ray, scene)
+    assert isinstance(args, m.PathArgs) and args._fields == ("engine", "ray", "orbit", "obstacles", "tables")
+    assert args.engine == 0 and args.ray is ray and args.obstacles is scene and args.orbit == m.ORBIT_ARGS_DEFAULT and args.tables is m.RAY_SEQUENCE_TABLES
     assert m.OrbitArgs._fields == ("exponent", "z0_is_c", "julia", "julia_re", "julia_im", "clip_escape")
     assert m.ORBIT_ARGS_DEFAULT == m.OrbitArgs(exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip_escape=True)
     other = m.orbit_args(3, True, True, 1, -1, False)
-    assert m.path_args(m.ENGINE_MANDELBROT, ray, other).orbit == m.OrbitArgs(3.0, True, True, 1.0, -1.0, False)
+    assert m.path_args(m.ENGINE_MANDELBROT, ray, scene, other).orbit == m.OrbitArgs(3.0, True, True, 1.0, -1.0, False)
     assert type(other.exponent) is float and type(other.julia_re) is float and other.z0_is_c is True
 
 
@@ -2048,17 +2048,17 @@ def test_the_engine_switch_gives_the_ray_engine_exactly_the_path_trace_path_give
     for x, y in [(0.0, 0.0), (0.3, 0.1), (-0.6, 0.5), (0.2, -0.7), (0.0, 0.9), (0.99, 0.0)]:
         want = [np.zeros((62, 2)), np.zeros(62), np.zeros(m.N_RAW)]
         got = [np.zeros((62, 2)), np.zeros(62), np.zeros(m.N_RAW)]
-        assert m.trace_path(x, y, *want[:2], termination, args.ray, want[2]) == m.trace_engine_path(x, y, *got[:2], termination, args, got[2])
-        npts = m.trace_path(x, y, *want[:2], termination, args.ray, want[2])[1]
+        assert m.trace_path(x, y, *want[:2], termination, args.ray, arrays, want[2]) == m.trace_engine_path(x, y, *got[:2], termination, args, got[2])
+        npts = m.trace_path(x, y, *want[:2], termination, args.ray, arrays, want[2])[1]
         assert np.array_equal(want[0][:npts], got[0][:npts]) and np.array_equal(want[1][:npts], got[1][:npts])
         assert np.array_equal(want[2], got[2])
 
 
 def test_the_drivers_reach_the_orbit_engine_when_the_engine_says_so():
-    """The orbit engine's path function is not written yet (a path of its start point alone), so this checks only that the switch
-    reaches it, in the parallel driver and in the seeding driver, and that the gating of pixels is the same whichever engine runs."""
+    """The switch reaches the orbit engine's path function from the parallel driver and from the seeding driver, and the gating of
+    pixels (which fire a path) is the same whichever engine runs."""
     arrays = m.build_obstacle_arrays(_unit_scene())
-    ray, orbit = _engine_args(arrays), m.path_args(m.ENGINE_MANDELBROT, _engine_args(arrays).ray)
+    ray, orbit = _engine_args(arrays), m.path_args(m.ENGINE_MANDELBROT, _engine_args(arrays).ray, arrays)
     termination, n = _termination(20), 16
     made = []
     for args in (ray, orbit):
@@ -2070,14 +2070,13 @@ def test_the_drivers_reach_the_orbit_engine_when_the_engine_says_so():
     assert np.array_equal(made[0][2], made[1][2]) and (made[1][2] == m.PIXEL_TRACED).sum() > 100
     traced = made[1][2] == m.PIXEL_TRACED
     assert not np.array_equal(made[0][0][traced], made[1][0][traced]), "the orbit engine made its own paths"
-    start, end = made[1][1][..., m.POINT_START, :][traced], made[1][1][..., m.POINT_END, :][traced]
-    assert np.array_equal(start, end), "(a path of one point: its start is its end)"
-    assert not np.array_equal(made[0][1][..., m.POINT_START, :][traced], made[0][1][..., m.POINT_END, :][traced])
+    start = made[1][1][..., m.POINT_START, :][traced]
+    assert (start == 0.0).all(), "(an orbit of the Mandelbrot kind starts at the origin, not at its pixel)"
+    assert not np.array_equal(made[0][1][..., m.POINT_START, :][traced], start)
     counts = [np.zeros((n, n)) for _ in range(2)]
     for args, c in zip((ray, orbit), counts):
         m.scatter_multi_buddha(0, n, UNIT_WORLD, termination, args, 0, False, False, False, False, True, ALL_TERMS_ALLOWED, c)
-    assert counts[1].sum() == (made[1][2] == m.PIXEL_TRACED).sum(), "one point per path: the start"
-    assert counts[0].sum() > counts[1].sum()
+    assert counts[1].sum() > 0 and not np.array_equal(counts[0], counts[1])
 
 
 def test_no_module_but_the_kernels_calls_the_ray_engines_path_function_so_every_caller_goes_through_the_switch():
@@ -2086,3 +2085,121 @@ def test_no_module_but_the_kernels_calls_the_ray_engines_path_function_so_every_
         if name.rsplit(".", 1)[-1] in ("kernels", "selfchecks"):
             continue
         assert "trace_path(" not in inspect.getsource(module), f"{name} calls trace_path directly: use trace_engine_path"
+
+
+# --------------------------------------------------------------------------- #
+# Per-engine layouts: where an engine keeps what it measures (SequenceTables)
+# --------------------------------------------------------------------------- #
+def test_the_ray_engines_tables_are_the_identity_and_are_what_its_layout_makes():
+    tables = m.RAY_SEQUENCE_TABLES
+    assert tables.point_pos.tolist() == list(range(m.N_POINTS)) and tables.stat_pos.tolist() == list(range(m.N_STATS))
+    assert tables.seqs.tolist() == list(range(m.N_SEQS)) and (tables.n_points, tables.n_stats) == (m.N_POINTS, m.N_STATS)
+    made = m.sequence_tables(m.FULL_LAYOUT)
+    assert (made.point_pos == tables.point_pos).all() and (made.stat_pos == tables.stat_pos).all() and (made.seqs == tables.seqs).all()
+    back = m.layout_of_tables(tables)
+    assert back.stat_ids.tolist() == m.FULL_LAYOUT.stat_ids.tolist() and back.point_ids.tolist() == m.FULL_LAYOUT.point_ids.tolist()
+    assert m.tables_of_engine(m.ENGINE_RAY_BOUNCING) is m.tables_of_engine(m.ENGINE_RAY_BOUNCING), "(kept)"
+    assert m.layout_of_engine(m.ENGINE_RAY_BOUNCING).stat_ids.tolist() == m.FULL_LAYOUT.stat_ids.tolist()
+    mandelbrot = m.layout_of_engine(m.ENGINE_MANDELBROT)
+    assert (mandelbrot.n_stats, mandelbrot.n_points) == (8, 7), "the metrics and the Path points of D31"
+
+
+def test_an_engine_that_stores_less_numbers_its_ids_densely_and_reduces_only_its_sequences():
+    tables = small_tables()
+    layout = m.engine_layout(small_engine())
+    assert tables.seqs.tolist() == [m.SEQ_PATH] and tables.n_points == m.N_PRED
+    assert tables.n_stats == len(small_engine().metrics) and layout.n_stats == tables.n_stats
+    stored_points = [p for p in range(m.N_POINTS) if tables.point_pos[p] >= 0]
+    assert stored_points == sorted(m.point_slot(m.SEQ_PATH, r) for r in range(m.N_PRED))
+    assert [int(tables.point_pos[p]) for p in stored_points] == list(range(m.N_PRED)), "(positions follow the order of the ids)"
+    assert tables.stat_pos[m.ST_HDIST] == 0 and tables.stat_pos[m.stat_slot(m.SEQ_SELF, m.SRED_COUNT)] == -1
+    assert m.layout_of_tables(tables).stat_ids.tolist() == layout.stat_ids.tolist()
+    kept = m.StoredLayout.of([m.ST_TERMINATION], [m.POINT_END])
+    assert kept.stat_sources(tables).tolist() == [int(tables.stat_pos[m.ST_TERMINATION])]
+    assert kept.point_sources(tables).tolist() == [int(tables.point_pos[m.POINT_END])]
+    assert _raises(KeyError, lambda: m.StoredLayout.of([m.ST_LOOP_AREA], []).stat_sources(tables))
+    assert _raises(KeyError, lambda: m.StoredLayout.of([], [m.POINT_SELF_TOP]).point_sources(tables))
+
+
+def test_the_reductions_write_each_value_where_the_engines_tables_say_and_nothing_else():
+    arrays = m.build_obstacle_arrays(_unit_scene() + [m.EllipseShape(5)])
+    args, double = _engine_args(arrays, seg_mult=0.9), small_tables()
+    termination = _termination(40)
+    checked = 0
+    for x, y in [(0.3, 0.1), (-0.6, 0.5), (0.2, -0.7), (0.0, 0.9), (0.55, 0.55)]:
+        path_points, tags, raw = np.zeros((42, 2)), np.zeros(42), np.zeros(m.N_RAW)
+        _term, npts = m.trace_path(x, y, path_points, tags, termination, args.ray, arrays, raw)
+        nb = int(raw[m.RAW_BOUNCES])
+        full_out, full_points = np.zeros(m.N_STATS), np.zeros((m.N_POINTS, 2))
+        m.compute_sequences(path_points, npts, tags, nb, 40, m.RAY_SEQUENCE_TABLES, full_out, full_points)
+        out, points = np.full(double.n_stats, np.nan), np.full((double.n_points, 2), np.nan)
+        m.compute_sequences(path_points, npts, tags, nb, 40, double, out, points)
+        for red in range(m.N_PRED):
+            slot = m.point_slot(m.SEQ_PATH, red)
+            assert points[double.point_pos[slot]].tolist() == full_points[slot].tolist()
+            checked += 1
+        for red in range(m.N_SRED):
+            slot = m.stat_slot(m.SEQ_PATH, red)
+            position = double.stat_pos[slot]
+            if position >= 0:
+                assert out[position] == full_out[slot]
+                checked += 1
+        written = np.flatnonzero(~np.isnan(out))
+        assert set(written.tolist()) == {int(double.stat_pos[m.stat_slot(m.SEQ_PATH, r)]) for r in range(m.N_SRED)} - {-1}, \
+            "only the reductions of the sequences the engine has"
+    stored_path_stats = sum(1 for r in range(m.N_SRED) if double.stat_pos[m.stat_slot(m.SEQ_PATH, r)] >= 0)
+    assert stored_path_stats == 3 and checked == 5 * (m.N_PRED + stored_path_stats)
+
+
+def test_the_drivers_store_through_the_engines_tables_whichever_engine_runs():
+    """Run the orbit engine's branch (its path function is a stub for now) with the ray engine's tables and with a smaller engine's:
+    the smaller one's arrays are narrower, and each id it keeps holds what the ray tables put at that id."""
+    arrays = m.build_obstacle_arrays(_unit_scene())
+    ray, double = _engine_args(arrays).ray, small_tables()
+    wide, narrow = m.path_args(m.ENGINE_MANDELBROT, ray, arrays), m.path_args(m.ENGINE_MANDELBROT, ray, arrays, tables=double)
+    termination, n = _termination(20), 12
+    results = []
+    for args in (wide, narrow):
+        layout = m.layout_of_tables(args.tables)
+        stats, points = layout.allocate(n, n)
+        state = np.zeros((n, n), np.uint8)
+        m.trace_rows(stats, points, state, 0, n, n, n, UNIT_WORLD, termination, args, 0)
+        results.append((layout, stats, points, state))
+    (wide_layout, wide_stats, wide_points, wide_state), (layout, stats, points, state) = results
+    assert (wide_state == state).all() and (state == m.PIXEL_TRACED).sum() > 60
+    assert stats.shape == (n, n, double.n_stats) and points.shape == (n, n, double.n_points, 2)
+    for slot in layout.stat_ids:
+        assert (stats[..., layout.stat_position(slot)] == wide_stats[..., wide_layout.stat_position(slot)]).all()
+    for slot in layout.point_ids:
+        assert (points[..., layout.point_position(slot), :] == wide_points[..., wide_layout.point_position(slot), :]).all()
+    # an export keeping a few of the engine's slots reads them from the engine's positions
+    keep = m.StoredLayout.of([m.ST_TERMINATION, m.stat_slot(m.SEQ_PATH, m.SRED_COUNT)], [m.POINT_END, m.POINT_START])
+    kept_stats, kept_points = keep.allocate(n, n)
+    kept_state = np.zeros((n, n), np.uint8)
+    m.trace_rows_stored(kept_stats, kept_points, kept_state, 0, n, n, n, UNIT_WORLD, termination, narrow, 0,
+                        keep.stat_sources(double), keep.point_sources(double))
+    for slot in keep.stat_ids:
+        assert (kept_stats[..., keep.stat_position(slot)] == stats[..., layout.stat_position(slot)]).all()
+    for slot in keep.point_ids:
+        assert (kept_points[..., keep.point_position(slot), :] == points[..., layout.point_position(slot), :]).all()
+
+
+def test_a_buddha_option_reads_the_position_the_engine_keeps_its_point_at_and_an_engine_without_it_refuses():
+    scene = m.build_obstacle_arrays(_unit_scene())
+    ray = _engine_args(scene).ray
+    double = m.path_args(m.ENGINE_MANDELBROT, ray, scene, tables=small_tables())
+    assert m.buddha._engine_point(double, m.POINT_END) == int(small_tables().point_pos[m.POINT_END])
+    assert m.buddha._engine_point(m.path_args(m.ENGINE_RAY_BOUNCING, ray, scene), m.POINT_SELF_TOP) == m.POINT_SELF_TOP
+    assert _raises(KeyError, lambda: m.buddha._engine_point(double, m.POINT_SELF_TOP))
+    seeds = m.DEFAULT_BUDDHA_SEED.replace(camera_pixels=False, x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+    counts, other = np.zeros((8, 8)), np.zeros((8, 8))
+    chosen = tuple(label == "Path: Mean point" for label in m.BUDDHA_POINT_LABELS)
+    for args, c in ((double, counts), (m.path_args(m.ENGINE_MANDELBROT, ray, scene), other)):
+        assert m.scatter_seeded_buddha(c, UNIT_WORLD, seeds, 0, 8, chosen, _termination(10), args, 0)
+    assert counts.sum() > 0 and (counts == other).all(), "the same point, found through another engine's table"
+
+
+def test_the_ray_engine_refuses_tables_that_do_not_store_everything_it_measures():
+    scene = m.build_obstacle_arrays([])
+    ray = _engine_args(scene).ray
+    assert _raises(ValueError, lambda: m.path_args(m.ENGINE_RAY_BOUNCING, ray, scene, tables=small_tables()))

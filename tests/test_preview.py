@@ -28,7 +28,7 @@ def _fake_preview_app(pinned):
     app.hover_raw = np.empty(m.N_RAW)
     app.hover_vec = np.empty(m.N_STATS)
     app.hover_ray_characteristic_points = np.empty((m.N_POINTS, 2))
-    app.component_values = lambda vec, ray_characteristic_points, x, y: (0.1, 0.2, 0.3)
+    app.component_values = lambda vec, ray_characteristic_points, x, y, layout=None: (0.1, 0.2, 0.3)
     app.draw_segments = lambda path_points, path_point_tags, n: None
     app.draw_corkscrew = lambda path_points, path_point_tags, n: None
     app.deco = {k: _StubVar(k != "samples") for k in
@@ -635,3 +635,22 @@ def test_the_preview_runs_the_engine_of_the_image_on_screen_and_before_any_the_d
     assert preview_engine().engine == m.ENGINE_MANDELBROT, "nothing generated yet: the dropdown"
     app.generated = m.PLACEHOLDER_FIGURE
     assert preview_engine() == m.DEFAULT_ENGINE_SETTINGS, "the image on screen is of the ray engine, whatever the dropdown says now"
+
+
+class _FakeBufferApp:
+    pass
+
+
+def test_the_buffers_of_the_image_on_screen_are_those_of_the_layout_of_the_figure_it_was_generated_from():
+    import dataclasses
+    app = _give_image_geometry(_FakeBufferApp())
+    assert app.stats.shape[-1] == m.N_STATS and app.characteristic_points.shape[-2] == m.N_POINTS
+    narrow = m.engine_layout(small_engine())
+    app.generated = dataclasses.replace(m.PLACEHOLDER_FIGURE, layout=narrow)
+    app.make_image_buffers()
+    assert app.stats.shape == (app.img_h, app.img_w, narrow.n_stats)
+    assert app.characteristic_points.shape == (app.img_h, app.img_w, narrow.n_points, 2)
+    app.generated = None
+    app.make_image_buffers()
+    assert app.stats.shape[-1] == m.N_STATS, "back to the ray engine's: the buffers are made again, not cleared in place"
+    assert m.PLACEHOLDER_FIGURE.layout.stat_ids.tolist() == m.FULL_LAYOUT.stat_ids.tolist()

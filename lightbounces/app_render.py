@@ -3,11 +3,12 @@ import numpy as np
 from .constants import BACKGROUND, OBST_EFFECT_RGB, THUMB_BACKGROUND
 from .image_io import make_grid
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect, same_framing
-from .kernels import N_POINTS, N_STATS, PIXEL_TRACED, WORLD_RECT_DEFAULT, trace_rows, trace_rows_stored
+from .kernels import PIXEL_TRACED, WORLD_RECT_DEFAULT, trace_rows, trace_rows_stored
 from .metrics import CHAN_BUDDHA, make_mapping
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
 from .color_pipeline import demand_layout, paint
 from .stored_layout import FULL_LAYOUT
+from .engines import tables_of_engine
 from .settings import path_args, settings_natural_termination, settings_ray_args
 from .shapes import draw_obstacle_outline, ring_layer_masks
 
@@ -27,7 +28,7 @@ class RenderMixin:
             images.append(self.apply_coloration(v.settings(), self.stats, self.characteristic_points, self.pixel_state,
                                              self.img_w, self.img_h, self.current_blur_settings(),
                                              figure.termination, figure.engine_args, figure.rng_seed,
-                                             self.current_buddha_seed_settings(), self.image_world_rect))
+                                             self.current_buddha_seed_settings(), self.image_world_rect, figure.layout))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
@@ -52,14 +53,14 @@ class RenderMixin:
         case before this feature existed), this is exactly the one image
         it's always been."""
         termination = settings_natural_termination(data.natural_termination)
-        engine_args = path_args(data.engine.engine, settings_ray_args(data.ray, obst_arrays))
+        engine_args = path_args(data.engine.engine, settings_ray_args(data.ray), obst_arrays, tables=tables_of_engine(data.engine.engine))
         rng_seed = data.ray.fuzz.rng_seed
         layout = demand_layout(colorations, data.buddha_seed)     # keep only the slots these colorations read
         stats, characteristic_points = layout.allocate(out_h, out_w)
         pixel_state = np.zeros((out_h, out_w), dtype=np.uint8)
         world_rect = framing_world_rect(framing)
         trace_rows_stored(stats, characteristic_points, pixel_state, 0, out_h, out_w, out_h, world_rect, termination,
-                          engine_args, rng_seed, layout.stat_ids, layout.point_ids)
+                          engine_args, rng_seed, layout.stat_sources(engine_args.tables), layout.point_sources(engine_args.tables))
 
         images = [self.apply_coloration(v, stats, characteristic_points, pixel_state, out_w, out_h, data.buddha_blur,
                                      termination, engine_args, rng_seed, data.buddha_seed, world_rect, layout)
@@ -87,7 +88,7 @@ class RenderMixin:
         from already-traced stats/characteristic_points/pixel_state. `v` is a ColorationSettings: this
         is the same coloring computation every coloration goes through, whichever
         one it is. `blur` (a BuddhaBlurSettings) is how Buddha channels are blurred;
-        `termination` (a NaturalTerminationRule), `engine_args` (a RayArgs) and `rng_seed_base` (the fuzzing seed) are the
+        `termination` (a NaturalTerminationRule), `engine_args` (a PathArgs) and `rng_seed_base` (the fuzzing seed) are the
         simulation's own, used only to re-trace the rays for the "multi" Buddha point options. `seeds` (a
         BuddhaSeedSettings; None means the camera pixels) says where the rays that Buddha channels scatter start: by
         default the pixels of this very image, whose characteristic points serve the single-point options; otherwise a seed
@@ -149,7 +150,7 @@ class RenderMixin:
         figure = self.current_figure()
         full = self.apply_coloration(v, self.stats, self.characteristic_points, self.pixel_state, self.img_w, self.img_h,
                                   self.current_blur_settings(), figure.termination, figure.engine_args, figure.rng_seed,
-                                  self.current_buddha_seed_settings(), self.image_world_rect)
+                                  self.current_buddha_seed_settings(), self.image_world_rect, layout=figure.layout)
         ys = (np.arange(size) * self.img_h / size).astype(np.int64)
         xs = (np.arange(size) * self.img_w / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]
@@ -165,10 +166,9 @@ class RenderMixin:
         if data is None:
             w, h = framing_image_size(framing, size)
             world_rect = framing_world_rect(framing)
-            stats = np.zeros((h, w, N_STATS), dtype=np.float32)
-            characteristic_points = np.zeros((h, w, N_POINTS, 2), dtype=np.float32)
-            pixel_state = np.zeros((h, w), dtype=np.uint8)
             figure = self.current_figure()
+            stats, characteristic_points = figure.layout.allocate(h, w)
+            pixel_state = np.zeros((h, w), dtype=np.uint8)
             trace_rows(stats, characteristic_points, pixel_state, 0, h, w, h, world_rect, figure.termination, figure.engine_args,
                        figure.rng_seed)
             data = (stats, characteristic_points, pixel_state, world_rect, w, h)
@@ -190,7 +190,7 @@ class RenderMixin:
         figure = self.current_figure()
         picture[y0:y0 + h, x0:x0 + w] = self.apply_coloration(
             coloration_settings, stats, characteristic_points, pixel_state, w, h, self.current_blur_settings(), figure.termination,
-            figure.engine_args, figure.rng_seed, self.current_buddha_seed_settings(), world_rect)
+            figure.engine_args, figure.rng_seed, self.current_buddha_seed_settings(), world_rect, figure.layout)
         return picture
 
     def render_framing_thumbnail(self, framing_obj, size):
