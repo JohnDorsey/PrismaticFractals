@@ -8,12 +8,20 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # --------------------------------------------------------------------------- #
 # Projects: the file format
 # --------------------------------------------------------------------------- #
+OLD_FRAMING = m.FramingSnapshot(id=0, x=0.0, y=0.0, diagonal=2.0 * 2.0 ** 0.5, aspect=1.0)        # the whole world [-1, 1]
+OLD_SEEDING = m.DEFAULT_BUDDHA_SEED.replace(x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
+
+
 def _sample_project(**changes):
     """A project using every kind of obstacle, two colorations (one with Buddha channels),
-    keyframes (including channel records) and non-default simulation and export choices."""
+    keyframes (including channel records) and non-default simulation and export choices. Everything that
+    the program's defaults decide (the sizes, the world, the limits) is written out: the project is the one the reference
+    files in dev/testing hold, whatever the defaults are now."""
     obstacles = []
     for i, cls in enumerate(m.SHAPE_CLASSES):
         o = cls(i * 2 + 1)                                  # ids 1, 3, 5...: not 0..n
+        for name, value in SAMPLE_SIZES[cls.KEY].items():
+            setattr(o, name, value)
         for name in o.FIELD_NAMES:
             if name == "rotation":
                 o.rotation = 10.0 + i
@@ -39,18 +47,18 @@ def _sample_project(**changes):
                  m.Keyframe(7, 30, {"obst:3:r": 0.5, "emit_mode": m.EMIT_TOWARDS}))
     ray, natural_termination = _generation(
         max_iter=77, max_dist=3.5, seg_mult=0.8, emit_mode=m.EMIT_TOWARDS, emit_target_r=0.3,
-        emit_offset=12.5, confine_lookback=6,
+        emit_offset=12.5, confine_lookback=6, escape_radius=2.0, confine_threshold=2.0 / 512,
         fuzz=m.DEFAULT_FUZZ.replace(enabled=True, emit_jitter=2.0, rng_seed=99))
     blur = m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_BOKEH)
     export = {"include_all_colorations": False, "color_info_location": m.COLOR_INFO_LOCATIONS[1],
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
-    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=m.DEFAULT_BUDDHA_SEED,
+    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=OLD_SEEDING,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
                   colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)),
-                  framings=(m.DEFAULT_FRAMING,), keyframes=keyframes,
+                  framings=(OLD_FRAMING,), keyframes=keyframes,
                   export=export, obstacle_counter=40, coloration_counter=9, framing_counter=1, keyframe_counter=12,
                   selected_obstacle_id=5, selected_coloration_id=5, selected_framing_id=0)
     fields.update(changes)
@@ -437,7 +445,8 @@ PINNED_KEYS = {
         "bounces_rightmost": "POINT_RIGHT", "bounces_leftmost": "POINT_LEFT",
         "self_bounces_uppermost": "POINT_SELF_TOP", "self_bounces_lowermost": "POINT_SELF_BOTTOM",
         "self_bounces_rightmost": "POINT_SELF_RIGHT", "self_bounces_leftmost": "POINT_SELF_LEFT",
-        "origin": "CHOICE_ORIGIN", "(-1,1)": "CHOICE_POINT_NEG1_POS1"},
+        "origin": "CHOICE_ORIGIN", "(-1,1)": "CHOICE_POINT_NEG1_POS1",
+        "(-2,2)": "CHOICE_TOP_LEFT_POINT"},
     "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
                                "modulus": "BUDDHA_COMPRESS_MODULUS"},
     "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
@@ -928,7 +937,7 @@ def test_the_format_3_to_4_migration_moves_only_the_natural_termination_settings
     assert set(new["natural_stop"]) == {"iter", "dist", "confine_window", "confine_method", "confine_threshold"}
     assert "seg_mult" in new["simulation"] and "iter" not in new["simulation"]
     assert "natural_stop" not in old and "iter" in old["simulation"]          # the file's data is not modified
-    assert m.project_from_dict(old).natural_termination.escape_radius == m.DEFAULT_ESCAPE_RADIUS
+    assert m.project_from_dict(old).natural_termination.escape_radius == 2.0, "the default of format 8, which the migration writes into the file"
     assert m._migrate_project_3_to_4({"format_version": 3})["natural_stop"] == {}
 
 
@@ -1179,7 +1188,8 @@ def test_a_format_5_file_loads_with_the_whole_world_framing_selected():
     with open(V5_PROJECT_FILE, encoding="utf-8") as f:
         assert "framings" not in json.load(f)
     loaded = m.load_project(V5_PROJECT_FILE)
-    assert loaded.framings == (m.DEFAULT_FRAMING,) and loaded.selected_framing_id == 0
+    assert loaded.framings == (OLD_FRAMING,) and loaded.selected_framing_id == 0, "the whole world [-1, 1], written into the file"
+    assert loaded.framings != (m.DEFAULT_FRAMING,), "which is no longer the default framing"
     assert m.project_signature(loaded) == m.project_signature(_sample_project())
 
 
@@ -1355,3 +1365,14 @@ def test_a_key_may_be_the_coordinates_of_a_fixed_point_and_nothing_else_odd():
     pattern = m.PROJECT_KEY_PATTERN
     assert all(pattern.fullmatch(key) for key in ("(-1,1)", "(-2,2)", "(0,0)", "(10,-3)", "self_bounces_mean", "1x"))
     assert not any(pattern.fullmatch(key) for key in ("(-1, 1)", "(-1.5,1)", "(1)", "(-1,1", "Top left", "", "a-b", "(a,b)"))
+
+
+def test_a_channel_comparing_the_top_left_point_is_saved_under_the_key_of_its_coordinates():
+    v = m.ColorationConfig(0)
+    v.point1_choice[0], v.point2_choice[0] = m.CHOICE_TOP_LEFT_POINT, m.CHOICE_POINT_NEG1_POS1
+    project = _sample_project(colorations=(m.snapshot_coloration(v),), selected_coloration_id=0)
+    text = m.project_text(project)
+    assert '"point1": "(-2,2)"' in text and '"point2": "(-1,1)"' in text
+    loaded = _round_trip(project)
+    channel = m.coloration_channel_value(loaded.colorations[0], 0)
+    assert (channel.point1, channel.point2) == (m.CHOICE_TOP_LEFT_POINT, m.CHOICE_POINT_NEG1_POS1)

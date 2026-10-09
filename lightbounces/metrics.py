@@ -6,7 +6,8 @@ import numpy as np
 from .kernels import (
     N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT,
     ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, DISTANCE_METRIC_DIVISOR,
+    LENGTH_METRIC_DIVISOR
 )
 
 
@@ -42,7 +43,8 @@ STAT_REDUCTION_LABELS = ["Point count / limit", "Length (arctan)", "Last segment
 STAT_REDUCTION_SHORT = ["count", "length", "last dir", "share"]
 STAT_REDUCTION_DESCRIPTIONS = [
     "how many points the sequence has, divided by the iteration limit (at most 1).",
-    "the length of the line through the sequence's points in order, squashed into 0..1 with (2/\u03c0)\u00b7arctan(length/5).",
+    f"the length of the line through the sequence's points in order, squashed into 0..1 with "
+    f"(2/\u03c0)\u00b7arctan(length/{LENGTH_METRIC_DIVISOR:g}).",
     "the direction of the last segment of the line through the sequence's points, from -180\u00b0 to 180\u00b0 "
     "mapped to 0..1 (0.5 if it has fewer than two points).",
     "how many points the sequence has, divided by how many bounces the path has (0 if it has none; at most 1).",
@@ -71,14 +73,17 @@ STAT_OF_SLOT = _slot_owners(STAT_SLOT)
 # slot -> (label, short name for the ray-preview panel, description)
 RUN_METRIC_INFO = {
     ST_HDIST: ("Horizontal distance", "H dist",
-               "horizontal distance between point 1 and point 2 (|x1 - x2|), divided by 2 and clipped to 0..1."),
+               f"horizontal distance between point 1 and point 2 (|x1 - x2|), divided by {DISTANCE_METRIC_DIVISOR:g} and "
+               "clipped to 0..1."),
     ST_VDIST: ("Vertical distance", "V dist",
-               "vertical distance between point 1 and point 2 (|y1 - y2|), divided by 2 and clipped to 0..1."),
+               f"vertical distance between point 1 and point 2 (|y1 - y2|), divided by {DISTANCE_METRIC_DIVISOR:g} and "
+               "clipped to 0..1."),
     ST_MANHATTAN: ("Manhattan distance", "Manhattan",
-                   "Manhattan (taxicab) distance between point 1 and point 2 (|x1-x2| + |y1-y2|), divided by 2 "
-                   "and clipped to 0..1."),
+                   f"Manhattan (taxicab) distance between point 1 and point 2 (|x1-x2| + |y1-y2|), divided by "
+                   f"{DISTANCE_METRIC_DIVISOR:g} and clipped to 0..1."),
     ST_EUCLIDEAN: ("Euclidean distance", "Euclidean",
-                   "straight-line (Euclidean) distance between point 1 and point 2, divided by 2 and clipped to 0..1."),
+                   f"straight-line (Euclidean) distance between point 1 and point 2, divided by {DISTANCE_METRIC_DIVISOR:g} "
+                   "and clipped to 0..1."),
     ST_LOOP_AREA: ("Loop area / same-perimeter circle", "Loop area/circle",
                    "area of the loop formed when the ray first strikes its own path, divided by the area of a circle "
                    "with the same perimeter as the loop (1 = a perfect circle; smaller = more elongated or jagged; 0 "
@@ -123,15 +128,19 @@ POINT_METRICS = (ST_HDIST, ST_VDIST, ST_MANHATTAN, ST_EUCLIDEAN)
 OTHER_METRICS = (tuple(slot for slot in RUN_METRIC_INFO if slot not in POINT_METRICS)
                + tuple(stat_slot(seq, red) for seq in range(N_SEQS) for red in range(N_SRED)))
 
-# Two fixed reference points, unrelated to any ray - always the same regardless of
+# Three fixed reference points, unrelated to any ray - always the same regardless of
 # where the ray went. They are CHOICES only, with no slot of their own (the ids come after the
 # characteristic points' slots), so any code reading a chosen point's coordinates must check
 # CONSTANT_POINT_COORDS first.
 CHOICE_ORIGIN = N_POINTS                       # the fixed point (0, 0)
 CHOICE_POINT_NEG1_POS1 = N_POINTS + 1          # the fixed world point (-1, 1): the top-left corner of the
                                               # world the program first showed (not of any framing)
-N_POINT_CHOICES = N_POINTS + 2                # total selectable points (every stored one + 2 fixed)
-CONSTANT_POINT_COORDS = {CHOICE_ORIGIN: (0.0, 0.0), CHOICE_POINT_NEG1_POS1: (-1.0, 1.0)}
+CHOICE_TOP_LEFT_POINT = N_POINTS + 2           # the fixed world point (-2, 2): the top-left corner of the default
+                                              # framing (not of the selected one; if what "top left" means ever changes,
+                                              # it is a new choice with a new key, as this one is to (-1,1))
+N_POINT_CHOICES = N_POINTS + 3                # total selectable points (every stored one + 3 fixed)
+CONSTANT_POINT_COORDS = {CHOICE_ORIGIN: (0.0, 0.0), CHOICE_POINT_NEG1_POS1: (-1.0, 1.0),
+                         CHOICE_TOP_LEFT_POINT: (-2.0, 2.0)}
 
 POINT_LABELS = []
 POINT_DESCRIPTIONS = []
@@ -141,20 +150,22 @@ for _slot in range(N_POINTS):
     POINT_LABELS.append(f"{SEQUENCE_LABELS[_seq]}: {POINT_REDUCTION_LABELS[_red]}")
     POINT_DESCRIPTIONS.append(POINT_REDUCTION_DESCRIPTIONS[_red] + _sequence_note(_seq))
     POINT_SHORT.append(f"{SEQUENCE_SHORT[_seq]}.{POINT_REDUCTION_SHORT[_red]}")
-POINT_LABELS += ["Origin", "(-1,1)"]
+POINT_LABELS += ["Origin", "(-1,1)", "Top left point"]
 POINT_DESCRIPTIONS += ["the fixed point (0, 0) - unrelated to the ray, always the same.",
                        "the fixed world point (-1, 1), whichever framing is selected - unrelated to the ray, "
-                       "always the same."]
-POINT_SHORT += ["Origin", "(-1,1)"]
-POINT_NOTE = (" (Origin and (-1,1) don't depend on the ray at all; a sequence the ray has no points in "
+                       "always the same.",
+                       "the fixed world point (-2, 2), the top-left corner of the default framing (whichever framing "
+                       "is selected) - unrelated to the ray, always the same."]
+POINT_SHORT += ["Origin", "(-1,1)", "TopLeft"]
+POINT_NOTE = (" (Origin, (-1,1) and Top left point don't depend on the ray at all; a sequence the ray has no points in "
               "falls back to the ray's end point.)")
 
-# The order the two point dropdowns list the choices in: the two fixed points
+# The order the two point dropdowns list the choices in: the three fixed points
 # (which don't depend on the ray at all) first, then each sequence's points. Only the display
 # order - a point's id (its index in POINT_LABELS, and into the per-ray characteristic points for
 # every one but the fixed two) does not depend on it, and choosing by label still maps back
 # through POINT_LABELS.index().
-POINT_MENU_ORDER = [CHOICE_ORIGIN, CHOICE_POINT_NEG1_POS1] + [
+POINT_MENU_ORDER = [CHOICE_ORIGIN, CHOICE_TOP_LEFT_POINT, CHOICE_POINT_NEG1_POS1] + [
     point_slot(seq, red) for seq in range(N_SEQS) for red in range(N_PRED)]
 POINT_MENU_LABELS = [POINT_LABELS[i] for i in POINT_MENU_ORDER]
 
@@ -214,13 +225,13 @@ def point_comparison_metric(metric_slot, p1x, p1y, p2x, p2y):
     dx = p1x - p2x
     dy = p1y - p2y
     if metric_slot == ST_HDIST:
-        v = np.abs(dx) * 0.5
+        v = np.abs(dx) / DISTANCE_METRIC_DIVISOR
     elif metric_slot == ST_VDIST:
-        v = np.abs(dy) * 0.5
+        v = np.abs(dy) / DISTANCE_METRIC_DIVISOR
     elif metric_slot == ST_MANHATTAN:
-        v = (np.abs(dx) + np.abs(dy)) * 0.5
+        v = (np.abs(dx) + np.abs(dy)) / DISTANCE_METRIC_DIVISOR
     else:                                           # ST_EUCLIDEAN
-        v = np.hypot(dx, dy) * 0.5
+        v = np.hypot(dx, dy) / DISTANCE_METRIC_DIVISOR
     return np.clip(v, 0.0, 1.0)
 
 

@@ -121,6 +121,23 @@ circle filling the (-2, 2) image exactly as the unit circle filled the old one; 
 Decisions: D10, D23, D24, D25, D37. Risks: the long list of constants (a missed one shows as a wrong default, which the
 scale check and the fixtures catch); the absolute tolerances.
 
+Result (done; `FILE_VERSION` 154; 769 tests pass, 6 new; `Rendering_For_Humans.md` no longer exists, the user deleted it):
+- Everything D10, D23, D24 and D37 list is changed (`CLAUDE.md`, "The default world is [-2, 2]", has the list); the two
+  metric divisors are the named constants `DISTANCE_METRIC_DIVISOR` (4) and `LENGTH_METRIC_DIVISOR` (10) in `kernels.py`,
+  imported by `metrics.py`; the new fixed point is `CHOICE_TOP_LEFT_POINT`, "Top left point", key "(-2,2)", listed second.
+- Measured: `scale_check.py` (now with the snail, 144 scenes): 99.985% of 251,000 traced pixels exactly twice as large, the
+  rest at ray tie-breaks. `fresh_start_check.py`: a fresh start in the new world differs from the old start in 0.04-0.14% of
+  its drawn pixels (not the 3% the small circle of step 1 suggested). `image_hashes.py` against `hashes_step3_before.json`
+  (scenes written out in the old world, distance and length columns left out): identical.
+- The recorded golden data (the old fixed-shape implementation's output) still matches, its distance and length columns
+  converted by the new divisors.
+- NOT as the plan hoped: because the divisors are global, 12 of the 14 files in `projects/` and `dev/testing` draw their
+  distance (and, in `lune_experiments`, length) channels differently now - a quarter as bright for a distance - while their
+  geometry and settings are exactly as before (restoring the old distance divisor in Python gives back every one of those
+  pictures but the length channel's). Baseline `projects_FILE_VERSION_154.json` is recorded after the change.
+- Tests written for the old world keep it through `tests/support.py` (`UNIT_WORLD`, `UNIT_ESCAPE_RADIUS`, `UNIT_PIXEL`,
+  `UNIT_CONFINE`, `_unit_circle`, `_unit_scene`, `SAMPLE_SIZES`); the sample project spells out its sizes.
+
 ## Step 4. Buddha termination-kind filter and "All path points" (Ray Bouncing)  (effort: medium)
 
 Goal: D16 and D38 for the ray-bouncing engine, independent of Mandelbrot. With all three boxes ticked, images are
@@ -271,7 +288,7 @@ correct. Decisions: D4, D5, D13, D15, D22.
 - Offer "Mandelbrot" in the dropdown.
 - Run `dev/refactor/project_roundtrip_check.py` in the real window; check the full set of flows once by hand.
 - Re-measure: warm and cold compile time, large-export memory for both engines, a Mandelbrot export and a Buddhabrot.
-- Update `CLAUDE.md`, `Rendering_For_Humans.md` and the module docstring; save a memory note for anything a later
+- Update `CLAUDE.md` and the module docstring; save a memory note for anything a later
   session must not rediscover.
 - Review `Engine_Refactor_Design.md` for decisions marked "revisit" and for anything no longer true.
 

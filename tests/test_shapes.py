@@ -521,16 +521,18 @@ def test_a_pass_through_both_ways_obstacle_counts_as_pending_even_if_unchanged()
 # The fixed bounding shape is gone: the scene is only obstacles, starting with
 # an obstacle that stands in for it
 # --------------------------------------------------------------------------- #
-def test_the_starting_obstacle_is_the_unit_circle_that_reflects_and_fires_rays_inside():
+def test_the_starting_obstacle_is_the_circle_of_radius_2_that_reflects_and_fires_rays_inside():
+    """(It fills the default world [-2, 2], as the unit circle filled [-1, 1].)"""
     start = m.default_starting_obstacle(7)
     assert start.id == 7
     assert type(start) is m.EllipseShape
-    assert (start.width, start.height, start.rotation) == (2.0, 2.0, 0.0)
+    assert (start.width, start.height, start.rotation) == (4.0, 4.0, 0.0)
     assert (start.r, start.theta, start.cx, start.cy) == (0.0, 0.0, 0.0, 0.0)
     assert (start.in_effect, start.out_effect) == (m.OBSTACLE_EFFECT_REFLECT,
                                                      m.OBSTACLE_EFFECT_REFLECT)
     assert start.fire_inside is True
-    assert np.allclose(start.bound(), UNIT_CIRCLE)
+    assert np.allclose(start.bound(), [4.0 * np.pi, 0.25, 0.0, 0.25]), "the circle of radius 2: area 4 pi"
+    assert np.allclose(start.bound(), m.ellipse_bound(4.0, 4.0, 0.0))
 
 
 def test_the_app_starts_with_the_starting_obstacle_selected():
@@ -632,14 +634,14 @@ def test_every_shape_kind_has_the_shared_fields_and_only_the_parameters_its_geom
             assert not hasattr(o, field), (cls.__name__, field)     # no field it doesn't use
 
 
-def test_one_rotation_serves_every_kind_and_the_default_radius_is_1_for_every_kind_with_one():
+def test_one_rotation_serves_every_kind_and_the_default_radius_is_2_for_every_kind_with_one():
     for cls in m.SHAPE_CLASSES:
         o = cls(0)
         assert o.rotation == 0.0
         o.rotation = 33.0
         assert 33.0 in o.params(), cls.__name__
         if "radius" in cls.FIELD_NAMES:
-            assert o.radius == 1.0, cls.__name__
+            assert o.radius == 2.0 == m.DEFAULT_RADIUS, cls.__name__
 
 
 # --------------------------------------------------------------------------- #
@@ -825,7 +827,7 @@ def test_with_values_and_duplicate_make_copies_of_the_same_kind():
     o = m.CapsuleShape(3)
     frozen = o.with_values(capsule_length=1.5, r=0.25)
     assert type(frozen) is m.CapsuleShape and frozen.id == 3
-    assert (frozen.capsule_length, frozen.r, o.capsule_length, o.r) == (1.5, 0.25, 1.0, 0.0)
+    assert (frozen.capsule_length, frozen.r, o.capsule_length, o.r) == (1.5, 0.25, 2.0, 0.0)
     assert _raises(AttributeError, lambda: o.with_values(width=1.0))   # not a capsule's field
     assert _raises(AttributeError, lambda: setattr(frozen, "r", 0.0))
     dupe = o.duplicate(9)
@@ -930,12 +932,12 @@ def test_the_new_kinds_have_the_documented_fields_defaults_and_names():
                                                  "Archimedean spiral", "Snail of Pythagoras",
                                                  "Hügelschäffer egg", "Sine flower"]
     sup, fg, spiral, snail, egg, flower = (cls(0) for cls in NEW_CLASSES)
-    assert (flower.radius, flower.flower_petals, flower.flower_amplitude) == (1.0, 6, 0.3)
-    assert (egg.egg_a, egg.egg_b, egg.egg_shift) == (1.0, 0.7, 0.4)
-    assert snail.snail_segments == 17
-    assert (sup.width, sup.height, sup.exponent) == (1.0, 1.0, 4.0)
-    assert (fg.radius, fg.squareness) == (1.0, 0.7)
-    assert (spiral.radius, spiral.spiral_pitch, spiral.spiral_fill) == (1.0, 0.25, 0.5)
+    assert (flower.radius, flower.flower_petals, flower.flower_amplitude) == (2.0, 6, 0.3)
+    assert (egg.egg_a, egg.egg_b, egg.egg_shift) == (2.0, 1.4, 0.4)
+    assert snail.snail_segments == 17 and snail.radius == 2.0
+    assert (sup.width, sup.height, sup.exponent) == (2.0, 2.0, 4.0)
+    assert (fg.radius, fg.squareness) == (2.0, 0.7)
+    assert (spiral.radius, spiral.spiral_pitch, spiral.spiral_fill) == (2.0, 0.5, 0.5)
     for o in (sup, fg, spiral, snail, egg, flower):   # every default is inside its own slider range
         for p in o.NUMERIC_PARAMS:
             if p.lo is not None:
@@ -1019,7 +1021,7 @@ def test_the_snail_has_the_construction_s_right_triangles_and_fits_in_the_unit_c
     assert np.isclose(np.hypot(*bound[-2:]), 1.0)
     turned = np.arctan2(corners[16][1], corners[16][0])
     assert 0.0 > turned > -0.2 or 6.1 < turned + 2 * np.pi < 6.3          # A_17 is almost a whole turn on
-    assert np.hypot(*m.PythagorasSnailShape(0).boundary_xy()).max() <= 1.0 + 1e-9
+    assert np.hypot(*m.PythagorasSnailShape(0).boundary_xy()).max() <= m.PythagorasSnailShape(0).radius + 1e-9
 
 
 def test_the_snail_segment_count_is_a_whole_number_with_its_own_range():
@@ -1115,14 +1117,15 @@ def test_the_sine_flowers_ring_layers_stay_close_to_its_outline():
 # --------------------------------------------------------------------------- #
 def test_the_snail_radius_is_the_distance_to_its_farthest_corner_and_one_is_the_size_it_had():
     o = m.PythagorasSnailShape(0)
-    assert o.radius == m.DEFAULT_RADIUS == 1.0 and "radius" in o.FIELD_NAMES and o.FIELD_TYPES["radius"] is float
-    assert np.array_equal(m.snail_bound(17, 20.0), m.snail_bound(17, 20.0, 1.0))
+    assert o.radius == m.DEFAULT_RADIUS == 2.0 and "radius" in o.FIELD_NAMES and o.FIELD_TYPES["radius"] is float
+    assert np.array_equal(m.snail_bound(17, 20.0), m.snail_bound(17, 20.0, 1.0)), "(the function's own default is the old size, 1)"
     for n, radius in ((17, 1.0), (9, 2.5), (60, 0.4)):
         bound = m.snail_bound(n, 33.0, radius)
         corners = bound[3:3 + 2 * (n + 1)].reshape(-1, 2)
         assert abs(np.hypot(corners[:, 0], corners[:, 1]).max() - radius) < 1e-12 * max(1.0, radius), (n, radius)
         assert np.allclose(corners, m.snail_bound(n, 33.0, 1.0)[3:3 + 2 * (n + 1)].reshape(-1, 2) * radius, rtol=1e-12, atol=0)
         assert abs(bound[0] / (m.snail_bound(n, 33.0, 1.0)[0] * radius * radius) - 1.0) < 0.05, "area grows as radius squared"
+    o.radius = 1.0
     assert o.extent() == 1.0 and (o.extent(), type(o.extent())) == (1.0, float)
     o.radius = 2.0
     assert o.extent() == 2.0 and "r2.00" in o.info_param_line() and "r2.00" in o.shape_text()
@@ -1136,3 +1139,37 @@ def test_a_snail_of_radius_zero_is_nothing_and_a_larger_one_is_the_same_shape_sc
     rng = np.random.RandomState(4)
     for x, y in rng.uniform(-1.3, 1.3, size=(400, 2)):
         assert m.inside_boundary(x, y, m.SHAPE_SNAIL, small) == m.inside_boundary(2.0 * x, 2.0 * y, m.SHAPE_SNAIL, big)
+
+
+# --------------------------------------------------------------------------- #
+# The default world is twice as large: every default length, and every maximum, doubled
+# --------------------------------------------------------------------------- #
+def test_every_default_obstacle_length_is_twice_what_it_was():
+    """SAMPLE_SIZES holds the defaults of the world [-1, 1] (it is what the reference files in dev/testing say)."""
+    for cls in m.SHAPE_CLASSES:
+        o = cls(0)
+        for field, old in SAMPLE_SIZES[cls.KEY].items():
+            assert getattr(o, field) == 2.0 * old, (cls.__name__, field)
+    assert m.default_starting_obstacle(0).width == m.WORLD_RECT_DEFAULT.x_stop * 2.0, "it fills the default world"
+
+
+def test_every_maximum_of_an_obstacle_length_is_twice_what_it_was_and_a_minimum_stayed():
+    new_maxima = {"width": 4.0, "height": 4.0, "radius": 4.0, "lens_radius1": 4.0, "lens_radius2": 4.0, "lens_sep": 4.0,
+                  "capsule_length": 4.0, "capsule_radius": 2.0, "cut_radius": 4.0, "cut_offset": 4.0, "egg_a": 4.0,
+                  "egg_b": 4.0, "moss_size": 4.0, "spiral_pitch": 2.0}
+    seen = set()
+    for cls in m.SHAPE_CLASSES:
+        for p in cls.NUMERIC_PARAMS:
+            if p.field in new_maxima:
+                assert p.hi == new_maxima[p.field], (cls.__name__, p.field)
+                assert p.lo == (0.04 if p.field == "spiral_pitch" else 0.0), (cls.__name__, p.field, "a minimum stays")
+                seen.add(p.field)
+    assert seen == set(new_maxima), set(new_maxima) - seen
+    assert (m.OBST_POS_MIN, m.OBST_POS_MAX, m.OBST_RADIUS_MAX) == (-2.0, 2.0, 4.0)
+    shared = {p.field: p for p in m.POSITION_PARAMS if p.lo is not None}
+    assert (shared["r"].hi, shared["cx"].lo, shared["cx"].hi, shared["cy"].lo, shared["cy"].hi) == (2.0, -2.0, 2.0, -2.0, 2.0)
+    for cls in m.SHAPE_CLASSES:                                 # and every default is inside its range
+        o = cls(0)
+        for p in cls.NUMERIC_PARAMS:
+            if p.lo is not None:
+                assert p.lo <= getattr(o, p.field) <= p.hi, (cls.__name__, p.field)

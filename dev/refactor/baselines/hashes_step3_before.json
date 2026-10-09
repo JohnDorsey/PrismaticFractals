@@ -1,0 +1,493 @@
+{
+ "kernel": {
+  "circle seg1.0 it40": [
+   "7bb09d75ada8087f",
+   "ee59de49f41b80db",
+   "e772f6bba2c50a47"
+  ],
+  "circle seg1.0 it40 buddha(True, False, False, False)": [
+   "fc3dab869d1d0695"
+  ],
+  "circle seg1.0 it40 buddha(False, True, False, False)": [
+   "26bfbf0a06435a7e"
+  ],
+  "circle seg1.0 it40 buddha(False, False, True, True)": [
+   "fcadf450084dbfea"
+  ],
+  "circle seg1.0 it300": [
+   "255705f42f06d9a2",
+   "5b0b8c8de018a353",
+   "e772f6bba2c50a47"
+  ],
+  "circle seg1.0 it300 buddha(True, False, False, False)": [
+   "c47d81e5b8602026"
+  ],
+  "circle seg1.0 it300 buddha(False, True, False, False)": [
+   "deb774e0ecddd1e0"
+  ],
+  "circle seg1.0 it300 buddha(False, False, True, True)": [
+   "6cd75ae898fa1fb8"
+  ],
+  "circle seg0.7 it40": [
+   "b028b688aea1bdb5",
+   "5a59dae8089cd4e0",
+   "e772f6bba2c50a47"
+  ],
+  "circle seg0.7 it40 buddha(True, False, False, False)": [
+   "0cd7271e4e327b07"
+  ],
+  "circle seg0.7 it40 buddha(False, True, False, False)": [
+   "9ff8e5e27aa9ea0c"
+  ],
+  "circle seg0.7 it40 buddha(False, False, True, True)": [
+   "b41deb510ca9536a"
+  ],
+  "circle seg0.7 it300": [
+   "a4a6beafa33b60e5",
+   "d0e9d7983e6c5708",
+   "e772f6bba2c50a47"
+  ],
+  "circle seg0.7 it300 buddha(True, False, False, False)": [
+   "a12add3094f7e2d9"
+  ],
+  "circle seg0.7 it300 buddha(False, True, False, False)": [
+   "b0cfe806aac21fb6"
+  ],
+  "circle seg0.7 it300 buddha(False, False, True, True)": [
+   "b640861b7a40bf64"
+  ],
+  "circle+ellipse seg1.0 it40": [
+   "fb2ae3b096248b78",
+   "f4585561a5f3714b",
+   "e772f6bba2c50a47"
+  ],
+  "circle+ellipse seg1.0 it40 buddha(True, False, False, False)": [
+   "557e03142276be8c"
+  ],
+  "circle+ellipse seg1.0 it40 buddha(False, True, False, False)": [
+   "e72364fa9300cb0a"
+  ],
+  "circle+ellipse seg1.0 it40 buddha(False, False, True, True)": [
+   "3db3b98ece7b9b08"
+  ],
+  "circle+ellipse seg1.0 it300": [
+   "3c3e1bbccc4e4835",
+   "b9fee3400a136280",
+   "e772f6bba2c50a47"
+  ],
+  "circle+ellipse seg1.0 it300 buddha(True, False, False, False)": [
+   "a1c2f940f0c7e759"
+  ],
+  "circle+ellipse seg1.0 it300 buddha(False, True, False, False)": [
+   "a9973d29c6eaadb3"
+  ],
+  "circle+ellipse seg1.0 it300 buddha(False, False, True, True)": [
+   "b7b5b7c9834ac8a7"
+  ],
+  "circle+ellipse seg0.7 it40": [
+   "194b844bfbfbe1ee",
+   "09819cdb1baeb246",
+   "e772f6bba2c50a47"
+  ],
+  "circle+ellipse seg0.7 it40 buddha(True, False, False, False)": [
+   "acc3b4fd31f3d02b"
+  ],
+  "circle+ellipse seg0.7 it40 buddha(False, True, False, False)": [
+   "572044ca66c55337"
+  ],
+  "circle+ellipse seg0.7 it40 buddha(False, False, True, True)": [
+   "23b5834d3e4c39cf"
+  ],
+  "circle+ellipse seg0.7 it300": [
+   "f509acbc2c3ec960",
+   "3e62e43f6c6f2000",
+   "e772f6bba2c50a47"
+  ],
+  "circle+ellipse seg0.7 it300 buddha(True, False, False, False)": [
+   "e67e3a7a6b654107"
+  ],
+  "circle+ellipse seg0.7 it300 buddha(False, True, False, False)": [
+   "12b36b8d3f6812ed"
+  ],
+  "circle+ellipse seg0.7 it300 buddha(False, False, True, True)": [
+   "d9c51a255f88e1ad"
+  ]
+ },
+ "export": {
+  "circle seg1.0 other_types": "903362aee2b54798",
+  "circle seg1.0 buddha_simple": "c42b2780903d124f",
+  "circle seg1.0 buddha_multi": "c6a5f38db71c22d9",
+  "circle seg1.0 hsv_const": "2e44aeb73ac7587b",
+  "circle seg0.8 other_types": "d593030d3683ecc6",
+  "circle seg0.8 buddha_simple": "8ad1b0f7c2221e21",
+  "circle seg0.8 buddha_multi": "96fa4b6a771243c5",
+  "circle seg0.8 hsv_const": "31c09ca705421d9b",
+  "circle+ellipse seg1.0 other_types": "83a6d79406656408",
+  "circle+ellipse seg1.0 buddha_simple": "5870362f8252d9fc",
+  "circle+ellipse seg1.0 buddha_multi": "6c877606b740c24a",
+  "circle+ellipse seg1.0 hsv_const": "b2b059cb89650e3c",
+  "circle+ellipse seg0.8 other_types": "6f9d50dacc8d5594",
+  "circle+ellipse seg0.8 buddha_simple": "eff7113f8c244a40",
+  "circle+ellipse seg0.8 buddha_multi": "d1fe97f47f2e7795",
+  "circle+ellipse seg0.8 hsv_const": "90f106e8cf1f4cac"
+ },
+ "live": {
+  "other_types/camera full": "12cdc584a2edef38",
+  "other_types/camera counts": [
+   null,
+   null,
+   null
+  ],
+  "other_types/camera blurred": [
+   null,
+   null,
+   null
+  ],
+  "other_types/camera incremental": "12cdc584a2edef38",
+  "other_types/camera hover": [
+   [
+    "0.35",
+    "0.2",
+    "0.5975224308605633",
+    "(89, 51, 152)"
+   ],
+   [
+    "0.2",
+    "0.2",
+    "0.7778949846733513",
+    "(51, 51, 198)"
+   ],
+   [
+    "0.38333333333333336",
+    "0.2",
+    "0.6642428155920813",
+    "(98, 51, 169)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "0.2",
+    "0.7333054144874317",
+    "(60, 51, 187)"
+   ]
+  ],
+  "buddha_simple/camera full": "6ccc986510f6e08f",
+  "buddha_simple/camera counts": [
+   null,
+   "446c83615a23e352",
+   null
+  ],
+  "buddha_simple/camera blurred": [
+   null,
+   "e7b3952e2b9f1d1d",
+   null
+  ],
+  "buddha_simple/camera incremental": "6ccc986510f6e08f",
+  "buddha_simple/camera hover": [
+   [
+    "0.35",
+    "0.0",
+    "0.5975224308605633",
+    "(89, 0, 152)"
+   ],
+   [
+    "0.2",
+    "0.0",
+    "0.7778949846733513",
+    "(51, 0, 198)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.536499846117641e-18",
+    "0.6642428155920813",
+    "(98, 0, 169)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "0.0",
+    "0.7333054144874317",
+    "(60, 0, 187)"
+   ]
+  ],
+  "buddha_simple/zone full": "2a10ef3f24daacb9",
+  "buddha_simple/zone counts": [
+   null,
+   "e1a08793db0802f6",
+   null
+  ],
+  "buddha_simple/zone blurred": [
+   null,
+   "5ae39d7f420e33f9",
+   null
+  ],
+  "buddha_simple/zone incremental": "2a10ef3f24daacb9",
+  "buddha_simple/zone hover": [
+   [
+    "0.35",
+    "0.0",
+    "0.5975224308605633",
+    "(89, 0, 152)"
+   ],
+   [
+    "0.2",
+    "0.0",
+    "0.7778949846733513",
+    "(51, 0, 198)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.9206248076470511e-19",
+    "0.6642428155920813",
+    "(98, 0, 169)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "5.742982576413181e-19",
+    "0.7333054144874317",
+    "(60, 0, 187)"
+   ]
+  ],
+  "buddha_multi/camera full": "b548f0a590c243be",
+  "buddha_multi/camera counts": [
+   null,
+   "3d9975dc39a166c7",
+   null
+  ],
+  "buddha_multi/camera blurred": [
+   null,
+   "3d9dd367a16b7a31",
+   null
+  ],
+  "buddha_multi/camera incremental": "b548f0a590c243be",
+  "buddha_multi/camera hover": [
+   [
+    "0.35",
+    "1.0",
+    "0.5975224308605633",
+    "(89, 255, 152)"
+   ],
+   [
+    "0.2",
+    "1.0",
+    "0.7778949846733513",
+    "(51, 255, 198)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.0",
+    "0.6642428155920813",
+    "(98, 255, 169)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "1.0",
+    "0.7333054144874317",
+    "(60, 255, 187)"
+   ]
+  ],
+  "buddha_multi/zone full": "c9b91f2fe4116905",
+  "buddha_multi/zone counts": [
+   null,
+   "ec8923702a999796",
+   null
+  ],
+  "buddha_multi/zone blurred": [
+   null,
+   "b7e835c31f2a1abd",
+   null
+  ],
+  "buddha_multi/zone incremental": "c9b91f2fe4116905",
+  "buddha_multi/zone hover": [
+   [
+    "0.35",
+    "1.0",
+    "0.5975224308605633",
+    "(89, 255, 152)"
+   ],
+   [
+    "0.2",
+    "1.0",
+    "0.7778949846733513",
+    "(51, 255, 198)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.0",
+    "0.6642428155920813",
+    "(98, 255, 169)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "1.0",
+    "0.7333054144874317",
+    "(60, 255, 187)"
+   ]
+  ],
+  "buddha_two_channels/camera full": "79c44cc1c45fc5f3",
+  "buddha_two_channels/camera counts": [
+   null,
+   "446c83615a23e352",
+   "aa56790e90b61e76"
+  ],
+  "buddha_two_channels/camera blurred": [
+   null,
+   "e7b3952e2b9f1d1d",
+   "a52a03d443b8aee2"
+  ],
+  "buddha_two_channels/camera incremental": "79c44cc1c45fc5f3",
+  "buddha_two_channels/camera hover": [
+   [
+    "0.35",
+    "0.0",
+    "0.23819545174399773",
+    "(89, 0, 61)"
+   ],
+   [
+    "0.2",
+    "0.0",
+    "0.12783221614581544",
+    "(51, 0, 33)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.536499846117641e-18",
+    "0.0997251307455735",
+    "(98, 0, 25)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "0.0",
+    "0.29018752230149564",
+    "(60, 0, 74)"
+   ]
+  ],
+  "buddha_two_channels/zone full": "c34455dda744a564",
+  "buddha_two_channels/zone counts": [
+   null,
+   "e1a08793db0802f6",
+   "4de5367c57f9cc0f"
+  ],
+  "buddha_two_channels/zone blurred": [
+   null,
+   "5ae39d7f420e33f9",
+   "6828bf5378486d8d"
+  ],
+  "buddha_two_channels/zone incremental": "c34455dda744a564",
+  "buddha_two_channels/zone hover": [
+   [
+    "0.35",
+    "0.0",
+    "0.4411808326799707",
+    "(89, 0, 113)"
+   ],
+   [
+    "0.2",
+    "0.0",
+    "0.1465581739446133",
+    "(51, 0, 37)"
+   ],
+   [
+    "0.38333333333333336",
+    "1.9206248076470511e-19",
+    "0.08315428303174545",
+    "(98, 0, 21)"
+   ],
+   null,
+   [
+    "0.23333333333333334",
+    "5.742982576413181e-19",
+    "0.43015422896222805",
+    "(60, 0, 110)"
+   ]
+  ],
+  "hsv_const/camera full": "9bcaab5045696432",
+  "hsv_const/camera counts": [
+   null,
+   null,
+   null
+  ],
+  "hsv_const/camera blurred": [
+   null,
+   null,
+   null
+  ],
+  "hsv_const/camera incremental": "9bcaab5045696432",
+  "hsv_const/camera hover": [
+   [
+    "0.0",
+    "0.2",
+    "0.5975224308605633",
+    "(152, 122, 122)"
+   ],
+   [
+    "0.0",
+    "0.2",
+    "0.7778949846733513",
+    "(198, 159, 159)"
+   ],
+   [
+    "0.0",
+    "0.2",
+    "0.6642428155920813",
+    "(169, 136, 136)"
+   ],
+   null,
+   [
+    "0.0",
+    "0.2",
+    "0.7333054144874317",
+    "(187, 150, 150)"
+   ]
+  ]
+ },
+ "distance_dependent": {
+  "circle seg1.0 default": "ab00f068bfc5276b",
+  "circle seg0.8 default": "984c80d5319044fc",
+  "circle+ellipse seg1.0 default": "7265278c4b7b8e49",
+  "circle+ellipse seg0.8 default": "6114068b603e207b",
+  "live default/camera full": "68d2717fddabee47",
+  "live default/camera counts": [
+   null,
+   null,
+   null
+  ],
+  "live default/camera blurred": [
+   null,
+   null,
+   null
+  ],
+  "live default/camera incremental": "68d2717fddabee47",
+  "live default/camera hover": [
+   [
+    "0.1433077664869288",
+    "0.026874354863389634",
+    "0.35",
+    "(37, 7, 89)"
+   ],
+   [
+    "0.28079745405779244",
+    "0.2305476164702543",
+    "0.2",
+    "(72, 59, 51)"
+   ],
+   [
+    "0.25127240184385463",
+    "0.5063238864676064",
+    "0.38333333333333336",
+    "(64, 129, 98)"
+   ],
+   null,
+   [
+    "0.00792910810513732",
+    "0.0671016128997321",
+    "0.23333333333333334",
+    "(2, 17, 60)"
+   ]
+  ]
+ }
+}

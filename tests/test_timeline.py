@@ -618,14 +618,14 @@ def test_huge_emission_offsets_point_the_same_way_as_their_remainder():
 
 
 def test_default_moss_egg_fits_inside_the_view_at_every_apex_angle():
-    """Regression test: at the old default size (1.0) the default egg (90 degree
-    apex) reached y = 1.034, past the top edge of the view (which spans -1 to 1)."""
-    g = np.linspace(-1.2, 1.2, 1201)
+    """Regression test: at the old default size (1.0 in the world [-1, 1]; 2.0 in [-2, 2]) the default egg (90 degree
+    apex) reached y = 1.034 (2.068), past the top edge of the view."""
+    g = np.linspace(-2.4, 2.4, 1201)
     gx, gy = np.meshgrid(g, g)
     for angle in range(60, 181, 10):
         bound = m.moss_egg_bound(float(angle), m.DEFAULT_MOSS_SIZE, 0.0)
         inside = m.inside_boundary_grid(gx, gy, m.SHAPE_MOSS_EGG, bound)
-        assert np.abs(gy[inside]).max() < 1.0 and np.abs(gx[inside]).max() < 1.0, angle
+        assert np.abs(gy[inside]).max() < 2.0 and np.abs(gx[inside]).max() < 2.0, angle
 
 
 class _WidgetsApp:

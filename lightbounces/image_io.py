@@ -393,9 +393,9 @@ def downsample_image(rgb, factor, method):
 
 def make_grid(w, h, world_rect=None):
     """World-coordinate (x, y) grids for a w x h array of pixel centres covering `world_rect` (anything with x_start,
-    x_stop, y_start and y_stop; the whole world [-1, 1] on both axes if None), the same extent regardless of w, h.
+    x_stop, y_start and y_stop; the default world [-2, 2] on both axes if None), the same extent regardless of w, h.
     The same arithmetic as the kernels' (trace_rows), so a grid point is exactly where its pixel's ray starts."""
-    x_start, x_stop, y_start, y_stop = ((-1.0, 1.0, -1.0, 1.0) if world_rect is None
+    x_start, x_stop, y_start, y_stop = ((-2.0, 2.0, -2.0, 2.0) if world_rect is None
                                         else (world_rect.x_start, world_rect.x_stop, world_rect.y_start, world_rect.y_stop))
     cx = x_start + (np.arange(w) + 0.5) * ((x_stop - x_start) / w)
     cy = y_stop - (np.arange(h) + 0.5) * ((y_stop - y_start) / h)

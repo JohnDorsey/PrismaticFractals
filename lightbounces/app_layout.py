@@ -5,7 +5,7 @@ import numpy as np
 from .constants import (
     BOTTOM_H, CORKSCREW_LINE_WIDTH, CORKSCREW_MARGIN, CORKSCREW_MARGIN_MIN, CORKSCREW_SIDE_MIN,
     CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, TAG_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
-    SEG_CANVAS_W
+    SEG_CANVAS_W, SEG_CANVAS_WORLD_HEIGHT
 )
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
@@ -275,7 +275,7 @@ class LayoutMixin:
         legend = ttk.Frame(tab)
         legend.grid(row=0, column=0, sticky="w", padx=6, pady=(8, 2))
         ttk.Label(legend, text="Every segment, earliest to latest, as a bar "
-                              "(one unit tall; longer segments are truncated). "
+                              f"({SEG_CANVAS_WORLD_HEIGHT:g} units tall; longer segments are truncated). "
                               "Color marks each end's tag: "
                   ).pack(side="left")
         for rgb, text in [(TAG_COLOR[TAG_START], "start/distance-cut"),
@@ -375,7 +375,7 @@ class LayoutMixin:
         nseg = n - 1
         if nseg <= 0:
             return
-        px_per_unit = SEG_CANVAS_H              # canvas height = 1 world unit
+        px_per_unit = SEG_CANVAS_H / SEG_CANVAS_WORLD_HEIGHT      # canvas height = SEG_CANVAS_WORLD_HEIGHT world units
         colw = SEG_CANVAS_W / nseg
         halfw = max(colw / 2.0, 0.75)
         for k in range(nseg):

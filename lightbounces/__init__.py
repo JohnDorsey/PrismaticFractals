@@ -3,10 +3,10 @@ Light-bounce image / video generator.
 
 The scene is made of shapes - "obstacles" - drawn in a preview image of at most
 512x512 pixels that shows the part of the world the selected framing (camera)
-looks at; the default framing spans [-1, 1] in both directions. Rays start at
+looks at; the default framing spans [-2, 2] in both directions. Rays start at
 the centre of every pixel inside a firing shape, whatever resolution is later
 exported. There is no other
-kind of boundary: the app starts with a single obstacle - the unit circle,
+kind of boundary: the app starts with a single obstacle - the circle of radius 2,
 filling the default framing, which reflects rays and fires them inside itself - and
 everything else is built the same way, by editing, adding or deleting
 obstacles.
@@ -88,7 +88,7 @@ Rays
   * it strikes a reflective surface at exactly perpendicular incidence (which
     side it would retrace along is undefined, so it terminates there), or
   * it escapes: nothing is left ahead for it to hit, so its last point is
-    where it is the escape radius (a setting; default 2) from the origin -
+    where it is the escape radius (a setting; default 4) from the origin -
     or the last edge it passed through, if that is further out.
 
   Emission direction: each ray starts out pointing either straight up (90
@@ -105,8 +105,8 @@ Rays
   when those points fit in a box smaller than the threshold in both directions;
   with Path length, when the segments between them add up to less than the
   threshold. The threshold is one setting serving as either, in world units (the
-  image spans -1 to 1), and can be any number above zero; its default, one pixel
-  of the 512-pixel preview (2/512), is what was always built in.
+  image spans -2 to 2), and can be any number above zero; its default, one pixel
+  of the 512-pixel preview (4/512), is what was always built in (2/512 while the world was half the size).
 
   A segment length multiplier (0.01 to 1; 1 means no effect) shortens every
   ordinary bounce's segment to that fraction of its true length, after which
@@ -165,8 +165,8 @@ Framing
   far across it sees (its diagonal) and the shape of that (its aspect ratio,
   width / height). Framings are listed in the Framing tab (of the Perception
   tab), the same way colorations are; whichever is selected is the one the image
-  on screen and every export are of. The default one, diagonal 2 sqrt 2 and
-  aspect ratio 1, sees the whole world, -1 to 1 both ways. The image on screen
+  on screen and every export are of. The default one, diagonal 4 sqrt 2 and
+  aspect ratio 1, sees the whole world, -2 to 2 both ways. The image on screen
   takes the shape of the aspect ratio; selecting a framing, or editing the
   selected one, generates the image again - of the same figure, without a new
   Start. A framing is not part of the figure, and its four numbers can be animated

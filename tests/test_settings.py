@@ -94,7 +94,7 @@ def test_replace_makes_a_modified_copy_and_equality_hash_and_pickle_work():
     assert again == b and isinstance(again.fuzz, m.FuzzParams)
     n = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     termination = n.replace(max_iter=7, escape_radius=1.5)
-    assert (termination.max_iter, termination.escape_radius, n.max_iter, n.escape_radius) == (7, 1.5, 256, 2.0)
+    assert (termination.max_iter, termination.escape_radius, n.max_iter, n.escape_radius) == (7, 1.5, 256, 4.0)
     assert termination != n and n == n.replace() and hash(n) == hash(n.replace())
     assert _raises(TypeError, lambda: n.replace(max_iter="x"))
     with _ModuleRegistered():
@@ -251,8 +251,8 @@ def test_each_settings_table_and_its_record_fields_are_the_same_set():
     assert set(m.BUDDHA_SEED_SETTING_SPECS) == {"buddha_seed_camera", "buddha_seed_x_start", "buddha_seed_x_stop",
                                                "buddha_seed_y_start", "buddha_seed_y_stop"}
     assert all(spec.tab == "Buddha seeding" for spec in m.BUDDHA_SEED_SETTING_SPECS.values())
-    assert m.DEFAULT_BUDDHA_SEED == m.BuddhaSeedSettings(camera_pixels=True, x_start=-1.0, x_stop=1.0,
-                                                         y_start=-1.0, y_stop=1.0)
+    assert m.DEFAULT_BUDDHA_SEED == m.BuddhaSeedSettings(camera_pixels=True, x_start=-2.0, x_stop=2.0,
+                                                         y_start=-2.0, y_stop=2.0)
 
 
 def test_self_checks_catch_a_settings_field_without_a_spec_row():
@@ -546,7 +546,7 @@ def test_the_kernel_tuples_are_built_from_the_records():
     termination = m.settings_natural_termination(m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     assert isinstance(termination, m.NaturalTerminationRule) and termination == m.NATURAL_TERMINATION_DEFAULT
     assert termination._fields == ("max_iter", "max_dist", "escape_radius", "confine")
-    assert termination.max_iter == 256 and termination.max_dist == float("inf") and termination.escape_radius == 2.0
+    assert termination.max_iter == 256 and termination.max_dist == float("inf") and termination.escape_radius == 4.0
     assert termination.confine == m.CONFINE_DEFAULT
     assert (type(termination.max_iter), type(termination.max_dist), type(termination.escape_radius)) == (int, float, float)
     limited = m.settings_natural_termination(m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(

@@ -31,7 +31,7 @@ from .metrics import (
     BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
     BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
     CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, CHOICE_ORIGIN,
-    POINT_METRICS, CHOICE_POINT_NEG1_POS1, point_slot, stat_slot
+    POINT_METRICS, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, point_slot, stat_slot
 )
 from .settings import (
     BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalTerminationSettings, RaySettings, SETTING_TABLES,
@@ -117,7 +117,7 @@ CAT_METRIC = Catalog("metric", [          # the measurements of a ray's own run,
 CAT_POINT = Catalog("point", [
     (f"{CAT_SEQUENCE.key(seq)}_{CAT_POINT_REDUCTION.key(red)}", point_slot(seq, red))
     for seq in range(N_SEQS) for red in range(N_PRED)]
-    + [("origin", CHOICE_ORIGIN), ("(-1,1)", CHOICE_POINT_NEG1_POS1)])
+    + [("origin", CHOICE_ORIGIN), ("(-1,1)", CHOICE_POINT_NEG1_POS1), ("(-2,2)", CHOICE_TOP_LEFT_POINT)])
 _BUDDHA_TERM_KEYS = {TERM_DIST: "distance_limit", TERM_PERPENDICULAR: "perpendicular_collision",
                      TERM_CONFINED: "confined"}
 _BUDDHA_MULTI_KEYS = {BUDDHA_MULTI_ALL_SELF: "all_self_bounces", BUDDHA_MULTI_ALL_MID: "all_segment_midpoints",

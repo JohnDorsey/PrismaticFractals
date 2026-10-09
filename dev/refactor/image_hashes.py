@@ -7,9 +7,13 @@
 Three groups, all on small fixed scenes (a circle, and a circle with an ellipse; segment multipliers 1.0 / 0.7 / 0.8 /
 0.9; fuzzing off): "kernel" (the arrays trace_rows fills and the Buddha counts of scatter_multi_buddha), "export" (the
 image apply_coloration makes for five colorations - what an export draws) and "live" (the live colouring paths on a fake
-app: incremental Buddha counts, recolor, hover values). A change that moves the world, renames a setting or reorganises
-code must leave every hash alone; a change of defaults or of scale will not, and then the baseline is re-recorded on
-purpose (say so in the report)."""
+app: incremental Buddha counts, recolor, hover values). The scenes are written out here - the world [-1, 1], a circle of
+width 2, escape radius 2, confinement threshold 2/512 - and not read from the program's defaults, so a change of the
+defaults (the world is going to be twice as large) leaves every hash alone, and so does any change that renames a
+setting or reorganises code. What the metrics' divisors change are the four point-distance metrics and the path length:
+the "kernel" hashes leave those stat columns out, the colorations hashed read no distance or length metric, and a
+fourth group, "distance_dependent" (the program's own default coloration, which reads three distances), is recorded but
+not compared. When those divisors change the baseline is re-recorded on purpose (say so in the report)."""
 import dataclasses
 import hashlib
 import json
@@ -29,14 +33,34 @@ def h(a):
     return hashlib.sha256(np.ascontiguousarray(a).tobytes()).hexdigest()[:16]
 
 
+OLD_WORLD = m.WorldRect(-1.0, 1.0, -1.0, 1.0)           # the scenes below are drawn in the world the program started with
+OLD_ESCAPE_RADIUS = 2.0
+OLD_CONFINE = m.confine_rule(4, m.CONFINE_BOX, 2.0 / 512)
+DISTANCE_STATS = [m.ST_HDIST, m.ST_VDIST, m.ST_MANHATTAN, m.ST_EUCLIDEAN]
+LENGTH_STATS = sorted({int(m.STAT_SLOT[seq, m.SRED_LENGTH]) for seq in range(m.N_SEQS)})
+SCALE_FREE_STATS = [s for s in range(m.N_STATS) if s not in DISTANCE_STATS and s not in LENGTH_STATS]
+
+
 def ellipse():
     e = m.EllipseShape(1)
     e.width, e.height, e.rotation, e.cx, e.cy = 0.7, 0.45, 25.0, 0.15, -0.1
     return e
 
 
+def circle():
+    c = m.EllipseShape(0)
+    c.width = c.height = 2.0
+    c.in_effect = c.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    c.fire_inside = True
+    return c
+
+
+def termination(max_iter):
+    return m.natural_termination_rule(max_iter, m.effective_dist(0.0), OLD_ESCAPE_RADIUS, OLD_CONFINE)
+
+
 def scenes():
-    return {"circle": sup._start_scene(), "circle+ellipse": sup._start_scene() + [ellipse()]}
+    return {"circle": [circle()], "circle+ellipse": [circle(), ellipse()]}
 
 
 def kernel_hashes():
@@ -45,25 +69,27 @@ def kernel_hashes():
         arrays = m.build_obstacle_arrays(scene)
         for seg in (1.0, 0.7):
             for it in (40, 300):
-                stop, ray = sup._termination(it), sup._engine_args(arrays, seg_mult=seg)
+                stop, ray = termination(it), sup._engine_args(arrays, seg_mult=seg)
                 n = 96
                 stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
                 points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
                 state = np.zeros((n, n), dtype=np.uint8)
-                m.trace_rows(stats, points, state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
-                res[f"{name} seg{seg} it{it}"] = [h(stats), h(points), h((state == m.PIXEL_TRACED).astype(np.uint8))]
+                m.trace_rows(stats, points, state, 0, n, n, n, OLD_WORLD, stop, ray, 0)
+                res[f"{name} seg{seg} it{it}"] = [h(stats[..., SCALE_FREE_STATS]), h(points),
+                                                 h((state == m.PIXEL_TRACED).astype(np.uint8))]
                 for opts in ((True, False, False, False), (False, True, False, False), (False, False, True, True)):
                     counts = np.zeros((n, n))
-                    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, stop, ray, 0, *opts, counts)
+                    m.scatter_multi_buddha(0, n, OLD_WORLD, stop, ray, 0, *opts, counts)
                     res[f"{name} seg{seg} it{it} buddha{opts}"] = [h(counts)]
     return res
 
 
 def make_coloration(cname):
     v = m.ColorationConfig(0)
-    if cname == "other_types":
+    if cname != "default":                  # (the default coloration reads three point distances)
         for c in range(3):
             v.metric_types[c] = m.METRIC_TYPE_OTHER
+            v.other_metric[c] = (m.ST_BOUNCE_COUNT, m.ST_TERMINATION, m.ST_ANGLES)[c]
     if cname.startswith("buddha"):
         sel = (28, 29) if cname == "buddha_simple" else (31, 32, 33, 34)
         v.chan_src[1] = m.CHAN_SRC_BUDDHA
@@ -75,34 +101,35 @@ def make_coloration(cname):
 
 
 def export_hashes():
-    res = {}
+    res, distance_dependent = {}, {}
     app = type("A", (), {})()
     apply_coloration = m.App.apply_coloration.__get__(app)
     n = 80
     for sname, scene in scenes().items():
         arrays = m.build_obstacle_arrays(scene)
         for seg in (1.0, 0.8):
-            stop, ray = sup._termination(60), sup._engine_args(arrays, seg_mult=seg)
+            stop, ray = termination(60), sup._engine_args(arrays, seg_mult=seg)
             stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
             pts = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
             state = np.zeros((n, n), dtype=np.uint8)
-            m.trace_rows(stats, pts, state, 0, n, n, n, m.WORLD_RECT_DEFAULT, stop, ray, 0)
+            m.trace_rows(stats, pts, state, 0, n, n, n, OLD_WORLD, stop, ray, 0)
             for cname in ("default", "other_types", "buddha_simple", "buddha_multi", "hsv_const"):
                 v = sup._coloration_settings_from_config(make_coloration(cname))
                 blur = m.BuddhaBlurSettings(radius=0.02, type=m.BUDDHA_BLUR_GAUSSIAN)
-                res[f"{sname} seg{seg} {cname}"] = h(apply_coloration(v, stats, pts, state, n, n, blur, stop, ray, 0))
-    return res
+                image = h(apply_coloration(v, stats, pts, state, n, n, blur, stop, ray, 0, None, OLD_WORLD))
+                (distance_dependent if cname == "default" else res)[f"{sname} seg{seg} {cname}"] = image
+    return res, distance_dependent
 
 
 def live_hashes():
     n = 40
-    world = m.WORLD_RECT_DEFAULT
-    termination = sup._termination(60)
-    engine_args = sup._engine_args(m.build_obstacle_arrays(sup._start_scene() + [ellipse()]), seg_mult=0.9)
+    world = OLD_WORLD
+    rule = termination(60)
+    engine_args = sup._engine_args(m.build_obstacle_arrays([circle(), ellipse()]), seg_mult=0.9)
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     pts = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, pts, state, 0, n, n, n, world, termination, engine_args, 5)
+    m.trace_rows(stats, pts, state, 0, n, n, n, world, rule, engine_args, 5)
 
     def make_app(v, seeds):
         app = type("A", (), {})()
@@ -120,7 +147,7 @@ def live_hashes():
         app.settings_of_current_image = lambda: m.DEFAULT_RAY_SETTINGS
         app.generated = dataclasses.replace(
             m.generated_figure(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, []),
-            termination=termination, engine_args=engine_args)
+            termination=rule, engine_args=engine_args)
         app.current_figure = m.App.current_figure.__get__(app)
         for name in ("scatter_buddha_rows", "blurred_buddha_counts", "rebuild_buddha_counts", "recolor", "component_values",
                      "map_color", "world_to_canvas"):
@@ -169,7 +196,7 @@ def live_hashes():
                 path_points = np.empty((62, 2))
                 tags = np.empty(62)
                 raw = np.empty(m.N_RAW)
-                term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args, raw)
+                term, npts = m.trace_path(x, y, path_points, tags, rule, engine_args, raw)
                 vec = np.zeros(m.N_STATS)
                 sp = np.zeros((m.N_POINTS, 2))
                 m.compute_run_measurements(path_points, npts, raw, 60, 0.9, vec)
@@ -182,7 +209,7 @@ def live_hashes():
 
 def compare(now, before):
     bad = 0
-    for group in sorted(set(now) | set(before)):
+    for group in sorted((set(now) | set(before)) - {"distance_dependent"}):
         a, b = now.get(group, {}), before.get(group, {})
         for key in sorted(set(a) | set(b)):
             if a.get(key) != b.get(key):
@@ -192,7 +219,10 @@ def compare(now, before):
 
 
 if __name__ == "__main__":
-    out = {"kernel": kernel_hashes(), "export": export_hashes(), "live": live_hashes()}
+    export, distance_dependent = export_hashes()
+    live = live_hashes()
+    distance_dependent.update({"live " + key: live.pop(key) for key in [k for k in live if k.startswith("default/")]})
+    out = {"kernel": kernel_hashes(), "export": export, "live": live, "distance_dependent": distance_dependent}
     with open(sys.argv[1], "w") as f:
         json.dump(out, f, indent=1)
     print({g: len(v) for g, v in out.items()}, "hashes recorded in", sys.argv[1])

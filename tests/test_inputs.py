@@ -148,4 +148,4 @@ def test_parse_escape_radius_accepts_any_number_above_zero():
     assert [m.parse_escape_radius(t) for t in ("2", "2.0", "0.001", "1e-30", "1.5E3", ".5", "7.")] == \
         [2.0, 2.0, 0.001, 1e-30, 1500.0, 0.5, 7.0]
     assert [m.parse_escape_radius(t) for t in ("0", "0.0", "-1", "", "abc", "1e999", "1e", "--1", "1 2")] == [None] * 9
-    assert m.DEFAULT_ESCAPE_RADIUS == 2.0
+    assert m.DEFAULT_ESCAPE_RADIUS == 4.0

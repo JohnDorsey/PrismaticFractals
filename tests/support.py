@@ -358,12 +358,23 @@ def _generation(**overrides):
             _termination_settings(**{k: v for k, v in overrides.items() if k in termination_fields}))
 
 
+# Most of the kernel tests were written in the world the program started with, [-1, 1], with the unit circle in it, the
+# escape radius 2 and the confinement threshold of one pixel of that world. The program's defaults have since doubled
+# (the default world is [-2, 2]); the tests keep their world by spelling it out here, and the defaults have tests of
+# their own (test_the_default_world_is_twice_as_large_as_it_was...).
+UNIT_WORLD = m.WorldRect(-1.0, 1.0, -1.0, 1.0)
+UNIT_ESCAPE_RADIUS = 2.0
+UNIT_PIXEL = 2.0 / 512            # one pixel of a 512-pixel image of the unit world
+UNIT_CONFINE = m.confine_rule(m.DEFAULT_CONFINE_LOOKBACK, m.DEFAULT_CONFINE_METHOD, 2.0 / 512)
+
+
 def _termination(max_iter, max_dist=0.0, escape_radius=None, confine=None):
-    """The kernels' NaturalTerminationRule: `max_dist` 0 = no limit, the other defaults the program's."""
+    """The kernels' NaturalTerminationRule: `max_dist` 0 = no limit; the escape radius and confinement default to those
+    of the unit world (UNIT_ESCAPE_RADIUS, UNIT_CONFINE), not the program's defaults."""
     return m.natural_termination_rule(
         max_iter, m.effective_dist(max_dist),
-        m.DEFAULT_ESCAPE_RADIUS if escape_radius is None else escape_radius,
-        m.CONFINE_DEFAULT if confine is None else confine)
+        UNIT_ESCAPE_RADIUS if escape_radius is None else escape_radius,
+        UNIT_CONFINE if confine is None else confine)
 
 
 def _engine_args(obstacles, seg_mult=1.0, fuzz=None, emission=None):
@@ -373,7 +384,21 @@ def _engine_args(obstacles, seg_mult=1.0, fuzz=None, emission=None):
 
 
 def _start_scene():
+    """The scene the program starts with: its starting obstacle (the circle that fills the default world)."""
     return [m.default_starting_obstacle(0)]
+
+
+def _unit_circle(id_=0):
+    """The unit circle that reflects both ways and fires rays inside: the starting obstacle of the world [-1, 1]."""
+    o = m.EllipseShape(id_)
+    o.width = o.height = 2.0
+    o.in_effect = o.out_effect = m.OBSTACLE_EFFECT_REFLECT
+    o.fire_inside = True
+    return o
+
+
+def _unit_scene():
+    return [_unit_circle(0)]
 
 
 # --------------------------------------------------------------------------- #
@@ -627,9 +652,9 @@ def _new_kind_cases():
         o = m.ArchimedeanSpiralShape(0)
         o.radius, o.spiral_pitch, o.spiral_fill, o.rotation = radius, pitch, fill, rotation
         cases.append(o)
-    for segments, rotation in ((17, 0.0), (5, 35.0), (12, -110.0), (30, 20.0), (1, 0.0)):
+    for segments, rotation, radius in ((17, 0.0, 1.0), (5, 35.0, 1.3), (12, -110.0, 0.8), (30, 20.0, 1.0), (1, 0.0, 2.0)):
         o = m.PythagorasSnailShape(0)
-        o.snail_segments, o.rotation = segments, rotation
+        o.snail_segments, o.rotation, o.radius = segments, rotation, radius
         cases.append(o)
     for a, b, shift, rotation in ((1.0, 0.7, 0.4, 0.0), (1.2, 0.5, -0.8, 50.0), (0.9, 1.1, 0.0, 15.0),
                                   (1.0, 0.3, 0.9, -70.0), (0.6, 0.6, 0.6, 200.0)):
@@ -683,7 +708,7 @@ def _independent_membership(o):
         for _k in range(o.snail_segments):
             a = corners[-1]
             corners.append(a + np.array([-a[1], a[0]]) / np.hypot(*a))
-        scale = 1.0 / np.hypot(*corners[-1])
+        scale = o.radius / np.hypot(*corners[-1])
 
         def member(x, y):
             u, v = (x * cs + y * sn) / scale, (-x * sn + y * cs) / scale
@@ -708,6 +733,20 @@ def _independent_membership(o):
                 return True
         return False
     return member
+
+
+# The size of every obstacle the sample project (and so every reference file in dev/testing) holds, spelt out: those files
+# were written when these were the defaults, and the sample project must not change when the defaults do.
+SAMPLE_SIZES = {
+    "ellipse": {"width": 1.0, "height": 1.0}, "regular_polygon": {"radius": 1.0}, "moss_egg": {"moss_size": 0.9},
+    "circular_sector": {"radius": 1.0}, "circular_segment": {"radius": 1.0},
+    "two_circle_lens": {"lens_radius1": 1.0, "lens_radius2": 1.0, "lens_sep": 1.0},
+    "reuleaux_polygon": {"radius": 1.0}, "capsule": {"capsule_length": 1.0, "capsule_radius": 0.5},
+    "trefoil": {"radius": 1.0}, "quatrefoil": {"radius": 1.0},
+    "lune": {"radius": 1.0, "cut_radius": 0.8, "cut_offset": 0.6}, "arbelos": {"radius": 1.0},
+    "superelliptical_squircle": {"width": 1.0, "height": 1.0}, "fernandez_guasti_squircle": {"radius": 1.0},
+    "archimedean_spiral": {"radius": 1.0, "spiral_pitch": 0.25}, "snail_of_pythagoras": {"radius": 1.0},
+    "hugelschaffer_egg": {"egg_a": 1.0, "egg_b": 0.7}, "sine_flower": {"radius": 1.0}}
 
 
 def _buddha_choice(*points):

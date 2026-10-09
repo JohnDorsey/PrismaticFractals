@@ -33,11 +33,14 @@ def test_resolve_point_xy_handles_both_constant_and_real_points():
     assert m.resolve_point_xy(ray_characteristic_points, m.POINT_END) == (0.3, -0.4)
 
 
-def test_point_lists_include_the_two_new_fixed_points():
+def test_point_lists_include_the_three_fixed_points():
     assert m.POINT_LABELS[m.CHOICE_ORIGIN] == "Origin"
     assert m.POINT_LABELS[m.CHOICE_POINT_NEG1_POS1] == "(-1,1)"
+    assert m.POINT_LABELS[m.CHOICE_TOP_LEFT_POINT] == "Top left point"
+    assert m.CONSTANT_POINT_COORDS == {m.CHOICE_ORIGIN: (0.0, 0.0), m.CHOICE_POINT_NEG1_POS1: (-1.0, 1.0),
+                                       m.CHOICE_TOP_LEFT_POINT: (-2.0, 2.0)}
     assert len(m.POINT_LABELS) == len(m.POINT_SHORT) == len(m.POINT_DESCRIPTIONS)
-    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 2
+    assert len(m.POINT_LABELS) == m.N_POINT_CHOICES == m.N_POINTS + 3
 
 
 def test_apply_coloration_produces_uniform_color_for_two_constant_points():
@@ -55,7 +58,11 @@ def test_apply_coloration_produces_uniform_color_for_two_constant_points():
     img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
                             m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
     assert (img[..., 0] == img[0, 0, 0]).all()
-    assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, (-1,1)) = 0.5 -> ~127.5
+    assert 62 <= img[0, 0, 0] <= 65   # H dist(origin, (-1,1)) = 1, divided by DISTANCE_METRIC_DIVISOR 4 -> 0.25 -> ~63.75
+    v.point2_choice[0] = m.CHOICE_TOP_LEFT_POINT
+    img = app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, 4, 4,
+                            m.DEFAULT_BUDDHA_BLUR, _termination(30), _engine_args(m.build_obstacle_arrays([])), 0)
+    assert 126 <= img[0, 0, 0] <= 129   # H dist(origin, (-2,2)) = 2 -> 0.5 -> ~127.5
 
 
 def test_coloration_info_lines_shows_the_new_point_names():
@@ -572,9 +579,9 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
 # --------------------------------------------------------------------------- #
 # "Origin" and "(-1,1)" head the point dropdowns
 # --------------------------------------------------------------------------- #
-def test_the_point_dropdowns_list_origin_and_the_fixed_point_minus_1_1_first():
-    assert m.POINT_MENU_LABELS[:2] == ["Origin", "(-1,1)"]
-    assert m.POINT_MENU_ORDER[:2] == [m.CHOICE_ORIGIN, m.CHOICE_POINT_NEG1_POS1]
+def test_the_point_dropdowns_list_the_three_fixed_points_first():
+    assert m.POINT_MENU_LABELS[:3] == ["Origin", "Top left point", "(-1,1)"]
+    assert m.POINT_MENU_ORDER[:3] == [m.CHOICE_ORIGIN, m.CHOICE_TOP_LEFT_POINT, m.CHOICE_POINT_NEG1_POS1]
 
 
 def test_the_point_dropdowns_still_list_every_choice_exactly_once():
@@ -588,6 +595,7 @@ def test_choosing_from_the_reordered_dropdown_still_gives_the_same_point_ids():
     the ids stored in colorations, keyframes and the sample arrays are untouched."""
     assert m.POINT_LABELS.index("Origin") == m.CHOICE_ORIGIN == m.N_POINTS
     assert m.POINT_LABELS.index("(-1,1)") == m.CHOICE_POINT_NEG1_POS1 == m.N_POINTS + 1
+    assert m.POINT_LABELS.index("Top left point") == m.CHOICE_TOP_LEFT_POINT == m.N_POINTS + 2
     assert m.POINT_LABELS.index("Path: First point") == m.POINT_START == 0
     for point_id in range(m.N_POINT_CHOICES):
         label = m.POINT_LABELS[point_id]
@@ -871,8 +879,8 @@ def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_th
     app.update_seed_zone_outline = m.App.update_seed_zone_outline.__get__(app)
     app.update_seed_zone_outline()
     (coords, options), = app.canvas.rects
-    half = m.PREVIEW_BOX / 2.0
-    assert coords == (0.5 * half, 1.0 * half, 1.5 * half, 2.0 * half), "x -0.5..0.5 and y -1..0 as pixels"
+    quarter = m.PREVIEW_BOX / 4.0                    # (the image covers the default world [-2, 2]: 4 units)
+    assert coords == (1.5 * quarter, 2.0 * quarter, 2.5 * quarter, 3.0 * quarter), "x -0.5..0.5 and y -1..0 as pixels"
     assert options["outline"] == m.SEED_ZONE_OUTLINE and options["dash"] and options["tags"] == "seedzone"
     app.buddha_notebook.selected = "blur"                # the other sub-tab: invisible
     app.update_seed_zone_outline()
@@ -888,18 +896,19 @@ def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_th
 
 
 def _buddha_image(app, points_choice, seeds, zone_scene=None):
-    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene()), seg_mult=0.9)
+    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_unit_scene()), seg_mult=0.9)
     n = 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 0)
     v = m.ColorationConfig(0)
     v.chan_src[0] = m.CHAN_SRC_BUDDHA
     v.buddha_points[0] = _buddha_choice(*points_choice)
     v.buddha_brightness[0] = 3
     blur = m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)
-    return app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 0, seeds)
+    return app.apply_coloration(_coloration_settings_from_config(v), stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 0, seeds,
+                                UNIT_WORLD)
 
 
 def test_a_buddha_image_seeded_from_the_whole_world_zone_is_the_camera_pixels_image_whatever_the_options():
@@ -924,16 +933,16 @@ def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_ho
     # every seed's start point is the seed itself: one count per seed that fires, in the zone - so the same total
     # in both (all of them fire inside the unit circle's disc here), packed into the middle for the small zone
     n = 24
-    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene()))
+    termination, engine_args = _termination(40), _engine_args(m.build_obstacle_arrays(_unit_scene()))
     for zone, expected_rows in ((whole, (0, n)), (small, (n // 4, 3 * n // 4))):
         counts = np.zeros((n, n))
-        m.scatter_from_seeds(0, n, m.WorldRect(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), m.WORLD_RECT_DEFAULT,
+        m.scatter_from_seeds(0, n, m.WorldRect(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), UNIT_WORLD,
                              termination, engine_args, 0,
                              np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                              False, False, False, False, counts)
         assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
     full = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, m.WorldRect(small.x_start, small.x_stop, small.y_start, small.y_stop), m.WORLD_RECT_DEFAULT,
+    m.scatter_from_seeds(0, n, m.WorldRect(small.x_start, small.x_stop, small.y_start, small.y_stop), UNIT_WORLD,
                          termination, engine_args, 0,
                          np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
                          False, False, False, False, full)
@@ -967,11 +976,11 @@ def _chain_scene(n=24):
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
     termination = _termination(50)
-    engine_args = _engine_args(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
+    engine_args = _engine_args(m.build_obstacle_arrays(_unit_scene() + [ellipse]), seg_mult=0.9)
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 3)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 3)
     return termination, engine_args, stats, characteristic_points, pixel_state
 
 
@@ -994,7 +1003,7 @@ def test_a_hovered_ray_is_coloured_by_the_chain_of_an_image_of_one_pixel():
     n = stats.shape[0]
     blur = m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_GAUSSIAN)
     counts = np.zeros((n, n))
-    m.scatter_buddha_channel(counts, v.buddha_points[2], 0, n, m.WORLD_RECT_DEFAULT, None, pixel_state == m.PIXEL_TRACED,
+    m.scatter_buddha_channel(counts, v.buddha_points[2], 0, n, UNIT_WORLD, None, pixel_state == m.PIXEL_TRACED,
                              stats, characteristic_points, termination, engine_args, 3)
     counts = m.blur_counts_image(counts, m.blur_kernel(blur, n, n))
     computed = pixel_state == m.PIXEL_TRACED
@@ -1039,14 +1048,14 @@ def test_scattering_a_channels_rows_in_pieces_gives_the_counts_of_scattering_the
     for name, chosen in choices.items():
         for seeds in (None, zone):
             whole, pieces = np.zeros((n, n)), np.zeros((n, n))
-            m.scatter_buddha_channel(whole, chosen, 0, n, m.WORLD_RECT_DEFAULT, seeds, fired, stats, characteristic_points,
+            m.scatter_buddha_channel(whole, chosen, 0, n, UNIT_WORLD, seeds, fired, stats, characteristic_points,
                                      termination, engine_args, 3)
             for r0, r1 in ((0, 5), (5, 17), (17, n)):
-                m.scatter_buddha_channel(pieces, chosen, r0, r1, m.WORLD_RECT_DEFAULT, seeds, fired[r0:r1], stats[r0:r1],
+                m.scatter_buddha_channel(pieces, chosen, r0, r1, UNIT_WORLD, seeds, fired[r0:r1], stats[r0:r1],
                                          characteristic_points[r0:r1], termination, engine_args, 3)
             assert whole.sum() > 0 and np.array_equal(whole, pieces), (name, seeds)
     nothing = np.zeros((n, n))
-    assert not m.scatter_buddha_channel(nothing, choices["stored"], 0, n, m.WORLD_RECT_DEFAULT, None, np.zeros_like(fired),
+    assert not m.scatter_buddha_channel(nothing, choices["stored"], 0, n, UNIT_WORLD, None, np.zeros_like(fired),
                                         stats, characteristic_points, termination, engine_args, 3)
     assert nothing.sum() == 0, "no ray fired in the rows: nothing to scatter, and nothing reported"
 
@@ -1068,7 +1077,7 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
             pass
         app = LiveApp()
         app.img_h = app.img_w = n
-        app.image_world_rect = m.WORLD_RECT_DEFAULT
+        app.image_world_rect = UNIT_WORLD
         app.stats, app.characteristic_points, app.pixel_state = stats, characteristic_points, pixel_state
         app.img = np.zeros((n, n, 3), np.uint8)
         app.rows_done = 0
@@ -1086,7 +1095,7 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
             app.scatter_buddha_rows(r0, r1)
         app.recolor(0, n)
         export = m.App.apply_coloration(app, _coloration_settings_from_config(v), stats, characteristic_points, pixel_state,
-                                        n, n, blur, termination, engine_args, 3, seeds)
+                                        n, n, blur, termination, engine_args, 3, seeds, UNIT_WORLD)
         assert np.array_equal(app.img, export), seeds.camera_pixels
         assert (app.img != m.BACKGROUND).any()
 
@@ -1128,7 +1137,7 @@ def test_trace_rows_stored_keeps_only_the_slots_asked_for_and_all_of_them_is_tra
     def traced(layout):
         s, p = layout.allocate(n, n)
         state = np.zeros((n, n), dtype=np.uint8)
-        m.trace_rows_stored(s, p, state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 3, layout.stat_ids,
+        m.trace_rows_stored(s, p, state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 3, layout.stat_ids,
                             layout.point_ids)
         return s, p, state
     s, p, state = traced(m.FULL_LAYOUT)
@@ -1200,9 +1209,10 @@ def test_a_demand_layout_keeps_everything_the_colour_chain_reads():
         layout = m.demand_layout(settings, seeds)
         kept_stats, kept_points = stats[..., layout.stat_ids], characteristic_points[..., layout.point_ids, :]
         for v in settings:
-            want = apply(v, stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 3, seeds)
+            want = apply(v, stats, characteristic_points, pixel_state, n, n, blur, termination, engine_args, 3, seeds,
+                         UNIT_WORLD)
             got = apply(v, kept_stats, kept_points, pixel_state, n, n, blur, termination, engine_args, 3, seeds,
-                        m.WORLD_RECT_DEFAULT, layout)
+                        UNIT_WORLD, layout)
             assert np.array_equal(want, got), (trial, v)
             checked += 1
     assert checked > 60

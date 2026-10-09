@@ -21,7 +21,7 @@ from .external import njit, prange
 # Constants: the kernel ABI (read by the kernels below, used by everything else)
 # --------------------------------------------------------------------------- #
 PREVIEW_BOX = 512                 # the longest side, in pixels, of the image on screen
-DEFAULT_PIXEL_WORLD_WIDTH = 2.0 / PREVIEW_BOX         # width of one pixel in world units for the default framing (it spans [-1, 1])
+DEFAULT_PIXEL_WORLD_WIDTH = 4.0 / PREVIEW_BOX         # width of one pixel in world units for the default framing (it spans [-2, 2])
 
 # Why a ray terminated (returned by trace_path as `term`)
 TERM_CONFINED = 0   # confined to less than one pixel
@@ -138,7 +138,7 @@ EmissionRule = namedtuple("EmissionRule", [
 WorldRect = namedtuple("WorldRect", [
     "x_start", "x_stop",                             # left and right edge (world units)
     "y_start", "y_stop"])                            # bottom and top edge
-WORLD_RECT_DEFAULT = WorldRect(-1.0, 1.0, -1.0, 1.0)
+WORLD_RECT_DEFAULT = WorldRect(-2.0, 2.0, -2.0, 2.0)          # the default framing's: (it was [-1, 1] before FILE_VERSION 154)
 
 # What brings ANY sequence of points to its natural end - not something in the sequence's own rules (a terminating
 # obstacle, a hit at exactly perpendicular incidence) but that it has gone on long enough, gone far enough, got far
@@ -159,6 +159,13 @@ RayArgs = namedtuple("RayArgs", [
     "fuzz",                                          # a FuzzRule
     "emission",                                      # an EmissionRule
     "obstacles"])                                    # an ObstacleArrays
+
+# How a size in the world becomes a metric between 0 and 1 (the default world is [-2, 2], four wide): a point distance is
+# divided by DISTANCE_METRIC_DIVISOR and clipped to 0..1, a path's length L becomes (2/pi) arctan(L / LENGTH_METRIC_DIVISOR).
+# These two are the only places the world's size enters a metric: the kernels write the stored metrics with them and
+# metrics.py colours with them (it imports these, so the stored preview and the colours cannot disagree).
+DISTANCE_METRIC_DIVISOR = 4.0
+LENGTH_METRIC_DIVISOR = 10.0
 
 ST_HDIST = 0        # horizontal distance |x1-x2| between two points  [comparison]
 ST_VDIST = 1        # vertical distance |y1-y2| between two points    [comparison]
@@ -219,7 +226,7 @@ N_PRED = 7
 
 # ... and one number each (0..1), about the polyline through its points taken in order:
 SRED_COUNT = 0      # how many points it has / the iteration limit (at most 1)
-SRED_LENGTH = 1     # the polyline's length, squashed by (2/pi) arctan(length / 5)
+SRED_LENGTH = 1     # the polyline's length, squashed by (2/pi) arctan(length / LENGTH_METRIC_DIVISOR)
 SRED_LAST_DIR = 2   # the direction of its last segment, -180..180 degrees mapped to 0..1 (0.5 if it has under two points)
 SRED_SHARE = 3      # how many points it has / how many bounces the path has (0 if none; at most 1)
 N_SRED = 4
@@ -2178,7 +2185,7 @@ def sequence_summary(seq, path_points, npts, path_point_tags, nb, max_iter, out,
     ray_characteristic_points[POINT_SLOT[seq, PRED_LEFT], 1] = path_points[i_left, 1]
     ang = atan2(last_dy, last_dx) if count >= 2 else 0.0
     out[STAT_SLOT[seq, SRED_COUNT]] = min(count / max_iter, 1.0)
-    out[STAT_SLOT[seq, SRED_LENGTH]] = atan(total / 5.0) * 2.0 / pi
+    out[STAT_SLOT[seq, SRED_LENGTH]] = atan(total / LENGTH_METRIC_DIVISOR) * 2.0 / pi
     out[STAT_SLOT[seq, SRED_LAST_DIR]] = min(max((ang + pi) / (2.0 * pi), 0.0), 1.0)
     out[STAT_SLOT[seq, SRED_SHARE]] = min(count / nb, 1.0) if nb > 0 else 0.0
 
@@ -2257,10 +2264,10 @@ def compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out):
     # actually-chosen point pair instead. Written so the stats array is never
     # left uninitialized, and so the preview list shows a sensible value even
     # for a channel not currently using one of these metrics.
-    out[ST_HDIST] = min(abs(sdx) * 0.5, 1.0)
-    out[ST_VDIST] = min(abs(sdy) * 0.5, 1.0)
-    out[ST_MANHATTAN] = min((abs(sdx) + abs(sdy)) * 0.5, 1.0)
-    out[ST_EUCLIDEAN] = min(disp * 0.5, 1.0)
+    out[ST_HDIST] = min(abs(sdx) / DISTANCE_METRIC_DIVISOR, 1.0)
+    out[ST_VDIST] = min(abs(sdy) / DISTANCE_METRIC_DIVISOR, 1.0)
+    out[ST_MANHATTAN] = min((abs(sdx) + abs(sdy)) / DISTANCE_METRIC_DIVISOR, 1.0)
+    out[ST_EUCLIDEAN] = min(disp / DISTANCE_METRIC_DIVISOR, 1.0)
 
     if bounces > 0:
         out[ST_ANGLES] = min(raw[RAW_DEFLECT] / (180.0 * bounces), 1.0)

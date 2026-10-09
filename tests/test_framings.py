@@ -9,10 +9,16 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # --------------------------------------------------------------------------- #
 # A framing's arithmetic: its world rectangle, the size of its image, its text
 # --------------------------------------------------------------------------- #
-def test_the_default_framing_covers_exactly_the_world_every_image_covered_before_framings_existed():
-    assert m.DEFAULT_FRAMING_DIAGONAL == 2.0 * math.sqrt(2.0)
+def test_the_default_world_is_twice_as_large_as_it_was_and_the_default_framing_covers_exactly_it():
+    """(Before FILE_VERSION 154 the default world was [-1, 1]: a file from then says so itself, see the format 9 migration.)"""
+    assert m.DEFAULT_FRAMING_DIAGONAL == 4.0 * math.sqrt(2.0)
     assert (m.DEFAULT_FRAMING.x, m.DEFAULT_FRAMING.y, m.DEFAULT_FRAMING.aspect) == (0.0, 0.0, 1.0)
-    assert m.framing_world_rect(m.DEFAULT_FRAMING) == m.WORLD_RECT_DEFAULT == m.WorldRect(-1.0, 1.0, -1.0, 1.0)
+    assert m.framing_world_rect(m.DEFAULT_FRAMING) == m.WORLD_RECT_DEFAULT == m.WorldRect(-2.0, 2.0, -2.0, 2.0)
+    assert m.DEFAULT_PIXEL_WORLD_WIDTH == 4.0 / m.PREVIEW_BOX and m.DEFAULT_CONFINE_THRESHOLD == m.DEFAULT_PIXEL_WORLD_WIDTH
+    assert m.DEFAULT_ESCAPE_RADIUS == 4.0
+    seeding = m.DEFAULT_BUDDHA_SEED
+    assert (seeding.x_start, seeding.x_stop, seeding.y_start, seeding.y_stop) == (-2.0, 2.0, -2.0, 2.0)
+    assert (m.DISTANCE_METRIC_DIVISOR, m.LENGTH_METRIC_DIVISOR) == (4.0, 10.0)
     assert m.framing_image_size(m.DEFAULT_FRAMING) == (m.PREVIEW_BOX, m.PREVIEW_BOX)
     assert m.framing_outline_pixel(m.DEFAULT_FRAMING) == m.DEFAULT_PIXEL_WORLD_WIDTH
 
@@ -106,8 +112,8 @@ def test_every_ray_of_a_panned_and_zoomed_window_starts_at_the_centre_of_its_pix
 
 def test_make_grid_of_the_whole_world_is_what_it_always_was():
     gx, gy = m.make_grid(5, 3)
-    cx = (np.arange(5) + 0.5) * (2.0 / 5) - 1.0
-    cy = (np.arange(3) + 0.5) * (2.0 / 3) - 1.0
+    cx = (np.arange(5) + 0.5) * (4.0 / 5) - 2.0
+    cy = (np.arange(3) + 0.5) * (4.0 / 3) - 2.0
     ex, ey = np.meshgrid(cx, -cy)
     assert np.array_equal(gx, ex) and np.array_equal(gy, ey)
     assert np.array_equal(gx, m.make_grid(5, 3, m.WORLD_RECT_DEFAULT)[0])
@@ -124,7 +130,7 @@ def test_a_buddha_point_is_counted_in_the_pixel_of_the_window_it_falls_in_and_no
     assert counts.sum() == 3, "points outside the world rectangle are not in the image"
     whole = np.zeros((4, 4))
     m.scatter_one_buddha_point(whole, 0.1, 0.9, m.WORLD_RECT_DEFAULT)
-    assert whole[0, 2] == 1, "the whole world's pixel of the same point is another"
+    assert whole[1, 2] == 1, "the whole world's pixel of the same point is another"
 
 
 def test_the_camera_pixels_seeds_of_a_window_are_the_pixels_of_that_window():
@@ -179,7 +185,7 @@ def test_set_image_framing_of_the_same_size_clears_the_buffers_it_has_instead_of
     app.stats[:] = 5
     app.set_image_framing(_framing(x=0.5))
     assert app.stats is stats and not stats.any(), "80 MB are not allocated again for a pan"
-    assert app.image_world_rect.x_start == m.framing_world_rect(_framing(x=0.5)).x_start and app.gx[0, 0] > -1.0 + 0.4
+    assert app.image_world_rect.x_start == m.framing_world_rect(_framing(x=0.5)).x_start and app.gx[0, 0] > -2.0 + 0.4
 
 
 def test_a_pixels_centre_is_its_grid_point_and_the_canvas_position_of_the_centre_is_the_pixel():
@@ -199,7 +205,7 @@ def test_an_obstacle_outline_is_placed_on_the_canvas_by_the_window_of_the_image(
     lune = m.LuneShape(0)
     default = np.array(lune.outline_coords())
     assert np.array_equal(default, np.array(lune.outline_coords(m.WORLD_RECT_DEFAULT, m.PREVIEW_BOX, m.PREVIEW_BOX)))
-    world_rect = m.WorldRect(-2.0, 2.0, -1.0, 1.0)
+    world_rect = m.WorldRect(-4.0, 4.0, -2.0, 2.0)          # twice as wide as the default world, in a canvas of half the height
     wide = np.array(lune.outline_coords(world_rect, 512, 256)).reshape(-1, 2)
     base = default.reshape(-1, 2)
     assert np.allclose(wide[:, 0], (base[:, 0] - 256) / 2.0 + 256, atol=1e-9), "x: half as far from the middle"
@@ -662,7 +668,7 @@ def test_framing_keys_have_a_fallback_a_float_flag_a_section_of_the_settings_lis
     assert app.widgets_for_setting("framing:1:x") == [app.framing_x_entry]
     assert app.widgets_for_setting("framing:0:x") == [], "only the selected framing's controls are on show"
     assert m.short_value_text("framing:1:x", 0.75) == "0.75"
-    assert m.short_value_text("framing:1:diagonal", m.DEFAULT_FRAMING_DIAGONAL) == "2.82843"
+    assert m.short_value_text("framing:1:diagonal", m.DEFAULT_FRAMING_DIAGONAL) == "5.65685"
 
 
 def test_deleting_a_framing_removes_its_keyframe_settings_at_once():
@@ -676,3 +682,10 @@ def test_a_video_frame_and_a_new_image_use_the_framing_resolved_for_that_frame()
     import inspect
     assert "resolve_framing(framing_snapshot, assigned_sorted, fn)" in inspect.getsource(m.App._render_worker)
     assert "resolve_framing(self.selected_framing_snapshot(), [fake_kf], 0)" in inspect.getsource(m.App.save_new_image)
+
+
+def test_the_bar_graph_stands_for_two_world_units_at_the_main_images_pixels_per_unit():
+    assert m.SEG_CANVAS_WORLD_HEIGHT == 2.0
+    rect = m.WORLD_RECT_DEFAULT
+    pixels_per_unit = m.PREVIEW_BOX / (rect.x_stop - rect.x_start)             # 128: what the main image has
+    assert m.SEG_CANVAS_H == m.SEG_CANVAS_WORLD_HEIGHT * pixels_per_unit, "the same scale as the picture above it"

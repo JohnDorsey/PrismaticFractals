@@ -137,8 +137,8 @@ def _kernel_trace(x0, y0, angle_deg, obstacles=(), circle=(R, R), max_iter=12, m
     fires rays inside]) of a unit-circle obstacle at the origin, listed first;
     None for no circle. `confine` is a confine_rule (default: the standard rule).
     Returns (points, path_point_tags, term, raw)."""
-    confine = m.CONFINE_DEFAULT if confine is None else confine
-    escape_radius = m.DEFAULT_ESCAPE_RADIUS if escape_radius is None else escape_radius
+    confine = UNIT_CONFINE if confine is None else confine
+    escape_radius = UNIT_ESCAPE_RADIUS if escape_radius is None else escape_radius
     scene = list(obstacles)
     if circle is not None:
         fire = circle[2] if len(circle) > 2 else True
@@ -211,7 +211,7 @@ def test_a_ray_that_leaves_the_bounding_shape_escapes_at_the_escape_radius():
     path_points, path_point_tags, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert len(path_points) == 2 and int(raw[m.RAW_BOUNCES]) == 0
-    assert np.allclose(path_points[-1], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5)), \
+    assert np.allclose(path_points[-1], (np.sqrt(UNIT_ESCAPE_RADIUS ** 2 - 0.25), -0.5)), \
         "ends where it is the escape radius from the origin"
     assert path_point_tags[-1] == m.TAG_ESCAPED
 
@@ -246,7 +246,7 @@ def test_a_ray_escapes_after_bouncing_when_it_finally_meets_nothing():
     path_points, _k, term, raw = _kernel_trace(-0.9, 0.2, 0.0, [wall], circle=(R, P))
     assert term == m.TERM_ESCAPED
     assert int(raw[m.RAW_BOUNCES]) == 1
-    assert np.isclose(np.hypot(*path_points[-1]), m.DEFAULT_ESCAPE_RADIUS)
+    assert np.isclose(np.hypot(*path_points[-1]), UNIT_ESCAPE_RADIUS)
 
 
 def test_an_obstacle_outside_the_bounding_shape_can_fire_rays_that_meet_it_from_outside():
@@ -267,7 +267,7 @@ def test_a_distance_limit_cuts_an_escaping_ray_before_the_escape_radius():
     path_points, path_point_tags, term, raw = _kernel_trace(0.0, -0.5, 0.0, circle=(R, P), max_dist=0.4)
     assert term == m.TERM_DIST
     assert np.allclose(path_points[-1], (0.4, -0.5))
-    assert np.isclose(raw[m.RAW_LAST_FULL], np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25)), \
+    assert np.isclose(raw[m.RAW_LAST_FULL], np.sqrt(UNIT_ESCAPE_RADIUS ** 2 - 0.25)), \
         "the uncut segment reached the escape radius"
 
 
@@ -313,7 +313,7 @@ def test_stats_and_points_are_sane_for_an_escaped_ray():
     m.compute_sequences(path_points, len(path_points), path_point_tags, int(raw[m.RAW_BOUNCES]), 12, out, ray_characteristic_points)
     assert out[m.ST_TERMINATION] == 1.0
     assert np.isfinite(out).all() and (out >= 0).all() and (out <= 1).all()
-    assert np.allclose(ray_characteristic_points[m.POINT_END], (np.sqrt(m.DEFAULT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
+    assert np.allclose(ray_characteristic_points[m.POINT_END], (np.sqrt(UNIT_ESCAPE_RADIUS ** 2 - 0.25), -0.5))
     assert np.allclose(ray_characteristic_points[m.POINT_START], (0.0, -0.5))
     assert out[m.ST_BOUNCE_COUNT] == 0.0
 
@@ -340,14 +340,14 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
     stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.PREVIEW_BOX, m.PREVIEW_BOX, m.PREVIEW_BOX, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, m.PREVIEW_BOX, m.PREVIEW_BOX, m.PREVIEW_BOX, UNIT_WORLD, _termination(8), _engine_args(arrays), 0)
     ys, xs = np.nonzero(pixel_state == m.PIXEL_TRACED)
-    wx = (xs + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0
-    wy = 1.0 - (ys + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH
+    wx = (xs + 0.5) * UNIT_PIXEL - 1.0
+    wy = 1.0 - (ys + 0.5) * UNIT_PIXEL
     assert len(xs) > 1000
-    assert (np.hypot(wx - 0.3, wy) <= 0.25 + m.DEFAULT_PIXEL_WORLD_WIDTH).all(), "only inside the obstacle"
-    inside_count = int((np.hypot(*np.meshgrid((np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0 - 0.3,
-                                              1.0 - (np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH)) <= 0.25
+    assert (np.hypot(wx - 0.3, wy) <= 0.25 + UNIT_PIXEL).all(), "only inside the obstacle"
+    inside_count = int((np.hypot(*np.meshgrid((np.arange(m.PREVIEW_BOX) + 0.5) * UNIT_PIXEL - 1.0 - 0.3,
+                                              1.0 - (np.arange(m.PREVIEW_BOX) + 0.5) * UNIT_PIXEL)) <= 0.25
                         ).sum())
     assert abs(len(xs) - inside_count) <= 4, "and from essentially every pixel inside it"
 
@@ -355,16 +355,16 @@ def test_render_rows_fires_only_from_shapes_with_fire_on():
 def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
-    m.scatter_multi_buddha(250, 252, m.WORLD_RECT_DEFAULT, _termination(8), _engine_args(m.build_obstacle_arrays([circle])), 0,
+    m.scatter_multi_buddha(250, 252, UNIT_WORLD, _termination(8), _engine_args(m.build_obstacle_arrays([circle])), 0,
                            False, True, False, False, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
-    xs = (np.arange(m.PREVIEW_BOX) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH - 1.0
-    gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * m.DEFAULT_PIXEL_WORLD_WIDTH)
+    xs = (np.arange(m.PREVIEW_BOX) + 0.5) * UNIT_PIXEL - 1.0
+    gx, gy = np.meshgrid(xs, 1.0 - (np.array([250, 251]) + 0.5) * UNIT_PIXEL)
     firing = np.hypot(gx, gy) < 1.0
     dx = dy = np.sqrt(0.5)                                    # the default emission direction
     b = gx * dx + gy * dy
-    end = -b + np.sqrt(b * b - (gx * gx + gy * gy - m.DEFAULT_ESCAPE_RADIUS ** 2))
+    end = -b + np.sqrt(b * b - (gx * gx + gy * gy - UNIT_ESCAPE_RADIUS ** 2))
     mx, my = gx + 0.5 * end * dx, gy + 0.5 * end * dy
     in_image = (np.abs(mx) < 1.0) & (np.abs(my) < 1.0)
     assert counts.sum() == int((firing & in_image).sum()) and counts.sum() > 100
@@ -531,7 +531,7 @@ def _render_scene(scene, n):
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
     arrays = m.build_obstacle_arrays([_scene_obstacle(scene)])
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT,
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD,
                      _termination(scene["iters"], scene.get("dist", 0.0)),
                      _engine_args(arrays, scene.get("seg_mult", 1.0), fuzz), fuzz.rng_seed)
     return stats, characteristic_points, pixel_state
@@ -555,8 +555,20 @@ def test_an_obstacle_reproduces_the_recorded_classic_golden_data():
         assert golden[f"stats_{idx}"].shape[-1] == m.N_LEGACY_STATS and golden[f"points_{idx}"].shape[-2] == m.N_LEGACY_POINTS
         # (not the two fraction metrics: the data records the old count that also took in a final perpendicular hit, which
         # one capsule ray ends with - they are now plain sequence shares, see the test of that)
-        recorded = [s for s in range(m.N_LEGACY_STATS) if s not in (m.ST_SELF_SHARE, m.ST_BOUNDARY_SHARE)]
+        # (and not the four point distances and the path length, which depend on the size of the world: the data was
+        # recorded with the divisors 2 and 5, and they are now DISTANCE_METRIC_DIVISOR and LENGTH_METRIC_DIVISOR - below)
+        sized = [m.ST_HDIST, m.ST_VDIST, m.ST_MANHATTAN, m.ST_EUCLIDEAN, m.ST_LENGTH]
+        recorded = [s for s in range(m.N_LEGACY_STATS) if s not in (m.ST_SELF_SHARE, m.ST_BOUNDARY_SHARE) and s not in sized]
         assert np.allclose(stats[..., recorded], golden[f"stats_{idx}"][..., recorded], atol=1e-5), scene["name"]
+        old = golden[f"stats_{idx}"]
+        for s in (m.ST_HDIST, m.ST_VDIST, m.ST_MANHATTAN, m.ST_EUCLIDEAN):            # the same distance, in today's divisor
+            kept = old[..., s] < 1.0                                                  # (a clipped one says only "at least")
+            assert np.allclose(stats[..., s][kept], old[..., s][kept] * 2.0 / m.DISTANCE_METRIC_DIVISOR, atol=1e-5), \
+                (scene["name"], s)
+        kept = old[..., m.ST_LENGTH] < 0.99
+        length = 5.0 * np.tan(old[..., m.ST_LENGTH][kept].astype(np.float64) * np.pi / 2.0)
+        assert np.allclose(stats[..., m.ST_LENGTH][kept], np.arctan(length / m.LENGTH_METRIC_DIVISOR) * 2.0 / np.pi, atol=1e-4), \
+            scene["name"]
         assert np.allclose(characteristic_points[..., :m.N_LEGACY_POINTS, :], golden[f"points_{idx}"], atol=1e-5), scene["name"]
 
 
@@ -573,11 +585,12 @@ def _confine(lookback, method, threshold):
 def test_the_default_confinement_rule_is_the_one_that_was_built_in():
     assert m.DEFAULT_CONFINE_LOOKBACK == 4
     assert m.DEFAULT_CONFINE_METHOD == m.CONFINE_BOX
-    assert m.DEFAULT_CONFINE_THRESHOLD == m.DEFAULT_PIXEL_WORLD_WIDTH == 2.0 / 512
+    assert m.DEFAULT_CONFINE_THRESHOLD == m.DEFAULT_PIXEL_WORLD_WIDTH == 4.0 / 512, "one pixel of the default world [-2, 2]"
     assert m.CONFINE_METHOD_NAMES == ["Box", "Path length"]
-    assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=0, threshold=2.0 / 512)
+    assert m.CONFINE_DEFAULT == m.ConfineRule(lookback=4, method=0, threshold=4.0 / 512)
+    assert UNIT_CONFINE == m.ConfineRule(lookback=4, method=0, threshold=UNIT_PIXEL), "(what the tests of the unit world use)"
     s = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
-    assert (s.confine_lookback, s.confine_method, s.confine_threshold) == (4, BOX, 2.0 / 512)
+    assert (s.confine_lookback, s.confine_method, s.confine_threshold) == (4, BOX, 4.0 / 512)
     assert m.settings_confine(s) == m.CONFINE_DEFAULT
 
 
@@ -870,11 +883,11 @@ def test_the_termination_tab_has_a_confinement_section_with_all_three_controls()
 
 # ---- the figure settings margin ------------------------------------------------------------
 def test_figure_info_lists_the_confinement_rule():
-    lines = m.figure_info_lines(*_generation(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _unit_scene())
     assert "Confine:Box" in lines and "  lookback 4" in lines
-    assert "  box size 0.00390625" in lines
+    assert "  box size 0.0078125" in lines, "(one pixel of the default world [-2, 2])"
     lines = m.figure_info_lines(*_generation(confine_lookback=9, confine_method=PATH,
-                                          confine_threshold=1.5e-9), _start_scene())
+                                          confine_threshold=1.5e-9), _unit_scene())
     assert "Confine:Path length" in lines and "  lookback 9" in lines
     assert "  path length 1.5e-09" in lines
 
@@ -883,16 +896,16 @@ def test_confinement_lines_fit_a_column_for_extreme_values_and_use_known_glyphs(
     for method in (BOX, PATH):
         for threshold in (5e-324, 1.7976931348623157e308, 0.1234567891234):
             lines = m.figure_info_lines(*_generation(confine_lookback=999, confine_method=method,
-                                                  confine_threshold=threshold), _start_scene())
+                                                  confine_threshold=threshold), _unit_scene())
             for line in lines:
                 assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
                 assert all(c in m.FONT_5X7 for c in line), line
 
 
 def test_the_confinement_block_has_the_same_size_whatever_its_values():
-    a = m.figure_info_blocks(*_generation(), _start_scene())
+    a = m.figure_info_blocks(*_generation(), _unit_scene())
     b = m.figure_info_blocks(*_generation(confine_lookback=500, confine_method=PATH,
-                                       confine_threshold=1e-300), _start_scene())
+                                       confine_threshold=1e-300), _unit_scene())
     assert [len(x) for x in a] == [len(x) for x in b]
 
 
@@ -1005,14 +1018,14 @@ def test_unit_direction_is_exact_at_multiples_of_45_degrees_and_trig_elsewhere()
 def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     """End to end through the real (parallel) render kernel: every fired ray's
     first segment points the way the emission says."""
-    start = m.default_starting_obstacle(0)
+    start = _unit_circle(0)
     arrays = m.build_obstacle_arrays([start])
     n = 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
     up = _emission(UP, offset=0.0)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(1), _engine_args(arrays, emission=up), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, _termination(1), _engine_args(arrays, emission=up), 0)
     fired = pixel_state == m.PIXEL_TRACED
     xs = ((np.arange(n) + 0.5) * (2.0 / n) - 1.0)[None, :].repeat(n, axis=0)
     ys = (1.0 - (np.arange(n) + 0.5) * (2.0 / n))[:, None].repeat(n, axis=1)
@@ -1021,7 +1034,7 @@ def test_the_kernel_uses_the_emission_for_every_ray_in_a_render():
     assert np.allclose(ends[..., 0][fired], xs[fired], atol=1e-6), "straight up keeps x"
     assert (ends[..., 1][fired] > ys[fired]).all(), "and goes up"
     toward = _emission(TOWARDS, 0.0, 0.0, 0.0)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(1), _engine_args(arrays, emission=toward), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, _termination(1), _engine_args(arrays, emission=toward), 0)
     ends = characteristic_points[..., m.POINT_END, :]
     fired = pixel_state == m.PIXEL_TRACED
     start_r = np.hypot(xs, ys)[fired]
@@ -1226,12 +1239,12 @@ def test_the_target_entries_are_only_enabled_when_firing_towards_a_point():
 
 # ---- the figure settings margin --------------------------------------------------------------
 def test_figure_info_lists_the_emission_direction():
-    lines = m.figure_info_lines(*_generation(), _start_scene())
+    lines = m.figure_info_lines(*_generation(), _unit_scene())
     assert "Emit:Up" in lines and "  angle offset -45.00\u00b0" in lines
     lines = m.figure_info_lines(*_generation(emit_mode=TOWARDS, emit_target_r=-0.5,
                                           emit_target_theta=30.0, emit_target_cx=1.25,
                                           emit_target_cy=-2.0, emit_offset=10.0),
-                                _start_scene())
+                                _unit_scene())
     assert "Emit:Towards point" in lines
     assert "  target r -0.5" in lines and "  target angle 30" in lines
     assert "  offset x 1.25" in lines and "  offset y -2" in lines
@@ -1243,17 +1256,17 @@ def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
         lines = m.figure_info_lines(*_generation(emit_mode=TOWARDS, emit_target_r=big,
                                               emit_target_theta=small, emit_target_cx=big,
                                               emit_target_cy=small, emit_offset=-179.99),
-                                    _start_scene())
+                                    _unit_scene())
         for line in lines:
             assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
             assert all(c in m.FONT_5X7 for c in line), line
 
 
 def test_the_emission_block_has_the_same_size_whatever_its_values():
-    a = m.figure_info_blocks(*_generation(), _start_scene())
+    a = m.figure_info_blocks(*_generation(), _unit_scene())
     b = m.figure_info_blocks(*_generation(emit_mode=TOWARDS, emit_target_r=3.0,
                                        emit_target_theta=-20.0, emit_target_cx=3.0,
-                                       emit_target_cy=-2.0, emit_offset=120.0), _start_scene())
+                                       emit_target_cy=-2.0, emit_offset=120.0), _unit_scene())
     assert [len(x) for x in a] == [len(x) for x in b]
 
 
@@ -1305,7 +1318,7 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
     totals, densities = {}, {}
     for w in (64, 128, 256):
         counts = np.zeros((w, w))
-        m.scatter_multi_buddha(0, w, m.WORLD_RECT_DEFAULT, _termination(40), _engine_args(arrays), 0, False, True, False, False, counts)
+        m.scatter_multi_buddha(0, w, UNIT_WORLD, _termination(40), _engine_args(arrays), 0, False, True, False, False, counts)
         gx, gy = m.make_grid(w, w)
         inside = int((np.hypot(gx, gy) < 1.0).sum())
         totals[w], densities[w] = counts.sum(), counts.sum() / inside
@@ -1398,7 +1411,7 @@ def _fired_from_the_pixel_grid(shape, n=24, max_iter=12):
     shape.in_effect = shape.out_effect = m.OBSTACLE_EFFECT_REFLECT
     shape.fire_inside = True
     arrays = m.build_obstacle_arrays([shape])
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(max_iter), _engine_args(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, _termination(max_iter), _engine_args(arrays), 0)
     return stats, characteristic_points, pixel_state
 
 
@@ -1505,7 +1518,7 @@ def test_rays_fired_inside_a_closed_sine_flower_never_escape_it():
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(60), _engine_args(m.build_obstacle_arrays([o])), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, _termination(60), _engine_args(m.build_obstacle_arrays([o])), 0)
     fired = pixel_state == m.PIXEL_TRACED
     assert fired.sum() > 1000
     assert not (stats[:, :, m.ST_TERMINATION][fired] == m.TERM_STAT_VALUE[m.TERM_ESCAPED]).any()
@@ -1635,7 +1648,7 @@ def _reference_scalar(seq, reduction, path_points, path_point_tags, nb, npts, ma
         return min(len(xy) / nb, 1.0) if nb > 0 else 0.0
     steps = np.diff(xy, axis=0) if len(xy) > 1 else np.zeros((0, 2))
     if reduction == m.SRED_LENGTH:
-        return np.arctan(np.hypot(steps[:, 0], steps[:, 1]).sum() / 5.0) * 2.0 / np.pi
+        return np.arctan(np.hypot(steps[:, 0], steps[:, 1]).sum() / m.LENGTH_METRIC_DIVISOR) * 2.0 / np.pi
     angle = np.arctan2(steps[-1, 1], steps[-1, 0]) if len(steps) else 0.0
     return min(max((angle + np.pi) / (2.0 * np.pi), 0.0), 1.0)
 
@@ -1702,7 +1715,7 @@ def test_membership_by_tag_alone_equals_the_bounce_count_rule_on_every_ray_of_a_
     by perpendicular incidence, with and without the segment multiplier."""
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
-    arrays = m.build_obstacle_arrays(_start_scene() + [ellipse])
+    arrays = m.build_obstacle_arrays(_unit_scene() + [ellipse])
     n, checked, perpendicular = 64, 0, 0
     for seg_mult in (1.0, 0.7):
         termination, engine_args = _termination(80), _engine_args(arrays, seg_mult=seg_mult)
@@ -1738,7 +1751,7 @@ def test_the_choices_a_coloration_could_always_make_are_aliases_that_still_pick_
         assert np.allclose(ray_characteristic_points[point], xy), (point, ray_characteristic_points[point], xy)
     assert out[m.ST_BOUNCE_COUNT] == 4 / 20
     path_length = np.hypot(*np.diff(_HAND_PTS, axis=0).T).sum()
-    assert np.isclose(out[m.ST_LENGTH], np.arctan(path_length / 5.0) * 2.0 / np.pi)
+    assert np.isclose(out[m.ST_LENGTH], np.arctan(path_length / m.LENGTH_METRIC_DIVISOR) * 2.0 / np.pi)
     assert np.isclose(out[m.ST_LAST_DIR], (np.arctan2(5.0, 3.0) + np.pi) / (2.0 * np.pi))     # (0, -2) -> (3, 3)
     # no self bounce: every self choice is the end point, the boundary ones are still the boundary's
     path_point_tags = _HAND_KINDS.copy()
@@ -1781,16 +1794,16 @@ def test_a_pixel_is_pending_until_its_row_is_rendered_then_traced_or_has_no_ray(
     """pixel_state tells the three things apart on its own: rows not rendered yet stay PIXEL_PENDING, a rendered pixel
     outside every firing shape is PIXEL_NO_RAY (it used to be 0, the same as pending), and one that fires is
     PIXEL_TRACED, with its stats stored. A finished render leaves no pixel pending."""
-    arrays = m.build_obstacle_arrays(_start_scene())           # the unit circle: the image's corners are outside it
+    arrays = m.build_obstacle_arrays(_unit_scene())           # the unit circle: the image's corners are outside it
     termination, engine_args, n = _termination(8), _engine_args(arrays), 16
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.full((n, n), m.PIXEL_PENDING, dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, 6, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, 6, n, n, UNIT_WORLD, termination, engine_args, 0)
     assert (pixel_state[6:] == m.PIXEL_PENDING).all()
     assert not (pixel_state[:6] == m.PIXEL_PENDING).any()
     assert pixel_state[0, 0] == m.PIXEL_NO_RAY and pixel_state[5, 8] == m.PIXEL_TRACED
-    m.trace_rows(stats, characteristic_points, pixel_state, 6, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 6, n, n, n, UNIT_WORLD, termination, engine_args, 0)
     assert set(np.unique(pixel_state)) == {m.PIXEL_TRACED, m.PIXEL_NO_RAY}
     centre_x = (np.arange(n) + 0.5) * 2.0 / n - 1.0
     inside = centre_x[None, :] ** 2 + centre_x[::-1][:, None] ** 2 < 1.0
@@ -1803,12 +1816,12 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
     every sequence of the path trace_path makes for that pixel's ray (checked with the independent reference)."""
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
-    arrays = m.build_obstacle_arrays(_start_scene() + [ellipse])
+    arrays = m.build_obstacle_arrays(_unit_scene() + [ellipse])
     termination, engine_args, n = _termination(60), _engine_args(arrays, seg_mult=0.9), 24
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 0)
     checked = 0
     for j in range(0, n, 2):
         for i in range(0, n, 2):
@@ -1836,12 +1849,12 @@ def test_the_ray_fraction_metrics_are_the_shares_of_the_self_and_boundary_sequen
     lens.cx, lens.cy, lens.in_effect, lens.out_effect = -0.3, 0.3, m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_REFLECT
     poly = m.RegularPolygonShape(2)
     poly.radius, poly.cx, poly.cy = 0.4, 0.3, 0.4
-    arrays = m.build_obstacle_arrays(_start_scene() + [lens, poly])
+    arrays = m.build_obstacle_arrays(_unit_scene() + [lens, poly])
     n = 64
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, _termination(400), _engine_args(arrays), 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, _termination(400), _engine_args(arrays), 0)
     fired = pixel_state == m.PIXEL_TRACED
     perpendicular = fired & (np.abs(stats[..., m.ST_TERMINATION] - m.TERM_STAT_VALUE[m.TERM_PERPENDICULAR]) < 0.01)
     assert perpendicular.sum() > 10, "the scene must include rays that end perpendicularly"
@@ -1870,7 +1883,7 @@ def _seeding_scene():
     """A closed scene with self bounces (a circle and an ellipse), traced with a few iterations so the test is quick."""
     ellipse = m.EllipseShape(1)
     ellipse.width, ellipse.height, ellipse.rotation, ellipse.cx, ellipse.cy = 0.7, 0.45, 25.0, 0.15, -0.1
-    return _termination(40), _engine_args(m.build_obstacle_arrays(_start_scene() + [ellipse]), seg_mult=0.9)
+    return _termination(40), _engine_args(m.build_obstacle_arrays(_unit_scene() + [ellipse]), seg_mult=0.9)
 
 
 _NO_SLOTS = np.empty(0, dtype=np.int64)
@@ -1879,7 +1892,7 @@ _NO_SLOTS = np.empty(0, dtype=np.int64)
 def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, False), rows=None, fuzz_seed=0):
     termination, engine_args = _seeding_scene()
     counts = np.zeros((n, n))
-    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.WorldRect(*zone), m.WORLD_RECT_DEFAULT, termination, engine_args,
+    m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.WorldRect(*zone), UNIT_WORLD, termination, engine_args,
                          fuzz_seed,
                          np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, counts)
     return counts
@@ -1892,7 +1905,7 @@ def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_coveri
     n = 24
     for multi in [(True, False, False, False), (False, True, False, False), (False, False, True, True)]:
         old = np.zeros((n, n))
-        m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, *multi, old)
+        m.scatter_multi_buddha(0, n, UNIT_WORLD, termination, engine_args, 0, *multi, old)
         assert old.sum() > 0
         assert np.array_equal(old, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), multi=multi))
 
@@ -1905,7 +1918,7 @@ def test_seeding_the_stored_points_equals_scattering_those_stored_points_of_an_i
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
-    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0)
+    m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 0)
     for slot in (m.POINT_ALL_MEAN, m.point_slot(m.SEQ_SELF, m.PRED_LAST), m.POINT_END):
         xs, ys = characteristic_points[..., slot, 0][pixel_state == m.PIXEL_TRACED], characteristic_points[..., slot, 1][pixel_state == m.PIXEL_TRACED]
         col = np.floor((xs + 1.0) * (n / 2.0)).astype(np.int64)
@@ -1958,3 +1971,56 @@ def test_seeding_only_the_rows_asked_for_adds_only_those_seeds():
     parts = _scatter_seeds(n, zone, slots=[m.POINT_END], multi=(False, True, False, False), rows=(0, 6)) \
         + _scatter_seeds(n, zone, slots=[m.POINT_END], multi=(False, True, False, False), rows=(6, n))
     assert np.array_equal(whole, parts)
+
+
+# --------------------------------------------------------------------------- #
+# The size of the world enters a metric in two places only, both named
+# --------------------------------------------------------------------------- #
+def test_the_stored_distances_and_the_colouring_use_the_same_divisor_and_a_length_the_other_one():
+    """compute_run_measurements writes the four point distances (start to end) with DISTANCE_METRIC_DIVISOR and
+    metrics.point_comparison_metric colours with it: for the same two points they must agree (and each is a distance divided
+    by it, clipped); a path's length is squashed with LENGTH_METRIC_DIVISOR."""
+    assert (m.DISTANCE_METRIC_DIVISOR, m.LENGTH_METRIC_DIVISOR) == (4.0, 10.0)
+    path_points, path_point_tags, term, raw = _kernel_trace(0.3, 0.1, 30.0, [], circle=(R, R), max_iter=12)
+    n = len(path_points)
+    out = np.zeros(m.N_STATS)
+    m.compute_run_measurements(path_points, n, raw, 12, 1.0, out)
+    (x1, y1), (x2, y2) = path_points[0], path_points[-1]
+    for metric, distance in ((m.ST_HDIST, abs(x1 - x2)), (m.ST_VDIST, abs(y1 - y2)),
+                             (m.ST_MANHATTAN, abs(x1 - x2) + abs(y1 - y2)), (m.ST_EUCLIDEAN, np.hypot(x1 - x2, y1 - y2))):
+        want = min(distance / m.DISTANCE_METRIC_DIVISOR, 1.0)
+        assert np.isclose(out[metric], want, atol=1e-12), metric
+        assert np.isclose(m.point_comparison_metric(metric, x1, y1, x2, y2), want, atol=1e-12), metric
+    total = float(np.hypot(*np.diff(path_points, axis=0).T).sum())
+    _points, stored = _stored_for_path(path_points, path_point_tags, int(raw[m.RAW_BOUNCES]), 12)
+    assert np.isclose(stored[m.ST_LENGTH], np.arctan(total / m.LENGTH_METRIC_DIVISOR) * 2.0 / np.pi, atol=1e-12)
+
+
+def test_a_fresh_start_draws_in_the_default_world_what_it_drew_in_the_world_half_the_size():
+    """The default scene (the circle of radius 2 in [-2, 2], escape radius 4, one pixel of confinement) against the old one
+    (the unit circle in [-1, 1], escape radius 2, 2/512), with the old distance divisor for the old one: the same picture,
+    but for the few rays that run back along their own path, where an absolute tolerance of the kernel decides a tie
+    differently at another scale (0.03 to 0.11% of the pixels at 256 x 256 and 512 x 512)."""
+    app = _fake_render_app()
+    new_data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES).replace(outline=False)
+    old_data = new_data.replace(
+        natural_termination=new_data.natural_termination.replace(escape_radius=2.0, confine_threshold=2.0 / 512))
+    old_framing = m.FramingSnapshot(id=0, x=0.0, y=0.0, diagonal=2.0 * 2.0 ** 0.5, aspect=1.0)
+    new_scene = m.build_obstacle_arrays([m.default_starting_obstacle(0)])
+    old_scene = m.build_obstacle_arrays([_unit_circle(0)])
+    distances = _coloration_settings_from_config(m.ColorationConfig(0))
+    counts = m.ColorationConfig(1)
+    for c in range(3):
+        counts.metric_types[c] = m.METRIC_TYPE_OTHER
+    counts.other_metric[:] = [m.ST_BOUNCE_COUNT, m.ST_TERMINATION, m.ST_ANGLES]
+    for coloration in (distances, _coloration_settings_from_config(counts)):
+        new = app.render_full_image(new_data, 128, 128, new_scene, (coloration,), m.DEFAULT_FRAMING)
+        saved = m.metrics.DISTANCE_METRIC_DIVISOR
+        m.metrics.DISTANCE_METRIC_DIVISOR = 2.0          # (colouring reads it at call time)
+        try:
+            old = app.render_full_image(old_data, 128, 128, old_scene, (coloration,), old_framing)
+        finally:
+            m.metrics.DISTANCE_METRIC_DIVISOR = saved
+        fired = (new != np.array(m.BACKGROUND, dtype=np.uint8)).any(axis=2)
+        assert fired.sum() > 9000, "the circle fills the image"
+        assert ((new != old).any(axis=2)).sum() <= 0.01 * fired.sum()

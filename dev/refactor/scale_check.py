@@ -22,9 +22,8 @@ decide ties differently at another scale, which only matters where a ray runs ba
 the default 45 degrees does this) or nearly so, and where a root search stops at an absolute tolerance (the squircles, the
 egg, the spiral, the flower); a scene fails if more than MAX_DIVERGED of its traced pixels diverge without such a retrace. The size-dependent metrics are the four point distances and the
 squashed path lengths: they are compared as the distance or length they stand for (undone with the divisors the program
-uses - DISTANCE_METRIC_DIVISOR and LENGTH_METRIC_DIVISOR if it names them, else the old 2 and 5), skipping a pixel where
-either value is clipped. The snail of Pythagoras has no size control yet, so it is skipped (checked again once it has a
-radius). Exit code 1 if a scene has a problem."""
+uses - DISTANCE_METRIC_DIVISOR and LENGTH_METRIC_DIVISOR if it names them, else the old 2 and 5; the program's are now 4 and 10), skipping a pixel where
+either value is clipped. Exit code 1 if a scene has a problem."""
 import os
 import sys
 
@@ -131,6 +130,11 @@ def metric_problems(sa, sb, ok, scale, rtol):
     for s in SCALE_FREE:
         if rtol > 0.0 and (s in DIRECTIONS or s == m.ST_ANGLES):
             continue        # at rounding level a nearly zero-length last segment has no reliable direction or turn
+        if s in DIRECTIONS:
+            # (a ray can end with a segment of almost no length, whose direction is then whatever rounding made it)
+            if (sa[ok][:, s] != sb[ok][:, s]).sum() > max(2, 0.002 * ok.sum()):
+                out.append(f"metric {s}")
+            continue
         if not np.allclose(sa[ok][:, s], sb[ok][:, s], rtol=rtol, atol=atol):
             out.append(f"metric {s}")
     for s in POINT_DISTANCES:
@@ -170,9 +174,6 @@ def main():
     totals = np.zeros(4, dtype=int)
     scenes = 0
     for cls in m.SHAPE_CLASSES:
-        if cls is m.PythagorasSnailShape:
-            print(f"skipped {cls.NAME}: no size control yet")
-            continue
         for variant in ("default", "mid"):
             for seg_mult, fuzzed, towards in ((1.0, False, False), (0.7, False, False), (1.0, True, False), (1.0, False, True)):
                 base = shape_of(cls, variant, 1.0)

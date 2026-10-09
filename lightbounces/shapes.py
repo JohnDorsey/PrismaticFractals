@@ -267,8 +267,8 @@ class EllipseShape(Shape):
     LAYOUT = LAYOUT_ELLIPSE
     KEY = "ellipse"
     NAME = "Ellipse"
-    PARAMS = (_slider("width", "Width", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
-              _slider("height", "Height", 1.0, ELLIPSE_MIN, ELLIPSE_MAX))
+    PARAMS = (_slider("width", "Width", 2.0, ELLIPSE_MIN, ELLIPSE_MAX),
+              _slider("height", "Height", 2.0, ELLIPSE_MIN, ELLIPSE_MAX))
     __slots__ = ("width", "height")
 
     def params(self):
@@ -601,8 +601,8 @@ class SuperellipseShape(Shape):
     KEY = "superelliptical_squircle"
     NAME = "Superelliptical squircle"
     SHORT_NAME = "Superellipse"
-    PARAMS = (_slider("width", "Width", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
-              _slider("height", "Height", 1.0, ELLIPSE_MIN, ELLIPSE_MAX),
+    PARAMS = (_slider("width", "Width", 2.0, ELLIPSE_MIN, ELLIPSE_MAX),
+              _slider("height", "Height", 2.0, ELLIPSE_MIN, ELLIPSE_MAX),
               _slider("exponent", "Exponent", DEFAULT_SUPER_EXPONENT, SUPER_EXPONENT_MIN,
                       SUPER_EXPONENT_MAX, 0.05))
     __slots__ = ("width", "height", "exponent")

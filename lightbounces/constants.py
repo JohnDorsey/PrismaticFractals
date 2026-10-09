@@ -16,7 +16,7 @@ DIST_LIMIT_MIN = 0         # allowed range for the distance limit; 0 = no limit
 DIST_LIMIT_MAX = 9999
 DEFAULT_ITER = 256         # default iteration limit (bounces)
 DEFAULT_DIST = 0           # default distance limit (units): 0 = no limit
-DEFAULT_ESCAPE_RADIUS = 2.0     # an escaping ray terminates this far from the origin (any number above 0)
+DEFAULT_ESCAPE_RADIUS = 4.0     # an escaping ray terminates this far from the origin (any number above 0)
 SEGMENT_MULT_MIN = 0.01    # how much of each bounce's true segment length is
 SEGMENT_MULT_MAX = 1.0     # actually travelled before continuing in the newly
 DEFAULT_SEGMENT_MULT = 1.0 # -calculated (bounced) direction; 1 = no effect
@@ -40,14 +40,14 @@ BUDDHA_BLUR_RADIUS_MAX = 0.5
 # Buddha seeding: where the rays that Buddha channels scatter are fired (see BuddhaSeedSettings). The zone
 # defaults to the whole world, which is exactly what the camera pixels cover.
 DEFAULT_BUDDHA_SEED_CAMERA = True
-DEFAULT_BUDDHA_SEED_X_START = -1.0
-DEFAULT_BUDDHA_SEED_X_STOP = 1.0
-DEFAULT_BUDDHA_SEED_Y_START = -1.0
-DEFAULT_BUDDHA_SEED_Y_STOP = 1.0
+DEFAULT_BUDDHA_SEED_X_START = -2.0
+DEFAULT_BUDDHA_SEED_X_STOP = 2.0
+DEFAULT_BUDDHA_SEED_Y_START = -2.0
+DEFAULT_BUDDHA_SEED_Y_STOP = 2.0
 SEED_ZONE_OUTLINE = "#a040e0"      # the seeding zone's dashed outline on the preview (purple)
 DEFAULT_FRAMING_X = 0.0            # a framing: where the camera is (the middle of what it sees) ...
 DEFAULT_FRAMING_Y = 0.0
-DEFAULT_FRAMING_DIAGONAL = 2.0 * math.sqrt(2.0)   # ... how far across it sees (world units): the whole world at aspect 1
+DEFAULT_FRAMING_DIAGONAL = 4.0 * math.sqrt(2.0)   # ... how far across it sees (world units): the whole world at aspect 1
 DEFAULT_FRAMING_ASPECT = 1.0       # ... and the shape of what it sees (width / height)
 DEFAULT_BUDDHA_BLUR_RADIUS = 0.0     # no blur - exactly the pre-blur single-pixel behavior
 DEFAULT_BUDDHA_BLUR_TYPE = BUDDHA_BLUR_GAUSSIAN
@@ -105,17 +105,19 @@ LAYOUT_FLOWER = 9           # the sine flower: a polar curve, found by root sear
 LAYOUTS = (LAYOUT_ELLIPSE, LAYOUT_POLYGON, LAYOUT_CIRCLES, LAYOUT_ARCS_EDGES, LAYOUT_ARC_LOOPS,
            LAYOUT_SQUIRCLE, LAYOUT_SPIRAL, LAYOUT_SNAIL, LAYOUT_EGG, LAYOUT_FLOWER)
 
-# Ellipse controls: full width / height (0..2), rotation in degrees
+# Every length below is in world units, and the default world is [-2, 2] (it was [-1, 1] before FILE_VERSION 154: every
+# default length is doubled, and so is every maximum, so that the starting figure fills the image as it always did).
+# Ellipse controls: full width / height (0..4), rotation in degrees
 ELLIPSE_MIN = 0.0
-ELLIPSE_MAX = 2.0
-DEFAULT_WIDTH = 2.0        # 2.0 x 2.0, no rotation = the unit circle
-DEFAULT_HEIGHT = 2.0
-DEFAULT_RADIUS = 1.0         # a new polygon / Reuleaux / sector / segment's radius
+ELLIPSE_MAX = 4.0
+DEFAULT_WIDTH = 4.0        # 4.0 x 4.0, no rotation = the circle of radius 2 that fills the default world
+DEFAULT_HEIGHT = 4.0
+DEFAULT_RADIUS = 2.0         # a new polygon / Reuleaux / sector / segment / snail ... 's radius
 DEFAULT_ROTATION = 0.0       # a new obstacle's rotation
-OBST_POS_MIN = -1.0         # obstacle centre (cx, cy) slider range
-OBST_POS_MAX = 1.0
-OBST_RADIUS_MIN = 0.0       # the radius slider range (polygon, Reuleaux, sector, segment)
-OBST_RADIUS_MAX = 2.0
+OBST_POS_MIN = -2.0         # obstacle centre (cx, cy) slider range
+OBST_POS_MAX = 2.0
+OBST_RADIUS_MIN = 0.0       # the radius slider range (polygon, Reuleaux, sector, segment, snail ...)
+OBST_RADIUS_MAX = 4.0
 AXIS_MIN = 1e-3            # smallest semi-axis used in the maths (avoids 1/0)
 
 # Regular-polygon controls (circumradius is fixed at 1: vertices on the unit circle)
@@ -125,9 +127,9 @@ DEFAULT_SIDES = 5
 
 # Hugelschaffer egg: half its length a, half its width b, and the shift d of its second circle's centre as a
 # fraction of a (the egg is closed for |d| < a; near that it comes to a needle point)
-EGG_AXIS_MAX = 2.0
-DEFAULT_EGG_A = 1.0
-DEFAULT_EGG_B = 0.7
+EGG_AXIS_MAX = 4.0
+DEFAULT_EGG_A = 2.0
+DEFAULT_EGG_B = 1.4
 EGG_SHIFT_MIN = -0.9
 EGG_SHIFT_MAX = 0.9
 DEFAULT_EGG_SHIFT = 0.4
@@ -155,9 +157,9 @@ MOSS_ANGLE_MIN = 60.0      # below this the construction degenerates further
 MOSS_ANGLE_MAX = 180.0
 DEFAULT_MOSS_ANGLE = 90.0  # the classic right-isosceles-triangle egg
 MOSS_SIZE_MIN = 0.0
-MOSS_SIZE_MAX = 2.0
-DEFAULT_MOSS_SIZE = 0.9    # at 1.0 the default egg's top edge passed y = 1.03, outside
-                           # the view; 0.9 keeps every apex angle inside with a margin
+MOSS_SIZE_MAX = 4.0
+DEFAULT_MOSS_SIZE = 1.8    # at 2.0 the default egg's top edge passed y = 2.06, outside
+                           # the view; 1.8 keeps every apex angle inside with a margin
 
 # Circular sector / segment: angular span (degrees); the radius is the shared one
 ARC_SPAN_MIN = 1.0         # degrees; kept off 0 and 360 to avoid degenerate wedges
@@ -170,11 +172,11 @@ DEFAULT_SEGMENT_SPAN = 120.0
 
 # Two-circle lens: two radii and a center separation
 LENS_RADIUS_MIN = 0.0
-LENS_RADIUS_MAX = 2.0
-DEFAULT_LENS_RADIUS = 1.0
+LENS_RADIUS_MAX = 4.0
+DEFAULT_LENS_RADIUS = 2.0
 LENS_SEP_MIN = 0.0
-LENS_SEP_MAX = 2.0
-DEFAULT_LENS_SEP = 1.0
+LENS_SEP_MAX = 4.0
+DEFAULT_LENS_SEP = 2.0
 
 # Reuleaux polygon: odd number of sides, like a regular polygon
 REULEAUX_MIN_SIDES = 3
@@ -183,11 +185,11 @@ DEFAULT_REULEAUX_SIDES = 3
 
 # Capsule (stadium): straight-part length, cap radius
 CAPSULE_LENGTH_MIN = 0.0
-CAPSULE_LENGTH_MAX = 2.0
-DEFAULT_CAPSULE_LENGTH = 1.0
+CAPSULE_LENGTH_MAX = 4.0
+DEFAULT_CAPSULE_LENGTH = 2.0
 CAPSULE_RADIUS_MIN = 0.0
-CAPSULE_RADIUS_MAX = 1.0
-DEFAULT_CAPSULE_RADIUS = 0.5
+CAPSULE_RADIUS_MAX = 2.0
+DEFAULT_CAPSULE_RADIUS = 1.0
 
 # Trefoil / quatrefoil: lobe size as a fraction of the radius (the distance from the
 # centre to the farthest point); below 0.5 the lobes would leave a hole in the middle
@@ -197,11 +199,11 @@ DEFAULT_LOBE_SIZE = 0.6
 
 # Lune: the outer circle's radius is the shared radius; a second circle cuts a bite out of it
 CUT_RADIUS_MIN = 0.0
-CUT_RADIUS_MAX = 2.0
-DEFAULT_CUT_RADIUS = 0.8
+CUT_RADIUS_MAX = 4.0
+DEFAULT_CUT_RADIUS = 1.6
 CUT_OFFSET_MIN = 0.0
-CUT_OFFSET_MAX = 2.0
-DEFAULT_CUT_OFFSET = 0.6
+CUT_OFFSET_MAX = 4.0
+DEFAULT_CUT_OFFSET = 1.2
 
 # Arbelos: where the diameter is split, as a fraction of its length from one end
 SPLIT_MIN = 0.05
@@ -224,8 +226,8 @@ DEFAULT_SQUARENESS = 0.7
 # the ribbon fills (the shared radius is the outer edge's greatest distance from the centre; 1 would fill the
 # whole disc and leave no edge between turns)
 SPIRAL_PITCH_MIN = 0.04
-SPIRAL_PITCH_MAX = 1.0
-DEFAULT_SPIRAL_PITCH = 0.25
+SPIRAL_PITCH_MAX = 2.0
+DEFAULT_SPIRAL_PITCH = 0.5
 SPIRAL_FILL_MIN = 0.05
 SPIRAL_FILL_MAX = 0.95
 DEFAULT_SPIRAL_FILL = 0.5
@@ -270,7 +272,8 @@ GUIDE_FALLBACK_HEX = "#c8c8c8"     # used with a stipple if alpha images fail
 # length rather than of position). Each bar is colored by the tag of the point
 # at its top (earlier) and bottom (later) end.
 SEG_CANVAS_W = PREVIEW_BOX
-SEG_CANVAS_H = PREVIEW_BOX // 2   # 1 world unit, at the main image's pixels-per-unit
+SEG_CANVAS_H = PREVIEW_BOX // 2   # SEG_CANVAS_WORLD_HEIGHT world units, at the main image's pixels-per-unit (128 per unit)
+SEG_CANVAS_WORLD_HEIGHT = 2.0     # a segment this long (in world units) fills the bar graph; longer ones are truncated
 # The corkscrew graphic: the sequence's segments all the same length, laid end to end from the centre of a
 # square canvas, each pointing the way its own segment does. The length is chosen so that the farthest point
 # is CORKSCREW_MARGIN of the canvas's side (at least CORKSCREW_MARGIN_MIN pixels) short of the edge.

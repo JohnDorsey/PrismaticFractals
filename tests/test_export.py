@@ -352,7 +352,7 @@ def test_figure_info_lines_says_so_when_there_are_no_obstacles():
 def test_figure_info_lines_lists_every_setting_of_the_starting_obstacle():
     lines = m.figure_info_lines(*_generation(), _start_scene())
     assert "Obstacle #1: Ellipse" in lines
-    for expected in ("  w2.00 h2.00", "  rot 0.0\u00b0", "  pos r0.00 \u03b80.0\u00b0",
+    for expected in ("  w4.00 h4.00", "  rot 0.0\u00b0", "  pos r0.00 \u03b80.0\u00b0",
                      "  offset +0.00 +0.00", "  in:Reflect", "  out:Reflect", "  fire:On"):
         assert expected in lines, expected
 
