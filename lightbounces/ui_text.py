@@ -2,7 +2,7 @@
 from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, OBSTACLE_EFFECT_NAMES
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_SHORT, CHAN_SRC_BUDDHA,
-    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, METRIC_SHORT
+    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, PATH_KIND_SHORT, POINT_SHORT, METRIC_SHORT
 )
 from .shapes import OBST_FIELD_FMT
 
@@ -58,7 +58,9 @@ def short_value_text(key, val):
             chosen = [BUDDHA_POINT_SHORT[i] for i, on in enumerate(val.buddha_points) if on]
             comp = BUDDHA_COMPRESSION_LABELS[val.buddha_compression]
             bright = BUDDHA_BRIGHTNESS_OPTIONS[val.buddha_brightness]
-            return f"Buddha:{'+'.join(chosen) if chosen else 'none'}/{comp}/{bright}"
+            kinds = "" if all(val.buddha_path_kinds) else "[" + "+".join(
+                PATH_KIND_SHORT[k] for k, on in enumerate(val.buddha_path_kinds) if on) + "]"
+            return f"Buddha:{'+'.join(chosen) if chosen else 'none'}{kinds}/{comp}/{bright}"
         if val.chan_src == CHAN_SRC_CONSTANT:
             return f"Const:{'0' if val.constant == NONE_ZERO else '1'}"
         if val.metric_type == METRIC_TYPE_POINT_PAIR:

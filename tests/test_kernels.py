@@ -356,7 +356,7 @@ def test_buddha_multi_scatter_includes_the_escaping_segment():
     counts = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX))
     circle = _circle_obstacle(0.0, 0.0, 1.0, R, P, fire=True)      # rays leave it
     m.scatter_multi_buddha(250, 252, UNIT_WORLD, _termination(8), _engine_args(m.build_obstacle_arrays([circle])), 0,
-                           False, True, False, False, counts)
+                           False, True, False, False, False, ALL_TERMS_ALLOWED, counts)
     # Nothing to bounce off, so every firing ray is a single segment (start to
     # the escape radius) with exactly one midpoint, which is counted when it lands in the image.
     xs = (np.arange(m.PREVIEW_BOX) + 0.5) * UNIT_PIXEL - 1.0
@@ -1318,7 +1318,7 @@ def test_multi_point_buddha_fires_rays_in_proportion_to_the_output_resolution():
     totals, densities = {}, {}
     for w in (64, 128, 256):
         counts = np.zeros((w, w))
-        m.scatter_multi_buddha(0, w, UNIT_WORLD, _termination(40), _engine_args(arrays), 0, False, True, False, False, counts)
+        m.scatter_multi_buddha(0, w, UNIT_WORLD, _termination(40), _engine_args(arrays), 0, False, True, False, False, False, ALL_TERMS_ALLOWED, counts)
         gx, gy = m.make_grid(w, w)
         inside = int((np.hypot(gx, gy) < 1.0).sum())
         totals[w], densities[w] = counts.sum(), counts.sum() / inside
@@ -1894,7 +1894,7 @@ def _scatter_seeds(n, zone, slots=(), end_terms=(), multi=(False, False, False, 
     counts = np.zeros((n, n))
     m.scatter_from_seeds(0 if rows is None else rows[0], n if rows is None else rows[1], m.WorldRect(*zone), UNIT_WORLD, termination, engine_args,
                          fuzz_seed,
-                         np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, counts)
+                         np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64), *multi, False, ALL_TERMS_ALLOWED, counts)
     return counts
 
 
@@ -1905,7 +1905,7 @@ def test_the_zone_of_the_whole_world_seeds_exactly_the_pixels_of_an_image_coveri
     n = 24
     for multi in [(True, False, False, False), (False, True, False, False), (False, False, True, True)]:
         old = np.zeros((n, n))
-        m.scatter_multi_buddha(0, n, UNIT_WORLD, termination, engine_args, 0, *multi, old)
+        m.scatter_multi_buddha(0, n, UNIT_WORLD, termination, engine_args, 0, *multi, False, ALL_TERMS_ALLOWED, old)
         assert old.sum() > 0
         assert np.array_equal(old, _scatter_seeds(n, (-1.0, 1.0, -1.0, 1.0), multi=multi))
 

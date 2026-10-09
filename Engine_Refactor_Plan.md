@@ -156,6 +156,20 @@ bit-identical.
 Done when: hashes identical with the filter all ticked; the property test passes. Decisions: D16, D38 (ray-bouncing
 half).
 
+Result (done; `FILE_VERSION` 155; 778 tests pass, 9 new):
+- A channel has `buddha_path_kinds` (three flags; `CAT_PATH_KIND` keys; default all ticked; a file without it loads all
+  ticked; saved for Buddha channels only; carried by the keyframe's channel record) with three checkboxes ("Paths:") in its
+  Buddha controls; "All path points" is the new multi option (catalog entry 36, the last, so no old index moved).
+- A perpendicular collision is non-escaping (the redefinition recorded in D16). A path of an unticked kind scatters nothing,
+  for the stored options (masked by the stored termination metric, which `demand_layout` keeps for a limited channel) and for
+  the kernels (`term_allowed`, one flag per `TERM_*` code).
+- Verified: with all three ticked, `image_hashes.py` and `project_images.py` are identical to their baselines. The property
+  test runs every set of ticked kinds x three options (a stored point, all path points, all midpoints) x both kinds of seeding
+  against a reference written from `trace_path` alone, on a scene that has escaping, obstacle-terminated, iteration-limit and
+  perpendicular endings; removing either the flags or the stored mask makes it fail (tried).
+- Not looked at: the three new checkboxes in the window (built like the point checkboxes; the layout row of the compression
+  and brightness controls moved down one).
+
 ## Step 5. The engine as a setting, with one engine  (effort: medium)
 
 Goal: the choice of engine exists end to end, with only Ray Bouncing available.
@@ -167,6 +181,13 @@ Goal: the choice of engine exists end to end, with only Ray Bouncing available.
 - Self-checks keep the new table in step with the record.
 
 Done when: save, New, Open and Start round-trip the engine; images identical. Decisions: D6, D8, D32.
+
+Result (done; `FILE_VERSION` 156; 786 tests pass, 8 new): `EngineSettings`, `ENGINE_SETTING_SPECS`, `CAT_ENGINE`, the Simulation
+tab's dropdown (Ray Bouncing only; a project that says Mandelbrot is refused until step 14 offers it),
+`GeneratedFigure.engine`, `baseline_engine`, the keyframe key `engine`, the project section `engine` and the `Engine:` block
+of the figure settings margin. The pair `(ray, natural_termination)` that Start, `settings_of` and the export calls pass
+around is unchanged - the engine travels beside it, as the blur and the seeding do - so no file name and no existing call
+changed. Images identical (`image_hashes.py`, `project_images.py`). Not looked at: the dropdown in the window.
 
 ## Step 6. The compatibility core, tested with a test-double engine  (effort: high)
 

@@ -38,7 +38,7 @@ def _sample_project(**changes):
     v1.color_model = "HSV"
     v1.set_channel(1, m.ChannelSettings(
         chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=0, point2=1,
-        buddha_points=_buddha_choice(m.POINT_SELF_MEAN, m.POINT_BOUNDARY_MEAN),
+        buddha_points=_buddha_choice(m.POINT_SELF_MEAN, m.POINT_BOUNDARY_MEAN), buddha_path_kinds=m.ALL_PATH_KINDS,
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ONE))
     channel = m.coloration_channel_value(v1, 1)
     keyframes = (m.Keyframe(2, 0, {"iter": 40, "dist": 2.5, "outline": False,
@@ -54,7 +54,7 @@ def _sample_project(**changes):
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
-    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=OLD_SEEDING,
+    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=OLD_SEEDING, engine=m.DEFAULT_ENGINE_SETTINGS,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
                   colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)),
@@ -116,7 +116,7 @@ def test_a_project_survives_being_saved_and_loaded():
 def _channel(source, **changes):
     fields = dict(chan_src=source, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_EUCLIDEAN, point1=m.POINT_TOP,
                   point2=m.CHOICE_ORIGIN,
-                  buddha_points=_buddha_choice(m.POINT_SELF_MEAN),
+                  buddha_points=_buddha_choice(m.POINT_SELF_MEAN), buddha_path_kinds=m.ALL_PATH_KINDS,
                   buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3,
                   constant=m.NONE_ONE)
     fields.update(changes)
@@ -130,7 +130,7 @@ def test_a_channel_in_a_file_has_only_the_settings_its_source_uses():
     query_other = m._channel_to_json(_channel(m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT))
     assert query_other == {"source": "query", "kind": "other_metric", "metric": "bounces_count"}
     assert m._channel_to_json(_channel(m.CHAN_SRC_BUDDHA)) == {
-        "source": "buddha", "buddha_points": ["self_bounces_mean"],
+        "source": "buddha", "buddha_points": ["self_bounces_mean"], "buddha_path_kinds": ["escaping", "non_escaping", "terminated_by_obstacle"],
         "buddha_compression": "modulus", "buddha_brightness": "8x"}
     assert m._channel_to_json(_channel(m.CHAN_SRC_CONSTANT)) == {"source": "constant",
                                                                   "constant": "one"}
@@ -447,6 +447,8 @@ PINNED_KEYS = {
         "self_bounces_rightmost": "POINT_SELF_RIGHT", "self_bounces_leftmost": "POINT_SELF_LEFT",
         "origin": "CHOICE_ORIGIN", "(-1,1)": "CHOICE_POINT_NEG1_POS1",
         "(-2,2)": "CHOICE_TOP_LEFT_POINT"},
+    "CAT_PATH_KIND": {"escaping": "PATH_KIND_ESCAPING", "non_escaping": "PATH_KIND_NON_ESCAPING",
+                      "terminated_by_obstacle": "PATH_KIND_TERMINATED_BY_OBSTACLE"},
     "CAT_BUDDHA_COMPRESSION": {"arctangent": "BUDDHA_COMPRESS_ARCTAN",
                                "modulus": "BUDDHA_COMPRESS_MODULUS"},
     "CAT_CONSTANT": {"zero": "NONE_ZERO", "one": "NONE_ONE"},
@@ -468,7 +470,8 @@ PINNED_BUDDHA_POINT_KEYS = {          # key -> (style, the point or multi option
     "all_self_bounces": ("BUDDHA_MULTI", "BUDDHA_MULTI_ALL_SELF", None),
     "all_segment_midpoints": ("BUDDHA_MULTI", "BUDDHA_MULTI_ALL_MID", None),
     "progressive_means_of_bounce_points": ("BUDDHA_MULTI", "BUDDHA_MULTI_PROG_BOUNCE", None),
-    "progressive_means_of_segment_midpoints": ("BUDDHA_MULTI", "BUDDHA_MULTI_PROG_MID", None)}
+    "progressive_means_of_segment_midpoints": ("BUDDHA_MULTI", "BUDDHA_MULTI_PROG_MID", None),
+    "all_path_points": ("BUDDHA_MULTI", "BUDDHA_MULTI_ALL_PATH", None)}
 # What the keys of format 4 (and 1-3: the migrations bring them to format 4's) meant: key -> the program's constant. Every
 # one must still load, as the key _migrate_project_4_to_5 renames it to.
 FORMAT_4_KEYS = {
@@ -661,7 +664,7 @@ def test_a_project_file_holds_keys_for_every_choice_and_no_codes():
     assert all(isinstance(o["fields"]["out_effect"], str) for o in data["obstacles"])
     channel = data["colorations"][1]["channels"][1]
     assert channel == {"source": "buddha",
-                       "buddha_points": ["boundary_bounces_mean", "self_bounces_mean"],
+                       "buddha_points": ["boundary_bounces_mean", "self_bounces_mean"], "buddha_path_kinds": ["escaping", "non_escaping", "terminated_by_obstacle"],
                        "buddha_compression": "modulus", "buddha_brightness": "8x"}
     settings = data["keyframes"][0]["settings"]
     assert settings["coloration:5:chan1"] == channel and settings["iter"] == 40
@@ -1315,7 +1318,8 @@ def test_a_migrated_file_does_not_depend_on_the_defaults_of_the_program():
 
     def read(path):
         project = m.load_project(path)
-        base = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed)
+        base = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed,
+                                  project.engine)
         base["outline"] = bool(project.decorations.get("outline", True))
         ordered = sorted(project.keyframes, key=lambda k: k.frame_index)
         frames = [m.resolve_frame_settings(ordered, kf.frame_index, base) for kf in ordered]
@@ -1376,3 +1380,60 @@ def test_a_channel_comparing_the_top_left_point_is_saved_under_the_key_of_its_co
     loaded = _round_trip(project)
     channel = m.coloration_channel_value(loaded.colorations[0], 0)
     assert (channel.point1, channel.point2) == (m.CHOICE_TOP_LEFT_POINT, m.CHOICE_POINT_NEG1_POS1)
+
+
+def test_the_kinds_of_path_a_buddha_channel_scatters_are_saved_as_keys_and_a_file_without_them_means_all_three():
+    import json
+    v = m.ColorationConfig(0)
+    v.chan_src[1] = m.CHAN_SRC_BUDDHA
+    v.buddha_path_kinds[1] = (True, False, True)
+    v.buddha_path_kinds[2] = (False, False, False)                  # (not a Buddha channel: not saved)
+    project = _sample_project(colorations=(m.snapshot_coloration(v),), selected_coloration_id=0)
+    data = json.loads(m.project_text(project))
+    channel = data["colorations"][0]["channels"][1]
+    assert channel["buddha_path_kinds"] == ["escaping", "terminated_by_obstacle"]
+    assert "buddha_path_kinds" not in data["colorations"][0]["channels"][2]
+    loaded = _round_trip(project)
+    assert m.coloration_channel_value(loaded.colorations[0], 1).buddha_path_kinds == (True, False, True)
+    assert m.coloration_channel_value(loaded.colorations[0], 2).buddha_path_kinds == m.ALL_PATH_KINDS
+    del channel["buddha_path_kinds"]                                # a file from before
+    old = m.project_from_dict(data)
+    assert m.coloration_channel_value(old.colorations[0], 1).buddha_path_kinds == m.ALL_PATH_KINDS
+    channel["buddha_path_kinds"] = []                               # none ticked is a choice
+    assert m.coloration_channel_value(m.project_from_dict(data).colorations[0], 1).buddha_path_kinds == (False, False, False)
+    for bad, text in ((["escaping", "sideways"], "not a kind of path"), ("escaping", "must be a list")):
+        channel["buddha_path_kinds"] = bad
+        assert _raises(m.ProjectError, lambda: m.project_from_dict(data))
+    keyframe = {"id": 1, "frame_index": 0, "settings": {"coloration:0:chan1": {
+        "source": "buddha", "buddha_points": ["path_last"], "buddha_path_kinds": ["non_escaping"],
+        "buddha_compression": "arctangent", "buddha_brightness": "1x"}}}
+    data["colorations"][0]["channels"][1] = {"source": "buddha", "buddha_points": ["path_last"], "buddha_compression": "arctangent",
+                                              "buddha_brightness": "1x"}
+    data["keyframes"] = [keyframe]
+    assert m.project_from_dict(data).keyframes[0].data["coloration:0:chan1"].buddha_path_kinds == (False, True, False)
+
+
+def test_the_path_engine_is_saved_in_a_section_of_its_own_and_a_file_without_it_means_ray_bouncing():
+    import json
+    project = _sample_project()
+    data = json.loads(m.project_text(project))
+    assert data["engine"] == {"engine": "ray_bouncing"} and data["format_version"] == 9, "a section added: no new format"
+    assert _round_trip(project).engine == m.DEFAULT_ENGINE_SETTINGS
+    del data["engine"]
+    assert m.project_from_dict(data).engine == m.DEFAULT_ENGINE_SETTINGS
+    mandelbrot = project.replace(engine=m.EngineSettings(engine=m.ENGINE_MANDELBROT))
+    assert json.loads(m.project_text(mandelbrot))["engine"] == {"engine": "mandelbrot"}
+    assert m.project_signature(mandelbrot) != m.project_signature(project), "a different engine is an unsaved change"
+    data = json.loads(m.project_text(mandelbrot))
+    assert _raises(m.ProjectError, lambda: m.project_from_dict(data)), "(not until the engine is offered)"
+    try:
+        m.project_from_dict(data)
+    except m.ProjectError as exc:
+        assert "Mandelbrot" in str(exc) and "cannot run yet" in str(exc)
+    data["engine"]["engine"] = "warp_drive"
+    assert _raises(m.ProjectError, lambda: m.project_from_dict(data))
+
+
+def test_the_keys_of_the_path_engines_never_change():
+    assert m.CAT_ENGINE.by_key == {"ray_bouncing": m.ENGINE_RAY_BOUNCING, "mandelbrot": m.ENGINE_MANDELBROT}
+    assert m.CAT_ENGINE.name == "path engine"

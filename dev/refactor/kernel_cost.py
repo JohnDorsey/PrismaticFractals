@@ -29,6 +29,7 @@ engine_args = m.ray_args(1.0, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, a
 first_call = time.perf_counter()
 m.trace_rows(stats, characteristic_points, pixel_state, 0, n, n, n, termination, engine_args, 0)
 counts = np.zeros((n, n))
-m.scatter_multi_buddha(0, n, termination, engine_args, 0, False, True, False, False, counts)
+m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, False, True, False, False, False,
+                       np.ones(m.N_TERM, dtype=np.bool_), counts)
 done = time.perf_counter()
 print(f"import {imported - started:.1f}s | first kernel calls {done - first_call:.1f}s")

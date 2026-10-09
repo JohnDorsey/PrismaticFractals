@@ -4,7 +4,7 @@ ChannelSettings (one channel as a keyframe stores it), resolve_colorations (a co
 import numpy as np
 from .kernels import POINT_END, POINT_START, ST_BOUNCE_COUNT, ST_HDIST, ST_MANHATTAN, ST_VDIST
 from .metrics import (
-    BUDDHA_COMPRESS_ARCTAN, CHAN_SRC_QUERY, DEFAULT_BUDDHA_BRIGHTNESS, DEFAULT_BUDDHA_POINTS,
+    BUDDHA_COMPRESS_ARCTAN, CHAN_SRC_QUERY, DEFAULT_BUDDHA_BRIGHTNESS, DEFAULT_BUDDHA_PATH_KINDS, DEFAULT_BUDDHA_POINTS,
     METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ZERO
 )
 from .settings import resolve_value, strict_record
@@ -21,6 +21,7 @@ DEFAULT_POINT2S = (POINT_END, POINT_END, POINT_END)        # point 2 per channel
 DEFAULT_CHAN_SRCS = (CHAN_SRC_QUERY, CHAN_SRC_QUERY, CHAN_SRC_QUERY)   # per channel
 DEFAULT_CONSTANT_CHOICES = (NONE_ZERO, NONE_ZERO, NONE_ZERO)          # per channel
 DEFAULT_BUDDHA_POINTS_PER_CHAN = (DEFAULT_BUDDHA_POINTS,) * 3
+DEFAULT_BUDDHA_PATH_KINDS_PER_CHAN = (DEFAULT_BUDDHA_PATH_KINDS,) * 3
 DEFAULT_BUDDHA_COMPRESSIONS = (BUDDHA_COMPRESS_ARCTAN,) * 3
 DEFAULT_BUDDHA_BRIGHTNESSES = (DEFAULT_BUDDHA_BRIGHTNESS,) * 3
 DEFAULT_COLOR_MODEL = "RGB"
@@ -57,7 +58,7 @@ class ColorationConfig:
     meaning; which one the top-left preview shows is whichever is selected
     (see live_coloration/select_coloration), not necessarily self.colorations[0]."""
     __slots__ = ("id", "color_model", "chan_src", "metric_types", "point_metric", "other_metric",
-                "point1_choice", "point2_choice", "buddha_points", "buddha_compression",
+                "point1_choice", "point2_choice", "buddha_points", "buddha_path_kinds", "buddha_compression",
                 "buddha_brightness", "constant_choice")
 
     def __init__(self, id_):
@@ -70,6 +71,7 @@ class ColorationConfig:
         self.point1_choice = list(DEFAULT_POINT1S)
         self.point2_choice = list(DEFAULT_POINT2S)
         self.buddha_points = list(DEFAULT_BUDDHA_POINTS_PER_CHAN)
+        self.buddha_path_kinds = list(DEFAULT_BUDDHA_PATH_KINDS_PER_CHAN)
         self.buddha_compression = list(DEFAULT_BUDDHA_COMPRESSIONS)
         self.buddha_brightness = list(DEFAULT_BUDDHA_BRIGHTNESSES)
         self.constant_choice = list(DEFAULT_CONSTANT_CHOICES)
@@ -86,6 +88,7 @@ class ColorationConfig:
         self.point1_choice[c] = channel.point1
         self.point2_choice[c] = channel.point2
         self.buddha_points[c] = channel.buddha_points
+        self.buddha_path_kinds[c] = channel.buddha_path_kinds
         self.buddha_compression[c] = channel.buddha_compression
         self.buddha_brightness[c] = channel.buddha_brightness
         self.constant_choice[c] = channel.constant
@@ -95,7 +98,7 @@ class ColorationConfig:
         return ColorationSettings(color_model=self.color_model, metric_types=self.metric_types, point_metric=self.point_metric,
                             other_metric=self.other_metric, point1_choice=self.point1_choice,
                             point2_choice=self.point2_choice, chan_src=self.chan_src,
-                            buddha_points=self.buddha_points,
+                            buddha_points=self.buddha_points, buddha_path_kinds=self.buddha_path_kinds,
                             buddha_compression=self.buddha_compression,
                             buddha_brightness=self.buddha_brightness,
                             constant_choice=self.constant_choice)
@@ -115,6 +118,7 @@ class ColorationSnapshot:
     point1_choice: tuple
     point2_choice: tuple
     buddha_points: tuple
+    buddha_path_kinds: tuple
     buddha_compression: tuple
     buddha_brightness: tuple
     constant_choice: tuple
@@ -145,6 +149,7 @@ class ChannelSettings:
     point1: int
     point2: int
     buddha_points: tuple
+    buddha_path_kinds: tuple          # three flags (PATH_KIND_* order): the kinds of path a Buddha channel scatters
     buddha_compression: int
     buddha_brightness: int
     constant: int
@@ -156,7 +161,7 @@ def coloration_channel_value(v, c):
     metric_slot = v.point_metric[c] if v.metric_types[c] == METRIC_TYPE_POINT_PAIR else v.other_metric[c]
     return ChannelSettings(
         chan_src=v.chan_src[c], metric_type=v.metric_types[c], metric_slot=metric_slot, point1=v.point1_choice[c],
-        point2=v.point2_choice[c], buddha_points=v.buddha_points[c],
+        point2=v.point2_choice[c], buddha_points=v.buddha_points[c], buddha_path_kinds=v.buddha_path_kinds[c],
         buddha_compression=v.buddha_compression[c], buddha_brightness=v.buddha_brightness[c],
         constant=v.constant_choice[c])
 
@@ -188,6 +193,7 @@ class ColorationSettings:
     point2_choice: tuple
     chan_src: tuple
     buddha_points: tuple
+    buddha_path_kinds: tuple
     buddha_compression: tuple
     buddha_brightness: tuple
     constant_choice: tuple
@@ -209,6 +215,7 @@ def decompose_chans(color_model, chans):
         point2_choice=tuple(c.point2 for c in chans),
         chan_src=tuple(c.chan_src for c in chans),
         buddha_points=tuple(c.buddha_points for c in chans),
+        buddha_path_kinds=tuple(c.buddha_path_kinds for c in chans),
         buddha_compression=tuple(c.buddha_compression for c in chans),
         buddha_brightness=tuple(c.buddha_brightness for c in chans),
         constant_choice=tuple(c.constant for c in chans))

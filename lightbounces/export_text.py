@@ -3,13 +3,13 @@ coloration info and of the figure settings (the left margin that lists every fig
 functions that draw it into an image (overlay, bottom margin, left margin). Pure functions of settings, colorations and obstacles; no UI."""
 import time
 import numpy as np
-from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES
+from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, ENGINE_NAMES
 from .image_io import jxl_quality_tag, render_text_line
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, PREVIEW_BOX
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
-    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_SHORT, POINT_METRICS, METRIC_LABELS,
-    constant_metric_to_label
+    CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, PATH_KIND_LABELS, POINT_SHORT, POINT_METRICS,
+    METRIC_LABELS, constant_metric_to_label
 )
 from .colorations import COLOR_MODELS
 from .framings import framing_info_block
@@ -90,6 +90,9 @@ def coloration_info_lines(coloration):
                 lines.extend(f"  {name}" for name in chosen)
             else:
                 lines.append("  (none)")
+            if not all(coloration.buddha_path_kinds[c]):
+                lines.append("  paths: " + (", ".join(PATH_KIND_LABELS[k] for k, on in enumerate(coloration.buddha_path_kinds[c]) if on)
+                                            or "none"))
             comp = BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]]
             bright = BUDDHA_BRIGHTNESS_OPTIONS[coloration.buddha_brightness[c]]
             lines.append(f"  {comp} {bright}")
@@ -115,7 +118,7 @@ FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines u
 FIGURE_INFO_SEPARATOR = "-" * FIGURE_INFO_COLUMN_CHARS   # the line between the figure's settings and the framing's
 
 
-def figure_info_blocks(ray, natural_termination, obstacles):
+def figure_info_blocks(ray, natural_termination, obstacles, engine=None):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
     coloration - as a list of blocks of text lines: the termination limits and segment
@@ -124,7 +127,8 @@ def figure_info_blocks(ray, natural_termination, obstacles):
     Buddha blur only process or decorate the generated data, so they aren't
     part of it.) The blocks' sizes depend only on how many obstacles there
     are, never on the settings' values - so a video's frames, whose settings
-    may be animated, all lay out identically."""
+    may be animated, all lay out identically. `engine` (an EngineSettings, or None to leave the line out) adds the
+    first block, the path engine's name."""
     limits = [f"Iter limit:{natural_termination.max_iter}",
               "Dist limit:" + ("none" if natural_termination.max_dist == 0
                                else f"{natural_termination.max_dist:.2f}"),
@@ -152,7 +156,7 @@ def figure_info_blocks(ray, natural_termination, obstacles):
                 f"  Self {f.self_offset:+.1f}\u00b0 \u00b1{f.self_jitter:.1f}\u00b0 "
                 f"\u00d7{f.self_mult:.2f}",
                 f"  Seed {f.rng_seed}"]
-    blocks = [limits, emission, confinement, fuzz]
+    blocks = ([[f"Engine:{ENGINE_NAMES[engine.engine]}"]] if engine is not None else []) + [limits, emission, confinement, fuzz]
     if obstacles:
         blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]
     else:
@@ -160,9 +164,9 @@ def figure_info_blocks(ray, natural_termination, obstacles):
     return blocks
 
 
-def figure_info_lines(ray, natural_termination, obstacles):
+def figure_info_lines(ray, natural_termination, obstacles, engine=None):
     """figure_info_blocks(), flattened into one list of lines."""
-    return [line for block in figure_info_blocks(ray, natural_termination, obstacles) for line in block]
+    return [line for block in figure_info_blocks(ray, natural_termination, obstacles, engine) for line in block]
 
 
 def layout_info_columns(blocks, lines_per_column):
@@ -264,7 +268,7 @@ def add_bottom_color_margin(img, colorations, coloration_width):
     return out
 
 
-def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location):
+def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine=None):
     """The blocks of text lines of the left margin, as the Export designer's two "settings location" choices have
     it: the figure's settings (figure_info_blocks) if that location is "Left margin", then the framing's
     (framing_info_block) if its location is, below them with a line of dashes between (just the framing's, with
@@ -272,7 +276,7 @@ def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_loca
     depend only on how many obstacles there are."""
     blocks = []
     if figure_location == "Left margin":
-        blocks += figure_info_blocks(ray, natural_termination, obstacles)
+        blocks += figure_info_blocks(ray, natural_termination, obstacles, engine)
     if framing_location == "Left margin":
         block = framing_info_block(framing)
         blocks.append([FIGURE_INFO_SEPARATOR] + block if blocks else block)
@@ -306,7 +310,7 @@ def add_left_info_margin(img, blocks):
 
 
 def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termination, obstacles, color_location,
-                         figure_location, framing, framing_location, mutate_ok):
+                         figure_location, framing, framing_location, mutate_ok, engine=None):
     """Applies the Export designer's Color info location, Figure settings
     location and Framing settings location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
@@ -314,7 +318,8 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termin
     never reads a Tk variable directly (callers capture the locations
     on the main thread first). `ray`, `natural_termination` and `obstacles` are
     what defines the figure being exported (see figure_info_blocks), `framing` the framing it is an image
-    of (see framing_info_block). mutate_ok=False never draws
+    of (see framing_info_block); `engine` (an EngineSettings, or None) adds the path engine's name to the figure's
+    settings. mutate_ok=False never draws
     into `rgb` in place for the "Overlay" case (a defensive copy is made
     first instead) - needed when `rgb` might be a shared, reused buffer
     like self.image_for_export."""
@@ -324,7 +329,7 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termin
         draw_coloration_info(rgb, colorations, coloration_width)
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, colorations, coloration_width)
-    blocks = left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location)
+    blocks = left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine)
     if blocks:
         rgb = add_left_info_margin(rgb, blocks)
     return rgb

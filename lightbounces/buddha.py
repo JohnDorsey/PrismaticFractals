@@ -12,8 +12,9 @@ from .constants import (
 from .kernels import ST_TERMINATION, WorldRect, scatter_from_seeds, scatter_multi_buddha
 from .stored_layout import FULL_LAYOUT
 from .metrics import (
-    BUDDHA_ARCTAN_SCALE, BUDDHA_COMPRESS_ARCTAN, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
-    BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG
+    ALL_PATH_KINDS, BUDDHA_ARCTAN_SCALE, BUDDHA_COMPRESS_ARCTAN, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_PATH,
+    BUDDHA_MULTI_ALL_SELF, BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, PATH_KIND_OF_TERM,
+    term_allowed_flags
 )
 
 
@@ -100,15 +101,16 @@ def blur_counts_image(counts, kernel):
     return full[max_offset:max_offset + h, max_offset:max_offset + w]
 
 
-def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base):
+def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base,
+                          kinds=ALL_PATH_KINDS):
     """Scatter, into `counts` (in place; it covers the world rectangle `world_rect`), the Buddha points `chosen` (a channel's tuple
     of flags, one per entry of BUDDHA_POINT_CATALOG) of the rays fired from the seed grid `seeds` describes (a
     BuddhaSeedSettings: its zone, laid over counts' own rows and columns), for seed rows [row0, row1). Every chosen
-    option - the characteristic points too - is made from those rays, not from the image's own. Returns whether anything
-    was chosen."""
+    option - the characteristic points too - is made from those rays, not from the image's own; only from the rays whose
+    path is of a kind in `kinds` (a channel's three flags, PATH_KIND_* order). Returns whether anything was chosen."""
     slots, end_terms = [], []
     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
-                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
+                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False, BUDDHA_MULTI_ALL_PATH: False}
     for index, on in enumerate(chosen):
         if not on:
             continue
@@ -125,7 +127,8 @@ def scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termina
                        termination, engine_args, rng_seed_base,
                        np.array(slots, dtype=np.int64), np.array(end_terms, dtype=np.int64),
                        want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
-                       want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)
+                       want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
+                       want_multi[BUDDHA_MULTI_ALL_PATH], term_allowed_flags(kinds), counts)
     return True
 
 
@@ -146,15 +149,31 @@ def blur_kernel(blur, out_w, out_h):
     return build_buddha_blur_kernel(world_radius_to_pixels(blur.radius, out_w, out_h), blur.type)
 
 
-def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout=FULL_LAYOUT):
+def _kind_mask(term_stat, kinds):
+    """Which pixels' stored termination metric (ST_TERMINATION) is the value of a reason whose kind of path is ticked in
+    `kinds` (three flags, PATH_KIND_* order)."""
+    mask = np.zeros(term_stat.shape, dtype=bool)
+    for term, value in TERM_STAT_VALUE.items():
+        if kinds[PATH_KIND_OF_TERM[term]]:
+            mask |= np.abs(term_stat - value) < 0.01
+    return mask
+
+
+def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout=FULL_LAYOUT,
+                          kinds=ALL_PATH_KINDS):
     """Scatter into `counts` (in place; the whole image's visit counts, covering `world_rect`) the characteristic
     points that rows [row0, row1) already stored, for the "simple" options in `chosen` (a channel's tuple of flags, one
     per entry of BUDDHA_POINT_CATALOG): one point per ray that fired, and for an option restricted to a termination
     reason only for rays that ended that way. `fired` is the rows' pixel mask, `stats` and `characteristic_points` their
     stored metrics and points (kept as `layout`, a stored_layout.StoredLayout, says; the termination metric is read only
-    for an option that asks for a termination reason). Returns whether any point was scattered."""
+    for an option that asks for a termination reason, and when `kinds` - a channel's three path-kind flags, PATH_KIND_*
+    order - leaves a kind out, since a ray whose path is of such a kind scatters nothing). Returns whether any point was
+    scattered."""
     h, w = counts.shape
     touched = False
+    if not all(kinds):
+        term_stat = stats[..., layout.stat_position(ST_TERMINATION)]
+        fired = fired & _kind_mask(term_stat, kinds)
     for index, on in enumerate(chosen):
         if not on:
             continue
@@ -179,28 +198,31 @@ def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, 
 
 
 def scatter_buddha_channel(counts, chosen, row0, row1, world_rect, seeds, fired, stats, characteristic_points,
-                           termination, engine_args, rng_seed_base, layout=FULL_LAYOUT):
+                           termination, engine_args, rng_seed_base, layout=FULL_LAYOUT, kinds=ALL_PATH_KINDS):
     """Add to `counts` (in place; one Buddha channel's visit counts for the whole image, covering `world_rect`) the
     contribution of rows [row0, row1), for the options `chosen` (a tuple of flags, one per entry of
     BUDDHA_POINT_CATALOG). `seeds` (a BuddhaSeedSettings, or None for the camera pixels) says where the rays start:
     from the pixels of the image itself (the "simple" options then read the characteristic points the rows already
     stored - `fired`, `stats` and `characteristic_points` are those rows', kept as `layout` says - and the "multi" options trace the rays
     again), or from a seed grid over the seeding zone (every option is then made from rays traced there).
-    `termination`, `engine_args` and `rng_seed_base` are the simulation's own, for tracing again. Returns whether
+    `termination`, `engine_args` and `rng_seed_base` are the simulation's own, for tracing again. `kinds` (three flags,
+    PATH_KIND_* order) limits the channel to the paths of the kinds ticked; all three ticked is no limit. Returns whether
     `counts` may have changed."""
     if seeds is not None and not seeds.camera_pixels:
-        return scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base)
+        return scatter_seeded_buddha(counts, world_rect, seeds, row0, row1, chosen, termination, engine_args, rng_seed_base,
+                                     kinds)
     if not fired.any():
         return False
-    touched = scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout)
+    touched = scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, characteristic_points, layout, kinds)
     want_multi = {BUDDHA_MULTI_ALL_SELF: False, BUDDHA_MULTI_ALL_MID: False,
-                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False}
+                  BUDDHA_MULTI_PROG_BOUNCE: False, BUDDHA_MULTI_PROG_MID: False, BUDDHA_MULTI_ALL_PATH: False}
     for index, on in enumerate(chosen):
         if on and BUDDHA_POINT_CATALOG[index][1] == BUDDHA_MULTI:
             want_multi[BUDDHA_POINT_CATALOG[index][2]] = True
     if any(want_multi.values()):
         scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_seed_base,
                              want_multi[BUDDHA_MULTI_ALL_SELF], want_multi[BUDDHA_MULTI_ALL_MID],
-                             want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID], counts)
+                             want_multi[BUDDHA_MULTI_PROG_BOUNCE], want_multi[BUDDHA_MULTI_PROG_MID],
+                             want_multi[BUDDHA_MULTI_ALL_PATH], term_allowed_flags(kinds), counts)
         touched = True
     return touched

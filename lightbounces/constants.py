@@ -5,10 +5,16 @@ import math
 from .kernels import (
     CONFINE_BOX, EMIT_UP, TAG_BOUNDARY, TAG_DISTCUT, TAG_ESCAPED, TAG_OBSTACLE_TERM,
     TAG_PERPENDICULAR, TAG_SELF, TAG_START, OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT,
-    OBSTACLE_EFFECT_TERMINATE, DEFAULT_PIXEL_WORLD_WIDTH, PREVIEW_BOX, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
+    OBSTACLE_EFFECT_TERMINATE, DEFAULT_PIXEL_WORLD_WIDTH, ENGINE_MANDELBROT, ENGINE_RAY_BOUNCING, PREVIEW_BOX, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER,
     TERM_OBSTACLE, TERM_PERPENDICULAR
 )
 
+
+# The path engines, by code (the order of ENGINE_NAMES is the order of the codes), and the ones the Simulation tab's
+# dropdown offers. The Mandelbrot engine is not offered until it is finished (Engine_Refactor_Plan.md, step 14).
+ENGINE_NAMES = ["Ray Bouncing", "Mandelbrot"]
+OFFERED_ENGINES = (ENGINE_RAY_BOUNCING,)
+DEFAULT_ENGINE = ENGINE_RAY_BOUNCING
 
 ITER_LIMIT_MIN = 1         # allowed range (whole numbers) for the iteration limit
 ITER_LIMIT_MAX = 9999

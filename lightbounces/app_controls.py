@@ -7,7 +7,8 @@ from .constants import (
     BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN,
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
-    DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY,
+    DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
+    OFFERED_ENGINES,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
     DEFAULT_SEGMENT_MULT, DIST_LIMIT_MAX, DIST_LIMIT_MIN, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
@@ -21,8 +22,8 @@ from .parsing import (
     parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, FuzzParams, NaturalTerminationSettings, RaySettings,
-    settings_to_dict
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, EngineSettings, FuzzParams, NaturalTerminationSettings,
+    RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
 from .widgets import FloatEntryHandle
@@ -630,6 +631,29 @@ class ControlsMixin:
             return None
         return ray, natural_termination
 
+    def build_engine_controls(self, parent):
+        """The Simulation tab: which path engine makes the figure. A choice can never be invalid, and a different engine is
+        a different figure, so changing it enables Start like any figure-defining setting. Only the engines in
+        OFFERED_ENGINES are listed."""
+        frame = ttk.LabelFrame(parent, text="Path engine")
+        frame.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+        ttk.Label(frame, text="Engine:").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=8)
+        self.engine_var = tk.StringVar(value=ENGINE_NAMES[DEFAULT_ENGINE])
+        self.engine_combo = ttk.Combobox(frame, textvariable=self.engine_var, state="readonly", width=18,
+                                         values=[ENGINE_NAMES[e] for e in OFFERED_ENGINES])
+        self.engine_combo.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=8)
+        self.engine_combo.bind("<<ComboboxSelected>>", lambda _e: self.on_engine_changed())
+
+    def on_engine_changed(self):
+        """The engine dropdown was used."""
+        self.engine_combo.selection_clear()
+        self.update_buttons()
+        self.refresh_timeline_diffs()
+
+    def current_engine_settings(self):
+        """The Simulation tab's engine (an EngineSettings; never invalid)."""
+        return EngineSettings(engine=ENGINE_NAMES.index(self.engine_var.get()))
+
     def current_blur_settings(self):
         """The Buddha blur controls' values (a BuddhaBlurSettings; a slider and a list of
         choices can never hold an invalid value, so unlike current_generation_settings this is
@@ -661,8 +685,10 @@ class ControlsMixin:
         start_ok = (self.ready and cur is not None
                     and (self.generated is None
                          or cur != settings_of(self.generated)
+                         or self.current_engine_settings() != self.generated.engine
                          or obstacles_signature(self.obstacles) != self.generated.obstacles_signature))
-        revert_ok = cur is None or cur != (self.baseline, self.baseline_natural_termination)
+        revert_ok = (cur is None or cur != (self.baseline, self.baseline_natural_termination)
+                     or self.current_engine_settings() != self.baseline_engine)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
@@ -678,7 +704,7 @@ class ControlsMixin:
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
         program started, or when the last generation was started."""
-        for key, value in settings_to_dict(self.baseline, self.baseline_natural_termination).items():
+        for key, value in settings_to_dict(self.baseline, self.baseline_natural_termination, self.baseline_engine).items():
             self.set_setting_control(key, value)
         self.on_limit_var_changed()
         self.on_shape_param_changed()

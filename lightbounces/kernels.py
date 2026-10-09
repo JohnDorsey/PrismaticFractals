@@ -33,6 +33,13 @@ TERM_PERPENDICULAR = 4   # hit a reflective surface at exactly perpendicular
                          # undefined - see trace_path)
 TERM_ESCAPED = 5         # nothing left ahead to hit: the ray leaves for good (its
                          # last point is where it reaches the escape radius)
+N_TERM = 6               # the TERM_* codes are 0 .. N_TERM - 1 (a Buddha channel's `term_allowed` has one flag for each)
+
+# The path engines (Engine_Refactor_Design.md): which producer of point sequences makes a figure. The drivers of the kernels
+# will switch on these.
+ENGINE_RAY_BOUNCING = 0
+ENGINE_MANDELBROT = 1
+N_ENGINES = 2
 
 # Shapes
 SHAPE_ELLIPSE = 0
@@ -2316,10 +2323,15 @@ def scatter_one_buddha_point(counts, x, y, world_rect):
 
 @njit(cache=True)
 def scatter_trace_points(counts, world_rect, path_points, path_point_tags, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
-                         want_prog_mid):
-    """Scatter into `counts` (in place; it covers the world rectangle `world_rect`) the points of one traced ray that the four
+                         want_prog_mid, want_all_path):
+    """Scatter into `counts` (in place; it covers the world rectangle `world_rect`) the points of one traced ray that the
     "multi-point" Buddha options ask for: every self bounce, every segment midpoint, the progressive means of the
-    bounce points and of the segment midpoints. (path_points, path_point_tags, npts, nb: as trace_path made them.)"""
+    bounce points and of the segment midpoints, and every point of the path (the starting point included).
+    (path_points, path_point_tags, npts, nb: as trace_path made them.)"""
+    if want_all_path:
+        for k in range(npts):
+            scatter_one_buddha_point(counts, path_points[k, 0], path_points[k, 1], world_rect)
+
     if want_all_self:
         for k in range(1, nb + 1):
             if in_sequence(SEQ_SELF, k, path_point_tags):
@@ -2354,7 +2366,7 @@ def scatter_trace_points(counts, world_rect, path_points, path_point_tags, npts,
 
 @njit(cache=True)
 def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, rng_seed_base, slots, end_terms,
-                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts):
+                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, want_all_path, term_allowed, counts):
     """
     Buddha scattering from a grid of seed points. The grid has the shape of `counts` (h rows of w seeds) and is
     laid over the WorldRect `zone` at regular spacings, so its size depends on the output's resolution and not on the
@@ -2365,7 +2377,8 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
     fires a ray (see fires_ray) is traced, with the same fuzzing seed formula as trace_rows, and
     scattered into `counts` (in place; no blur here, it is applied once afterwards): the stored point of each slot
     in `slots` (see POINT_SLOT; an int64 array), the last point if the ray ended for a reason in `end_terms` (TERM_*;
-    an int64 array), and whatever the four multi options asked for (see scatter_trace_points).
+    an int64 array), and whatever the multi options asked for (see scatter_trace_points). `term_allowed` is a bool array
+    with a flag for each TERM_* code (N_TERM): a ray that ended for a reason whose flag is False scatters nothing at all.
     Deliberately single-threaded (no prange): a scattered point can land on any pixel, so a parallel version would
     risk concurrent writes. `termination` is a NaturalTerminationRule and `engine_args` a RayArgs (see trace_path).
     """
@@ -2390,6 +2403,8 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
             if fuzzing:
                 np.random.seed(rng_seed_base + i * 1000003 + j * 97)
             term, npts = trace_path(x, y, path_points, path_point_tags, termination, engine_args, raw)
+            if not term_allowed[term]:
+                continue
             nb = int(raw[RAW_BOUNCES])
             if stored:
                 compute_sequences(path_points, npts, path_point_tags, nb, max_iter, out, ray_characteristic_points)
@@ -2399,12 +2414,12 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
                     if term == t:
                         scatter_one_buddha_point(counts, ray_characteristic_points[POINT_END, 0], ray_characteristic_points[POINT_END, 1], world_rect)
             scatter_trace_points(counts, world_rect, path_points, path_point_tags, npts, nb, want_all_self, want_all_mid,
-                                 want_prog_bounce, want_prog_mid)
+                                 want_prog_bounce, want_prog_mid, want_all_path)
 
 
 @njit(cache=True)
 def scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_seed_base, want_all_self, want_all_mid,
-                         want_prog_bounce, want_prog_mid, counts):
+                         want_prog_bounce, want_prog_mid, want_all_path, term_allowed, counts):
     """
     For rows [row0, row1), re-trace every ray that actually fires (starting at the centre of each pixel of
     `counts`' own grid, which covers the world rectangle `world_rect`, and using the exact same seed formula as
@@ -2415,7 +2430,7 @@ def scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_s
     """
     no_slots = np.empty(0, dtype=np.int64)
     scatter_from_seeds(row0, row1, world_rect, world_rect, termination, engine_args, rng_seed_base, no_slots, no_slots,
-                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, counts)
+                       want_all_self, want_all_mid, want_prog_bounce, want_prog_mid, want_all_path, term_allowed, counts)
 
 
 # A numba limitation shapes the parallel driver below: a parallel function cannot take a tuple that contains

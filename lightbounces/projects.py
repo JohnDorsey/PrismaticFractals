@@ -13,7 +13,7 @@ import json
 import math
 import re
 from .constants import (
-    BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC, BUDDHA_BLUR_GAUSSIAN, BUDDHA_BLUR_TRIANGULAR
+    BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC, BUDDHA_BLUR_GAUSSIAN, BUDDHA_BLUR_TRIANGULAR, ENGINE_NAMES, OFFERED_ENGINES
 )
 from .export_text import (
     COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS, VIDEO_BITRATE_MODES,
@@ -21,20 +21,22 @@ from .export_text import (
 )
 from .image_io import DOWNSAMPLE_FACTORS, DOWNSAMPLE_METHODS, JXL_MODES, SAVE_NEW_FORMATS
 from .kernels import (
-    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, N_PRED, N_SEQS, N_SRED, OBSTACLE_EFFECT_PASS,
+    CONFINE_BOX, CONFINE_PATH, EMIT_TOWARDS, EMIT_UP, ENGINE_MANDELBROT, ENGINE_RAY_BOUNCING, N_PRED, N_SEQS, N_SRED, OBSTACLE_EFFECT_PASS,
     OBSTACLE_EFFECT_REFLECT, OBSTACLE_EFFECT_TERMINATE, PRED_BOTTOM, PRED_FIRST, PRED_LAST, PRED_LEFT, PRED_MEAN,
     PRED_RIGHT, PRED_TOP, SEQ_BOUNCES, SEQ_BOUNDARY, SEQ_PATH, SEQ_SELF, SRED_COUNT, SRED_LAST_DIR, SRED_LENGTH,
     SRED_SHARE, ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN, ST_TERMINATION,
     ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR
 )
 from .metrics import (
-    BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_SELF,
-    BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
-    CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS, OTHER_METRICS, CHOICE_ORIGIN,
-    POINT_METRICS, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, point_slot, stat_slot
+    BUDDHA_COMPRESS_ARCTAN, BUDDHA_COMPRESS_MODULUS, BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, BUDDHA_MULTI_ALL_PATH,
+    BUDDHA_MULTI_ALL_SELF, BUDDHA_MULTI_PROG_BOUNCE, BUDDHA_MULTI_PROG_MID, BUDDHA_POINT_CATALOG, CHAN_SRC_BUDDHA,
+    CHAN_SRC_CONSTANT, CHAN_SRC_QUERY, METRIC_TYPE_OTHER, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, N_BUDDHA_POINTS,
+    OTHER_METRICS, CHOICE_ORIGIN, PATH_KIND_ESCAPING, PATH_KIND_LABELS, PATH_KIND_NON_ESCAPING,
+    PATH_KIND_TERMINATED_BY_OBSTACLE, POINT_METRICS, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, point_slot, stat_slot
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, Keyframe, NaturalTerminationSettings, RaySettings, SETTING_TABLES,
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, EngineSettings, Keyframe, NaturalTerminationSettings,
+    RaySettings, SETTING_TABLES,
     settings_from_dict, settings_to_dict, strict_record
 )
 from .shapes import SHAPE_CLASSES
@@ -122,7 +124,8 @@ _BUDDHA_TERM_KEYS = {TERM_DIST: "distance_limit", TERM_PERPENDICULAR: "perpendic
                      TERM_CONFINED: "confined"}
 _BUDDHA_MULTI_KEYS = {BUDDHA_MULTI_ALL_SELF: "all_self_bounces", BUDDHA_MULTI_ALL_MID: "all_segment_midpoints",
                       BUDDHA_MULTI_PROG_BOUNCE: "progressive_means_of_bounce_points",
-                      BUDDHA_MULTI_PROG_MID: "progressive_means_of_segment_midpoints"}
+                      BUDDHA_MULTI_PROG_MID: "progressive_means_of_segment_midpoints",
+                      BUDDHA_MULTI_ALL_PATH: "all_path_points"}
 
 
 def _buddha_point_key(style, ref, term_filter):
@@ -137,6 +140,9 @@ def _buddha_point_key(style, ref, term_filter):
 CAT_BUDDHA_POINT = Catalog("Buddha point", [          # the code is the place in BUDDHA_POINT_CATALOG
     (_buddha_point_key(style, ref, term_filter), index)
     for index, (_label, style, ref, term_filter) in enumerate(BUDDHA_POINT_CATALOG)])
+CAT_PATH_KIND = Catalog("kind of path", [          # which kinds of path a Buddha channel scatters (a list of these keys)
+    ("escaping", PATH_KIND_ESCAPING), ("non_escaping", PATH_KIND_NON_ESCAPING),
+    ("terminated_by_obstacle", PATH_KIND_TERMINATED_BY_OBSTACLE)])
 CAT_BUDDHA_COMPRESSION = Catalog("Buddha compression", [
     ("arctangent", BUDDHA_COMPRESS_ARCTAN), ("modulus", BUDDHA_COMPRESS_MODULUS)])
 CAT_BUDDHA_BRIGHTNESS = Catalog("Buddha brightness", [      # the code is the place in the options
@@ -148,13 +154,14 @@ CAT_CONFINE_METHOD = Catalog("confinement method", [
 CAT_BLUR_TYPE = Catalog("blur type", [
     ("gaussian", BUDDHA_BLUR_GAUSSIAN), ("triangular", BUDDHA_BLUR_TRIANGULAR),
     ("bokeh", BUDDHA_BLUR_BOKEH), ("catadioptric_bokeh", BUDDHA_BLUR_CATADIOPTRIC)])
+CAT_ENGINE = Catalog("path engine", [("ray_bouncing", ENGINE_RAY_BOUNCING), ("mandelbrot", ENGINE_MANDELBROT)])
 CAT_EFFECT = Catalog("ray effect", [
     ("reflect", OBSTACLE_EFFECT_REFLECT), ("terminate", OBSTACLE_EFFECT_TERMINATE),
     ("pass_through", OBSTACLE_EFFECT_PASS)])
 CAT_SHAPE_KIND = Catalog("obstacle kind", [(cls.KEY, cls) for cls in SHAPE_CLASSES])
 # The settings (of any settings record) that are choices, by setting key
 SETTING_CHOICE_CATALOGS = {"emit_mode": CAT_EMIT_MODE, "confine_method": CAT_CONFINE_METHOD,
-                           "buddha_blur_type": CAT_BLUR_TYPE}
+                           "buddha_blur_type": CAT_BLUR_TYPE, "engine": CAT_ENGINE}
 # Choices made in the Export designer and video panel
 CAT_COLOR_INFO = _string_catalog("colour info location", ["none", "overlay", "bottom_margin"],
                                  COLOR_INFO_LOCATIONS)
@@ -217,6 +224,7 @@ class Project:
     natural_termination: NaturalTerminationSettings   # the limits that end a sequence of points, beside them
     buddha_blur: BuddhaBlurSettings     # the Buddha blur's, beside them (not inside)
     buddha_seed: BuddhaSeedSettings     # where the rays Buddha channels scatter start, beside them
+    engine: EngineSettings              # which path engine makes the figure, beside them
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
     colorations: tuple                  # ColorationSnapshots, in list order
@@ -273,6 +281,7 @@ def _channel_to_json(channel):
     elif channel.chan_src == CHAN_SRC_BUDDHA:
         out["buddha_points"] = [CAT_BUDDHA_POINT.key(i)
                                 for i, chosen in enumerate(channel.buddha_points) if chosen]
+        out["buddha_path_kinds"] = [CAT_PATH_KIND.key(k) for k, on in enumerate(channel.buddha_path_kinds) if on]
         out["buddha_compression"] = CAT_BUDDHA_COMPRESSION.key(channel.buddha_compression)
         out["buddha_brightness"] = CAT_BUDDHA_BRIGHTNESS.key(channel.buddha_brightness)
     else:
@@ -326,6 +335,7 @@ def project_to_dict(project):
         "natural_termination": _settings_to_json(project.natural_termination),
         "buddha_blur": _settings_to_json(project.buddha_blur),
         "buddha_seeding": _settings_to_json(project.buddha_seed),
+        "engine": _settings_to_json(project.engine),
         "decorations": dict(project.decorations),
         "obstacles": [{"kind": type(o).KEY, "id": o.id,
                        "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
@@ -404,7 +414,7 @@ def _channel_from_json(data, where, c):
     source = CAT_CHAN_SOURCE.code(data["source"], where)
     values = {"chan_src": source, "metric_type": default.metric_type, "metric_slot": default.metric_slot,
               "point1": default.point1, "point2": default.point2,
-              "buddha_points": default.buddha_points,
+              "buddha_points": default.buddha_points, "buddha_path_kinds": default.buddha_path_kinds,
               "buddha_compression": default.buddha_compression,
               "buddha_brightness": default.buddha_brightness, "constant": default.constant}
     for name, field, catalog in (("kind", "metric_type", CAT_METRIC_TYPE), ("metric", "metric_slot", CAT_METRIC),
@@ -419,6 +429,11 @@ def _channel_from_json(data, where, c):
         _expect(isinstance(chosen, list), f"{where}: buddha_points must be a list")
         codes = {CAT_BUDDHA_POINT.code(key, where) for key in chosen}
         values["buddha_points"] = tuple(code in codes for code in range(N_BUDDHA_POINTS))
+    if "buddha_path_kinds" in data:                  # (a file without it: every kind, as before channels could be limited)
+        ticked = data["buddha_path_kinds"]
+        _expect(isinstance(ticked, list), f"{where}: buddha_path_kinds must be a list")
+        kinds = {CAT_PATH_KIND.code(key, where) for key in ticked}
+        values["buddha_path_kinds"] = tuple(kind in kinds for kind in range(len(PATH_KIND_LABELS)))
     needed = {CHAN_SRC_QUERY: ["kind", "metric"] + (["point1", "point2"]
                                                     if values["metric_type"] == METRIC_TYPE_POINT_PAIR else []),
               CHAN_SRC_BUDDHA: ["buddha_points", "buddha_compression", "buddha_brightness"],
@@ -878,6 +893,9 @@ def _project_from_dict(data):
                                          "the Buddha blur settings")
     buddha_seed = _settings_from_section(data, "buddha_seeding", BuddhaSeedSettings,
                                          "the Buddha seeding settings")
+    engine = _settings_from_section(data, "engine", EngineSettings, "the path engine")
+    _expect(engine.engine in OFFERED_ENGINES, f"This project uses the {ENGINE_NAMES[engine.engine]} path engine, which this "
+            "version of the program cannot run yet.")
 
     decorations = {key: value for key, value in (data.get("decorations") or {}).items()
                    if isinstance(value, bool)}
@@ -906,7 +924,7 @@ def _project_from_dict(data):
     selected_coloration = selected.get("coloration")
     selected_framing = selected.get("framing")
     return Project(
-        ray=ray, natural_termination=natural_termination, buddha_blur=buddha_blur, buddha_seed=buddha_seed,
+        ray=ray, natural_termination=natural_termination, buddha_blur=buddha_blur, buddha_seed=buddha_seed, engine=engine,
         decorations=decorations, obstacles=obstacles, colorations=colorations, framings=framings,
         keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),

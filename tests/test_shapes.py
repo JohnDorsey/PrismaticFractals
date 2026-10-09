@@ -325,6 +325,7 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.deco = {"outline": _StubVar(True)}
     app.colorations = [m.ColorationConfig(0)]
     o1 = _make_distinct_obstacle(shape=m.SHAPE_MOSS_EGG)
@@ -573,10 +574,10 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
                     "confine_lookback", "confine_method", "confine_threshold",
                     "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
                     "emit_target_cy", "emit_offset", "buddha_seed_camera", "buddha_seed_x_start",
-                    "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop"}
+                    "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop", "engine"}
     assert keys == set(m.DEFAULT_SETTING_VALUES)
     tabs = {tab for _k, tab, _label in m.SETTING_INFO}
-    assert tabs == {"Emissions", "Termination", "Mutations", "Buddha seeding", "Buddha blur", "Decorations"}
+    assert tabs == {"Emissions", "Termination", "Mutations", "Buddha seeding", "Buddha blur", "Decorations", "Simulation"}
 
 
 def test_a_frame_resolved_from_no_keyframes_uses_the_defaults():

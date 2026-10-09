@@ -6,8 +6,8 @@ import numpy as np
 from .kernels import (
     N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALL_MEAN, POINT_END, POINT_SLOT, STAT_SLOT,
     ST_ANGLES, ST_EUCLIDEAN, ST_HDIST, ST_LAST_RATIO, ST_LOOP_AREA, ST_MANHATTAN,
-    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_PERPENDICULAR, DISTANCE_METRIC_DIVISOR,
-    LENGTH_METRIC_DIVISOR
+    ST_TERMINATION, ST_VDIST, TERM_CONFINED, TERM_DIST, TERM_ESCAPED, TERM_ITER, TERM_OBSTACLE, TERM_PERPENDICULAR,
+    DISTANCE_METRIC_DIVISOR, LENGTH_METRIC_DIVISOR, N_TERM
 )
 
 
@@ -270,6 +270,28 @@ BUDDHA_MULTI_ALL_SELF = "all_self"           # every bounce off the ray's own pa
 BUDDHA_MULTI_ALL_MID = "all_mid"             # every segment's midpoint
 BUDDHA_MULTI_PROG_BOUNCE = "prog_bounce"     # progressive means of bounce points
 BUDDHA_MULTI_PROG_MID = "prog_mid"           # progressive means of segment midpoints
+BUDDHA_MULTI_ALL_PATH = "all_path"           # every point of the path, the starting point included
+
+# The three kinds of path a Buddha channel can be limited to (Engine_Refactor_Design.md D16): a path that reached the
+# escape radius, one that was terminated by an obstacle, and every other path that ended (the iteration limit, the
+# distance limit, confinement - and, for a ray, a perpendicular collision). A channel ticks the kinds it scatters.
+PATH_KIND_ESCAPING = 0
+PATH_KIND_NON_ESCAPING = 1
+PATH_KIND_TERMINATED_BY_OBSTACLE = 2
+PATH_KIND_LABELS = ["Escaping", "Non-escaping", "Terminated by obstacle"]
+PATH_KIND_SHORT = ["esc", "non-esc", "obst"]
+PATH_KIND_OF_TERM = {TERM_ESCAPED: PATH_KIND_ESCAPING, TERM_OBSTACLE: PATH_KIND_TERMINATED_BY_OBSTACLE,
+                     TERM_ITER: PATH_KIND_NON_ESCAPING, TERM_DIST: PATH_KIND_NON_ESCAPING,
+                     TERM_CONFINED: PATH_KIND_NON_ESCAPING, TERM_PERPENDICULAR: PATH_KIND_NON_ESCAPING}
+ALL_PATH_KINDS = (True, True, True)             # every kind ticked: no filter at all (a channel's default)
+DEFAULT_BUDDHA_PATH_KINDS = ALL_PATH_KINDS
+
+
+def term_allowed_flags(kinds):
+    """The bool array (one flag per TERM_* code, N_TERM) that says which reasons for a path's ending the path kinds
+    `kinds` (a tuple of three flags, in PATH_KIND_* order) allow: what the Buddha kernels take as `term_allowed`."""
+    return np.array([bool(kinds[PATH_KIND_OF_TERM[term]]) for term in range(N_TERM)], dtype=np.bool_)
+
 
 # (label, style, point index (BUDDHA_SIMPLE) or multi-kind (BUDDHA_MULTI),
 #  required termination reason (BUDDHA_SIMPLE only) or None for no filter).
@@ -283,11 +305,12 @@ BUDDHA_POINT_CATALOG = (
        ("All self bounces", BUDDHA_MULTI, BUDDHA_MULTI_ALL_SELF, None),
        ("All segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_ALL_MID, None),
        ("Progressive means of bounce points", BUDDHA_MULTI, BUDDHA_MULTI_PROG_BOUNCE, None),
-       ("Progressive means of segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_PROG_MID, None)])
+       ("Progressive means of segment midpoints", BUDDHA_MULTI, BUDDHA_MULTI_PROG_MID, None),
+       ("All path points", BUDDHA_MULTI, BUDDHA_MULTI_ALL_PATH, None)])
 N_BUDDHA_POINTS = len(BUDDHA_POINT_CATALOG)
 BUDDHA_POINT_LABELS = [c[0] for c in BUDDHA_POINT_CATALOG]
 BUDDHA_POINT_SHORT = POINT_SHORT[:N_POINTS] + ["Path.last(dist)", "Path.last(perp)", "Path.last(confined)",
-                                               "AllSelf", "AllMid", "ProgBounce", "ProgMid"]
+                                               "AllSelf", "AllMid", "ProgBounce", "ProgMid", "AllPath"]
 # "Bounces: Mean point" only - the default has always been the mean of all the bounces
 DEFAULT_BUDDHA_POINTS = tuple(i == POINT_ALL_MEAN for i in range(N_BUDDHA_POINTS))
 

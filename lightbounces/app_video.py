@@ -589,7 +589,7 @@ class VideoMixin:
                 rgb = apply_info_locations(rgb, colorations, rs["video_w"],
                                            data.ray, data.natural_termination, obst_values,
                                            color_location, figure_location, framing, framing_location,
-                                           mutate_ok=True)
+                                           mutate_ok=True, engine=data.engine)
                 path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo + file_offset:05d}.png")
                 write_png(path, rgb)
                 done = n + 1

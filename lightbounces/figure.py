@@ -6,8 +6,8 @@ PLACEHOLDER_FIGURE (the defaults, no obstacle) stands in where something must be
 from dataclasses import dataclass
 from .kernels import NaturalTerminationRule, RayArgs
 from .settings import (
-    DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, NaturalTerminationSettings, RaySettings,
-    settings_natural_termination, settings_ray_args
+    DEFAULT_ENGINE_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, EngineSettings,
+    NaturalTerminationSettings, RaySettings, settings_natural_termination, settings_ray_args
 )
 from .shapes import build_obstacle_arrays, obstacles_signature
 
@@ -16,6 +16,7 @@ from .shapes import build_obstacle_arrays, obstacles_signature
 class GeneratedFigure:
     ray: RaySettings                           # the ray engine's settings it was started with
     natural_termination: NaturalTerminationSettings
+    engine: EngineSettings                     # which path engine made it
     termination: NaturalTerminationRule        # the kernels' form of natural_termination
     engine_args: RayArgs                       # the kernels' form of ray and the obstacles as generated
     obstacle_snapshots: tuple                  # frozen copies of the obstacles, for the export's figure settings text
@@ -28,10 +29,11 @@ class GeneratedFigure:
         return self.ray.fuzz.rng_seed
 
 
-def generated_figure(ray, natural_termination, obstacles):
-    """The GeneratedFigure of Start: the two settings records and the live `obstacles` as they are now."""
+def generated_figure(ray, natural_termination, obstacles, engine=DEFAULT_ENGINE_SETTINGS):
+    """The GeneratedFigure of Start: the settings records (the engine is the only one there is, for now) and the live
+    `obstacles` as they are now."""
     return GeneratedFigure(
-        ray=ray, natural_termination=natural_termination,
+        ray=ray, natural_termination=natural_termination, engine=engine,
         termination=settings_natural_termination(natural_termination),
         engine_args=settings_ray_args(ray, build_obstacle_arrays(obstacles)),
         obstacle_snapshots=tuple(o.snapshot() for o in obstacles),

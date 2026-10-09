@@ -57,6 +57,7 @@ def _make_fake_app_for_snapshot():
     app.current_generation_settings = m.App.current_generation_settings.__get__(app)
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
 
     app.rng_seed_var = _Get("0")
     app.last_rng_seed = 0
@@ -155,7 +156,8 @@ def _coloration_settings_from_config(v):
     return m.ColorationSettings(color_model=v.color_model, metric_types=v.metric_types, point_metric=v.point_metric,
                           other_metric=v.other_metric, point1_choice=v.point1_choice,
                           point2_choice=v.point2_choice, chan_src=v.chan_src,
-                          buddha_points=v.buddha_points, buddha_compression=v.buddha_compression,
+                          buddha_points=v.buddha_points, buddha_path_kinds=v.buddha_path_kinds,
+                          buddha_compression=v.buddha_compression,
                           buddha_brightness=v.buddha_brightness,
                           constant_choice=v.constant_choice)
 
@@ -279,6 +281,7 @@ def _fake_export_app():
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.apply_coloration = m.App.apply_coloration.__get__(app)
@@ -314,6 +317,7 @@ def _fake_current_image_app():
     app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     empty_i = np.empty(0, dtype=np.int64)
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
@@ -365,6 +369,7 @@ def _generation(**overrides):
 UNIT_WORLD = m.WorldRect(-1.0, 1.0, -1.0, 1.0)
 UNIT_ESCAPE_RADIUS = 2.0
 UNIT_PIXEL = 2.0 / 512            # one pixel of a 512-pixel image of the unit world
+ALL_TERMS_ALLOWED = np.ones(m.N_TERM, dtype=np.bool_)       # a Buddha scatter limited to no kind of path
 UNIT_CONFINE = m.confine_rule(m.DEFAULT_CONFINE_LOOKBACK, m.DEFAULT_CONFINE_METHOD, 2.0 / 512)
 
 

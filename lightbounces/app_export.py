@@ -75,7 +75,7 @@ class ExportMixin:
             rgb, colorations, rgb.shape[1] // len(colorations), *settings_of(self.generated),
             self.generated.obstacle_snapshots if self.generated is not None else [], self.color_info_location_var.get(),
             self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
-            mutate_ok=len(colorations) > 1)   # len(colorations) > 1 means rgb is already a fresh
+            mutate_ok=len(colorations) > 1, engine=self.generated.engine if self.generated is not None else None)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.image_for_export
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -155,7 +155,7 @@ class ExportMixin:
             rgb = self.render_full_image(data, w, h, obst_arrays, colorations, framing)
             rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_termination,
                                        obst_values, color_location, figure_location,
-                                       framing, framing_location, mutate_ok=True)
+                                       framing, framing_location, mutate_ok=True, engine=data.engine)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
         except Exception as exc:                    # noqa: BLE001
             self.root.after(0, lambda m=str(exc): self._save_new_image_failed(path, m))

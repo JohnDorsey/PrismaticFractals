@@ -94,7 +94,7 @@ class LayoutMixin:
         self.buddha_tab = buddha_tab
         deco_tab = ttk.Frame(notebook)
         obst_tab = ttk.Frame(notebook)
-        sim_tab = ttk.Frame(notebook)             # empty for now: the settings that were in it have moved out
+        sim_tab = ttk.Frame(notebook)             # the choice of path engine (build_engine_controls)
         notebook.add(emissions_tab, text="Emissions")
         notebook.add(termination_tab, text="Termination")
         notebook.add(mutations_tab, text="Mutations")
@@ -151,6 +151,7 @@ class LayoutMixin:
         buddha_blur_tab.columnconfigure(0, weight=1)
         self.build_buddha_seeding_controls(buddha_seeding_tab)
         self.build_buddha_blur_controls(buddha_blur_tab)
+        self.build_engine_controls(sim_tab)
         # the seeding zone is drawn on the preview only while its tab is the one being looked at
         for tabs in (notebook, buddha_notebook):
             tabs.bind("<<NotebookTabChanged>>", lambda _e: self.update_seed_zone_outline())

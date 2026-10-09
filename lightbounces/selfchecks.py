@@ -4,11 +4,11 @@ imported (see lightbounces/__init__.py, after every module is loaded), so a tabl
 silently producing a KeyError or a wrong value the first time that path is hit. Tests break a fresh copy of the package on purpose to
 confirm that each check fires (they rebind the table on THIS module, which is where the checks read it)."""
 from .constants import (
-    LAYOUTS, OBSTACLE_EFFECT_NAMES, TERM_CODES, TERM_END_COLOR, TERM_OUTCOME_TEXT,
+    DEFAULT_ENGINE, ENGINE_NAMES, LAYOUTS, OBSTACLE_EFFECT_NAMES, OFFERED_ENGINES, TERM_CODES, TERM_END_COLOR, TERM_OUTCOME_TEXT,
     TERM_STAT_VALUE
 )
 from .kernels import (
-    N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
+    N_ENGINES, N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_TERM, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
     POINT_BOTTOM, POINT_BOUNDARY_MEAN, POINT_END, POINT_LEFT, POINT_RIGHT, POINT_SELF_BOTTOM, POINT_SELF_LEFT,
     POINT_SELF_MEAN, POINT_SELF_RIGHT, POINT_SELF_TOP, POINT_SLOT, POINT_START, POINT_TOP, STAT_ALIASES, STAT_SLOT
 )
@@ -20,10 +20,10 @@ from .metrics import (
     CHOICE_ORIGIN, POINT_OF_SLOT, POINT_REDUCTION_DESCRIPTIONS, POINT_REDUCTION_LABELS, POINT_REDUCTION_SHORT,
     POINT_SHORT, POINT_METRICS, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, RUN_METRIC_INFO, SEQUENCE_DESCRIPTIONS, SEQUENCE_LABELS,
     SEQUENCE_SHORT, METRIC_DESCRIPTIONS, METRIC_LABELS, STAT_OF_SLOT, STAT_REDUCTION_DESCRIPTIONS,
-    STAT_REDUCTION_LABELS, STAT_REDUCTION_SHORT, METRIC_SHORT
+    STAT_REDUCTION_LABELS, STAT_REDUCTION_SHORT, METRIC_SHORT, PATH_KIND_LABELS, PATH_KIND_OF_TERM, PATH_KIND_SHORT
 )
 from .projects import (
-    CAT_BUDDHA_BRIGHTNESS, CAT_BUDDHA_COMPRESSION, CAT_BUDDHA_POINT, CAT_METRIC_TYPE,
+    CAT_BUDDHA_BRIGHTNESS, CAT_BUDDHA_COMPRESSION, CAT_BUDDHA_POINT, CAT_ENGINE, CAT_METRIC_TYPE, CAT_PATH_KIND,
     CAT_CHAN_SOURCE, CAT_CONSTANT, CAT_EFFECT, CAT_METRIC, CAT_POINT, CAT_POINT_REDUCTION, CAT_SEQUENCE,
     CAT_STAT_REDUCTION, PROJECT_KEY_PATTERN, SETTING_CHOICE_CATALOGS
 )
@@ -52,6 +52,16 @@ def run_self_checks():
         missing = [t for t in TERM_CODES if t not in mapping]
         if missing:
             raise AssertionError(f"{name} is missing termination code(s): {missing}")
+
+    if set(TERM_CODES) != set(range(N_TERM)) or set(PATH_KIND_OF_TERM) != set(TERM_CODES):
+        raise AssertionError("every termination code (0 .. N_TERM - 1) needs a kind of path in PATH_KIND_OF_TERM, which a "
+                             f"Buddha channel is limited by: {sorted(set(TERM_CODES) ^ set(PATH_KIND_OF_TERM))}, N_TERM {N_TERM}")
+    if not (len(PATH_KIND_LABELS) == len(PATH_KIND_SHORT) == 3 and set(PATH_KIND_OF_TERM.values()) == {0, 1, 2}):
+        raise AssertionError("the three kinds of path need a label and a short name each, and a termination code each")
+    if len(ENGINE_NAMES) != N_ENGINES or DEFAULT_ENGINE not in OFFERED_ENGINES or not set(OFFERED_ENGINES) <= set(range(N_ENGINES)):
+        raise AssertionError("every path engine needs a name, and the engines the dropdown offers must include the default")
+    if "buddha_path_kinds" not in ColorationConfig.__slots__:
+        raise AssertionError("ColorationConfig is missing its buddha_path_kinds field")
 
     info_keys = {key for key, _tab, _label in SETTING_INFO}
     default_keys = set(DEFAULT_SETTING_VALUES.keys())
@@ -181,7 +191,8 @@ def run_self_checks():
             (CAT_METRIC, set(range(N_STATS))), (CAT_POINT, set(range(N_POINT_CHOICES))),
             (CAT_SEQUENCE, set(range(N_SEQS))), (CAT_POINT_REDUCTION, set(range(N_PRED))),
             (CAT_STAT_REDUCTION, set(range(N_SRED))),
-            (CAT_BUDDHA_POINT, set(range(N_BUDDHA_POINTS))),
+            (CAT_BUDDHA_POINT, set(range(N_BUDDHA_POINTS))), (CAT_PATH_KIND, set(range(len(PATH_KIND_LABELS)))),
+            (CAT_ENGINE, set(range(N_ENGINES))),
             (CAT_BUDDHA_COMPRESSION, set(range(len(BUDDHA_COMPRESSION_LABELS)))),
             (CAT_BUDDHA_BRIGHTNESS, set(range(len(BUDDHA_BRIGHTNESS_OPTIONS)))),
             (CAT_CONSTANT, {NONE_ZERO, NONE_ONE}),

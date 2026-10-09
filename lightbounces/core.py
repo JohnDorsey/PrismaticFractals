@@ -21,7 +21,7 @@ from .constants import (
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
     ITER_LIMIT_MAX, REFRESH_HZ
 )
-from .settings import DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
+from .settings import DEFAULT_ENGINE_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
 from .colorations import ColorationConfig
@@ -80,6 +80,7 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.generated = None
         self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
         self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
+        self.baseline_engine = DEFAULT_ENGINE_SETTINGS
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
         self.last_escape_radius = DEFAULT_ESCAPE_RADIUS

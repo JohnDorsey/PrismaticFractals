@@ -7,7 +7,7 @@ from .widgets import ThumbnailStrip
 from .kernels import N_POINTS, N_PRED, N_SEQS
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS,
-    CHAN_CONSTANT_LABELS, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, N_BUDDHA_POINTS, POINT_LABELS,
+    CHAN_CONSTANT_LABELS, CHAN_SRC_LABELS, METRIC_TYPE_LABELS, N_BUDDHA_POINTS, PATH_KIND_LABELS, POINT_LABELS,
     POINT_MENU_LABELS, POINT_OF_SLOT, POINT_REDUCTION_SHORT, SEQUENCE_SHORT,
     constant_metric_to_label, make_mapping
 )
@@ -140,6 +140,8 @@ class ColorationMixin:
                 self.point2_vars[c].set(POINT_LABELS[coloration.point2_choice[c]])
                 for i, bvar in enumerate(self.buddha_point_vars[c]):
                     bvar.set(coloration.buddha_points[c][i])
+                for k, kvar in enumerate(self.buddha_kind_vars[c]):
+                    kvar.set(coloration.buddha_path_kinds[c][k])
                 self.buddha_compression_vars[c].set(
                     BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]])
                 self.buddha_brightness_vars[c].set(
@@ -235,6 +237,7 @@ class ColorationMixin:
         self.buddha_frames = []
         self.buddha_point_vars = []
         self.buddha_point_checks = []
+        self.buddha_kind_vars = []
         self.buddha_compression_vars = []
         self.buddha_compression_combos = []
         self.buddha_brightness_vars = []
@@ -319,8 +322,17 @@ class ColorationMixin:
                     chk.grid(row=N_SEQS + 1 + i - N_POINTS, column=0, columnspan=N_PRED + 1, sticky="w")
                 bvars.append(bvar)
                 bchecks.append(chk)
+            kinds_row = ttk.Frame(bf)                    # the paths this channel scatters (all three ticked: every path)
+            kinds_row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            ttk.Label(kinds_row, text="Paths:").pack(side="left", padx=(0, 4))
+            kvars = []
+            for k, label in enumerate(PATH_KIND_LABELS):
+                kvar = tk.BooleanVar(value=coloration.buddha_path_kinds[c][k])
+                ttk.Checkbutton(kinds_row, text=label, variable=kvar,
+                                command=lambda c=c: self.on_buddha_path_kinds_changed(c)).pack(side="left", padx=(0, 8))
+                kvars.append(kvar)
             settings_row = ttk.Frame(bf)
-            settings_row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            settings_row.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
             ttk.Label(settings_row, text="Compression:").pack(side="left", padx=(0, 4))
             cvar = tk.StringVar(value=BUDDHA_COMPRESSION_LABELS[coloration.buddha_compression[c]])
             ccombo = ttk.Combobox(settings_row, textvariable=cvar,
@@ -365,6 +377,7 @@ class ColorationMixin:
             self.buddha_frames.append(bf)
             self.buddha_point_vars.append(bvars)
             self.buddha_point_checks.append(bchecks)
+            self.buddha_kind_vars.append(kvars)
             self.buddha_compression_vars.append(cvar)
             self.buddha_compression_combos.append(ccombo)
             self.buddha_brightness_vars.append(brvar)

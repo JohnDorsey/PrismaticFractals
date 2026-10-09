@@ -50,7 +50,8 @@ def hashes():
             res[name] = {"load error": str(exc)}
             continue
         entry = {}
-        values = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed)
+        values = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed,
+                                   project.engine)
         values["outline"] = bool(project.decorations.get("outline", True))
         entry["current"] = render(project, [m.Keyframe(-1, 0, values)], 0, values)
         ordered = sorted(project.keyframes, key=lambda k: k.frame_index)

@@ -465,6 +465,7 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     current = [m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)]
     app.current_blur_settings = lambda: current[0]
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
     app.recolor = lambda r0, r1: None
     app.draw = lambda: None
@@ -493,6 +494,7 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app.buddha_counts_blurred = [None, None, None]
     app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
 
     first = app.blurred_buddha_counts(0)
@@ -680,7 +682,7 @@ def test_load_value_skips_buddha_rebuild_for_unrelated_channel_field():
     app.load_value = m.App.load_value.__get__(app)
     chan1_value = m.ChannelSettings(
         chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_HDIST, point1=m.POINT_START,
-        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS, buddha_path_kinds=m.ALL_PATH_KINDS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan1", chan1_value)
     assert app.rebuild_buddha_counts_calls == []
@@ -691,7 +693,7 @@ def test_load_value_rebuilds_when_the_loaded_channel_is_buddha():
     app.load_value = m.App.load_value.__get__(app)
     chan0_value = m.ChannelSettings(
         chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=m.POINT_START,
-        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS, buddha_path_kinds=m.ALL_PATH_KINDS,
         buddha_compression=m.BUDDHA_COMPRESS_ARCTAN, buddha_brightness=0, constant=m.NONE_ZERO)
     app.load_value("coloration:0:chan0", chan0_value)
     assert len(app.rebuild_buddha_counts_calls) == 1
@@ -939,13 +941,13 @@ def test_shrinking_the_seeding_zone_changes_the_buddha_image_without_changing_ho
         m.scatter_from_seeds(0, n, m.WorldRect(zone.x_start, zone.x_stop, zone.y_start, zone.y_stop), UNIT_WORLD,
                              termination, engine_args, 0,
                              np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
-                             False, False, False, False, counts)
+                             False, False, False, False, False, ALL_TERMS_ALLOWED, counts)
         assert counts[:expected_rows[0]].sum() == 0 and counts[expected_rows[1]:].sum() == 0
     full = np.zeros((n, n))
     m.scatter_from_seeds(0, n, m.WorldRect(small.x_start, small.x_stop, small.y_start, small.y_stop), UNIT_WORLD,
                          termination, engine_args, 0,
                          np.array([m.POINT_START], dtype=np.int64), np.empty(0, dtype=np.int64),
-                         False, False, False, False, full)
+                         False, False, False, False, False, ALL_TERMS_ALLOWED, full)
     assert full.sum() == n * n, "all n x n seeds of the shrunken zone fire, and all are scattered"
 
 
@@ -1187,6 +1189,7 @@ def _random_coloration(rng):
         v.point2_choice[c] = int(rng.randint(m.N_POINT_CHOICES))
         v.buddha_points[c] = tuple(bool(rng.rand() < 0.12) for _ in range(m.N_BUDDHA_POINTS))
         v.buddha_compression[c] = int(rng.randint(2))
+        v.buddha_path_kinds[c] = tuple(bool(rng.rand() < 0.7) for _ in range(3))
         v.buddha_brightness[c] = int(rng.randint(4))
         v.constant_choice[c] = int(rng.choice([m.NONE_ZERO, m.NONE_ONE]))
     return v
@@ -1247,3 +1250,189 @@ def test_a_large_export_keeps_only_what_its_colorations_read():
         tracemalloc.stop()
     assert np.array_equal(got, want)
     assert peak < 0.4 * full_bytes, (peak, full_bytes)
+
+
+# --------------------------------------------------------------------------- #
+# A Buddha channel scatters only the paths of the kinds it has ticked (escaping / non-escaping / terminated by obstacle)
+# --------------------------------------------------------------------------- #
+def _kinds_scene():
+    """Three firing and non-firing obstacles that between them give rays every kind of end: a circle that reflects (its rays
+    run out of iterations, or hit the perpendicular, or are terminated by the small circle in it), an ellipse beside it that
+    lets rays out (they escape)."""
+    big = _circle_obstacle(-0.5, 0.0, 0.5, R, R, fire=True, id_=0)
+    small = _circle_obstacle(-0.5, 0.15, 0.1, T, T, fire=False, id_=1)
+    out = m.EllipseShape(2)
+    out.width, out.height, out.cx, out.cy = 0.6, 0.5, 0.55, 0.4
+    out.in_effect, out.out_effect, out.fire_inside = R, P, True
+    return [big, small, out]
+
+
+def _kinds_trace(n=48):
+    arrays = m.build_obstacle_arrays(_kinds_scene())
+    termination, engine_args = _termination(12), _engine_args(arrays)
+    stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
+    points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
+    state = np.zeros((n, n), dtype=np.uint8)
+    m.trace_rows(stats, points, state, 0, n, n, n, UNIT_WORLD, termination, engine_args, 0)
+    return n, termination, engine_args, stats, points, state
+
+
+def _pixel_xy(i, j, n, rect=UNIT_WORLD):
+    """Where the ray of pixel (i, j) of an n x n image of `rect` starts: the kernels' own arithmetic, bit for bit (a chaotic
+    path would notice a rounding difference)."""
+    return (rect.x_start + (i + 0.5) * ((rect.x_stop - rect.x_start) / n),
+            rect.y_stop - (j + 0.5) * ((rect.y_stop - rect.y_start) / n))
+
+
+def _path_of(x, y, termination, engine_args):
+    path_points, tags, raw = np.empty((termination.max_iter + 2, 2)), np.empty(termination.max_iter + 2), np.empty(m.N_RAW)
+    term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args, raw)
+    return term, path_points[:npts].copy()
+
+
+def test_the_scene_for_the_path_kinds_has_every_kind_of_path_and_every_ending_that_is_non_escaping():
+    n, termination, engine_args, stats, _points, state = _kinds_trace()
+    ends = {}
+    for j in range(n):
+        for i in range(n):
+            if state[j, i] == m.PIXEL_TRACED:
+                term, _path = _path_of(*_pixel_xy(i, j, n), termination, engine_args)
+                ends[term] = ends.get(term, 0) + 1
+    assert {m.TERM_ESCAPED, m.TERM_OBSTACLE, m.TERM_ITER, m.TERM_PERPENDICULAR} <= set(ends), ends
+    assert m.PATH_KIND_OF_TERM[m.TERM_PERPENDICULAR] == m.PATH_KIND_NON_ESCAPING, "a perpendicular collision ends a path, not escaping"
+    assert {m.PATH_KIND_OF_TERM[t] for t in ends} == {0, 1, 2}
+
+
+def test_a_buddha_channel_scatters_only_the_paths_of_the_kinds_ticked_whatever_it_scatters_and_from_where():
+    """Property test over every set of ticked kinds, three options (a stored point; every point of the path; every segment
+    midpoint) and both kinds of seeding, against a reference written from trace_path alone. All three ticked is no limit."""
+    n, termination, engine_args, stats, points, state = _kinds_trace()
+    fired = state == m.PIXEL_TRACED
+    zone = m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.8, x_stop=0.9, y_start=-0.7, y_stop=0.8)
+    options = {"stored end point": _buddha_choice(m.POINT_END), "all path points": _buddha_choice(m.BUDDHA_POINT_LABELS.index("All path points")),
+               "all midpoints": _buddha_choice(m.BUDDHA_POINT_LABELS.index("All segment midpoints"))}
+    arrays = engine_args.obstacles
+    checked = 0
+    for ticked in range(8):
+        kinds = tuple(bool(ticked >> k & 1) for k in range(3))
+        for name, chosen in options.items():
+            for seeds in (None, zone):
+                got = np.zeros((n, n))
+                m.scatter_buddha_channel(got, chosen, 0, n, UNIT_WORLD, seeds, fired, stats, points, termination, engine_args, 0, kinds=kinds)
+                want = np.zeros((n, n))
+                if seeds is None and name == "stored end point":                  # the stored points of the pixels whose path is of a kind ticked
+                    allowed = np.zeros((n, n), dtype=bool)
+                    for j in range(n):
+                        for i in range(n):
+                            if fired[j, i]:
+                                term, _path = _path_of(*_pixel_xy(i, j, n), termination, engine_args)
+                                allowed[j, i] = kinds[m.PATH_KIND_OF_TERM[term]]
+                    m.scatter_buddha_channel(want, chosen, 0, n, UNIT_WORLD, None, allowed, stats, points, termination, engine_args, 0)
+                else:
+                    for j in range(n):
+                        for i in range(n):
+                            x, y = _pixel_xy(i, j, n, UNIT_WORLD if seeds is None else zone)
+                            if not m.fires_ray(x, y, arrays):
+                                continue
+                            term, path = _path_of(x, y, termination, engine_args)
+                            if not kinds[m.PATH_KIND_OF_TERM[term]]:
+                                continue
+                            if name == "all path points":
+                                scattered = path
+                            elif name == "all midpoints":
+                                scattered = 0.5 * (path[:-1] + path[1:])
+                            else:                                                # a stored point, from a seed grid: the path's last point
+                                scattered = path[-1:]
+                            for px, py in scattered:
+                                m.scatter_one_buddha_point(want, px, py, UNIT_WORLD)
+                assert np.array_equal(got, want), (kinds, name, seeds is None)
+                checked += 1
+                if kinds == m.ALL_PATH_KINDS:
+                    assert got.sum() > 0
+                if not any(kinds):
+                    assert got.sum() == 0, "no kind ticked: nothing is scattered"
+    assert checked == 8 * 3 * 2
+
+
+def test_all_path_points_is_an_option_of_its_own_that_includes_the_starting_point():
+    label = m.BUDDHA_POINT_LABELS[-1]
+    assert label == "All path points" and m.BUDDHA_POINT_CATALOG[-1][1:] == (m.BUDDHA_MULTI, m.BUDDHA_MULTI_ALL_PATH, None)
+    assert m.N_BUDDHA_POINTS == len(m.BUDDHA_POINT_CATALOG) == 36 and m.BUDDHA_POINT_SHORT[-1] == "AllPath"
+    counts = np.zeros((8, 8))
+    circle = _circle_obstacle(0.0, 0.0, 0.9, R, R, fire=True)
+    arrays = m.build_obstacle_arrays([circle])
+    m.scatter_multi_buddha(0, 8, UNIT_WORLD, _termination(5), _engine_args(arrays), 0, False, False, False, False, True,
+                           ALL_TERMS_ALLOWED, counts)
+    starts = np.zeros((8, 8))
+    for j in range(8):
+        for i in range(8):
+            x, y = _pixel_xy(i, j, 8)
+            if m.fires_ray(x, y, arrays):
+                m.scatter_one_buddha_point(starts, x, y, UNIT_WORLD)
+    assert (counts >= starts).all() and starts.sum() > 20 and counts.sum() > starts.sum(), "every start, and the points after it"
+
+
+def test_a_demand_layout_keeps_the_termination_metric_for_a_channel_limited_to_some_kinds_of_path():
+    v = m.ColorationConfig(0)
+    v.chan_src[2] = m.CHAN_SRC_BUDDHA
+    v.buddha_points[2] = _buddha_choice(m.POINT_END)
+    assert m.ST_TERMINATION not in m.demand_layout([_coloration_settings_from_config(v)]).stat_ids.tolist()
+    v.buddha_path_kinds[2] = (True, False, True)
+    assert m.ST_TERMINATION in m.demand_layout([_coloration_settings_from_config(v)]).stat_ids.tolist()
+    zone = m.DEFAULT_BUDDHA_SEED.replace(camera_pixels=False)
+    assert m.ST_TERMINATION not in m.demand_layout([_coloration_settings_from_config(v)], zone).stat_ids.tolist(), \
+        "a seed grid traces its rays again and reads nothing stored"
+    v.buddha_points[2] = _buddha_choice(m.BUDDHA_POINT_LABELS.index("All path points"))
+    assert m.ST_TERMINATION not in m.demand_layout([_coloration_settings_from_config(v)]).stat_ids.tolist(), "a multi option reads nothing stored"
+
+
+def test_the_kind_of_path_of_every_ending_and_the_flags_the_kernels_take():
+    assert m.PATH_KIND_OF_TERM == {m.TERM_ESCAPED: 0, m.TERM_OBSTACLE: 2, m.TERM_ITER: 1, m.TERM_DIST: 1, m.TERM_CONFINED: 1,
+                                   m.TERM_PERPENDICULAR: 1}
+    assert m.PATH_KIND_LABELS == ["Escaping", "Non-escaping", "Terminated by obstacle"] and m.N_TERM == 6
+    flags = m.term_allowed_flags((True, False, False))
+    assert flags.dtype == np.bool_ and [t for t in range(m.N_TERM) if flags[t]] == [m.TERM_ESCAPED]
+    assert m.term_allowed_flags(m.ALL_PATH_KINDS).all() and not m.term_allowed_flags((False,) * 3).any()
+    assert [t for t in range(m.N_TERM) if m.term_allowed_flags((False, True, False))[t]] == sorted(
+        [m.TERM_ITER, m.TERM_DIST, m.TERM_CONFINED, m.TERM_PERPENDICULAR])
+
+
+def test_the_path_kind_checkboxes_write_the_channels_three_flags_and_rebuild_the_counts():
+    class FakeApp:
+        pass
+
+    class Var:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+        def set(self, value):
+            self.value = value
+    app = FakeApp()
+    app._color_editor_loading = False
+    coloration = m.ColorationConfig(0)
+    app.selected_coloration_obj = lambda: coloration
+    app.buddha_kind_vars = [[Var(True), Var(False), Var(True)] for _ in range(3)]
+    changed = []
+    app.apply_mapping_change = lambda c: changed.append(c)
+    m.App.on_buddha_path_kinds_changed(app, 1)
+    assert coloration.buddha_path_kinds[1] == (True, False, True) and coloration.buddha_path_kinds[0] == m.ALL_PATH_KINDS
+    assert changed == [1]
+    app._color_editor_loading = True
+    app.buddha_kind_vars[1][0].set(False)
+    m.App.on_buddha_path_kinds_changed(app, 1)
+    assert coloration.buddha_path_kinds[1] == (True, False, True) and changed == [1], "nothing while the editor is loading"
+
+
+def test_a_limited_channel_says_which_paths_in_its_info_text_and_a_complete_one_says_nothing():
+    v = m.ColorationConfig(0)
+    v.chan_src[1] = m.CHAN_SRC_BUDDHA
+    assert not any("paths" in line for line in m.coloration_info_lines(v))
+    v.buddha_path_kinds[1] = (True, False, True)
+    assert "  paths: Escaping, Terminated by obstacle" in m.coloration_info_lines(v)
+    v.buddha_path_kinds[1] = (False, False, False)
+    assert "  paths: none" in m.coloration_info_lines(v)
+    short = m.short_value_text("coloration:0:chan1", m.coloration_channel_value(v, 1))
+    assert "[]" in short or short.startswith("Buddha:") and "[" in short

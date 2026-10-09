@@ -76,7 +76,7 @@ def test_strict_records_check_every_value_against_its_annotation():
 def test_a_strict_record_stores_a_list_given_for_a_tuple_field_as_a_tuple():
     vs = m.ColorationSettings(color_model="RGB", metric_types=[0, 1, 2], point_metric=(0, 0, 0), other_metric=(0, 0, 0),
                         point1_choice=(0, 0, 0), point2_choice=(0, 0, 0), chan_src=[0, 0, 0],
-                        buddha_points=[(True,)] * 3, buddha_compression=(0, 0, 0),
+                        buddha_points=[(True,)] * 3, buddha_path_kinds=[(True, True, True)] * 3, buddha_compression=(0, 0, 0),
                         buddha_brightness=(0, 0, 0), constant_choice=(0, 0, 0))
     assert vs.metric_types == (0, 1, 2) and isinstance(vs.chan_src, tuple)
     assert _raises(TypeError, lambda: vs.replace(color_model=5))
@@ -118,7 +118,7 @@ def test_records_pickle_by_field_name_not_position():
 def test_a_keyframes_data_holds_the_ray_settings_the_natural_termination_and_the_buddha_blur_side_by_side():
     data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     assert [f.name for f in dataclasses.fields(m.KeyframeData)] == [
-        "ray", "natural_termination", "buddha_blur", "buddha_seed", "outline"]
+        "ray", "natural_termination", "buddha_blur", "buddha_seed", "engine", "outline"]
     assert isinstance(data.ray, m.RaySettings) and isinstance(data.buddha_blur, m.BuddhaBlurSettings)
     assert isinstance(data.natural_termination, m.NaturalTerminationSettings)
     assert data.natural_termination == m.DEFAULT_NATURAL_TERMINATION_SETTINGS and data.ray == m.DEFAULT_RAY_SETTINGS
@@ -171,6 +171,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
                     engine_args=m.settings_ray_args(generated, app.generated.engine_args.obstacles))
     app.current_blur_settings = lambda: blur
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     seen = []
 
     def fake_colorize(coloration, stats, characteristic_points, pixel_state, w, h, blur, termination, engine_args, rng_seed_base, seeds=None, world_rect=None):
@@ -230,7 +231,8 @@ def _varied_seed_settings():
 
 def test_each_settings_table_and_its_record_fields_are_the_same_set():
     assert set(m.SETTING_TABLES) == {m.NaturalTerminationSettings, m.RaySettings, m.BuddhaBlurSettings,
-                                     m.BuddhaSeedSettings}
+                                     m.BuddhaSeedSettings, m.EngineSettings}
+    assert m.SETTING_TABLES[m.EngineSettings] is m.ENGINE_SETTING_SPECS
     assert m.SETTING_TABLES[m.BuddhaSeedSettings] is m.BUDDHA_SEED_SETTING_SPECS
     assert m.SETTING_TABLES[m.NaturalTerminationSettings] is m.NATURAL_TERMINATION_SETTING_SPECS
     assert m.SETTING_TABLES[m.RaySettings] is m.RAY_SETTING_SPECS
@@ -244,7 +246,8 @@ def test_each_settings_table_and_its_record_fields_are_the_same_set():
         seen |= set(table)
     assert seen == {k for k, _t, _l in m.SETTING_INFO} - {"outline"}
     assert list(m.SETTING_SPECS) == (list(m.NATURAL_TERMINATION_SETTING_SPECS) + list(m.RAY_SETTING_SPECS)
-                                     + list(m.BLUR_SETTING_SPECS) + list(m.BUDDHA_SEED_SETTING_SPECS))
+                                     + list(m.BLUR_SETTING_SPECS) + list(m.BUDDHA_SEED_SETTING_SPECS)
+                                     + list(m.ENGINE_SETTING_SPECS))
     assert set(m.NATURAL_TERMINATION_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_lookback",
                                                 "confine_method", "confine_threshold"}
     assert set(m.BLUR_SETTING_SPECS) == {"buddha_blur_radius", "buddha_blur_type"}
@@ -326,7 +329,7 @@ def test_settings_records_round_trip_through_the_key_dictionary():
         assert m.settings_from_dict(m.BuddhaSeedSettings, values) == seeds
     ray, termination, blur = _varied_ray_settings(), _varied_natural_termination_settings(), _varied_blur_settings()
     seeds = _varied_seed_settings()
-    values = m.settings_to_dict(ray, termination, blur, seeds)       # side by side in one dictionary...
+    values = m.settings_to_dict(ray, termination, blur, seeds, m.DEFAULT_ENGINE_SETTINGS)       # side by side in one dictionary...
     assert set(values) == set(m.SETTING_SPECS)
     assert m.settings_from_dict(m.RaySettings, values) == ray          # ...each record picks out its own
     assert m.settings_from_dict(m.NaturalTerminationSettings, values) == termination
@@ -360,7 +363,7 @@ def test_the_derived_setting_tables_follow_the_settings_field_types():
                  "buddha_blur_type", "outline"} & floats)
     assert m.DEFAULT_SETTING_VALUES == {
         **m.settings_to_dict(m.DEFAULT_NATURAL_TERMINATION_SETTINGS, m.DEFAULT_RAY_SETTINGS,
-                             m.DEFAULT_BUDDHA_BLUR, m.DEFAULT_BUDDHA_SEED), "outline": True}
+                             m.DEFAULT_BUDDHA_BLUR, m.DEFAULT_BUDDHA_SEED, m.DEFAULT_ENGINE_SETTINGS), "outline": True}
     assert m.SETTING_WIDGET_ATTRS["seed"] == "rng_seed_entry"
     assert m.SETTING_WIDGET_ATTRS["outline"] == "deco_outline_check"
 
@@ -417,8 +420,9 @@ def test_revert_writes_every_control_from_the_baseline_through_the_same_table():
     app = _fake_controls_app()
     app.baseline = _varied_ray_settings()
     app.baseline_natural_termination = _varied_natural_termination_settings()
+    app.baseline_engine = m.DEFAULT_ENGINE_SETTINGS
     app.revert_settings()
-    for key, value in m.settings_to_dict(app.baseline, app.baseline_natural_termination).items():
+    for key, value in m.settings_to_dict(app.baseline, app.baseline_natural_termination, app.baseline_engine).items():
         spec = m.SETTING_SPECS[key]
         assert getattr(app, spec.control).get() == _expected_control_value(spec, value), key
 
@@ -598,6 +602,7 @@ def test_start_makes_the_whole_figure_at_once():
     app = FakeApp()
     ray, termination = _varied_ray_settings(), _varied_natural_termination_settings()
     app.current_generation_settings = lambda: (ray, termination)
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.tick_id = None
     app.obstacles = [m.default_starting_obstacle(0)]
     app.begin_generation = lambda: app.__dict__.setdefault("began", []).append(app.generated)
@@ -605,4 +610,68 @@ def test_start_makes_the_whole_figure_at_once():
     m.App.start(app)
     assert app.began == [app.generated] and app.generated.ray is ray and app.generated.natural_termination is termination
     assert app.baseline is ray and app.baseline_natural_termination is termination        # Revert returns to them
+    assert app.generated.engine is m.DEFAULT_ENGINE_SETTINGS and app.baseline_engine is m.DEFAULT_ENGINE_SETTINGS
     assert app.generated.obstacles_signature == m.obstacles_signature(app.obstacles)
+
+
+# --------------------------------------------------------------------------- #
+# The choice of path engine: a record, a table row, a catalog, a control and a keyframe key
+# --------------------------------------------------------------------------- #
+def test_the_path_engine_is_a_record_of_its_own_with_one_row_a_catalog_and_a_dropdown_that_offers_only_ray_bouncing():
+    assert [f.name for f in dataclasses.fields(m.EngineSettings)] == ["engine"]
+    assert m.DEFAULT_ENGINE_SETTINGS == m.EngineSettings(engine=m.ENGINE_RAY_BOUNCING) and m.ENGINE_RAY_BOUNCING == 0
+    assert (m.ENGINE_RAY_BOUNCING, m.ENGINE_MANDELBROT, m.N_ENGINES) == (0, 1, 2)
+    assert m.ENGINE_NAMES == ["Ray Bouncing", "Mandelbrot"]
+    assert m.OFFERED_ENGINES == (m.ENGINE_RAY_BOUNCING,), "Mandelbrot is not offered until it is finished"
+    spec = m.ENGINE_SETTING_SPECS["engine"]
+    assert (spec.path, spec.kind, spec.tab, spec.label, spec.names) == (("engine",), "choice", "Simulation", "Engine", tuple(m.ENGINE_NAMES))
+    assert m.SETTING_TABS_ORDER[-1] == "Simulation" and ("engine", "Simulation", "Engine") in m.SETTING_INFO
+    assert m.SETTING_CHOICE_CATALOGS["engine"] is m.CAT_ENGINE and m.CAT_ENGINE.by_key == {"ray_bouncing": 0, "mandelbrot": 1}
+    assert "engine" not in m.SETTING_FLOAT_KEYS, "a choice is held between keyframes, never interpolated"
+    assert m.DEFAULT_SETTING_VALUES["engine"] == m.ENGINE_RAY_BOUNCING
+    assert m.SETTING_WIDGET_ATTRS["engine"] == "engine_combo"
+
+
+def test_the_engine_controls_list_only_the_offered_engines_and_read_back_as_a_record():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.update_buttons = lambda: app.__dict__.setdefault("calls", []).append("update_buttons")
+    app.refresh_timeline_diffs = lambda: app.__dict__.setdefault("calls", []).append("diffs")
+    m.App.build_engine_controls(app, m.ttk.Frame(None))
+    app.current_engine_settings = m.App.current_engine_settings.__get__(app)
+    assert app.engine_var.get() == "Ray Bouncing" and app.current_engine_settings() == m.DEFAULT_ENGINE_SETTINGS
+    import inspect                                  # (the headless widgets are stand-ins that hold no values to read back)
+    assert "values=[ENGINE_NAMES[e] for e in OFFERED_ENGINES]" in inspect.getsource(m.App.build_engine_controls)
+    app.set_setting_control = m.App.set_setting_control.__get__(app)
+    app.set_setting_control("engine", m.ENGINE_MANDELBROT)               # (a project or keyframe can say so)
+    assert app.current_engine_settings() == m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.engine_combo.selection_clear = lambda: None
+    m.App.on_engine_changed(app)
+    assert app.calls == ["update_buttons", "diffs"], "a new engine is a new figure: Start must notice, and the keyframe list"
+
+
+def test_a_generated_figure_holds_the_engine_it_was_made_with():
+    assert m.PLACEHOLDER_FIGURE.engine == m.DEFAULT_ENGINE_SETTINGS
+    other = m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    figure = m.generated_figure(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [], other)
+    assert figure.engine is other and m.settings_of(figure) == (figure.ray, figure.natural_termination), "(the pair is unchanged)"
+
+
+def test_the_engine_is_a_keyframe_setting_that_is_held_and_resolves_into_the_frames_data():
+    kfs = [m.Keyframe(1, 0, {"engine": m.ENGINE_RAY_BOUNCING}), m.Keyframe(2, 10, {"engine": m.ENGINE_MANDELBROT})]
+    got = [m.resolve_frame_settings(kfs, frame, m.DEFAULT_SETTING_VALUES).engine.engine for frame in (0, 5, 9, 10, 20)]
+    assert got == [0, 0, 0, 1, 1], "held until the next keyframe, not blended"
+    assert m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES).engine == m.DEFAULT_ENGINE_SETTINGS
+    assert m.resolve_frame_settings([], 0, {**m.DEFAULT_SETTING_VALUES, "engine": 1}).engine.engine == 1, "the base"
+
+
+def test_the_figure_settings_name_the_engine_first_when_it_is_given_and_the_blocks_keep_their_sizes():
+    plain = m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [])
+    named = m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [], m.DEFAULT_ENGINE_SETTINGS)
+    assert named[0] == ["Engine:Ray Bouncing"] and named[1:] == plain
+    other = m.figure_info_blocks(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [], m.EngineSettings(engine=1))
+    assert other[0] == ["Engine:Mandelbrot"] and [len(b) for b in other] == [len(b) for b in named]
+    assert m.figure_info_lines(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [], m.DEFAULT_ENGINE_SETTINGS)[0] == "Engine:Ray Bouncing"
+    assert "Engine" not in "".join(m.figure_info_lines(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, []))
+    assert "ray_bouncing" not in m.image_filename(*_generation(), "png", False, 90), "new settings stay out of file names"

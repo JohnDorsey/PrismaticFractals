@@ -81,7 +81,7 @@ def test_resolve_colorations_honors_keyframe_overrides_per_channel():
     snap = m.snapshot_coloration(v)
     custom_chan = m.ChannelSettings(
         chan_src=m.CHAN_SRC_QUERY, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_BOUNCE_COUNT, point1=m.POINT_START,
-        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS,
+        point2=m.POINT_END, buddha_points=m.DEFAULT_BUDDHA_POINTS, buddha_path_kinds=m.ALL_PATH_KINDS,
         buddha_compression=m.BUDDHA_COMPRESS_MODULUS, buddha_brightness=3, constant=m.NONE_ZERO)
     kf = m.Keyframe(1, 0, {"coloration:9:color_model": "HSV", "coloration:9:chan0": custom_chan})
     resolved = m.resolve_colorations([snap], [kf], 0)[0]
@@ -97,6 +97,7 @@ def test_capture_all_settings_has_no_first_coloration_special_case():
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.deco = {"outline": type("X", (), {"get": lambda self: True})()}
     v0 = m.ColorationConfig(0)
     v1 = m.ColorationConfig(5)
@@ -199,6 +200,7 @@ def test_a_coloration_config_takes_a_channel_record_and_makes_its_coloration_set
     channel = m.ChannelSettings(chan_src=m.CHAN_SRC_BUDDHA, metric_type=m.METRIC_TYPE_OTHER, metric_slot=m.ST_ANGLES,
                                 point1=3, point2=5,
                                 buddha_points=(False, True) + (False,) * (m.N_BUDDHA_POINTS - 2),
+                                buddha_path_kinds=(False, True, True),
                                 buddha_compression=m.BUDDHA_COMPRESS_MODULUS,
                                 buddha_brightness=2, constant=m.NONE_ONE)
     v.set_channel(1, channel)
@@ -217,8 +219,24 @@ def test_a_coloration_config_made_from_a_snapshot_has_the_snapshots_contents():
     v.color_model = "HSV"
     v.set_channel(0, m.ChannelSettings(
         chan_src=m.CHAN_SRC_CONSTANT, metric_type=m.METRIC_TYPE_POINT_PAIR, metric_slot=m.ST_HDIST, point1=1, point2=2,
-        buddha_points=(True,) + (False,) * (m.N_BUDDHA_POINTS - 1), buddha_compression=0,
+        buddha_points=(True,) + (False,) * (m.N_BUDDHA_POINTS - 1), buddha_path_kinds=m.ALL_PATH_KINDS, buddha_compression=0,
         buddha_brightness=4, constant=m.NONE_ZERO))
     snap = m.snapshot_coloration(v)
     back = m.coloration_config_from_snapshot(snap)
     assert back is not v and back.id == 7 and m.snapshot_coloration(back) == snap
+
+
+def test_a_channels_path_kinds_travel_through_the_config_the_snapshot_the_keyframe_and_the_resolved_coloration():
+    v = m.ColorationConfig(3)
+    assert v.buddha_path_kinds == [m.ALL_PATH_KINDS] * 3 and m.coloration_channel_value(v, 0).buddha_path_kinds == m.ALL_PATH_KINDS
+    channel = m.coloration_channel_value(v, 1).replace(chan_src=m.CHAN_SRC_BUDDHA, buddha_path_kinds=(False, True, True))
+    v.set_channel(1, channel)
+    assert v.buddha_path_kinds[1] == (False, True, True) and v.buddha_path_kinds[2] == m.ALL_PATH_KINDS
+    assert v.settings().buddha_path_kinds == ((True, True, True), (False, True, True), (True, True, True))
+    snap = m.snapshot_coloration(v)
+    assert snap.buddha_path_kinds == ((True, True, True), (False, True, True), (True, True, True))
+    assert m.coloration_channel_value(snap, 1) == channel and m.coloration_config_from_snapshot(snap).buddha_path_kinds == v.buddha_path_kinds
+    other = channel.replace(buddha_path_kinds=(True, False, False))
+    resolved = m.resolve_colorations([snap], [m.Keyframe(1, 0, {"coloration:3:chan1": other})], 0)[0]
+    assert resolved.buddha_path_kinds == ((True, True, True), (True, False, False), (True, True, True))
+    assert _raises(TypeError, lambda: m.ChannelSettings(**{k: v for k, v in channel.as_dict().items() if k != "buddha_path_kinds"}))

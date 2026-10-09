@@ -79,7 +79,8 @@ def demand_layout(colorations, seeds=None):
     for Buddha seeding `seeds` (a BuddhaSeedSettings; None means the camera's pixels): the characteristic points and
     metrics of the channels that read them (channel_values), and what a Buddha channel scatters
     (buddha.scatter_stored_points: its simple options' points, and the termination metric for an option restricted to a
-    termination reason - the "multi" options and a seed grid read nothing that is stored). Whatever channel_values or
+    termination reason or a channel limited to some kinds of path - the "multi" options and a seed grid read nothing that
+    is stored). Whatever channel_values or
     scatter_stored_points reads must be listed here;
     test_a_demand_layout_keeps_everything_the_colour_chain_reads compares the two on random colorations."""
     stat_slots, point_slots = set(), set()
@@ -96,8 +97,8 @@ def demand_layout(colorations, seeds=None):
                         _label, style, ref, term_filter = BUDDHA_POINT_CATALOG[index]
                         if style != BUDDHA_MULTI:
                             point_slots.add(ref)
-                            if term_filter is not None:
-                                stat_slots.add(ST_TERMINATION)
+                            if term_filter is not None or not all(v.buddha_path_kinds[c]):
+                                stat_slots.add(ST_TERMINATION)      # (an option for one reason, or a channel limited to some kinds of path)
             elif s in (NONE_ZERO, NONE_ONE):
                 continue
             elif s in POINT_METRICS:

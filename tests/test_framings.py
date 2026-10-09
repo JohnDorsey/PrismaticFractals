@@ -141,16 +141,16 @@ def test_the_camera_pixels_seeds_of_a_window_are_the_pixels_of_that_window():
     n = 20
     multi = (False, True, False, False)
     mine = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, world_rect, termination, engine_args, 0, *multi, mine)
+    m.scatter_multi_buddha(0, n, world_rect, termination, engine_args, 0, *multi, False, ALL_TERMS_ALLOWED, mine)
     general = np.zeros((n, n))
     none = np.empty(0, dtype=np.int64)
-    m.scatter_from_seeds(0, n, world_rect, world_rect, termination, engine_args, 0, none, none, *multi, general)
+    m.scatter_from_seeds(0, n, world_rect, world_rect, termination, engine_args, 0, none, none, *multi, False, ALL_TERMS_ALLOWED, general)
     assert mine.sum() > 0 and np.array_equal(mine, general)
     whole = np.zeros((n, n))
-    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, *multi, whole)
+    m.scatter_multi_buddha(0, n, m.WORLD_RECT_DEFAULT, termination, engine_args, 0, *multi, False, ALL_TERMS_ALLOWED, whole)
     assert not np.array_equal(mine, whole), "another world rectangle, other seeds and another image"
     elsewhere = np.zeros((n, n))
-    m.scatter_from_seeds(0, n, m.WORLD_RECT_DEFAULT, world_rect, termination, engine_args, 0, none, none, *multi, elsewhere)
+    m.scatter_from_seeds(0, n, m.WORLD_RECT_DEFAULT, world_rect, termination, engine_args, 0, none, none, *multi, False, ALL_TERMS_ALLOWED, elsewhere)
     assert not np.array_equal(elsewhere, general), "a zone of its own is not the world rectangle"
 
 
@@ -600,6 +600,7 @@ def test_capture_all_settings_lists_every_framings_numbers_under_keys_of_its_own
     app.current_generation_settings = lambda: (m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.deco = {"outline": _StubVar(True)}
     app.obstacles, app.colorations = [], []
     second = m.FramingConfig(3)

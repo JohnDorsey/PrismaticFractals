@@ -233,6 +233,7 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     _give_generated(app, generated=False)             # the placeholder image: default settings
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
 
     # coloration 1 starts non-live; cache its (default RGB) thumbnail first
@@ -668,6 +669,8 @@ def _fake_button_gating_app():
     app.obstacles = []
     app.baseline = m.DEFAULT_RAY_SETTINGS
     app.baseline_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
+    app.baseline_engine = m.DEFAULT_ENGINE_SETTINGS
+    app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.running = False
     app.rows_done = 0
     app.start_btn = _RecordingButton()
@@ -739,3 +742,16 @@ def test_update_buttons_tolerates_export_widgets_not_built_yet():
     del app.save_as_btn
     del app.save_as_btn_tooltip
     app.update_buttons()   # must not raise
+
+
+def test_a_different_engine_enables_start_and_revert_like_any_figure_defining_setting():
+    app = _fake_button_gating_app()
+    _give_generated(app)
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, False)
+    app.current_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)
+    app.baseline_engine = m.EngineSettings(engine=m.ENGINE_MANDELBROT)         # Revert would have nothing to restore
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, False), "Start: the image is still of the other engine"

@@ -58,9 +58,11 @@ class GenerationMixin:
             self.tick_id = None
 
         settings, natural_termination = snap
-        self.generated = generated_figure(settings, natural_termination, self.obstacles)
+        engine = self.current_engine_settings()
+        self.generated = generated_figure(settings, natural_termination, self.obstacles, engine)
         self.baseline = settings                   # Revert now returns to these values
         self.baseline_natural_termination = natural_termination
+        self.baseline_engine = engine
         self.begin_generation()
 
     def begin_generation(self):

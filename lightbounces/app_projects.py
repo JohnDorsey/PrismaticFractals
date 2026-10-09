@@ -81,7 +81,7 @@ class ProjectsMixin:
         selected = self.selected_obstacle
         return Project(
             ray=ray, natural_termination=natural_termination, buddha_blur=self.current_blur_settings(),
-            buddha_seed=self.current_buddha_seed_settings(),
+            buddha_seed=self.current_buddha_seed_settings(), engine=self.current_engine_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
             colorations=tuple(snapshot_coloration(v) for v in self.colorations),
@@ -117,10 +117,11 @@ class ProjectsMixin:
         self.kf_applying = True
         try:
             for key, value in settings_to_dict(project.ray, project.natural_termination, project.buddha_blur,
-                                               project.buddha_seed).items():
+                                               project.buddha_seed, project.engine).items():
                 self.set_setting_control(key, value)
             self.baseline = project.ray
             self.baseline_natural_termination = project.natural_termination
+            self.baseline_engine = project.engine
             for key, value in project.decorations.items():
                 if key in self.deco:
                     self.deco[key].set(value)

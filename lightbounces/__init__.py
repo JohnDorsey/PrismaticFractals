@@ -142,7 +142,9 @@ Coloration
               brightness comes from how often its own location was landed on
               by any ray. Any number of point kinds can be scattered at once
               (means, termination points by reason, every self-bounce, every
-              segment midpoint, progressive means). Counts are compressed to
+              segment midpoint, every point of the path, progressive means),
+              and a channel can be limited to the paths of the kinds it ticks:
+              escaping, non-escaping, terminated by an obstacle. Counts are compressed to
               0..1 (arctangent or modulus) with an optional brightness boost,
               and the Buddha blur tab spreads each scattered point over a
               neighborhood (Gaussian, triangular, bokeh or catadioptric

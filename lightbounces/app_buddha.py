@@ -25,6 +25,16 @@ class BuddhaMixin:
         coloration.buddha_points[c] = tuple(v.get() for v in self.buddha_point_vars[c])
         self.apply_mapping_change(c)
 
+    def on_buddha_path_kinds_changed(self, c):
+        """One of channel c's three path-kind checkboxes (escaping / non-escaping / terminated by obstacle) was toggled."""
+        if self._color_editor_loading:
+            return
+        coloration = self.selected_coloration_obj()
+        if coloration is None:
+            return
+        coloration.buddha_path_kinds[c] = tuple(bool(v.get()) for v in self.buddha_kind_vars[c])
+        self.apply_mapping_change(c)
+
     def on_buddha_compression_changed(self, c):
         if self._color_editor_loading:
             return
@@ -226,7 +236,7 @@ class BuddhaMixin:
                 continue
             if scatter_buddha_channel(self.buddha_counts[c], coloration.buddha_points[c], r0, r1, self.image_world_rect,
                                       seeds, fired, stats, characteristic_points, figure.termination,
-                                      figure.engine_args, figure.rng_seed):
+                                      figure.engine_args, figure.rng_seed, kinds=coloration.buddha_path_kinds[c]):
                 self.buddha_counts_blurred[c] = None
 
     def blurred_buddha_counts(self, c):

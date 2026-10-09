@@ -108,7 +108,8 @@ class RenderMixin:
                         kernel = blur_kernel(blur, out_w, out_h)
                     counts = np.zeros((out_h, out_w), dtype=np.float64)
                     scatter_buddha_channel(counts, v.buddha_points[c], 0, out_h, world_rect, seeds, computed, stats,
-                                           characteristic_points, termination, engine_args, rng_seed_base, layout)
+                                           characteristic_points, termination, engine_args, rng_seed_base, layout,
+                                           v.buddha_path_kinds[c])
                     blurred[c] = blur_counts_image(counts, kernel)
         paint(img, v, mapping, stats, characteristic_points, computed, blurred, layout)
         return img

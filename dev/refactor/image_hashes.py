@@ -79,7 +79,7 @@ def kernel_hashes():
                                                  h((state == m.PIXEL_TRACED).astype(np.uint8))]
                 for opts in ((True, False, False, False), (False, True, False, False), (False, False, True, True)):
                     counts = np.zeros((n, n))
-                    m.scatter_multi_buddha(0, n, OLD_WORLD, stop, ray, 0, *opts, counts)
+                    m.scatter_multi_buddha(0, n, OLD_WORLD, stop, ray, 0, *opts, False, np.ones(m.N_TERM, dtype=np.bool_), counts)
                     res[f"{name} seg{seg} it{it} buddha{opts}"] = [h(counts)]
     return res
 
