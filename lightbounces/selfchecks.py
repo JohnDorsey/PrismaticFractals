@@ -8,7 +8,7 @@ from .constants import (
     TERM_STAT_VALUE
 )
 from .kernels import (
-    N_ENGINES, N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_TERM, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
+    ENGINE_RAY_BOUNCING, N_ENGINES, N_LEGACY_POINTS, N_LEGACY_STATS, N_POINTS, N_TERM, N_PRED, N_SEQS, N_SRED, N_STATS, POINT_ALIASES, POINT_ALL_MEAN,
     POINT_BOTTOM, POINT_BOUNDARY_MEAN, POINT_END, POINT_LEFT, POINT_RIGHT, POINT_SELF_BOTTOM, POINT_SELF_LEFT,
     POINT_SELF_MEAN, POINT_SELF_RIGHT, POINT_SELF_TOP, POINT_SLOT, POINT_START, POINT_TOP, STAT_ALIASES, STAT_SLOT
 )
@@ -33,6 +33,7 @@ from .settings import (
 )
 from .shapes import SHAPE_CLASSES
 from .colorations import DEFAULT_BUDDHA_POINTS_PER_CHAN, ColorationConfig
+from .engines import ENGINE_DESCRIPTIONS, key_pattern
 
 
 def run_self_checks():
@@ -60,6 +61,28 @@ def run_self_checks():
         raise AssertionError("the three kinds of path need a label and a short name each, and a termination code each")
     if len(ENGINE_NAMES) != N_ENGINES or DEFAULT_ENGINE not in OFFERED_ENGINES or not set(OFFERED_ENGINES) <= set(range(N_ENGINES)):
         raise AssertionError("every path engine needs a name, and the engines the dropdown offers must include the default")
+    for code, description in ENGINE_DESCRIPTIONS.items():
+        if description.engine != code or description.name != ENGINE_NAMES[code]:
+            raise AssertionError(f"the description filed under engine {code} is for {description.engine} ({description.name!r})")
+        if not (description.metrics <= set(range(N_STATS)) and description.points <= set(range(N_POINT_CHOICES))
+                and description.buddha_options <= set(range(N_BUDDHA_POINTS))):
+            raise AssertionError(f"{description.name} offers a metric, point or Buddha option that is not in the catalogs "
+                                 "(their ids are global)")
+        if not (description.default_other_metric in description.metrics and description.default_point_metric in description.metrics
+                and description.default_point in description.points
+                and description.default_buddha_option in description.buddha_options):
+            raise AssertionError(f"{description.name} does not offer its own default choices")
+        for table in (description.choices, description.fallbacks, description.ranges):
+            if any(key_pattern(key) != key for key in table):
+                raise AssertionError(f"{description.name} has a choice or range keyed by something that is not a key pattern")
+        if any(fallback not in description.choices.get(key, (fallback,)) for key, fallback in description.fallbacks.items()):
+            raise AssertionError(f"{description.name} gives a fallback it does not accept itself")
+    if set(OFFERED_ENGINES) - set(ENGINE_DESCRIPTIONS):
+        raise AssertionError("an engine the dropdown offers needs a description of what it offers and accepts (engines.py)")
+    ray = ENGINE_DESCRIPTIONS[ENGINE_RAY_BOUNCING]
+    if (ray.metrics != set(range(N_STATS)) or ray.points != set(range(N_POINT_CHOICES))
+            or ray.buddha_options != set(range(N_BUDDHA_POINTS))):
+        raise AssertionError("the ray-bouncing engine offers every choice there is: its ids are the catalogs' own")
     if "buddha_path_kinds" not in ColorationConfig.__slots__:
         raise AssertionError("ColorationConfig is missing its buddha_path_kinds field")
 

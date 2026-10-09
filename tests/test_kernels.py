@@ -1722,7 +1722,7 @@ def test_membership_by_tag_alone_equals_the_bounce_count_rule_on_every_ray_of_a_
         for j in range(n):
             for i in range(n):
                 path_points, path_point_tags, raw = np.empty((82, 2)), np.empty(82), np.empty(m.N_RAW)
-                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args, raw)
+                term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, raw)
                 nb = int(raw[m.RAW_BOUNCES])
                 for seq in range(m.N_SEQS):
                     got = [k for k in range(npts) if m.in_sequence(seq, k, path_point_tags)]
@@ -1828,7 +1828,7 @@ def test_a_rendered_pixels_stored_sequences_are_those_of_a_retrace_of_its_ray():
             if pixel_state[j, i] != m.PIXEL_TRACED:
                 continue
             path_points, path_point_tags, raw = np.empty((62, 2)), np.empty(62), np.empty(m.N_RAW)
-            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args, raw)
+            _term, npts = m.trace_path((i + 0.5) * 2.0 / n - 1.0, 1.0 - (j + 0.5) * 2.0 / n, path_points, path_point_tags, termination, engine_args.ray, raw)
             nb = int(raw[m.RAW_BOUNCES])
             for seq in range(m.N_SEQS):
                 for red in range(m.N_PRED):
@@ -2024,3 +2024,65 @@ def test_a_fresh_start_draws_in_the_default_world_what_it_drew_in_the_world_half
         fired = (new != np.array(m.BACKGROUND, dtype=np.uint8)).any(axis=2)
         assert fired.sum() > 9000, "the circle fills the image"
         assert ((new != old).any(axis=2)).sum() <= 0.01 * fired.sum()
+
+
+# --------------------------------------------------------------------------- #
+# The engine switch inside the drivers (Engine_Refactor_Design.md D28)
+# --------------------------------------------------------------------------- #
+def test_the_arguments_of_the_drivers_hold_the_engine_and_both_engines_bundles():
+    ray = m.ray_args(0.5, m.fuzz_rule(m.DEFAULT_FUZZ), m.EMISSION_DEFAULT, m.build_obstacle_arrays([]))
+    args = m.path_args(m.ENGINE_RAY_BOUNCING, ray)
+    assert isinstance(args, m.PathArgs) and args._fields == ("engine", "ray", "orbit")
+    assert args.engine == 0 and args.ray is ray and args.orbit == m.ORBIT_ARGS_DEFAULT
+    assert m.OrbitArgs._fields == ("exponent", "z0_is_c", "julia", "julia_re", "julia_im", "clip_escape")
+    assert m.ORBIT_ARGS_DEFAULT == m.OrbitArgs(exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip_escape=True)
+    other = m.orbit_args(3, True, True, 1, -1, False)
+    assert m.path_args(m.ENGINE_MANDELBROT, ray, other).orbit == m.OrbitArgs(3.0, True, True, 1.0, -1.0, False)
+    assert type(other.exponent) is float and type(other.julia_re) is float and other.z0_is_c is True
+
+
+def test_the_engine_switch_gives_the_ray_engine_exactly_the_path_trace_path_gives():
+    arrays = m.build_obstacle_arrays(_unit_scene() + [m.EllipseShape(5)])
+    args = _engine_args(arrays, seg_mult=0.9)
+    termination = _termination(60)
+    for x, y in [(0.0, 0.0), (0.3, 0.1), (-0.6, 0.5), (0.2, -0.7), (0.0, 0.9), (0.99, 0.0)]:
+        want = [np.zeros((62, 2)), np.zeros(62), np.zeros(m.N_RAW)]
+        got = [np.zeros((62, 2)), np.zeros(62), np.zeros(m.N_RAW)]
+        assert m.trace_path(x, y, *want[:2], termination, args.ray, want[2]) == m.trace_engine_path(x, y, *got[:2], termination, args, got[2])
+        npts = m.trace_path(x, y, *want[:2], termination, args.ray, want[2])[1]
+        assert np.array_equal(want[0][:npts], got[0][:npts]) and np.array_equal(want[1][:npts], got[1][:npts])
+        assert np.array_equal(want[2], got[2])
+
+
+def test_the_drivers_reach_the_orbit_engine_when_the_engine_says_so():
+    """The orbit engine's path function is not written yet (a path of its start point alone), so this checks only that the switch
+    reaches it, in the parallel driver and in the seeding driver, and that the gating of pixels is the same whichever engine runs."""
+    arrays = m.build_obstacle_arrays(_unit_scene())
+    ray, orbit = _engine_args(arrays), m.path_args(m.ENGINE_MANDELBROT, _engine_args(arrays).ray)
+    termination, n = _termination(20), 16
+    made = []
+    for args in (ray, orbit):
+        stats = np.zeros((n, n, m.N_STATS), np.float32)
+        points = np.zeros((n, n, m.N_POINTS, 2), np.float32)
+        state = np.zeros((n, n), np.uint8)
+        m.trace_rows(stats, points, state, 0, n, n, n, UNIT_WORLD, termination, args, 0)
+        made.append((stats, points, state))
+    assert np.array_equal(made[0][2], made[1][2]) and (made[1][2] == m.PIXEL_TRACED).sum() > 100
+    traced = made[1][2] == m.PIXEL_TRACED
+    assert not np.array_equal(made[0][0][traced], made[1][0][traced]), "the orbit engine made its own paths"
+    start, end = made[1][1][..., m.POINT_START, :][traced], made[1][1][..., m.POINT_END, :][traced]
+    assert np.array_equal(start, end), "(a path of one point: its start is its end)"
+    assert not np.array_equal(made[0][1][..., m.POINT_START, :][traced], made[0][1][..., m.POINT_END, :][traced])
+    counts = [np.zeros((n, n)) for _ in range(2)]
+    for args, c in zip((ray, orbit), counts):
+        m.scatter_multi_buddha(0, n, UNIT_WORLD, termination, args, 0, False, False, False, False, True, ALL_TERMS_ALLOWED, c)
+    assert counts[1].sum() == (made[1][2] == m.PIXEL_TRACED).sum(), "one point per path: the start"
+    assert counts[0].sum() > counts[1].sum()
+
+
+def test_no_module_but_the_kernels_calls_the_ray_engines_path_function_so_every_caller_goes_through_the_switch():
+    import inspect
+    for name, module in m.__lb_modules__.items():
+        if name.rsplit(".", 1)[-1] in ("kernels", "selfchecks"):
+            continue
+        assert "trace_path(" not in inspect.getsource(module), f"{name} calls trace_path directly: use trace_engine_path"

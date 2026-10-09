@@ -1233,7 +1233,7 @@ def test_a_large_export_keeps_only_what_its_colorations_read():
     buddha.chan_src[1] = m.CHAN_SRC_BUDDHA
     buddha.buddha_points[1] = _buddha_choice(m.POINT_ALL_MEAN, m.POINT_END)
     colorations = (_coloration_settings_from_config(m.ColorationConfig(0)), _coloration_settings_from_config(buddha))
-    termination, engine_args = m.settings_natural_termination(data.natural_termination), m.settings_ray_args(data.ray, obst_arrays)
+    termination, engine_args = m.settings_natural_termination(data.natural_termination), m.path_args(data.engine.engine, m.settings_ray_args(data.ray, obst_arrays))
     stats = np.zeros((n, n, m.N_STATS), dtype=np.float32)
     characteristic_points = np.zeros((n, n, m.N_POINTS, 2), dtype=np.float32)
     pixel_state = np.zeros((n, n), dtype=np.uint8)
@@ -1286,7 +1286,7 @@ def _pixel_xy(i, j, n, rect=UNIT_WORLD):
 
 def _path_of(x, y, termination, engine_args):
     path_points, tags, raw = np.empty((termination.max_iter + 2, 2)), np.empty(termination.max_iter + 2), np.empty(m.N_RAW)
-    term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args, raw)
+    term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args.ray, raw)
     return term, path_points[:npts].copy()
 
 
@@ -1311,7 +1311,7 @@ def test_a_buddha_channel_scatters_only_the_paths_of_the_kinds_ticked_whatever_i
     zone = m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.8, x_stop=0.9, y_start=-0.7, y_stop=0.8)
     options = {"stored end point": _buddha_choice(m.POINT_END), "all path points": _buddha_choice(m.BUDDHA_POINT_LABELS.index("All path points")),
                "all midpoints": _buddha_choice(m.BUDDHA_POINT_LABELS.index("All segment midpoints"))}
-    arrays = engine_args.obstacles
+    arrays = engine_args.ray.obstacles
     checked = 0
     for ticked in range(8):
         kinds = tuple(bool(ticked >> k & 1) for k in range(3))

@@ -8,7 +8,7 @@ from .metrics import CHAN_BUDDHA, make_mapping
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
 from .color_pipeline import demand_layout, paint
 from .stored_layout import FULL_LAYOUT
-from .settings import settings_natural_termination, settings_ray_args
+from .settings import path_args, settings_natural_termination, settings_ray_args
 from .shapes import draw_obstacle_outline, ring_layer_masks
 
 
@@ -52,7 +52,7 @@ class RenderMixin:
         case before this feature existed), this is exactly the one image
         it's always been."""
         termination = settings_natural_termination(data.natural_termination)
-        engine_args = settings_ray_args(data.ray, obst_arrays)
+        engine_args = path_args(data.engine.engine, settings_ray_args(data.ray, obst_arrays))
         rng_seed = data.ray.fuzz.rng_seed
         layout = demand_layout(colorations, data.buddha_seed)     # keep only the slots these colorations read
         stats, characteristic_points = layout.allocate(out_h, out_w)

@@ -4,10 +4,10 @@ them. One frozen GeneratedFigure holds all of it, so it changes atomically and a
 and half of another. Before the first Start (and after New or Open) there is none: App.generated is None, and the
 PLACEHOLDER_FIGURE (the defaults, no obstacle) stands in where something must be read."""
 from dataclasses import dataclass
-from .kernels import NaturalTerminationRule, RayArgs
+from .kernels import NaturalTerminationRule, PathArgs
 from .settings import (
     DEFAULT_ENGINE_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, EngineSettings,
-    NaturalTerminationSettings, RaySettings, settings_natural_termination, settings_ray_args
+    NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_ray_args
 )
 from .shapes import build_obstacle_arrays, obstacles_signature
 
@@ -18,7 +18,7 @@ class GeneratedFigure:
     natural_termination: NaturalTerminationSettings
     engine: EngineSettings                     # which path engine made it
     termination: NaturalTerminationRule        # the kernels' form of natural_termination
-    engine_args: RayArgs                       # the kernels' form of ray and the obstacles as generated
+    engine_args: PathArgs                      # the kernels' form of the engine, ray and the obstacles as generated
     obstacle_snapshots: tuple                  # frozen copies of the obstacles, for the export's figure settings text
     obstacles_signature: tuple                 # their plain-data states, to see whether the scene changed since
     obstacle_states: dict                      # obstacle id -> state, for the dashed "changed since" guide
@@ -35,7 +35,7 @@ def generated_figure(ray, natural_termination, obstacles, engine=DEFAULT_ENGINE_
     return GeneratedFigure(
         ray=ray, natural_termination=natural_termination, engine=engine,
         termination=settings_natural_termination(natural_termination),
-        engine_args=settings_ray_args(ray, build_obstacle_arrays(obstacles)),
+        engine_args=path_args(engine.engine, settings_ray_args(ray, build_obstacle_arrays(obstacles))),
         obstacle_snapshots=tuple(o.snapshot() for o in obstacles),
         obstacles_signature=obstacles_signature(obstacles),
         obstacle_states={o.id: o.state() for o in obstacles})

@@ -6,8 +6,8 @@ another @njit function it calls, is changed in a different file. Therefore this 
   * every @njit function (they all call each other),
   * every constant a kernel reads - and the rest of each numbered family (TERM_*, SHAPE_*, ST_*, POINT_*, SEQ_*, PRED_*,
     SRED_*, RAW_*, KIND_*, OBSTACLE_EFFECT_*, ...) so that a family is never split between files,
-  * the kernel argument types (FuzzRule, ConfineRule, EmissionRule, ObstacleArrays, WorldRect and the bundles
-    NaturalTerminationRule and RayArgs),
+  * the kernel argument types (FuzzRule, ConfineRule, EmissionRule, ObstacleArrays, WorldRect, OrbitArgs and the bundles
+    NaturalTerminationRule, RayArgs and PathArgs),
 and imports nothing from the rest of the package except numba's njit/prange (decorators, not values a compiled function
 freezes in). test_the_numba_kernels_read_only_names_defined_in_their_own_file enforces this. Every other module imports
 these names from here (never the other way round)."""
@@ -166,6 +166,25 @@ RayArgs = namedtuple("RayArgs", [
     "fuzz",                                          # a FuzzRule
     "emission",                                      # an EmissionRule
     "obstacles"])                                    # an ObstacleArrays
+
+# The escape-time orbit engine's own arguments (the Mandelbrot set and its Julia sets: z -> z^p + c): the part of its
+# arguments that is not the natural termination rule and not the obstacles, which every engine shares. Build it only with
+# orbit_args.
+OrbitArgs = namedtuple("OrbitArgs", [
+    "exponent",                                      # p, any real number
+    "z0_is_c",                                       # does the orbit start at c (else at 0)?
+    "julia",                                         # does the pixel's location become z_0 (a Julia set) and not c?
+    "julia_re",                                      # the Julia constant c, real part
+    "julia_im",                                      # ... imaginary part
+    "clip_escape"])                                  # does an escaping orbit end where its segment crosses the escape radius?
+
+# Everything one path engine job needs that the engines do not share, whichever engine runs: which engine, and the arguments of
+# each (the unused one is a dummy). The drivers (trace_rows..., scatter_from_seeds) take this where they took a RayArgs and
+# switch on `engine` once per path, in trace_engine_path. Build it only with path_args.
+PathArgs = namedtuple("PathArgs", [
+    "engine",                                        # an ENGINE_* code
+    "ray",                                           # a RayArgs (the ray-bouncing engine's; its obstacles are every engine's)
+    "orbit"])                                        # an OrbitArgs
 
 # How a size in the world becomes a metric between 0 and 1 (the default world is [-2, 2], four wide): a point distance is
 # divided by DISTANCE_METRIC_DIVISOR and clipped to 0..1, a path's length L becomes (2/pi) arctan(L / LENGTH_METRIC_DIVISOR).
@@ -2321,6 +2340,29 @@ def scatter_one_buddha_point(counts, x, y, world_rect):
         counts[row, col] += 1
 
 
+@njit(nogil=True, cache=True)
+def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacles, raw):
+    """The escape-time orbit engine's path function. Not written yet (step 9 of Engine_Refactor_Plan.md): for now a path of its
+    start point alone, ended by the iteration limit, so that the engine switch has two real branches to measure. Same contract as
+    trace_path: fills `path_points`, `path_point_tags` and `raw`, returns (termination reason, number of points)."""
+    path_points[0, 0] = x0
+    path_points[0, 1] = y0
+    path_point_tags[0] = TAG_START
+    for k in range(N_RAW):
+        raw[k] = 0.0
+    return TERM_ITER, 1
+
+
+@njit(nogil=True, cache=True)
+def trace_engine_path(x0, y0, path_points, path_point_tags, termination, engine_args, raw):
+    """Trace one path with the engine `engine_args.engine` (a PathArgs): trace_path for the ray-bouncing engine, orbit_path for the
+    orbit engine, which meets the same obstacles (every engine's: they are held in the RayArgs). The one place that switches on
+    the engine, so the gating of pixels, the storing and the Buddha scatters exist once (the drivers call this)."""
+    if engine_args.engine == ENGINE_RAY_BOUNCING:
+        return trace_path(x0, y0, path_points, path_point_tags, termination, engine_args.ray, raw)
+    return orbit_path(x0, y0, path_points, path_point_tags, termination, engine_args.orbit, engine_args.ray.obstacles, raw)
+
+
 @njit(cache=True)
 def scatter_trace_points(counts, world_rect, path_points, path_point_tags, npts, nb, want_all_self, want_all_mid, want_prog_bounce,
                          want_prog_mid, want_all_path):
@@ -2380,11 +2422,11 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
     an int64 array), and whatever the multi options asked for (see scatter_trace_points). `term_allowed` is a bool array
     with a flag for each TERM_* code (N_TERM): a ray that ended for a reason whose flag is False scatters nothing at all.
     Deliberately single-threaded (no prange): a scattered point can land on any pixel, so a parallel version would
-    risk concurrent writes. `termination` is a NaturalTerminationRule and `engine_args` a RayArgs (see trace_path).
+    risk concurrent writes. `termination` is a NaturalTerminationRule and `engine_args` a PathArgs (see trace_engine_path).
     """
     max_iter = termination.max_iter
-    obstacles = engine_args.obstacles
-    fuzzing = engine_args.fuzz.enabled
+    obstacles = engine_args.ray.obstacles
+    fuzzing = engine_args.ray.fuzz.enabled
     h, w = counts.shape
     step_x = (zone.x_stop - zone.x_start) / w
     step_y = (zone.y_stop - zone.y_start) / h
@@ -2402,7 +2444,7 @@ def scatter_from_seeds(row0, row1, zone, world_rect, termination, engine_args, r
                 continue
             if fuzzing:
                 np.random.seed(rng_seed_base + i * 1000003 + j * 97)
-            term, npts = trace_path(x, y, path_points, path_point_tags, termination, engine_args, raw)
+            term, npts = trace_engine_path(x, y, path_points, path_point_tags, termination, engine_args, raw)
             if not term_allowed[term]:
                 continue
             nb = int(raw[RAW_BOUNCES])
@@ -2425,8 +2467,8 @@ def scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_s
     `counts`' own grid, which covers the world rectangle `world_rect`, and using the exact same seed formula as
     trace_rows, so this reproduces the identical rays already shown, at whatever resolution that
     is) and scatter into `counts` the points of the "multi-point" Buddha options asked for - scatter_from_seeds
-    with the world rectangle as its zone and no characteristic points. `termination` is a NaturalTerminationRule and `engine_args` a RayArgs
-    (see trace_path).
+    with the world rectangle as its zone and no characteristic points. `termination` is a NaturalTerminationRule and `engine_args` a PathArgs
+    (see trace_engine_path).
     """
     no_slots = np.empty(0, dtype=np.int64)
     scatter_from_seeds(row0, row1, world_rect, world_rect, termination, engine_args, rng_seed_base, no_slots, no_slots,
@@ -2434,12 +2476,12 @@ def scatter_multi_buddha(row0, row1, world_rect, termination, engine_args, rng_s
 
 
 # A numba limitation shapes the parallel driver below: a parallel function cannot take a tuple that contains
-# other tuples (a NaturalTerminationRule holds a ConfineRule, a RayArgs holds a FuzzRule, an EmissionRule and an
+# other tuples (a NaturalTerminationRule holds a ConfineRule, a PathArgs holds a RayArgs, which holds a FuzzRule, an EmissionRule and an
 # ObstacleArrays) and use it inside its prange loop - compiling fails with "'str' object has no attribute 'loc'" (or
 # "scalar type ... given for non scalar argument") - but a parallel function that is given their one-level pieces
 # can put the whole tuples together again INSIDE its loop (verified). So trace_rows takes the
-# rules whole, like trace_path, and hands their pieces to _trace_rows_parallel, which
-# rebuilds them for each pixel's trace_path. Any other engine's driver has the same constraint.
+# rules whole, like trace_engine_path, and hands their pieces to _trace_rows_parallel, which
+# rebuilds them for each pixel's trace_engine_path. Any other driver has the same constraint.
 @njit(nogil=True, cache=True)
 def trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args,
                       rng_seed_base, stat_ids, point_ids):
@@ -2451,9 +2493,10 @@ def trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out
     makes an export of a large image affordable (see StoredLayout in stored_layout.py: a coloration needs only some of the
     slots). With every slot, in order, it is exactly trace_rows.
     """
+    ray = engine_args.ray
     _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination.max_iter,
-                         termination.max_dist, termination.escape_radius, termination.confine, engine_args.seg_mult,
-                         engine_args.fuzz, engine_args.emission, engine_args.obstacles, rng_seed_base, stat_ids, point_ids)
+                         termination.max_dist, termination.escape_radius, termination.confine, engine_args.engine, ray.seg_mult,
+                         ray.fuzz, ray.emission, ray.obstacles, engine_args.orbit, rng_seed_base, stat_ids, point_ids)
 
 
 @njit(nogil=True, cache=True)
@@ -2466,7 +2509,7 @@ def trace_rows(stats, characteristic_points, pixel_state, row0, row1, out_w, out
     output whose shape differs from the rectangle's stretches the picture to fit; the "confined to less than a pixel"
     physics is in world units (the confinement threshold), not in the output's pixels, so a ray behaves identically
     whatever resolution or world rectangle it's sampled with. When fuzzing is enabled, each pixel's ray gets its own
-    reproducible seed. `termination` is a NaturalTerminationRule and `engine_args` a RayArgs (see trace_path).
+    reproducible seed. `termination` is a NaturalTerminationRule and `engine_args` a PathArgs (see trace_engine_path).
     """
     trace_rows_stored(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, termination, engine_args,
                       rng_seed_base, np.arange(N_STATS), np.arange(N_POINTS))
@@ -2474,7 +2517,7 @@ def trace_rows(stats, characteristic_points, pixel_state, row0, row1, out_w, out
 
 @njit(nogil=True, parallel=True, cache=True)
 def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, out_w, out_h, world_rect, max_iter, max_dist,
-                             escape_radius, confine, seg_mult, fuzz, emission, obstacles,
+                             escape_radius, confine, engine, seg_mult, fuzz, emission, obstacles, orbit,
                              rng_seed_base, stat_ids, point_ids):
     """trace_rows with the rules in pieces (see above)."""
     fuzzing = fuzz.enabled
@@ -2498,9 +2541,9 @@ def _trace_rows_parallel(stats, characteristic_points, pixel_state, row0, row1, 
         raw = np.empty(N_RAW)
         out = np.empty(N_STATS)
         ray_characteristic_points = np.empty((N_POINTS, 2))
-        term, npts = trace_path(x, y, path_points, path_point_tags,
-                                NaturalTerminationRule(max_iter, max_dist, escape_radius, confine),
-                                RayArgs(seg_mult, fuzz, emission, obstacles), raw)
+        term, npts = trace_engine_path(x, y, path_points, path_point_tags,
+                                       NaturalTerminationRule(max_iter, max_dist, escape_radius, confine),
+                                       PathArgs(engine, RayArgs(seg_mult, fuzz, emission, obstacles), orbit), raw)
         compute_run_measurements(path_points, npts, raw, max_iter, seg_mult, out)
         compute_sequences(path_points, npts, path_point_tags, int(raw[RAW_BOUNCES]), max_iter, out, ray_characteristic_points)
         for k in range(len(stat_ids)):

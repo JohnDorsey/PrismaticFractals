@@ -45,7 +45,7 @@ t0 = time.perf_counter()
 if mode == "demand":
     img = app.render_full_image(data, w, h, obst, settings, m.DEFAULT_FRAMING)
 else:                                    # every slot of every pixel
-    termination, engine_args = m.settings_natural_termination(data.natural_termination), m.settings_ray_args(data.ray, obst)
+    termination, engine_args = m.settings_natural_termination(data.natural_termination), m.path_args(data.engine.engine, m.settings_ray_args(data.ray, obst))
     stats = np.zeros((h, w, m.N_STATS), dtype=np.float32)
     points = np.zeros((h, w, m.N_POINTS, 2), dtype=np.float32)
     state = np.zeros((h, w), dtype=np.uint8)

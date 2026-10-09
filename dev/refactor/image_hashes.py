@@ -196,7 +196,7 @@ def live_hashes():
                 path_points = np.empty((62, 2))
                 tags = np.empty(62)
                 raw = np.empty(m.N_RAW)
-                term, npts = m.trace_path(x, y, path_points, tags, rule, engine_args, raw)
+                term, npts = m.trace_path(x, y, path_points, tags, rule, engine_args.ray, raw)
                 vec = np.zeros(m.N_STATS)
                 sp = np.zeros((m.N_POINTS, 2))
                 m.compute_run_measurements(path_points, npts, raw, 60, 0.9, vec)

@@ -78,7 +78,7 @@ def setup(obstacle, scale, seg_mult, fuzzed, towards):
     nat = m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(max_iter=60, max_dist=0.0, escape_radius=OLD_ESCAPE_RADIUS * scale,
                                                          confine_threshold=OLD_CONFINE_THRESHOLD * scale)
     world = m.WorldRect(-scale, scale, -scale, scale)
-    return world, m.settings_natural_termination(nat), m.settings_ray_args(ray, m.build_obstacle_arrays([obstacle]))
+    return world, m.settings_natural_termination(nat), m.path_args(m.ENGINE_RAY_BOUNCING, m.settings_ray_args(ray, m.build_obstacle_arrays([obstacle])))
 
 
 def trace(obstacle, scale, seg_mult, fuzzed, towards):
@@ -116,7 +116,7 @@ def base_path(obstacle, seg_mult, fuzzed, towards, i, j):
     path_points, tags, raw = np.empty((62, 2)), np.empty(62), np.empty(m.N_RAW)
     if fuzzed:
         sup._seed_kernel_rng(RNG_BASE + i * 1000003 + j * 97)
-    term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args, raw)
+    term, npts = m.trace_path(x, y, path_points, tags, termination, engine_args.ray, raw)
     return path_points[:npts]
 
 

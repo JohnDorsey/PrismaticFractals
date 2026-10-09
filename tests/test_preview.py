@@ -22,6 +22,7 @@ def _fake_preview_app(pinned):
     app.obstacles = []                              # nothing at all fires a ray
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS
+    app.preview_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.hover_path_points = np.empty((m.ITER_LIMIT_MAX + 2, 2))
     app.hover_path_point_tags = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
@@ -622,3 +623,15 @@ def test_previewing_a_ray_draws_its_corkscrew():
     app.draw_corkscrew = lambda path_points, path_point_tags, n: app.corkscrews.append((path_points[:n].copy(), path_point_tags[:n].copy(), n))
     app.update_preview(100, 100)
     assert len(app.corkscrews) == 1 and app.corkscrews[0][2] >= 1
+
+
+def test_the_preview_runs_the_engine_of_the_image_on_screen_and_before_any_the_dropdowns():
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.generated = None
+    app.current_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    preview_engine = m.App.preview_engine_settings.__get__(app)
+    assert preview_engine().engine == m.ENGINE_MANDELBROT, "nothing generated yet: the dropdown"
+    app.generated = m.PLACEHOLDER_FIGURE
+    assert preview_engine() == m.DEFAULT_ENGINE_SETTINGS, "the image on screen is of the ray engine, whatever the dropdown says now"

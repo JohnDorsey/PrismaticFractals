@@ -168,7 +168,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     blur = m.BuddhaBlurSettings(radius=0.2, type=m.BUDDHA_BLUR_TRIANGULAR)
     app = _fake_current_image_app()
     _give_generated(app, ray=generated, natural_termination=generated_termination,
-                    engine_args=m.settings_ray_args(generated, app.generated.engine_args.obstacles))
+                    engine_args=m.path_args(m.ENGINE_RAY_BOUNCING, m.settings_ray_args(generated, app.generated.engine_args.ray.obstacles)))
     app.current_blur_settings = lambda: blur
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
@@ -182,7 +182,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     expected = (blur, app.generated.termination, app.generated.engine_args, generated.fuzz.rng_seed)
     assert seen == [expected] * 2
     assert seen[0][1].confine == m.ConfineRule(lookback=9, method=m.CONFINE_PATH, threshold=0.123)
-    assert seen[0][2].emission.offset == 12.0
+    assert seen[0][2].ray.emission.offset == 12.0
     seen.clear()
     app.coloration_thumb_cache = {}
     app.rows_done = 0
@@ -576,8 +576,8 @@ def test_a_generated_figure_holds_the_settings_the_kernel_arguments_and_the_obst
     figure = m.generated_figure(ray, termination, scene)
     assert figure.ray is ray and figure.natural_termination is termination
     assert figure.termination == m.settings_natural_termination(termination)
-    assert figure.engine_args.obstacles.shapes.tolist() == m.build_obstacle_arrays(scene).shapes.tolist()
-    assert figure.engine_args.seg_mult == ray.seg_mult and figure.rng_seed == ray.fuzz.rng_seed
+    assert figure.engine_args.ray.obstacles.shapes.tolist() == m.build_obstacle_arrays(scene).shapes.tolist()
+    assert figure.engine_args.ray.seg_mult == ray.seg_mult and figure.rng_seed == ray.fuzz.rng_seed
     assert figure.obstacles_signature == m.obstacles_signature(scene)
     assert figure.obstacle_states == {0: scene[0].state(), 3: scene[1].state()}
     assert [o.id for o in figure.obstacle_snapshots] == [0, 3]
@@ -590,8 +590,8 @@ def test_the_placeholder_figure_is_the_defaults_with_no_obstacle():
     figure = m.PLACEHOLDER_FIGURE
     assert figure.ray is m.DEFAULT_RAY_SETTINGS and figure.natural_termination is m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     assert figure.termination == m.NATURAL_TERMINATION_DEFAULT
-    assert figure.engine_args.seg_mult == m.DEFAULT_RAY_SETTINGS.seg_mult and figure.engine_args.emission == m.EMISSION_DEFAULT
-    assert figure.engine_args.fuzz == m.fuzz_rule(m.DEFAULT_FUZZ) and len(figure.engine_args.obstacles.shapes) == 0
+    assert figure.engine_args.ray.seg_mult == m.DEFAULT_RAY_SETTINGS.seg_mult and figure.engine_args.ray.emission == m.EMISSION_DEFAULT
+    assert figure.engine_args.ray.fuzz == m.fuzz_rule(m.DEFAULT_FUZZ) and len(figure.engine_args.ray.obstacles.shapes) == 0
     assert figure.obstacles_signature == () and figure.obstacle_snapshots == () and figure.obstacle_states == {}
     assert m.settings_of(None) == (None, None) and m.settings_of(figure) == (figure.ray, figure.natural_termination)
 

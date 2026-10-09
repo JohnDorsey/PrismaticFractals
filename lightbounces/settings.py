@@ -16,7 +16,7 @@ from .constants import (
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
     EMIT_MODE_NAMES
 )
-from .kernels import ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, RayArgs
+from .kernels import ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, OrbitArgs, PathArgs, RayArgs
 
 
 def strict_record(cls):
@@ -530,6 +530,22 @@ def settings_ray_args(settings, obstacles):
     """ray_args() for a RaySettings and the obstacles' ObstacleArrays. (The fuzzing seed is not part of
     it: callers pass `settings.fuzz.rng_seed` to the kernels themselves.)"""
     return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings), obstacles)
+
+
+def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape):
+    """The orbit engine's own arguments in the form the simulation kernels expect."""
+    return OrbitArgs(exponent=float(exponent), z0_is_c=bool(z0_is_c), julia=bool(julia), julia_re=float(julia_re),
+                     julia_im=float(julia_im), clip_escape=bool(clip_escape))
+
+
+# The orbit engine's defaults (Engine_Refactor_Design.md D14, D26, D29): z -> z^2 + c from z_0 = 0, the pixel is c, clip.
+ORBIT_ARGS_DEFAULT = orbit_args(2.0, False, False, 0.0, 0.0, True)
+
+
+def path_args(engine, ray, orbit=ORBIT_ARGS_DEFAULT):
+    """What the drivers take as `engine_args`: the `engine` (an ENGINE_* code) to run and both engines' arguments, the one
+    not run a dummy (`orbit` defaults to ORBIT_ARGS_DEFAULT). `ray` is a RayArgs (see ray_args), whose obstacles every engine uses."""
+    return PathArgs(engine=int(engine), ray=ray, orbit=orbit)
 
 
 def resolve_value(key, keyframes_sorted, frame_number, fallback, is_float):

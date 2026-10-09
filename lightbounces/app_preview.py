@@ -11,10 +11,10 @@ from .framings import framing_image_size, framing_outline_pixel, framing_world_r
 from .kernels import (
     N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
     RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, compute_sequences, compute_run_measurements, fires_ray,
-    in_sequence, trace_path
+    in_sequence, trace_engine_path
 )
 from .metrics import POINT_METRICS, resolve_point_xy
-from .settings import NaturalTerminationSettings, RaySettings, settings_natural_termination, settings_ray_args
+from .settings import NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_ray_args
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .colorations import COLOR_MODELS
 
@@ -89,7 +89,7 @@ class PreviewMixin:
         the frozen set if an image has been generated (matching what was actually
         simulated/saved), else the live (current) set."""
         if self.generated is not None:
-            g = self.generated.engine_args.obstacles
+            g = self.generated.engine_args.ray.obstacles
             return [ObstacleRing(shape=int(g.shapes[i]), bound=g.bounds[i], cx=float(g.cx[i]),
                                  cy=float(g.cy[i]), in_effect=int(g.effects[i, 0]),
                                  out_effect=int(g.effects[i, 1]))
@@ -168,6 +168,11 @@ class PreviewMixin:
             confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
             confine_threshold=self.last_confine_threshold)
 
+    def preview_engine_settings(self):
+        """The path engine for previews, chosen the same way as preview_settings(): that of the image being generated, or the
+        dropdown's."""
+        return self.generated.engine if self.generated is not None else self.current_engine_settings()
+
     def invalidate_preview(self):
         """Called whenever a control that feeds preview_settings() changes,
         before the first Start. A pinned preview is recomputed immediately (so
@@ -227,8 +232,8 @@ class PreviewMixin:
             np.random.seed(ps.fuzz.rng_seed + i * 1000003 + j * 97)
         path_points, path_point_tags = self.hover_path_points, self.hover_path_point_tags
         raw, vec, ray_characteristic_points = self.hover_raw, self.hover_vec, self.hover_ray_characteristic_points
-        term, n = trace_path(x, y, path_points, path_point_tags, settings_natural_termination(pn),
-                             settings_ray_args(ps, obstacles), raw)
+        term, n = trace_engine_path(x, y, path_points, path_point_tags, settings_natural_termination(pn),
+                                    path_args(self.preview_engine_settings().engine, settings_ray_args(ps, obstacles)), raw)
         compute_run_measurements(path_points, n, raw, pn.max_iter, ps.seg_mult, vec)
         compute_sequences(path_points, n, path_point_tags, int(raw[RAW_BOUNCES]), pn.max_iter, vec, ray_characteristic_points)
         vals = self.component_values(vec, ray_characteristic_points, x, y)

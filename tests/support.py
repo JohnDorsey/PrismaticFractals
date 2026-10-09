@@ -383,9 +383,10 @@ def _termination(max_iter, max_dist=0.0, escape_radius=None, confine=None):
 
 
 def _engine_args(obstacles, seg_mult=1.0, fuzz=None, emission=None):
-    """The kernels' RayArgs for an ObstacleArrays; `fuzz` is a FuzzParams (default: fuzzing off)."""
-    return m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz),
-                      m.EMISSION_DEFAULT if emission is None else emission, obstacles)
+    """The drivers' engine arguments (a PathArgs of the ray-bouncing engine) for an ObstacleArrays; `fuzz` is a FuzzParams
+    (default: fuzzing off). `.ray` is the RayArgs that trace_path takes."""
+    return m.path_args(m.ENGINE_RAY_BOUNCING, m.ray_args(seg_mult, m.fuzz_rule(m.DEFAULT_FUZZ if fuzz is None else fuzz),
+                                                         m.EMISSION_DEFAULT if emission is None else emission, obstacles))
 
 
 def _start_scene():
@@ -758,6 +759,53 @@ def _buddha_choice(*points):
     """A channel's buddha_points tuple with exactly the entries `points` (indexes into BUDDHA_POINT_CATALOG - a stored
     point's own number, such as POINT_SELF_MEAN, is its entry) switched on."""
     return tuple(i in points for i in range(m.N_BUDDHA_POINTS))
+
+
+# --------------------------------------------------------------------------- #
+# A test double for a second path engine (the engine refactor, `lightbounces/engines.py`)
+# --------------------------------------------------------------------------- #
+TEST_ENGINE_CODE = 1
+
+
+def small_engine(**changes):
+    """The path engine the compatibility tests use in place of Mandelbrot: it offers only the "Path" sequence, the four point
+    distances, the path's count, length and last direction and the termination reason; the Buddha options of its path; no Reflect
+    (pass-through instead); and, unlike the ray engine, a range for the iteration limit (1 to 100) and for the segment multiplier
+    (0.5 to 1). `changes` replace any field of the description."""
+    path_points = {m.point_slot(m.SEQ_PATH, red) for red in range(m.N_PRED)}
+    fixed_points = {m.CHOICE_ORIGIN, m.CHOICE_POINT_NEG1_POS1, m.CHOICE_TOP_LEFT_POINT}
+    metrics = set(m.POINT_METRICS) | {m.stat_slot(m.SEQ_PATH, red) for red in (m.SRED_COUNT, m.SRED_LENGTH, m.SRED_LAST_DIR)}
+    metrics.add(m.ST_TERMINATION)
+    labels = m.BUDDHA_POINT_LABELS
+    options = {i for i, label in enumerate(labels) if label.startswith("Path:") and "perpendicular" not in label}
+    options.add(labels.index("All path points"))
+    effects = frozenset({m.OBSTACLE_EFFECT_TERMINATE, m.OBSTACLE_EFFECT_PASS})
+    fields = dict(
+        engine=TEST_ENGINE_CODE, name="Test double", metrics=frozenset(metrics), points=frozenset(path_points | fixed_points),
+        buddha_options=frozenset(options), default_point_metric=m.ST_HDIST, default_other_metric=m.stat_slot(m.SEQ_PATH, m.SRED_COUNT),
+        default_point=m.POINT_START, default_buddha_option=labels.index("Path: Mean point"),
+        choices={"obst:*:in_effect": effects, "obst:*:out_effect": effects},
+        fallbacks={"obst:*:in_effect": m.OBSTACLE_EFFECT_PASS, "obst:*:out_effect": m.OBSTACLE_EFFECT_PASS},
+        ranges={"iter": (1, 100), "seg_mult": (0.5, 1.0)}, ignored_tabs=("Emissions", "Mutations"), ignored_keys=frozenset())
+    fields.update(changes)
+    return m.EngineDescription(**fields)
+
+
+def settings_dict_with_lists(obstacle_effects=((0, 0),), channels=None):
+    """A full dict of settings as `capture_all_settings` makes it (the defaults of every static setting), with one obstacle per
+    (in_effect, out_effect) pair given (ids 1, 2...) and one default coloration (id 1; its three channels replaced by `channels`,
+    a list of three ChannelSettings, if given)."""
+    values = dict(m.DEFAULT_SETTING_VALUES)
+    for i, (in_effect, out_effect) in enumerate(obstacle_effects, 1):
+        values[f"obst:{i}:in_effect"] = in_effect
+        values[f"obst:{i}:out_effect"] = out_effect
+        values[f"obst:{i}:fire_inside"] = True
+        values[f"obst:{i}:radius"] = 2.0
+    coloration = m.ColorationConfig(1)
+    values["coloration:1:color_model"] = coloration.color_model
+    for c in range(3):
+        values[f"coloration:1:chan{c}"] = channels[c] if channels else m.coloration_channel_value(coloration, c)
+    return values
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

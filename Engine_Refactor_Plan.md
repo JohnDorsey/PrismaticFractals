@@ -209,6 +209,20 @@ Goal: the rules of D7, D11, D17, D34, D35 and D39 as pure functions, before any 
 Done when: the pure functions are fully tested, including round trips of switch, switch back and go back. Decisions:
 D7, D11, D17, D18, D34, D35, D39. Risk: the biggest design piece; ids and defaults touch every catalog.
 
+Result (done; `FILE_VERSION` 157; 810 tests pass, 24 new): `lightbounces/engines.py`, pure, nothing calls it yet.
+- Global ids (D34) needed no change: Mandelbrot's choices are a subset of the existing catalogs (its "Path" sequence and metrics
+  are already there), so an `EngineDescription` holds sets of ids and the ray engine's offers all of them. `StoredLayout` as an
+  engine's own id-to-position map is step 8 (it needs the engine's tables passed in).
+- `EngineDescription` (offered metrics, points, Buddha options; accepted values of other choices by key pattern; ranges; the
+  defaults used where the usual one is not offered; the tabs and keys it ignores), `correct_settings` (the one correction),
+  `correct_channel`, `Correction`, `correction_message` (the wording of D7, D20, D36), `switch_engine` with `EngineMemory`, `go_back`,
+  `new_obstacle_effects` (D35). The test double `small_engine()` in `tests/support.py` has the shape of D31 and a range for the
+  iteration limit and the segment multiplier (ranges that differ between two doubles are tested).
+- Verified: round trips (random settings, 300 each: switch and switch back gives the same settings; correcting twice changes
+  nothing; correcting under the ray engine changes nothing), switch + go back, a setting changed meanwhile stays, four deliberate
+  breakages of the code each make a test fail (tried). Hashes and project pictures identical.
+- Interpretations to confirm are listed in the report of this step.
+
 ## Step 7. The engine switch inside the drivers  (effort: high)
 
 Goal: D28 with only the ray engine, so the cost is measured before a second engine exists.
@@ -221,6 +235,18 @@ Goal: D28 with only the ray engine, so the cost is measured before a second engi
 
 Done when: hashes identical; run time within noise of the baseline; the compile time is reported. Decisions: D2, D28.
 Risk: numba compile time grows with every branch; if it is much worse than expected, stop and report before step 8.
+
+Result (done; `FILE_VERSION` 158; 815 tests pass, 5 new): the four drivers take a `PathArgs(engine, ray, orbit)` as `engine_args` and call
+`trace_engine_path`, the one switch (`trace_path` for the ray engine, `orbit_path` for the other); the hover preview, the warm-up
+and the drivers all go through it, and a test scans the modules so that nothing else calls `trace_path`. `orbit_path` is a stub (a
+path of its start point) until step 9, so the second branch is real but small. `OrbitArgs` has the fields of D14 and D29.
+- Images identical (`image_hashes.py`, `project_images.py`); the ray engine through the switch gives exactly `trace_path`'s paths.
+- Measured against a copy of the package from before the change (`dev/refactor/driver_bench.py`, alternating processes): warm run
+  times within noise (e.g. 512 x 512 start scene 0.095-0.100 s both ways); first kernel calls cold 15.1-15.2 s against 13.9 s
+  (+9%), from the cache 8.4 s against 7.8 s (+7%); touching another file recompiles nothing, touching `kernels.py` recompiles
+  (15.4 s). The real orbit function (step 9) adds its own compile time and is re-measured there.
+- Obstacles still live inside the `RayArgs` (the orbit function is handed `engine_args.ray.obstacles`); taking them out of it would
+  change `trace_path`'s signature and every test that calls it, and nothing needs it yet. A decision for step 9, if wanted.
 
 ## Step 8. Per-engine layouts and sequence tables  (effort: high)
 

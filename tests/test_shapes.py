@@ -755,7 +755,7 @@ def test_rays_inside_an_arc_loop_bounce_around_it_and_every_bounce_lies_on_its_e
             x, y = rng.uniform(-1, 1, 2)
             if not m.inside_boundary(x, y, cls.KIND, bound):
                 continue
-            term, npts = m.trace_path(x, y, path_points, path_point_tags, _termination(30), _engine_args(arrays), raw)
+            term, npts = m.trace_path(x, y, path_points, path_point_tags, _termination(30), _engine_args(arrays).ray, raw)
             for k in range(1, npts):
                 if path_point_tags[k] != m.TAG_BOUNDARY:                # (a bounce off the ray's own path
                     continue                                   # is not on the shape's edge)
