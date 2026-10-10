@@ -595,3 +595,30 @@ def test_the_two_multipliers_are_two_settings_and_the_orbit_engine_uses_both():
     orbit, ray = m.MANDELBROT_ENGINE, m.RAY_BOUNCING_ENGINE
     assert not orbit.ignores("seg_mult") and not orbit.ignores("orbit_pre_seg_mult") and orbit.ignores("fuzz_on") and orbit.ignores("bnd_mult")
     assert not ray.ignores("seg_mult") and not ray.ignores("fuzz_on")
+
+
+def test_editing_a_channel_puts_right_at_once_what_it_now_uses_and_the_engine_does_not_offer():
+    """Regression: with the Mandelbrot engine, a channel switched to Buddha held, unseen, the ray engine's usual option ("All bounces: Mean
+    point": greyed but ticked), which the engine does not store; the live image then no longer fitted the coloration and every later recolouring
+    (of ANY channel) was skipped silently until Start corrected the coloration with a notice."""
+    app = _fake_color_editor_app()
+    app.current_engine_description = lambda: m.MANDELBROT_ENGINE
+    coloration = app.selected_coloration_obj()
+    path_mean = m.point_slot(m.SEQ_PATH, m.PRED_MEAN)
+    coloration.chan_src[1] = m.CHAN_SRC_BUDDHA                       # (what choosing Buddha in the Source dropdown does)
+    assert coloration.buddha_points[1][m.POINT_ALL_MEAN], "(the hidden ray-engine default)"
+    app.apply_mapping_change(1)
+    assert [i for i, on in enumerate(coloration.buddha_points[1]) if on] == [path_mean]
+    assert [i for i, var in enumerate(app.buddha_point_vars[1]) if var.get()] == [path_mean], "(and the editor shows it)"
+    need = m.demand_layout([coloration], None)
+    assert all(m.layout_of_engine(m.ENGINE_MANDELBROT).has_point(p) for p in need.point_ids), "(what it reads, the image holds)"
+    coloration.chan_src[2], coloration.metric_types[2], coloration.other_metric[2] = m.CHAN_SRC_QUERY, m.METRIC_TYPE_OTHER, m.ST_BOUNCE_COUNT
+    app.apply_mapping_change(2)
+    assert coloration.other_metric[2] == m.stat_slot(m.SEQ_PATH, m.SRED_COUNT), "(a Query channel's hidden metric the engine lacks too)"
+    ray = _fake_color_editor_app()
+    ray_coloration = ray.selected_coloration_obj()
+    ray_coloration.chan_src[1] = m.CHAN_SRC_BUDDHA
+    before = ray_coloration.buddha_points[1]
+    ray.apply_mapping_change(1)
+    assert ray_coloration.buddha_points[1] == before, "(the ray engine offers everything: nothing is changed)"
+

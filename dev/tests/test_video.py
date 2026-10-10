@@ -655,3 +655,95 @@ def test_ffmpeg_reads_a_frame_sequence_that_does_not_start_at_zero():
         assert blind.returncode != 0        # without -start_number the same files are not found
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# write_jxl: a still too large for ffmpeg's libjxl goes through cjxl
+# --------------------------------------------------------------------------- #
+class _FfmpegForStills:
+    """A stand-in for the ffmpeg-python module as write_jxl uses it: records the output file asked for and writes it, or fails the way
+    ffmpeg-python does (an exception carrying the stderr bytes)."""
+    def __init__(self, fail_with=None):
+        self.fail_with, self.outputs = fail_with, []
+
+    class Error(Exception):
+        def __init__(self, text):
+            super().__init__("ffmpeg error (see stderr output for detail)")
+            self.stderr = text
+
+    def input(self, path):
+        return ("input", path)
+
+    def output(self, stream, path, **kwargs):
+        return ("output", path, kwargs)
+
+    def run(self, stream, overwrite_output=False, quiet=False):
+        if self.fail_with is not None:
+            raise self.Error(self.fail_with)
+        self.outputs.append(stream)
+        with open(stream[1], "wb") as handle:
+            handle.write(b"jxl by ffmpeg")
+
+
+class _JxlSandbox:
+    """Temp folder, a fake ffmpeg and a lowered size limit, restored on exit."""
+    def __init__(self, ffmpeg, limit=None):
+        self.ffmpeg, self.limit = ffmpeg, limit
+
+    def __enter__(self):
+        self.folder = tempfile.mkdtemp()
+        self.saved = (m.paths.TEMP_DIR, m.external.ffmpeg, m.image_io.JXL_FFMPEG_MAX_PIXELS)
+        m.paths.TEMP_DIR = os.path.join(self.folder, "TEMP")
+        m.external.ffmpeg = self.ffmpeg
+        if self.limit is not None:
+            m.image_io.JXL_FFMPEG_MAX_PIXELS = self.limit
+        return self
+
+    def __exit__(self, *exc):
+        m.paths.TEMP_DIR, m.external.ffmpeg, m.image_io.JXL_FFMPEG_MAX_PIXELS = self.saved
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+
+def test_a_still_within_ffmpegs_limit_is_encoded_by_ffmpeg_and_the_temporary_png_is_removed():
+    ffmpeg = _FfmpegForStills()
+    with _JxlSandbox(ffmpeg) as box, _no_cjxl():
+        out = os.path.join(box.folder, "a.jxl")
+        m.write_jxl(out, np.zeros((8, 8, 3), np.uint8), True)
+        assert open(out, "rb").read() == b"jxl by ffmpeg" and ffmpeg.outputs[0][2]["distance"] == 0.0
+        assert not os.path.exists(os.path.join(m.paths.TEMP_DIR, "_jxl_source.png"))
+
+
+def test_a_still_beyond_ffmpegs_limit_goes_through_cjxl_at_the_same_distance_and_ffmpeg_is_not_asked():
+    """Regression: a 12800 x 12800 export with two colorations side by side is 25600 x 12800 = 327 million pixels, more than libjxl's default
+    level holds (2^28), and ffmpeg's wrapper cannot raise the level: ffmpeg failed with 'Could not open encoder' and the save was lost."""
+    ffmpeg = _FfmpegForStills(fail_with=b"must not be asked")
+    with _JxlSandbox(ffmpeg, limit=10) as box, _fake_cjxl():
+        out = os.path.join(box.folder, "big.jxl")
+        m.write_jxl(out, np.zeros((8, 8, 3), np.uint8), False, 80)
+        assert os.path.getsize(out) > 0 and open(out, "rb").read()[:8] == b"\x89PNG\r\n\x1a\n", "(the fake copies its input: the PNG)"
+        assert not os.path.exists(os.path.join(m.paths.TEMP_DIR, "_jxl_source.png"))
+    with _JxlSandbox(None, limit=10) as box, _fake_cjxl():
+        m.write_jxl(os.path.join(box.folder, "no_ffmpeg_needed.jxl"), np.zeros((8, 8, 3), np.uint8), True)
+
+
+def test_a_still_beyond_ffmpegs_limit_without_cjxl_says_why_and_leaves_nothing_behind():
+    with _JxlSandbox(_FfmpegForStills(), limit=10) as box, _no_cjxl():
+        try:
+            m.write_jxl(os.path.join(box.folder, "big.jxl"), np.zeros((8, 8, 3), np.uint8), True)
+        except RuntimeError as error:
+            assert "too large for ffmpeg" in str(error) and "cjxl" in str(error) and "8 x 8" in str(error)
+        else:
+            raise AssertionError("expected a RuntimeError")
+        assert not os.path.exists(os.path.join(m.paths.TEMP_DIR, "_jxl_source.png"))
+
+
+def test_a_failure_of_ffmpeg_while_saving_a_jxl_still_carries_the_end_of_its_own_message():
+    with _JxlSandbox(_FfmpegForStills(fail_with=b"banner\n\nsomething broke\nCould not open encoder before EOF\n")) as box:
+        try:
+            m.write_jxl(os.path.join(box.folder, "a.jxl"), np.zeros((8, 8, 3), np.uint8), True)
+        except RuntimeError as error:
+            assert "ffmpeg failed" in str(error) and "Could not open encoder before EOF" in str(error), str(error)
+        else:
+            raise AssertionError("expected a RuntimeError")
+        assert not os.path.exists(os.path.join(m.paths.TEMP_DIR, "_jxl_source.png"))
+

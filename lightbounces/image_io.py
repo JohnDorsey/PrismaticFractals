@@ -293,13 +293,39 @@ def jxl_quality_to_distance(quality):
     return max(0.1, (100 - quality) / 10.0)
 
 
+# libjxl's default codestream level (5) holds images of up to 2^28 = 268,435,456 pixels, and ffmpeg's libjxl wrapper has no option to
+# raise it: a larger image makes ffmpeg fail ("Could not open encoder"). cjxl picks the level the image needs (up to 2^40 pixels).
+JXL_FFMPEG_MAX_PIXELS = 1 << 28
+
+
+def _run_cjxl(source_path, jxl_path, distance):
+    """Convert the PNG / APNG `source_path` to `jxl_path` with the external `cjxl` tool at Butteraugli `distance` (0 = lossless).
+    Runs the path shutil.which resolved, not the bare name "cjxl": on Windows, a bare name only launches .exe files, whereas
+    which() (and so cjxl_available()) also finds .cmd/.bat shims."""
+    cjxl_path = shutil.which("cjxl")
+    if cjxl_path is None:
+        raise RuntimeError("cjxl failed: the cjxl tool was not found on PATH")
+    result = subprocess.run([cjxl_path, source_path, jxl_path, "-d", f"{distance:g}"], capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "no output captured"
+        raise RuntimeError(f"cjxl failed (exit code {result.returncode}): {detail}")
+
+
 def write_jxl(path, rgb, lossless, quality=90):
     """Encode an (H, W, 3) uint8 image to a .jxl file via ffmpeg's libjxl
     wrapper. Unlike PNG/QOI, JPEG XL has no remotely hand-rollable encoder -
     this genuinely needs the real codec, the same one the video export
     already depends on. Writes a temporary PNG (this program's own writer)
-    as ffmpeg's input, and removes it again once the JXL file is written."""
-    if external.ffmpeg is None:
+    as the encoder's input, and removes it again once the JXL file is written.
+    An image of more than JXL_FFMPEG_MAX_PIXELS pixels (12800 x 25600 and up) is beyond what ffmpeg's wrapper can encode, so
+    it goes through the external cjxl tool instead (RuntimeError, saying why, when that is not installed); a failure of
+    ffmpeg itself is a RuntimeError that carries the end of ffmpeg's own error output."""
+    big = rgb.shape[0] * rgb.shape[1] > JXL_FFMPEG_MAX_PIXELS
+    if big:
+        if shutil.which("cjxl") is None:
+            raise RuntimeError(f"an image of {rgb.shape[1]} x {rgb.shape[0]} pixels is too large for ffmpeg's JPEG XL encoder (the limit is "
+                               f"{JXL_FFMPEG_MAX_PIXELS:,} pixels) and the cjxl tool, which can encode it, was not found on PATH")
+    elif external.ffmpeg is None:
         raise RuntimeError("ffmpeg-python is required to save JPEG XL images")
     os.makedirs(paths.TEMP_DIR, exist_ok=True)
     tmp_path = os.path.join(paths.TEMP_DIR, "_jxl_source.png")
@@ -307,10 +333,21 @@ def write_jxl(path, rgb, lossless, quality=90):
     try:
         distance = 0.0 if lossless else jxl_quality_to_distance(
             min(quality, JXL_LOSSY_MAX_QUALITY))
+        if big:
+            _run_cjxl(tmp_path, path, distance)
+            return
         stream = external.ffmpeg.input(tmp_path)
         stream = external.ffmpeg.output(stream, path, **{"c:v": "libjxl", "distance": distance,
                                                 "update": 1, "frames:v": 1})
-        external.ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        try:
+            external.ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        except Exception as error:
+            stderr = getattr(error, "stderr", None)
+            text = stderr.decode("utf-8", "replace") if isinstance(stderr, (bytes, bytearray)) else str(stderr or "")
+            lines = [line for line in text.strip().splitlines() if line.strip()]
+            if not lines:
+                raise
+            raise RuntimeError("ffmpeg failed: " + " / ".join(lines[-4:])) from error
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -326,18 +363,8 @@ def convert_apng_to_jxl(apng_path, jxl_path, lossless=True, quality=90):
     Lossless (-d 0) by default; with `lossless` False, cjxl makes a lossy animation
     (verified with cjxl 0.12: jxlinfo reports a lossy animation) at the distance
     that `quality` (0-100, as the still images' quality slider) maps to."""
-    # Run the path shutil.which resolved, not the bare name "cjxl": on
-    # Windows, a bare name only launches .exe files, whereas which() (and
-    # so cjxl_available()) also finds .cmd/.bat shims.
-    cjxl_path = shutil.which("cjxl")
-    if cjxl_path is None:
-        raise RuntimeError("cjxl failed: the cjxl tool was not found on PATH")
     distance = 0.0 if lossless else jxl_quality_to_distance(min(quality, JXL_LOSSY_MAX_QUALITY))
-    result = subprocess.run([cjxl_path, apng_path, jxl_path, "-d", f"{distance:g}"],
-                            capture_output=True, text=True)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "no output captured"
-        raise RuntimeError(f"cjxl failed (exit code {result.returncode}): {detail}")
+    _run_cjxl(apng_path, jxl_path, distance)
 
 
 SAVE_NEW_FORMATS = ["jxl", "png", "qoi"]      # the first is the default

@@ -10,10 +10,10 @@ from .metrics import (
     other_metric_to_label
 )
 from .color_pipeline import coloration_fits, paint, ray_values
-from .engines import other_metric_labels, point_menu_labels, point_metric_labels
+from .engines import correct_channel, other_metric_labels, point_menu_labels, point_metric_labels
 from .stored_layout import FULL_LAYOUT
 from .ui_text import default_map_help
-from .colorations import COLOR_MODELS, channels_to_rgb
+from .colorations import COLOR_MODELS, channels_to_rgb, coloration_channel_value
 
 
 class RecolorMixin:
@@ -138,6 +138,17 @@ class RecolorMixin:
             return
         self.apply_mapping_change(c)
 
+    def correct_edited_channel(self, coloration, c):
+        """Channel c of `coloration` was just edited: whatever it now USES that the engine selected does not offer is put right at once, in
+        the data and in the editor (a channel switched to Buddha holds, unseen, the ray engine's usual option, which Mandelbrot lacks; a
+        Query channel's hidden metric or points are the same). It is the user's own hidden state that is defaulted, not a choice they made
+        (those cannot be made: the editor offers only the engine's own), so no notice. Without it the live image, which keeps only what
+        its engine stores, would no longer fit the coloration and every recolouring would be skipped until Start corrected it."""
+        channel, changes = correct_channel(coloration_channel_value(coloration, c), self.current_engine_description(), c)
+        if changes:
+            coloration.set_channel(c, channel)
+            self.refresh_color_controls_for_selected_coloration()
+
     def apply_mapping_change(self, c):
         """Channel c's Source, Type, Metric, Point 1/2, Buddha points,
         Buddha compression or Buddha brightness changed, for whichever coloration
@@ -154,6 +165,7 @@ class RecolorMixin:
             return
         coloration.point1_choice = [POINT_LABELS.index(v.get()) for v in self.point1_vars]
         coloration.point2_choice = [POINT_LABELS.index(v.get()) for v in self.point2_vars]
+        self.correct_edited_channel(coloration, c)
         coloration_mapping = make_mapping(coloration.metric_types, coloration.point_metric, coloration.other_metric,
                                     coloration.chan_src, coloration.constant_choice)
 

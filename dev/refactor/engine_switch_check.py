@@ -190,6 +190,13 @@ other = lb.BUDDHA_POINT_LABELS.index("Path: Last point")
 app.buddha_point_vars[1][other].set(True)
 app.on_buddha_points_changed(1)
 check(not app.selected_coloration_obj().buddha_points[1][midpoints], "ticking another option does not bring the corrected one back")
+# a channel switched to Buddha under Mandelbrot must not keep the ray engine's hidden default (it made the image stop fitting: no recolouring)
+app.selected_coloration_obj().chan_src[2] = lb.CHAN_SRC_BUDDHA
+app.selected_coloration_obj().buddha_points[2] = tuple(i == lb.POINT_ALL_MEAN for i in range(lb.N_BUDDHA_POINTS))
+app.chan_src_vars[2].set(lb.CHAN_SRC_LABELS[lb.CHAN_SRC_BUDDHA])
+app.on_chan_src_changed(2)
+check([i for i, on in enumerate(app.selected_coloration_obj().buddha_points[2]) if on] == [lb.point_slot(lb.SEQ_PATH, lb.PRED_MEAN)]
+      and not app.buddha_point_vars[2][lb.POINT_ALL_MEAN].get(), "a channel switched to Buddha under Mandelbrot is given the engine's own option at once")
 
 # the progress bar's frame count
 check(app.video_progress_style is not None, "the progress bar has a style that can carry text")

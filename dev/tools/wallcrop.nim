@@ -979,19 +979,31 @@ proc drawText(fb: var Fb, x, y: int, s: string, sc: int) =
           fb.fillRect(cx + col * sc, y + r * sc, cx + (col + 1) * sc, y + (r + 1) * sc, White)
     cx += 6 * sc
 
-proc drawPanel(fb: var Fb, x, y: int, lines: seq[string], sc: int, selected = -1): tuple[w, h: int] =
-  ## White text on a half-transparent black backdrop; the selected line gets a darker bar.
+proc tailGap(sc: int): int = 8 * sc
+
+proc drawPanel(fb: var Fb, x, y: int, lines: seq[string], sc: int, selected = -1,
+               tails: seq[string] = @[], tailSc = 0): tuple[w, h: int] =
+  ## White text on a half-transparent black backdrop; the selected line gets a darker bar.  A line may have a
+  ## "tail" (tails[i], drawn after it in the smaller size tailSc, its bottom lined up with the line's).
   let pad = 2 * sc
   let lineH = 9 * sc
+  proc tail(i: int): string = (if i < tails.len: tails[i] else: "")
   var w = 0
-  for l in lines: w = max(w, textWidth(l, sc))
+  for i, l in lines:
+    let t = tail(i)
+    w = max(w, textWidth(l, sc) + (if t.len > 0: tailGap(sc) + textWidth(t, tailSc) else: 0))
   result.w = w + 2 * pad
   result.h = lines.len * lineH + 2 * pad - 2 * sc
   fb.dimRect(x, y, x + result.w, y + result.h)
   if selected >= 0 and selected < lines.len:
     let top = y + pad + selected * lineH - sc
     fb.dimRect(x, top, x + result.w, top + lineH)
-  for i, l in lines: fb.drawText(x + pad, y + pad + i * lineH, l, sc)
+  for i, l in lines:
+    let top = y + pad + i * lineH
+    fb.drawText(x + pad, top, l, sc)
+    let t = tail(i)
+    if t.len > 0:
+      fb.drawText(x + pad + textWidth(l, sc) + tailGap(sc), top + 7 * sc - 7 * tailSc, t, tailSc)
 
 # ---------------------------------------------------------------------------------------------
 # SDL2, loaded at run time (so the program starts - and the self-test runs - without it)
@@ -1929,15 +1941,31 @@ proc drawUi(app: App, fb: var Fb) =
     let maxRows = max(3, avail div (9 * big) - 3)       # three lines are for "more above", "more below" and the help
     if app.menuSel < app.menuTop: app.menuTop = app.menuSel
     if app.menuSel >= app.menuTop + maxRows: app.menuTop = app.menuSel - maxRows + 1
-    var shown: seq[string]
+    var shown, tails: seq[string]
     let last = min(items.len, app.menuTop + maxRows)
-    if app.menuTop > 0: shown.add "  ^ more above"
+    if app.menuTop > 0:
+      shown.add "  ^ more above"
+      tails.add ""
     let selectedLine = shown.len + app.menuSel - app.menuTop
+    let room = fb.w - 2 * m - 6 * big
     for i in app.menuTop ..< last:
-      shown.add (if i == app.menuSel: "> " else: "  ") & fitLine(items[i], fb.w - 2 * m - 6 * big, big)
-    if last < items.len: shown.add "  v more below"
+      let marker = if i == app.menuSel: "> " else: "  "
+      if app.menu == mkSampling:
+        # the name in the big size, its explanation after it in the small one
+        let parts = items[i].split("  ", 1)
+        let head = fitLine(parts[0], room - textWidth(marker, big), big)
+        shown.add marker & head
+        let left = room - textWidth(marker & head, big) - tailGap(big)
+        tails.add (if parts.len > 1 and left > 6 * u: fitLine(parts[1], left, u) else: "")
+      else:
+        shown.add marker & fitLine(items[i], room, big)
+        tails.add ""
+    if last < items.len:
+      shown.add "  v more below"
+      tails.add ""
     shown.add "  Up/Down, Enter = choose, Esc = close"
-    discard fb.drawPanel(m, mainBottom + m, shown, big, selectedLine)
+    tails.add ""
+    discard fb.drawPanel(m, mainBottom + m, shown, big, selectedLine, tails, u)
 
 proc dimOutside(fb: var Fb, cam: Cam) =
   ## 75% opaque black over everything outside the rectangle (the margins of the exact view).

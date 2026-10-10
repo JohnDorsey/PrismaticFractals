@@ -566,6 +566,7 @@ def _fake_color_editor_app():
     app.refresh_row = m.App.refresh_row.__get__(app)
     app.on_color_model_changed = m.App.on_color_model_changed.__get__(app)
     app.apply_mapping_change = m.App.apply_mapping_change.__get__(app)
+    app.correct_edited_channel = m.App.correct_edited_channel.__get__(app)
     return app
 
 

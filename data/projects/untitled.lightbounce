@@ -1,0 +1,170 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 9,
+  "program_version": 171,
+  "simulation": {
+    "seg_mult": 1.0,
+    "emit_mode": "up",
+    "emit_target_r": 0.0,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": -45.0,
+    "fuzz_on": false,
+    "emit_jitter": 0.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 0
+  },
+  "natural_termination": {
+    "iter": 256,
+    "dist": 0,
+    "escape_radius": 4.0,
+    "confine_lookback": 4,
+    "confine_method": "box",
+    "confine_threshold": 0.0078125
+  },
+  "buddha_blur": {
+    "buddha_blur_radius": 0.0,
+    "buddha_blur_type": "gaussian"
+  },
+  "buddha_seeding": {
+    "buddha_seed_camera": true,
+    "buddha_seed_x_start": -2.0,
+    "buddha_seed_x_stop": 2.0,
+    "buddha_seed_y_start": -2.0,
+    "buddha_seed_y_stop": 2.0
+  },
+  "engine": {
+    "engine": "mandelbrot"
+  },
+  "mandelbrot": {
+    "orbit_exponent": 2.0,
+    "orbit_z0": "zero",
+    "orbit_mapping": "mandelbrot",
+    "orbit_julia_re": 0.0,
+    "orbit_julia_im": 0.0,
+    "orbit_escape": "clip",
+    "orbit_pre_seg_mult": 1.0
+  },
+  "decorations": {
+    "outline": true,
+    "pending": true,
+    "ray_path": true,
+    "ray_start": true,
+    "ray_end": true,
+    "guides": true,
+    "samples": false
+  },
+  "obstacles": [
+    {
+      "kind": "ellipse",
+      "id": 0,
+      "fields": {
+        "rotation": 0.0,
+        "width": 4.0,
+        "height": 4.0,
+        "r": 0.0,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "pass_through",
+        "out_effect": "pass_through",
+        "fire_inside": true
+      }
+    }
+  ],
+  "colorations": [
+    {
+      "id": 0,
+      "color_model": "RGB",
+      "channels": [
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_segment_midpoints"
+          ],
+          "buddha_path_kinds": [
+            "escaping"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "progressive_means_of_segment_midpoints"
+          ],
+          "buddha_path_kinds": [
+            "escaping"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "progressive_means_of_segment_midpoints"
+          ],
+          "buddha_path_kinds": [
+            "non_escaping"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        }
+      ]
+    }
+  ],
+  "framings": [
+    {
+      "id": 0,
+      "x": 0.0,
+      "y": 0.0,
+      "diagonal": 3.0,
+      "aspect": 1.0
+    }
+  ],
+  "keyframes": [],
+  "export": {
+    "include_all_colorations": true,
+    "color_info_location": "bottom_margin",
+    "figure_info_location": "left_margin",
+    "framing_info_location": "left_margin",
+    "image_source": "new_image",
+    "image_format": "jxl",
+    "image_jxl_mode": "lossless",
+    "image_jxl_quality": 90,
+    "image_width": "12800",
+    "image_height": "12800",
+    "video_fps": "30",
+    "video_width": "1080",
+    "video_height": "1080",
+    "video_start_frame": "0",
+    "video_number_files_from_start": true,
+    "video_format": "mp4_h264",
+    "video_bitrate_mode": "constant_quality",
+    "video_quality": 75,
+    "video_bitrate": "512",
+    "video_vbr_target": "512",
+    "video_vbr_max": "1024",
+    "video_downsample_factor": "none",
+    "video_downsample_method": "mean",
+    "video_jxl_mode": "lossless",
+    "video_jxl_quality": 90
+  },
+  "counters": {
+    "obstacle": 1,
+    "coloration": 1,
+    "framing": 1,
+    "keyframe": 0
+  },
+  "selected": {
+    "obstacle": 0,
+    "coloration": 0,
+    "framing": 0
+  }
+}
