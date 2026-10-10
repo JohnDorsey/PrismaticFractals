@@ -191,7 +191,8 @@ class ColorationMixin:
 
         coloration = self.selected_coloration_obj()
         mp = ttk.LabelFrame(parent, text="Edit selected coloration")
-        mp.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 6))
+        mp.grid(row=1, column=0, sticky="nsew", padx=6, pady=(2, 6))
+        parent.rowconfigure(1, weight=1)       # the editor takes what height the tab has, no more (a fixed one was clipped)
         mp.columnconfigure(0, weight=1)
 
         # Everything scrolls together - the color model row plus the three
@@ -202,7 +203,7 @@ class ColorationMixin:
         mp.rowconfigure(0, weight=1)
         list_container.columnconfigure(0, weight=1)
         list_container.rowconfigure(0, weight=1)
-        chan_canvas = tk.Canvas(list_container, height=300, highlightthickness=0)
+        chan_canvas = tk.Canvas(list_container, height=120, highlightthickness=0)
         chan_vsb = ttk.Scrollbar(list_container, orient="vertical",
                                  command=chan_canvas.yview)
         chan_canvas.configure(yscrollcommand=chan_vsb.set)

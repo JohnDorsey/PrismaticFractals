@@ -162,6 +162,17 @@ if shots:
                                    app.current_mandelbrot_settings())
     lb.write_png(os.path.join(shots, "margin_mandelbrot.png"), lb.add_left_info_margin(np.zeros((400, 200, 3), np.uint8), blocks))
 
+# the coloration editor's scrolling area must lie inside the tab (once it was taller than the tab and the last rows could not be reached)
+select_tab(app.controls_notebook, "Perception")
+select_tab(app.perception_notebook, "Colorations")
+for c in range(3):
+    app.selected_coloration_obj().chan_src[c] = lb.CHAN_SRC_BUDDHA
+app.refresh_color_controls_for_selected_coloration()
+root.update()
+editor = [w for w in app.colorations_tab.winfo_children() if w.winfo_class() == "TLabelframe"][0]
+check(editor.winfo_rooty() + editor.winfo_height() <= app.colorations_tab.winfo_rooty() + app.colorations_tab.winfo_height(),
+      "the coloration editor, with three Buddha channels, fits inside its tab")
+
 # the progress bar's frame count
 check(app.video_progress_style is not None, "the progress bar has a style that can carry text")
 app.set_video_progress_text("3/10")
