@@ -29,6 +29,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "dev"))                 # (the tests package and the harness are in dev/)
 os.chdir(ROOT)
 import numpy as np                                                 # noqa: E402
 import tests.support as sup                                        # noqa: E402

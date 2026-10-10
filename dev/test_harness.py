@@ -9,7 +9,7 @@ import the real module and call its plain functions (trace_path,
 resolve_frame_settings, the PNG/QOI encoders, etc.) directly, with no
 display, no mainloop, and no real widgets involved.
 
-Usage, from a test script in the same directory as light_bounces.py (and the lightbounces package):
+Usage (this file is in dev/, the package in the folder above; an old copy of the program may keep both in one folder):
 
     from test_harness import load_module
     m = load_module()
@@ -147,6 +147,8 @@ def load_module(path=None):
         spec.loader.exec_module(module)
         return module
     root = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(root) == "dev":                  # (an old copy of the program keeps it beside the package)
+        root = os.path.dirname(root)
     if root not in sys.path:
         sys.path.insert(0, root)
     for name in _package_modules():

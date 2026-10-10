@@ -12,7 +12,7 @@ import numpy as np
 
 from test_harness import load_module
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the folder with light_bounces.py
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # the folder with light_bounces.py
 m = load_module()
 
 

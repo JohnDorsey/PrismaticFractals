@@ -312,9 +312,9 @@ Pillow is optional too, and used only for the development screenshots.
 Development aids (screenshots and dumps)
   If a dev folder exists next to this program, then once per launch (shortly
   after the numba warm-up finishes) the program grabs a picture of its own
-  window into dev/screenshots/<file version>-YYYYMMDD-hhmmss-startup.png and
+  window into data/debug/screenshots/<file version>-YYYYMMDD-hhmmss-startup.png and
   then pickles everything it holds (except large arrays) into
-  dev/dumps/<file version>-YYYYMMDD-hhmmss-startup.pkl. The Debug menu does
+  data/debug/dumps/<file version>-YYYYMMDD-hhmmss-startup.pkl. The Debug menu does
   the same on demand (suffix -manual; a dump with or without large arrays),
   and an unhandled error leaves a dump without large arrays (suffix -crash) but
   no screenshot. The dumping code is dev/debug_dump.py, which also reads a dump
@@ -327,7 +327,7 @@ from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, a
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
 # later patch do nothing. They are deliberately NOT re-exported below: `lightbounces.EXPORT_DIR` would be a stale
 # copy after a patch, so it does not exist - use `lightbounces.paths.EXPORT_DIR`.
-PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths",
+PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths", "DEBUG_DIR": "paths",
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
 

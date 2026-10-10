@@ -19,10 +19,10 @@ def unused_path(path):
 
 def take_ui_screenshot(root, cause):
     """Development aid: grabs the app's own window from the screen and saves
-    it as DEV_DIR/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.png
+    it as DEBUG_DIR/screenshots/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.png
     (`cause` is "startup" or "manual"), returning the
     path - but only if the DEV_DIR folder already exists (this never creates
-    it) and Pillow is installed; otherwise does nothing and returns None. It
+    it; the shot goes in DEBUG_DIR, which is created) and Pillow is installed; otherwise does nothing and returns None. It
     grabs the actual screen pixels inside the window's rectangle, so anything
     covering the window at that moment appears in the shot instead."""
     if cause not in ("startup", "manual"):
@@ -32,7 +32,7 @@ def take_ui_screenshot(root, cause):
     root.update()                                  # finish drawing, settle geometry
     x, y = root.winfo_rootx(), root.winfo_rooty()
     img = external.ImageGrab.grab(bbox=(x, y, x + root.winfo_width(), y + root.winfo_height()))
-    shots_dir = os.path.join(paths.DEV_DIR, "screenshots")
+    shots_dir = os.path.join(paths.DEBUG_DIR, "screenshots")
     os.makedirs(shots_dir, exist_ok=True)
     path = unused_path(os.path.join(
         shots_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}-{cause}.png"))
@@ -42,7 +42,7 @@ def take_ui_screenshot(root, cause):
 
 def dump_app_state(app, cause, include_large_arrays, exc_info=None):
     """Development aid: pickles everything the application holds into
-    DEV_DIR/dumps/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.pkl (`cause` is "startup",
+    DEBUG_DIR/dumps/<FILE_VERSION>-YYYYMMDD-hhmmss-<cause>.pkl (`cause` is "startup",
     "crash" or "manual") using dev/debug_dump.py, and returns the path; without
     `include_large_arrays` every big array in it is replaced by a stand-in
     (dev/debug_dump.py has the size rule). Does
@@ -59,7 +59,7 @@ def dump_app_state(app, cause, include_large_arrays, exc_info=None):
         spec = importlib.util.spec_from_file_location("debug_dump", dumper_path)
         dumper = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(dumper)
-        dumps_dir = os.path.join(paths.DEV_DIR, "dumps")
+        dumps_dir = os.path.join(paths.DEBUG_DIR, "dumps")
         os.makedirs(dumps_dir, exist_ok=True)
         path = unused_path(os.path.join(
             dumps_dir, f"{FILE_VERSION}-{time.strftime('%Y%m%d-%H%M%S')}-{cause}.pkl"))

@@ -2,7 +2,6 @@
 __pycache__/
 *.py[codz]
 *$py.class
-exports/
-dev/screenshots/
-dev/dumps/
+data/exports/
+data/debug/
 .idea

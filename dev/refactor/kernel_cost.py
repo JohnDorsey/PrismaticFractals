@@ -12,6 +12,7 @@ import time
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "dev"))        # (an old copy of the program may keep test_harness.py in ROOT itself)
 import numpy as np                                  # noqa: E402
 import test_harness                                  # noqa: E402
 

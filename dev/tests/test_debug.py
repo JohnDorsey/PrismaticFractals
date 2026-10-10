@@ -66,18 +66,20 @@ class _ScreenshotEnv:
     def __enter__(self):
         self.parent = tempfile.mkdtemp()
         self.dev_dir = os.path.join(self.parent, "dev")
+        self.debug_dir = os.path.join(self.parent, "data", "debug")        # (where the captures go)
         if self.with_dev_dir:
             os.makedirs(self.dev_dir)
-        self.orig_dev, self.orig_grab = m.paths.DEV_DIR, m.external.ImageGrab
-        m.paths.DEV_DIR, m.external.ImageGrab = self.dev_dir, self.grab
+        self.orig_dev, self.orig_debug, self.orig_grab = m.paths.DEV_DIR, m.paths.DEBUG_DIR, m.external.ImageGrab
+        m.paths.DEV_DIR, m.paths.DEBUG_DIR, m.external.ImageGrab = self.dev_dir, self.debug_dir, self.grab
         return self
 
     def __exit__(self, *exc):
-        m.paths.DEV_DIR, m.external.ImageGrab = self.orig_dev, self.orig_grab
+        m.paths.DEV_DIR, m.paths.DEBUG_DIR, m.external.ImageGrab = self.orig_dev, self.orig_debug, self.orig_grab
 
 
-def test_dev_dir_is_dev_next_to_the_program():
+def test_dev_dir_is_dev_next_to_the_program_and_the_captures_go_in_the_data_folder():
     assert m.paths.DEV_DIR == os.path.join(m.SCRIPT_DIR, "dev")
+    assert m.paths.DEBUG_DIR == os.path.join(m.SCRIPT_DIR, "data", "debug")
 
 
 def test_screenshot_is_skipped_without_a_dev_dir():
@@ -90,7 +92,7 @@ def test_screenshot_is_skipped_without_a_dev_dir():
 def test_screenshot_is_skipped_without_pillow():
     with _ScreenshotEnv(grab=None) as env:
         assert m.take_ui_screenshot(_FakeGeometryRoot(), "manual") is None
-        assert not os.path.exists(os.path.join(env.dev_dir, "screenshots"))
+        assert not os.path.exists(os.path.join(env.debug_dir, "screenshots"))
 
 
 def test_screenshot_grabs_the_windows_own_rectangle_and_saves_it_named_by_version_and_cause():
@@ -98,7 +100,7 @@ def test_screenshot_grabs_the_windows_own_rectangle_and_saves_it_named_by_versio
     root = _FakeGeometryRoot()
     with _ScreenshotEnv() as env:
         path = m.take_ui_screenshot(root, "startup")
-        shots_dir = os.path.join(env.dev_dir, "screenshots")
+        shots_dir = os.path.join(env.debug_dir, "screenshots")
         assert os.path.dirname(path) == shots_dir
         assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}-startup\.png",
                             os.path.basename(path)), os.path.basename(path)
@@ -361,7 +363,7 @@ class _DumpEnv(_ScreenshotEnv):
         return self
 
     def dumps(self):
-        folder = os.path.join(self.dev_dir, "dumps")
+        folder = os.path.join(self.debug_dir, "dumps")
         return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
 
 
@@ -384,7 +386,7 @@ def test_dump_file_names_carry_the_version_time_and_cause():
             path = m.debug.dump_app_state(app, cause, False)
             assert re.fullmatch(rf"{m.FILE_VERSION}-\d{{8}}-\d{{6}}-{cause}\.pkl",
                                 os.path.basename(path)), path
-            assert os.path.dirname(path) == os.path.join(env.dev_dir, "dumps")
+            assert os.path.dirname(path) == os.path.join(env.debug_dir, "dumps")
         try:
             m.debug.dump_app_state(app, "other", False)
             raise AssertionError("expected ValueError")
@@ -413,9 +415,9 @@ def test_startup_captures_take_a_screenshot_then_a_dump_without_large_arrays_onc
         assert len(env.grab.bboxes) == 1
         (name,) = env.dumps()
         assert name.endswith("-startup.pkl")
-        shots = os.listdir(os.path.join(env.dev_dir, "screenshots"))
+        shots = os.listdir(os.path.join(env.debug_dir, "screenshots"))
         assert len(shots) == 1 and shots[0].endswith("-startup.png")
-        data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
+        data = _load_test_dump(os.path.join(env.debug_dir, "dumps", name))
         assert data["meta"]["cause"] == "startup" and data["meta"]["large_arrays_included"] is False
         assert data["app"]["characteristic_points"]["__standin__"] == "large array"
         assert data["app"]["iter_var"]["value"] == "256"
@@ -445,9 +447,9 @@ def test_manual_actions_save_with_the_manual_suffix_and_report_the_result():
             import re
             assert len(dumps) == 2, dumps                   # never overwritten, even in one second
             assert all(re.fullmatch(r"\d+-\d{8}-\d{6}-manual(-\d+)?\.pkl", d) for d in dumps)
-            assert os.listdir(os.path.join(env.dev_dir, "screenshots"))[0].endswith("-manual.png")
+            assert os.listdir(os.path.join(env.debug_dir, "screenshots"))[0].endswith("-manual.png")
             assert len(shown) == 3 and all("Saved" in s for s in shown)
-            included = {_load_test_dump(os.path.join(env.dev_dir, "dumps", d))
+            included = {_load_test_dump(os.path.join(env.debug_dir, "dumps", d))
                         ["meta"]["large_arrays_included"] for d in dumps}
             assert included == {False, True}
         shown.clear()
@@ -469,10 +471,10 @@ def test_a_crash_leaves_a_dump_without_large_arrays_and_no_screenshot():
     with _DumpEnv() as env, contextlib.redirect_stderr(io.StringIO()) as err:
         app.on_callback_exception(*exc_info)
         assert env.grab.bboxes == [], "a crash must not trigger a screenshot"
-        assert not os.path.exists(os.path.join(env.dev_dir, "screenshots"))
+        assert not os.path.exists(os.path.join(env.debug_dir, "screenshots"))
         (name,) = env.dumps()
         assert name.endswith("-crash.pkl")
-        data = _load_test_dump(os.path.join(env.dev_dir, "dumps", name))
+        data = _load_test_dump(os.path.join(env.debug_dir, "dumps", name))
         assert data["meta"]["large_arrays_included"] is False
         assert data["app"]["characteristic_points"]["__standin__"] == "large array"
         assert "ValueError: kaboom" in data["meta"]["exception"]

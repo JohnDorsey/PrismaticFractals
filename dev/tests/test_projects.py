@@ -1311,7 +1311,7 @@ def test_a_migrated_file_does_not_depend_on_the_defaults_of_the_program():
     controls, here the project's own - resolves the same settings at every keyframe."""
     import json
     files = [os.path.join(ROOT, "dev", "testing", f"project_v{n}.lightbounce") for n in range(1, 9)]
-    files += [os.path.join(ROOT, "projects", name) for name in sorted(os.listdir(os.path.join(ROOT, "projects")))
+    files += [os.path.join(ROOT, "data", "projects", name) for name in sorted(os.listdir(os.path.join(ROOT, "data", "projects")))
               if name.endswith(".lightbounce")]
     changes = {"escape_radius": 4.0, "confine_threshold": 4.0 / 512, "buddha_seed_x_start": -2.0, "buddha_seed_x_stop": 2.0,
                "buddha_seed_y_start": -2.0, "buddha_seed_y_stop": 2.0}

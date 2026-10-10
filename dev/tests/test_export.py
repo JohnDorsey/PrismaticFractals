@@ -544,7 +544,7 @@ def test_left_margin_of_a_video_frame_shows_that_frames_animated_values():
 # and the video frames' TEMP folder lives inside it
 # --------------------------------------------------------------------------- #
 def test_export_dir_is_exports_next_to_the_program_and_temp_is_inside_it():
-    assert m.paths.EXPORT_DIR == os.path.join(m.SCRIPT_DIR, "exports")
+    assert m.paths.EXPORT_DIR == os.path.join(m.SCRIPT_DIR, "data", "exports")
     assert m.paths.TEMP_DIR == os.path.join(m.paths.EXPORT_DIR, "TEMP")
 
 

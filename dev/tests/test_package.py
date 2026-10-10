@@ -90,7 +90,8 @@ def test_the_launcher_exposes_the_programs_names_and_names_the_output_files_afte
 def test_the_program_folder_is_the_one_with_the_launcher():
     assert m.paths.SCRIPT_DIR == ROOT
     assert os.path.isfile(os.path.join(m.paths.SCRIPT_DIR, "light_bounces.py"))
-    assert m.paths.EXPORT_DIR == os.path.join(m.paths.SCRIPT_DIR, "exports")
+    assert m.paths.EXPORT_DIR == os.path.join(m.paths.SCRIPT_DIR, "data", "exports")
+    assert m.paths.PROJECT_DIR == os.path.join(m.paths.SCRIPT_DIR, "data", "projects")
     assert m.paths.TEMP_DIR == os.path.join(m.paths.EXPORT_DIR, "TEMP")
 
 

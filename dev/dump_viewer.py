@@ -3,7 +3,7 @@ Dump viewer (development aid): explore a .pkl written by debug_dump.py (or most
 any pickle of nested dicts, lists and objects) as a tree of boxes joined by arrows.
 
 Run:   python dump_viewer.py [dump.pkl]
-       (with no argument it offers the newest file in dev/dumps)
+       (with no argument it offers the newest file in data/debug/dumps)
 
 Mostly standalone: it needs only Python's standard library (tkinter) and, if
 installed, numpy (to read arrays). It does NOT import light_bounces.py, so it
@@ -195,6 +195,7 @@ def placeholder_class(module, name):
 
 
 # Application modules are never imported here (that would pull in numba).
+DUMPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "debug", "dumps")     # where the program writes them
 APPLICATION_MODULES = ("__main__", "light_bounces", "lightbounces", "debug_dump", "test_light_bounces", "tests",
                        "test_harness")
 
@@ -1128,8 +1129,7 @@ class Viewer:
     def open_dialog(self):
         here = os.path.dirname(os.path.abspath(__file__))
         path = filedialog.askopenfilename(
-            title="Open a dump", initialdir=os.path.join(here, "dumps")
-            if os.path.isdir(os.path.join(here, "dumps")) else here,
+            title="Open a dump", initialdir=DUMPS_DIR if os.path.isdir(DUMPS_DIR) else here,
             filetypes=[("Pickle dumps", "*.pkl"), ("All files", "*.*")])
         if path:
             self.open(path)
@@ -1655,8 +1655,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     root = tk.Tk()
     viewer = Viewer(root)
-    path = argv[0] if argv else newest_dump(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                         "dumps"))
+    path = argv[0] if argv else newest_dump(DUMPS_DIR)
     if path:
         root.after(50, lambda: viewer.open(path))
     else:

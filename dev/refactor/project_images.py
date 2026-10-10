@@ -17,6 +17,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "dev"))                 # (the tests package and the harness are in dev/)
 os.chdir(ROOT)
 import numpy as np                                                 # noqa: E402
 import tests.support as sup                                        # noqa: E402
@@ -41,9 +42,10 @@ def render(project, keyframes, frame, base):
 
 def hashes():
     res = {}
-    files = sorted(glob.glob(os.path.join("projects", "*.lightbounce")) + glob.glob(os.path.join("dev", "testing", "project_v*.lightbounce")))
+    files = sorted(glob.glob(os.path.join("data", "projects", "*.lightbounce")) + glob.glob(os.path.join("dev", "testing", "project_v*.lightbounce")))
     for path in files:
         name = path.replace(os.sep, "/")
+        name = name[len("data/"):] if name.startswith("data/") else name          # (keys stay "projects/..." as in the baselines)
         try:
             project = m.load_project(path)
         except Exception as exc:                                    # noqa: BLE001
