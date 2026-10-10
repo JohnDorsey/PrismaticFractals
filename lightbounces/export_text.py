@@ -174,7 +174,8 @@ def figure_info_blocks(ray, natural_termination, obstacles, engine=None, mandelb
     if engine is not None and mandelbrot is not None:
         orbit = [f"Orbit:z^{mandelbrot.exponent:.9g}+c", f"  z0 {ORBIT_Z0_NAMES[mandelbrot.z0]}",
                  f"  {ORBIT_MAPPING_NAMES[mandelbrot.mapping].split(' (')[0]}",
-                 f"  Julia {mandelbrot.julia_re:.9g}{mandelbrot.julia_im:+.9g}i", f"  escape {ORBIT_ESCAPE_NAMES[mandelbrot.escape].split(' ')[0]}"]
+                 f"  Julia {mandelbrot.julia_re:.9g}{mandelbrot.julia_im:+.9g}i", f"  escape {ORBIT_ESCAPE_NAMES[mandelbrot.escape].split(' ')[0]}",
+                 f"  step x{mandelbrot.pre_seg_mult:.2f} (before)"]
         blocks.append(orbit if engine.engine == ENGINE_MANDELBROT else [GreyLine(line) for line in orbit])
     if obstacles:
         blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]

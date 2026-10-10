@@ -577,7 +577,8 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
                     "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
                     "emit_target_cy", "emit_offset", "buddha_seed_camera", "buddha_seed_x_start",
                     "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop", "engine",
-                    "orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape"}
+                    "orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape",
+                    "orbit_pre_seg_mult"}
     assert keys == set(m.DEFAULT_SETTING_VALUES)
     tabs = {tab for _k, tab, _label in m.SETTING_INFO}
     assert tabs == {"Emissions", "Termination", "Mutations", "Buddha seeding", "Buddha blur", "Decorations", "Simulation"}

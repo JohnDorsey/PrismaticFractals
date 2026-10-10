@@ -116,7 +116,7 @@ class LayoutMixin:
         self.build_limits_controls(termination_inner)
         self.build_confinement_controls(termination_inner)
         self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)
-        self.engine_tab_frames = {"Emissions": emissions_inner, "Mutations": mutations_inner}   # what an engine may leave unused
+        self.engine_tab_frames = {"Emissions": emissions_inner}   # the tabs an engine may leave wholly unused
         self.build_fuzzing_controls(mutations_inner)
         self.build_segment_mult_controls(mutations_inner)
         # The Perception tab has two tabs of its own: Framing (the list of framings - what part of the world the image

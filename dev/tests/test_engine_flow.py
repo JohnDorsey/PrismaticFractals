@@ -332,19 +332,19 @@ def test_a_whole_tab_is_greyed_out_and_back_through_every_level_of_it():
 
 def test_the_resolver_greys_the_tabs_the_engine_ignores_and_leaves_the_others_to_their_own_rules():
     calls = []
-    emissions, mutations, termination = _Pane(), _Pane(), _Pane()
-    app = types.SimpleNamespace(engine_tab_frames={"Emissions": emissions, "Mutations": mutations},
+    emissions = _Pane()
+    app = types.SimpleNamespace(engine_tab_frames={"Emissions": emissions},
                                 current_engine_description=lambda: m.MANDELBROT_ENGINE)
     app.set_tree_enabled = lambda frame, enabled: calls.append((frame, enabled))
     app.engine_ignores_tab = m.App.engine_ignores_tab.__get__(app)
     app.update_fuzz_enabled_state = lambda: calls.append("fuzz")
     app.update_orbit_state = lambda: calls.append("orbit")
     m.App.refresh_enabled_states(app)
-    assert calls == [(emissions, False), (mutations, False), "fuzz", "orbit"], "(the own rules run after, and know about the engine)"
+    assert calls == [(emissions, False), "fuzz", "orbit"], "(the own rules run after, and know about the engine)"
     app.current_engine_description = lambda: m.RAY_BOUNCING_ENGINE
     calls.clear()
     m.App.refresh_enabled_states(app)
-    assert calls == [(emissions, True), (mutations, True), "fuzz", "orbit"] and not m.RAY_BOUNCING_ENGINE.ignored_tabs
+    assert calls == [(emissions, True), "fuzz", "orbit"] and not m.RAY_BOUNCING_ENGINE.ignored_tabs
 
 
 def test_fuzzings_own_rule_never_enables_what_the_engine_ignores():
@@ -366,13 +366,13 @@ def test_fuzzings_own_rule_never_enables_what_the_engine_ignores():
 def test_the_margin_keeps_the_settings_an_engine_ignores_and_marks_them_for_the_grey_pen():
     ray = m.DEFAULT_RAY_SETTINGS.replace(emit_mode=m.EMIT_TOWARDS)
     nat, shapes = m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [m.default_starting_obstacle(0)]
-    mandelbrot = m.MandelbrotSettings(exponent=-1.5, z0=1, mapping=1, julia_re=0.285, julia_im=-0.01, escape=1)
+    mandelbrot = m.MandelbrotSettings(exponent=-1.5, z0=1, mapping=1, julia_re=0.285, julia_im=-0.01, escape=1, pre_seg_mult=0.5)
     grey = lambda blocks: [[isinstance(line, m.GreyLine) for line in block] for block in blocks]
     orbit = m.figure_info_blocks(ray, nat, shapes, m.EngineSettings(engine=ORBIT), mandelbrot)
     flags = grey(orbit)
-    assert flags[0] == [False] and flags[1] == [False, False, False, True], "(the engine's name; the limits, the segment length grey)"
+    assert flags[0] == [False] and flags[1] == [False] * 4, "(the engine's name; the limits, the segment length not grey: Mandelbrot uses it)"
     assert all(flags[2]) and flags[3] == [False] * 3 and all(flags[4]), "(emission grey, confinement not, fuzzing grey)"
-    assert flags[5] == [False] * 5 and orbit[5][0] == "Orbit:z^-1.5+c", "(the orbit's own settings are in use)"
+    assert flags[5] == [False] * 6 and orbit[5][0] == "Orbit:z^-1.5+c" and orbit[5][5] == "  step x0.50 (before)", "(the orbit's own settings are in use)"
     rays = m.figure_info_blocks(ray, nat, shapes, m.DEFAULT_ENGINE_SETTINGS, mandelbrot)
     assert not any(any(block) for block in grey(rays)[:5]) and all(grey(rays)[5]), "(under the ray engine the orbit's settings are the grey ones)"
     assert [[str(line) for line in block] for block in orbit][:5] == [[str(line) for line in block] for block in rays][:5] or True

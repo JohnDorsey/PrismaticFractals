@@ -1,5 +1,6 @@
 """Tests: settings."""
 import dataclasses
+import types
 import numpy as np
 
 from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared helpers
@@ -691,16 +692,17 @@ def test_the_figure_settings_name_the_engine_first_when_it_is_given_and_the_bloc
 # --------------------------------------------------------------------------- #
 def _varied_mandelbrot():
     return m.MandelbrotSettings(exponent=3.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=-0.8, julia_im=0.156,
-                                escape=m.ORBIT_ESCAPE_BEYOND)
+                                escape=m.ORBIT_ESCAPE_BEYOND, pre_seg_mult=0.6)
 
 
 def test_the_mandelbrot_settings_are_a_record_of_their_own_with_a_row_a_catalog_and_a_control_each():
-    assert [f.name for f in dataclasses.fields(m.MandelbrotSettings)] == ["exponent", "z0", "mapping", "julia_re", "julia_im", "escape"]
-    assert m.DEFAULT_MANDELBROT_SETTINGS == m.MandelbrotSettings(exponent=2.0, z0=0, mapping=0, julia_re=0.0, julia_im=0.0, escape=0)
-    assert set(m.MANDELBROT_SETTING_SPECS) == {"orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape"}
-    assert {spec.tab for spec in m.MANDELBROT_SETTING_SPECS.values()} == {"Simulation"}
+    assert [f.name for f in dataclasses.fields(m.MandelbrotSettings)] == ["exponent", "z0", "mapping", "julia_re", "julia_im", "escape", "pre_seg_mult"]
+    assert m.DEFAULT_MANDELBROT_SETTINGS == m.MandelbrotSettings(exponent=2.0, z0=0, mapping=0, julia_re=0.0, julia_im=0.0, escape=0, pre_seg_mult=1.0)
+    assert set(m.MANDELBROT_SETTING_SPECS) == {"orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape",
+                                               "orbit_pre_seg_mult"}
+    assert {spec.tab for spec in m.MANDELBROT_SETTING_SPECS.values()} == {"Simulation", "Mutations"}, "(the pre-calculation multiplier sits with the other)"
     assert m.SETTING_TABLES[m.MandelbrotSettings] is m.MANDELBROT_SETTING_SPECS
-    assert {"orbit_exponent", "orbit_julia_re", "orbit_julia_im"} <= m.SETTING_FLOAT_KEYS, "the numbers are interpolated"
+    assert {"orbit_exponent", "orbit_julia_re", "orbit_julia_im", "orbit_pre_seg_mult"} <= m.SETTING_FLOAT_KEYS, "the numbers are interpolated"
     assert not ({"orbit_z0", "orbit_mapping", "orbit_escape"} & m.SETTING_FLOAT_KEYS), "the choices are held"
     for key, catalog in (("orbit_z0", m.CAT_ORBIT_Z0), ("orbit_mapping", m.CAT_ORBIT_MAPPING), ("orbit_escape", m.CAT_ORBIT_ESCAPE)):
         assert m.SETTING_CHOICE_CATALOGS[key] is catalog and len(m.MANDELBROT_SETTING_SPECS[key].names) == len(catalog.by_key)
@@ -711,7 +713,7 @@ def test_the_mandelbrot_settings_are_a_record_of_their_own_with_a_row_a_catalog_
 def test_the_mandelbrot_settings_become_the_kernels_orbit_arguments():
     assert m.settings_orbit_args(m.DEFAULT_MANDELBROT_SETTINGS) == m.ORBIT_ARGS_DEFAULT
     assert m.settings_orbit_args(_varied_mandelbrot()) == m.OrbitArgs(exponent=3.5, z0_is_c=True, julia=True, julia_re=-0.8,
-                                                                        julia_im=0.156, clip_escape=False)
+                                                                        julia_im=0.156, clip_escape=False, pre_mult=0.6)
     figure = m.generated_figure(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [],
                                 m.EngineSettings(engine=m.ENGINE_MANDELBROT), _varied_mandelbrot())
     assert figure.mandelbrot == _varied_mandelbrot() and figure.engine_args.orbit == m.settings_orbit_args(_varied_mandelbrot())
@@ -738,7 +740,8 @@ def test_the_mandelbrot_controls_read_back_as_a_record_and_grey_out_what_is_of_n
     app.last_orbit = {"exponent": 2.5, "julia_re": 0.25, "julia_im": -0.5}
     for field, value in (("exponent", "oops"), ("julia_re", "0.75"), ("julia_im", "")):
         setattr(app, f"orbit_{field}_var", _StubVar(value))
+    app.pre_seg_mult_scale = types.SimpleNamespace(get=lambda: 0.75)
     app.orbit_z0_var, app.orbit_mapping_var, app.orbit_escape_var = (_StubVar(m.ORBIT_Z0_NAMES[1]), _StubVar(m.ORBIT_MAPPING_NAMES[1]),
                                                                        _StubVar(m.ORBIT_ESCAPE_NAMES[1]))
     assert m.App.current_mandelbrot_settings(app) == m.MandelbrotSettings(
-        exponent=2.5, z0=1, mapping=1, julia_re=0.75, julia_im=-0.5, escape=1), "(nonsense counts as the last valid value)"
+        exponent=2.5, z0=1, mapping=1, julia_re=0.75, julia_im=-0.5, escape=1, pre_seg_mult=0.75), "(nonsense counts as the last valid value)"

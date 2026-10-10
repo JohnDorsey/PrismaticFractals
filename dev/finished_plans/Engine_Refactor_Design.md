@@ -43,6 +43,9 @@ disappears depending on the engine in use. A control the engine in use cannot ma
 The Mandelbrot path engine has the entire contents of the Emissions tab and of the Mutations tab greyed out. It makes
 use of all the settings in all the other tabs.
 
+Revised at FILE_VERSION 170: only the Emissions tab and FUZZING are greyed out under Mandelbrot. The segment length multiplier was split in two
+(see CLAUDE.md, "The two segment length multipliers"), and the Mandelbrot engine uses both, so the Mutations tab is no longer wholly ignored.
+
 ## D6. The Simulation tab chooses the engine
 
 The Simulation tab holds a dropdown box that chooses between two path engines. Its options are "Ray Bouncing" and

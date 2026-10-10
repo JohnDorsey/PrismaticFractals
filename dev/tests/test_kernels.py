@@ -2034,10 +2034,10 @@ def test_the_arguments_of_the_drivers_hold_the_engine_and_both_engines_bundles()
     args = m.path_args(m.ENGINE_RAY_BOUNCING, ray, scene)
     assert isinstance(args, m.PathArgs) and args._fields == ("engine", "ray", "orbit", "obstacles", "tables")
     assert args.engine == 0 and args.ray is ray and args.obstacles is scene and args.orbit == m.ORBIT_ARGS_DEFAULT and args.tables is m.RAY_SEQUENCE_TABLES
-    assert m.OrbitArgs._fields == ("exponent", "z0_is_c", "julia", "julia_re", "julia_im", "clip_escape")
-    assert m.ORBIT_ARGS_DEFAULT == m.OrbitArgs(exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip_escape=True)
-    other = m.orbit_args(3, True, True, 1, -1, False)
-    assert m.path_args(m.ENGINE_MANDELBROT, ray, scene, other).orbit == m.OrbitArgs(3.0, True, True, 1.0, -1.0, False)
+    assert m.OrbitArgs._fields == ("exponent", "z0_is_c", "julia", "julia_re", "julia_im", "clip_escape", "pre_mult")
+    assert m.ORBIT_ARGS_DEFAULT == m.OrbitArgs(exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip_escape=True, pre_mult=1.0)
+    other = m.orbit_args(3, True, True, 1, -1, False, 0.5)
+    assert m.path_args(m.ENGINE_MANDELBROT, ray, scene, other).orbit == m.OrbitArgs(3.0, True, True, 1.0, -1.0, False, 0.5)
     assert type(other.exponent) is float and type(other.julia_re) is float and other.z0_is_c is True
 
 

@@ -39,8 +39,10 @@ Path engines
   Buddha coloration (with the choice of which kinds of path - escaping,
   non-escaping, ended by an obstacle - a channel scatters) and the exports.
   Switching engine resets what the new engine does not accept and says what it
-  reset, with the choice to go back; the Emissions and Mutations tabs, which
-  Mandelbrot makes no use of, are greyed out, not removed.
+  reset, with the choice to go back; the Emissions tab and fuzzing, which
+  Mandelbrot makes no use of, are greyed out, not removed. The segment length
+  multiplier is two settings: "after" (both engines) and "before" (Mandelbrot
+  only, it scales each step as soon as it is calculated).
 
 Obstacles
   Any number of shapes, each one of eighteen kinds with its own size/angle

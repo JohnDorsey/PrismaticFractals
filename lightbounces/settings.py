@@ -134,11 +134,12 @@ class MandelbrotSettings:
     julia_re: float                                  # the Julia constant c (used when the pixel is z_0)
     julia_im: float
     escape: int                                      # an index into ORBIT_ESCAPE_NAMES: how an escaping orbit ends
+    pre_seg_mult: float                              # the pre-calculation length multiplier (the post-calculation one is RaySettings.seg_mult)
 
 
 DEFAULT_MANDELBROT_SETTINGS = MandelbrotSettings(
     exponent=DEFAULT_ORBIT_EXPONENT, z0=DEFAULT_ORBIT_Z0, mapping=DEFAULT_ORBIT_MAPPING, julia_re=DEFAULT_ORBIT_JULIA_RE,
-    julia_im=DEFAULT_ORBIT_JULIA_IM, escape=DEFAULT_ORBIT_ESCAPE)
+    julia_im=DEFAULT_ORBIT_JULIA_IM, escape=DEFAULT_ORBIT_ESCAPE, pre_seg_mult=DEFAULT_SEGMENT_MULT)
 
 
 @strict_record
@@ -313,7 +314,7 @@ NATURAL_TERMINATION_SETTING_SPECS = {
 # Every setting of the ray-bouncing engine itself (a RaySettings), the same way.
 RAY_SETTING_SPECS = {
     "seg_mult": _spec(("seg_mult",), "seg_mult_scale", "seg_mult_scale", "number",
-                      "Mutations", "Segment length multiplier"),
+                      "Mutations", "Segment length multiplier (after)"),
     "emit_mode": _spec(("emit_mode",), "emit_mode_var", "emit_mode_combo", "choice",
                        "Emissions", "Emission direction", EMIT_MODE_NAMES),
     "emit_target_r": _spec(("emit_target_r",), "emit_target_r_var", "emit_target_r_entry",
@@ -386,6 +387,8 @@ MANDELBROT_SETTING_SPECS = {
                             "Julia constant (imaginary part)"),
     "orbit_escape": _spec(("escape",), "orbit_escape_var", "orbit_escape_combo", "choice", "Simulation", "An escaping orbit ends",
                           ORBIT_ESCAPE_NAMES),
+    "orbit_pre_seg_mult": _spec(("pre_seg_mult",), "pre_seg_mult_scale", "pre_seg_mult_scale", "number", "Mutations",
+                                "Segment length multiplier (before)"),
 }
 
 # Every record of settings and the table of its rows. This is the one place that says
@@ -569,10 +572,10 @@ def settings_ray_args(settings):
     return ray_args(settings.seg_mult, fuzz_rule(settings.fuzz), settings_emission(settings))
 
 
-def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape):
+def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape, pre_mult=1.0):
     """The orbit engine's own arguments in the form the simulation kernels expect."""
     return OrbitArgs(exponent=float(exponent), z0_is_c=bool(z0_is_c), julia=bool(julia), julia_re=float(julia_re),
-                     julia_im=float(julia_im), clip_escape=bool(clip_escape))
+                     julia_im=float(julia_im), clip_escape=bool(clip_escape), pre_mult=float(pre_mult))
 
 
 # The orbit engine's defaults (Engine_Refactor_Design.md D14, D26, D29): z -> z^2 + c from z_0 = 0, the pixel is c, clip.
@@ -582,7 +585,7 @@ ORBIT_ARGS_DEFAULT = orbit_args(2.0, False, False, 0.0, 0.0, True)
 def settings_orbit_args(settings):
     """orbit_args() for a MandelbrotSettings."""
     return orbit_args(settings.exponent, settings.z0 == ORBIT_Z0_C, settings.mapping == ORBIT_MAPPING_JULIA, settings.julia_re,
-                      settings.julia_im, settings.escape == ORBIT_ESCAPE_CLIP)
+                      settings.julia_im, settings.escape == ORBIT_ESCAPE_CLIP, settings.pre_seg_mult)
 
 
 def path_args(engine, ray, obstacles, orbit=ORBIT_ARGS_DEFAULT, tables=RAY_SEQUENCE_TABLES):

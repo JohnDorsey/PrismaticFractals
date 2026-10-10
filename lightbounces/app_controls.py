@@ -74,24 +74,32 @@ class ControlsMixin:
                   ).grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
 
     def build_segment_mult_controls(self, parent):
-        """A single bounded entry: how much of each bounce's true segment
-        length is actually travelled before continuing in the newly-bounced
-        direction."""
+        """The two segment length multipliers (bounded entries). After (both engines): how much of each step's true segment length is
+        actually travelled or recorded, once whatever the step needs has been calculated at its end. Before (the Mandelbrot engine
+        only): how much of the step z -> f(z) is taken, right after it is calculated."""
         sm = ttk.LabelFrame(parent, text="Segment length")
         sm.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
         sm.columnconfigure(1, weight=1)
+        self.pre_seg_mult_scale = self.add_angle_entry(
+            sm, 0, "Length multiplier, before the calculation (Mandelbrot only)", DEFAULT_SEGMENT_MULT, on_change=self.on_pre_seg_mult_changed,
+            lo=SEGMENT_MULT_MIN, hi=SEGMENT_MULT_MAX, fmt="{:.2f}")
         self.seg_mult_scale = self.add_angle_entry(
-            sm, 0, "Length multiplier", DEFAULT_SEGMENT_MULT, on_change=self.on_seg_mult_changed,
+            sm, 1, "Length multiplier, after the calculation", DEFAULT_SEGMENT_MULT, on_change=self.on_seg_mult_changed,
             lo=SEGMENT_MULT_MIN, hi=SEGMENT_MULT_MAX, fmt="{:.2f}")
         ttk.Label(sm, foreground="#666", wraplength=RIGHT_W - 70,
-                  text="Shortens every ordinary bounce's segment to this fraction of "
+                  text="After: shortens every ordinary bounce's segment to this fraction of "
                        "its true length, pulling the end back towards the start - but "
                        "the ray still continues on from there in the direction that "
                        "bounce calculated, so it visibly changes course in mid-air. "
-                       "1 means no effect. While active, the self-bounce loop area "
+                       "For the Mandelbrot engine it only moves the point added to the "
+                       "path, along the step from the true z; the true z still goes on to the "
+                       "next iteration. 1 means no effect. While active, the self-bounce loop area "
                        "metric always reads 0, since that polygon no longer reflects "
-                       "the ray's own path."
-                  ).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
+                       "the ray's own path.\n"
+                       "Before (Mandelbrot engine): scales the step from z to z^p + c as soon as it is "
+                       "calculated, so the shortened point is both the one added to the path and the "
+                       "z of the next iteration (a damped orbit)."
+                  ).grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
 
     def build_confinement_controls(self, parent):
         """The Confinement section: how many of a ray's most recent path points
@@ -307,6 +315,7 @@ class ControlsMixin:
         entry.bind("<Return>", commit)
         entry.bind("<KP_Enter>", commit)
         handle.widget = entry
+        handle.row = row_frame                      # (the label and the entry: for greying both)
         return handle
 
     def build_fuzzing_controls(self, parent):
@@ -522,6 +531,11 @@ class ControlsMixin:
             value = parser(var.get())
             var.set(str(last if value is None else value))
 
+    def on_pre_seg_mult_changed(self):
+        """The pre-calculation segment length multiplier entry committed a new value."""
+        self.invalidate_preview()
+        self.on_orbit_changed()
+
     def on_seg_mult_changed(self):
         """The segment length multiplier entry committed a new value (already
         parsed and clamped into range by its FloatEntryHandle)."""
@@ -570,7 +584,7 @@ class ControlsMixin:
     def update_fuzz_enabled_state(self):
         """Grey out every Fuzzing-tab control except the Enable checkbox itself
         whenever fuzzing is disabled."""
-        engine_off = self.engine_ignores_tab("Mutations")
+        engine_off = self.current_engine_description().ignores("fuzz_on")
         self.fuzz_enable_check.state(["disabled"] if engine_off else ["!disabled"])
         enabled = self.fuzz_enabled_var.get() and not engine_off
         tk_state = tk.NORMAL if enabled else tk.DISABLED
@@ -693,6 +707,7 @@ class ControlsMixin:
             for w in (widget, self.orbit_labels[field]):
                 w.state(["disabled"] if off else ["!disabled"])
         self.orbit_note.state(["disabled"] if not mandelbrot_on or julia else ["!disabled"])
+        self.set_tree_enabled(self.pre_seg_mult_scale.row, mandelbrot_on)          # (the Segment length section's own row)
 
     def on_orbit_commit(self, _event=None):
         """Enter pressed or focus left one of the exponent / Julia constant entries: an invalid one goes back to its last valid
@@ -741,7 +756,9 @@ class ControlsMixin:
 
     def refresh_enabled_states(self):
         """THE resolver of whether a control is enabled (D4, D5, D13): the engine in use makes use of it AND its own rule allows it.
-        The tabs the engine ignores (Emissions and Mutations for Mandelbrot) are greyed out whole, nothing is hidden; for the others
+        The tabs the engine ignores (Emissions for Mandelbrot) are greyed out whole, nothing is hidden; the settings it ignores in a
+        tab it otherwise uses (fuzzing for Mandelbrot) and the controls of the other engine (the Mandelbrot box and the pre-calculation
+        length multiplier under the ray engine) by their own rules; for the others
         the controls' own rules decide (fuzzing's settings while it is off, the Julia constant unless the pixel is z_0, ...). A greyed
         setting is still saved, loaded and animated."""
         for tab, frame in self.engine_tab_frames.items():
@@ -774,7 +791,7 @@ class ControlsMixin:
             number[field] = last if value is None else value
         return MandelbrotSettings(
             z0=ORBIT_Z0_NAMES.index(self.orbit_z0_var.get()), mapping=ORBIT_MAPPING_NAMES.index(self.orbit_mapping_var.get()),
-            escape=ORBIT_ESCAPE_NAMES.index(self.orbit_escape_var.get()), **number)
+            escape=ORBIT_ESCAPE_NAMES.index(self.orbit_escape_var.get()), pre_seg_mult=self.pre_seg_mult_scale.get(), **number)
 
     def mandelbrot_defines_figure(self, mandelbrot):
         """Whether `mandelbrot` (a MandelbrotSettings) matters to a figure made with the engine selected now: only when that is the

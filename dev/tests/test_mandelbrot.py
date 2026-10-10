@@ -8,10 +8,11 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 NO_CONFINE = m.ConfineRule(lookback=999, method=m.CONFINE_BOX, threshold=1e-300)     # (never judged: the orbit runs on)
 
 
-def _args(obstacles=(), exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip=True):
-    orbit = m.orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip)
-    return m.path_args(m.ENGINE_MANDELBROT, m.settings_ray_args(m.DEFAULT_RAY_SETTINGS), m.build_obstacle_arrays(list(obstacles)),
-                       orbit, m.tables_of_engine(m.ENGINE_MANDELBROT))
+def _args(obstacles=(), exponent=2.0, z0_is_c=False, julia=False, julia_re=0.0, julia_im=0.0, clip=True, pre_mult=1.0, post_mult=1.0):
+    """The Mandelbrot engine's arguments; `pre_mult` and `post_mult` are its two segment length multipliers."""
+    orbit = m.orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip, pre_mult)
+    return m.path_args(m.ENGINE_MANDELBROT, m.settings_ray_args(m.DEFAULT_RAY_SETTINGS.replace(seg_mult=post_mult)),
+                       m.build_obstacle_arrays(list(obstacles)), orbit, m.tables_of_engine(m.ENGINE_MANDELBROT))
 
 
 def _orbit(x, y, max_iter=50, radius=2.0, max_dist=0.0, confine=NO_CONFINE, obstacles=(), **orbit):
@@ -467,3 +468,130 @@ def test_the_two_segment_midpoint_options_scatter_the_midpoints_of_an_orbits_seg
         image = app.render_full_image(data, 96, 96, m.build_obstacle_arrays([start]), (_coloration_settings_from_config(config),), m.DEFAULT_FRAMING)
         assert image[..., 0].max() > 0, label
 
+
+# --------------------------------------------------------------------------- #
+# The two segment length multipliers
+# --------------------------------------------------------------------------- #
+def _true_orbit(c, steps, pre=1.0, z0=0j):
+    """The states z_0 ... z_steps of z -> z + pre (z^2 + c - z), as Python complex numbers."""
+    z, states = z0, [z0]
+    for _ in range(steps):
+        z = z + pre * (z * z + c - z)
+        states.append(z)
+    return states
+
+
+def test_the_pre_calculation_multiplier_scales_each_step_and_the_scaled_point_is_both_recorded_and_carried_on():
+    c = complex(-0.4, 0.3)
+    for pre in (0.5, 0.8, 0.25):
+        _term, points, tags, _raw = _orbit(c.real, c.imag, max_iter=14, radius=1e6, pre_mult=pre)
+        want = _true_orbit(c, 14, pre)
+        assert len(points) == 15 and all(abs(complex(*points[k]) - want[k]) < 1e-12 for k in range(15)), pre
+        assert tags[0] == m.TAG_START and all(t == m.TAG_ORBIT for t in tags[1:])
+    _term, plain, _tags, _raw = _orbit(c.real, c.imag, max_iter=14, radius=1e6)
+    _term, same, _tags, _raw = _orbit(c.real, c.imag, max_iter=14, radius=1e6, pre_mult=1.0)
+    assert np.array_equal(plain, same) and np.allclose(plain, [(z.real, z.imag) for z in _true_orbit(c, 14)])
+
+
+def test_the_pre_calculation_multiplier_makes_a_squared_orbit_the_standard_one_of_another_c():
+    """For z -> z^2 + c, u = m z + (1 - m)/2 follows u -> u^2 + C with C = m^2 c + (1 - m^2)/4 (an independent check of the damped orbit)."""
+    rng = random.Random(7)
+    for _ in range(20):
+        c = complex(rng.uniform(-1.5, 0.5), rng.uniform(-1.0, 1.0))
+        pre = rng.choice((0.3, 0.5, 0.9))
+        _term, points, _tags, _raw = _orbit(c.real, c.imag, max_iter=10, radius=1e9, pre_mult=pre)
+        big_c = pre * pre * c + (1 - pre * pre) / 4
+        u, standard = (1 - pre) / 2 + 0j, []
+        for k in range(len(points)):
+            standard.append(u)
+            u = u * u + big_c
+        assert all(abs(pre * complex(*points[k]) + (1 - pre) / 2 - standard[k]) < 1e-9 for k in range(len(points)))
+
+
+def test_the_pre_calculation_multiplier_rescales_the_mandelbrot_set_about_its_cusp_in_the_drivers():
+    """With pre multiplier m the set of c that stay bounded is the Mandelbrot set mapped by C = m^2 c + (1 - m^2)/4, so its area is
+    1.50659 / m^4 (here m = 0.9: 2.2964); the escape radius is large because the damped orbit may pass 2 and stay bounded."""
+    n, pre = 640, 0.9
+    wide = _shape(0.0, 0.0, 4.0, PASS, PASS)
+    layout = m.layout_of_engine(m.ENGINE_MANDELBROT)
+    stats, points = layout.allocate(n, n)
+    state = np.zeros((n, n), np.uint8)
+    termination = m.natural_termination_rule(300, m.effective_dist(0.0), 50.0, NO_CONFINE)
+    m.trace_rows(stats, points, state, 0, n, n, n, m.WorldRect(-4.0, 4.0, -4.0, 4.0), termination, _args([wide], pre_mult=pre), 0)
+    inside = (stats[..., layout.stat_position(m.ST_TERMINATION)] < 1.0)[state == m.PIXEL_TRACED].sum() * (8.0 / n) ** 2
+    assert abs(inside / (1.50659 / pre ** 4) - 1.0) < 0.04, inside
+
+
+def test_the_post_calculation_multiplier_records_a_point_on_each_true_step_and_the_true_orbit_goes_on():
+    c = complex(-0.4, 0.3)
+    true = _true_orbit(c, 14)
+    for post in (0.5, 0.2, 0.9):
+        _term, points, _tags, _raw = _orbit(c.real, c.imag, max_iter=14, radius=1e6, post_mult=post)
+        assert len(points) == 15 and complex(*points[0]) == 0j
+        for k in range(1, 15):
+            want = true[k - 1] + post * (true[k] - true[k - 1])           # (from the TRUE previous point, never the recorded one)
+            assert abs(complex(*points[k]) - want) < 1e-12, (post, k)
+    _term, whole, _tags, _raw = _orbit(c.real, c.imag, max_iter=14, radius=1e6, post_mult=1.0)
+    assert np.array_equal(whole, _orbit(c.real, c.imag, max_iter=14, radius=1e6)[1]), "(1 is no effect, bit for bit)"
+
+
+def test_the_post_calculation_multiplier_never_changes_what_the_orbit_does_only_where_the_points_are_recorded():
+    """The escape and the iteration count are the true orbit's: the same number of points and ending, with the same last point (the
+    escape clip is not pulled back), for any multiplier."""
+    rng = random.Random(3)
+    for _ in range(40):
+        c = complex(rng.uniform(-2.2, 0.8), rng.uniform(-1.3, 1.3))
+        term, whole, tags, _ = _orbit(c.real, c.imag, max_iter=60)
+        for post in (0.5, 0.1):
+            term2, part, tags2, _ = _orbit(c.real, c.imag, max_iter=60, post_mult=post)
+            assert term2 == term and len(part) == len(whole) and tags2[-1] == tags[-1], (c, post)
+            if term == m.TERM_ESCAPED:
+                assert np.allclose(part[-1], whole[-1]), "(the clipped end is on the escape radius, never pulled back)"
+                assert abs(abs(complex(*part[-1])) - 2.0) < 1e-9
+
+
+def test_both_multipliers_together_pull_back_along_the_damped_orbit():
+    c = complex(0.1, 0.5)
+    pre, post = 0.6, 0.5
+    damped = _true_orbit(c, 12, pre)
+    _term, points, _tags, _raw = _orbit(c.real, c.imag, max_iter=12, radius=1e6, pre_mult=pre, post_mult=post)
+    assert all(abs(complex(*points[k]) - (damped[k - 1] + post * (damped[k] - damped[k - 1]))) < 1e-12 for k in range(1, 13))
+
+
+def test_the_distance_limit_of_the_orbit_engine_is_judged_on_the_recorded_points():
+    c = complex(-0.4, 0.3)
+    term, points, tags, _raw = _orbit(c.real, c.imag, max_iter=30, radius=1e6, post_mult=0.5, max_dist=0.35)
+    length = sum(abs(complex(*points[k + 1]) - complex(*points[k])) for k in range(len(points) - 1))
+    assert term == m.TERM_DIST and tags[-1] == m.TAG_DISTCUT and abs(length - 0.35) < 1e-9, length
+    assert len(points) >= 3, "(the cut is partway along the recorded path, whose points are not the true orbit's)"
+
+
+def test_the_drivers_hand_the_pre_calculation_multiplier_to_every_pixels_orbit():
+    n = 16
+    wide = _shape(0.0, 0.0, 4.0, PASS, PASS)
+    layout = m.layout_of_engine(m.ENGINE_MANDELBROT)
+    rect = m.WorldRect(-2.0, 1.0, -1.5, 1.5)
+    termination = m.natural_termination_rule(40, m.effective_dist(0.0), 2.0, NO_CONFINE)
+    counts = {}
+    for pre in (1.0, 0.5):
+        stats, points = layout.allocate(n, n)
+        state = np.zeros((n, n), np.uint8)
+        m.trace_rows(stats, points, state, 0, n, n, n, rect, termination, _args([wide], pre_mult=pre), 0)
+        counts[pre] = stats[..., layout.stat_position(m.stat_slot(m.SEQ_PATH, m.SRED_COUNT))].copy()
+        for j, i in ((3, 4), (8, 8), (12, 2), (7, 13)):
+            x = rect.x_start + (i + 0.5) * 3.0 / n
+            y = rect.y_stop - (j + 0.5) * 3.0 / n
+            _term, path, _tags, _raw = _orbit(x, y, max_iter=40, pre_mult=pre)
+            assert abs(counts[pre][j, i] - min(len(path) / 40.0, 1.0)) < 1e-5, (pre, j, i, counts[pre][j, i], len(path))
+    assert not np.array_equal(counts[1.0], counts[0.5])
+
+
+def test_the_two_multipliers_are_two_settings_and_the_orbit_engine_uses_both():
+    assert "seg_mult" in m.RAY_SETTING_SPECS and "orbit_pre_seg_mult" in m.MANDELBROT_SETTING_SPECS and "seg_mult" not in m.MANDELBROT_SETTING_SPECS
+    assert m.SETTING_LABEL["seg_mult"].endswith("(after)") and m.SETTING_LABEL["orbit_pre_seg_mult"].endswith("(before)")
+    assert m.SETTING_TAB["seg_mult"] == m.SETTING_TAB["orbit_pre_seg_mult"] == "Mutations"
+    assert m.DEFAULT_SETTING_VALUES["seg_mult"] == m.DEFAULT_SETTING_VALUES["orbit_pre_seg_mult"] == 1.0
+    assert "orbit_pre_seg_mult" in m.SETTING_FLOAT_KEYS, "(animated by keyframes, like the other)"
+    orbit, ray = m.MANDELBROT_ENGINE, m.RAY_BOUNCING_ENGINE
+    assert not orbit.ignores("seg_mult") and not orbit.ignores("orbit_pre_seg_mult") and orbit.ignores("fuzz_on") and orbit.ignores("bnd_mult")
+    assert not ray.ignores("seg_mult") and not ray.ignores("fuzz_on")

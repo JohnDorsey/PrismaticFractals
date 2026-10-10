@@ -176,7 +176,8 @@ OrbitArgs = namedtuple("OrbitArgs", [
     "julia",                                         # does the pixel's location become z_0 (a Julia set) and not c?
     "julia_re",                                      # the Julia constant c, real part
     "julia_im",                                      # ... imaginary part
-    "clip_escape"])                                  # does an escaping orbit end where its segment crosses the escape radius?
+    "clip_escape",                                   # does an escaping orbit end where its segment crosses the escape radius?
+    "pre_mult"])                                     # the pre-calculation length multiplier: z_(n+1) = z_n + pre_mult (f(z_n) - z_n)
 
 # Everything one path engine job needs that the engines do not share, whichever engine runs: which engine, and the arguments of
 # each (the unused one is a dummy), and the obstacles. The drivers (trace_rows..., scatter_from_seeds) take this where they took a RayArgs and
@@ -2448,7 +2449,7 @@ def complex_power(zx, zy, p):
 
 
 @njit(nogil=True, cache=True)
-def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacles, raw):
+def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacles, post_mult, raw):
     """The escape-time orbit engine's path function: the orbit z_0, z_1, ... of z -> z^p + c (the Mandelbrot set and its Julia sets), as
     a path of points like trace_path's: `path_points` (needs at least termination.max_iter + 2 rows), their tags in `path_point_tags`
     (TAG_START for z_0, TAG_ORBIT for the rest, the last one TAG_ESCAPED / TAG_OBSTACLE_TERM / TAG_DISTCUT where the path ended so)
@@ -2465,7 +2466,15 @@ def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacl
     that point alone. Every segment z_k -> z_(k+1) is tested against the `obstacles` (an ObstacleArrays), not only the points: a shape
     that passes rays in the direction of the crossing is passed through (flipping whether the orbit is inside it); one that terminates,
     or reflects (which an orbit cannot do: the last resort), ends the path at the crossing (TERM_OBSTACLE). A perpendicular
-    collision ends nothing, and nothing here is fuzzed or emitted."""
+    collision ends nothing, and nothing here is fuzzed or emitted.
+
+    Two length multipliers. `orbit.pre_mult` acts right after f(z) = z^p + c is calculated: the step z -> f(z) is scaled by it, and
+    the result is both the point recorded and the z of the next iteration (a damped orbit). `post_mult` (the ray engine's segment length
+    multiplier, `engine_args.ray.seg_mult`) acts on what is RECORDED only: the point added for a step is z_n + post_mult (z_(n+1) - z_n), on
+    the true step from the true z_n, while the true z_(n+1) goes on to the next iteration. The escape test and the obstacles are
+    the true orbit's; the distance limit, the confinement test and every measurement are of the recorded points, as the ray engine
+    judges its own (pulled-back) ones. A point that ends the path (the escape clip, a terminating shape, the distance cut, the first
+    point beyond the radius when it is not clipped) is never pulled back."""
     max_iter = termination.max_iter
     max_dist = termination.max_dist
     escape_radius = termination.escape_radius
@@ -2477,6 +2486,8 @@ def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacl
     obst_effects = obstacles.effects
     n_obst = len(obst_shapes)
     exponent = orbit.exponent
+    pre_mult = orbit.pre_mult
+    shorten = post_mult < 1.0
     for k in range(N_RAW):
         raw[k] = 0.0
     raw[RAW_SELF_K] = -1.0
@@ -2515,6 +2526,9 @@ def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacl
         px, py = complex_power(zx, zy, exponent)
         px += cx
         py += cy
+        if pre_mult != 1.0:
+            px = zx + pre_mult * (px - zx)
+            py = zy + pre_mult * (py - zy)
         if not (isfinite(px) and isfinite(py)):
             term = TERM_ESCAPED                       # it went off to infinity: it ends at its last finite point
             if npts > 1:
@@ -2567,34 +2581,60 @@ def orbit_path(x0, y0, path_points, path_point_tags, termination, orbit, obstacl
                 end_t = t_off + best_t                # terminating (or, for an orbit, reflecting) edge: the path ends here
                 event = 1
                 break
-        # The distance limit: cut this segment where it is reached
-        if dist + end_t > max_dist:
+        # Where this step ends in the RECORDED path: the point where something cut it, else the new point, pulled back along the true
+        # step by post_mult (never the point that went beyond the escape radius: that one ends the path where it is)
+        if event != 0:
+            ex = zx + end_t * dx
+            ey = zy + end_t * dy
+        elif beyond or not shorten:
+            ex = px
+            ey = py
+        else:
+            ex = zx + post_mult * (px - zx)
+            ey = zy + post_mult * (py - zy)
+        if shorten:                                   # the recorded step runs from the last recorded point
+            rx = path_points[npts - 1, 0]
+            ry = path_points[npts - 1, 1]
+            cdx = ex - rx
+            cdy = ey - ry
+            step = sqrt(cdx * cdx + cdy * cdy)
+            if step > 0.0:
+                cdx /= step
+                cdy /= step
+        else:
+            rx = zx
+            ry = zy
+            cdx = dx
+            cdy = dy
+            step = end_t
+        # The distance limit: cut this recorded step where it is reached
+        if dist + step > max_dist:
             rem = max_dist - dist
             if rem > 1e-12:
-                path_points[npts, 0] = zx + rem * dx
-                path_points[npts, 1] = zy + rem * dy
+                path_points[npts, 0] = rx + rem * cdx
+                path_points[npts, 1] = ry + rem * cdy
                 path_point_tags[npts] = TAG_DISTCUT
                 npts += 1
-                last_full = end_t
+                last_full = step
             term = TERM_DIST
             break
         if event == 1:
-            path_points[npts, 0] = zx + end_t * dx
-            path_points[npts, 1] = zy + end_t * dy
+            path_points[npts, 0] = ex
+            path_points[npts, 1] = ey
             path_point_tags[npts] = TAG_OBSTACLE_TERM
             npts += 1
             term = TERM_OBSTACLE
             break
         if event == 2:
-            path_points[npts, 0] = zx + end_t * dx
-            path_points[npts, 1] = zy + end_t * dy
+            path_points[npts, 0] = ex
+            path_points[npts, 1] = ey
             path_point_tags[npts] = TAG_ESCAPED
             npts += 1
             term = TERM_ESCAPED
             break
-        path_points[npts, 0] = px
-        path_points[npts, 1] = py
-        dist += seg
+        path_points[npts, 0] = ex
+        path_points[npts, 1] = ey
+        dist += step
         zx = px
         zy = py
         if beyond:                                    # not clipped: the point that went beyond the radius is where it ends
@@ -2619,7 +2659,7 @@ def trace_engine_path(x0, y0, path_points, path_point_tags, termination, engine_
     the engine, so the gating of pixels, the storing and the Buddha scatters exist once (the drivers call this)."""
     if engine_args.engine == ENGINE_RAY_BOUNCING:
         return trace_path(x0, y0, path_points, path_point_tags, termination, engine_args.ray, engine_args.obstacles, raw)
-    return orbit_path(x0, y0, path_points, path_point_tags, termination, engine_args.orbit, engine_args.obstacles, raw)
+    return orbit_path(x0, y0, path_points, path_point_tags, termination, engine_args.orbit, engine_args.obstacles, engine_args.ray.seg_mult, raw)
 
 
 @njit(cache=True)

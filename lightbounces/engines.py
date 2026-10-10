@@ -71,13 +71,17 @@ RAY_BOUNCING_ENGINE = EngineDescription(
     default_point_metric=ST_HDIST, default_other_metric=ST_BOUNCE_COUNT, default_point=POINT_START,
     default_buddha_option=POINT_ALL_MEAN, choices={}, fallbacks={}, ranges={}, ignored_tabs=(), ignored_keys=frozenset())
 
+# Every setting of the Mutations tab but the two segment length multipliers is fuzzing's: an orbit has no direction to jitter.
+_FUZZING_KEYS = frozenset(key for key, tab in SETTING_TAB.items() if tab == "Mutations" and key not in ("seg_mult", "orbit_pre_seg_mult"))
+
+
 def _mandelbrot_description():
     """The Mandelbrot engine (Engine_Refactor_Design.md D31, D38, D39, D11, D35, D5): one sequence, "Path", with its seven point
     reductions; the metrics iteration count (the path's point count), path length, last direction, termination reason and the four
     point distances; the Buddha options of the path (its stored points, the last point for a distance limit or confinement - not
     for a perpendicular collision, which it has none of -, every point of the path and the two segment-midpoint options (D38), none
     of the bounce-based ones; no Reflect
-    (pass-through in its place); its own defaults (Path count, Path: Mean point); and the Emissions and Mutations tabs unused."""
+    (pass-through in its place); its own defaults (Path count, Path: Mean point); and the Emissions tab and fuzzing unused (the Mutations tab's segment length multipliers are used)."""
     path_points = {point_slot(SEQ_PATH, red) for red in range(N_PRED)}
     metrics = set(POINT_METRICS) | {stat_slot(SEQ_PATH, SRED_COUNT), stat_slot(SEQ_PATH, SRED_LENGTH),
                                     stat_slot(SEQ_PATH, SRED_LAST_DIR), ST_TERMINATION}
@@ -92,7 +96,7 @@ def _mandelbrot_description():
         default_point=POINT_START, default_buddha_option=point_slot(SEQ_PATH, PRED_MEAN),
         choices={"obst:*:in_effect": effects, "obst:*:out_effect": effects},
         fallbacks={"obst:*:in_effect": OBSTACLE_EFFECT_PASS, "obst:*:out_effect": OBSTACLE_EFFECT_PASS}, ranges={},
-        ignored_tabs=("Emissions", "Mutations"), ignored_keys=frozenset())
+        ignored_tabs=("Emissions",), ignored_keys=_FUZZING_KEYS)
 
 
 MANDELBROT_ENGINE = _mandelbrot_description()

@@ -90,8 +90,10 @@ select_tab(app.controls_notebook, "Simulation")
 screenshot("simulation_mandelbrot.png")
 select_tab(app.controls_notebook, "Emissions")
 screenshot("emissions_greyed.png")
-check(app.emit_mode_combo.instate(["disabled"]) and app.fuzz_enable_check.instate(["disabled"]) and app.seg_mult_scale.widget.instate(["disabled"]),
-      "the Emissions and Mutations tabs are greyed out under Mandelbrot (nothing is hidden)")
+check(app.emit_mode_combo.instate(["disabled"]) and app.fuzz_enable_check.instate(["disabled"]),
+      "the Emissions tab and fuzzing are greyed out under Mandelbrot (nothing is hidden)")
+check(not app.seg_mult_scale.widget.instate(["disabled"]) and not app.pre_seg_mult_scale.widget.instate(["disabled"]),
+      "both segment length multipliers are on under Mandelbrot")
 check(app.iter_entry.instate(["!disabled"]) and app.escape_radius_entry.instate(["!disabled"]), "the Termination tab is not")
 select_tab(app.controls_notebook, "Simulation")
 mandelbrot_hash = generate()
@@ -116,6 +118,7 @@ choose("Ray Bouncing")
 check(notices == [] and all(o.in_effect == lb.OBSTACLE_EFFECT_REFLECT for o in app.obstacles), "switching back restores the reflecting obstacle, with no notice")
 check(not app.emit_mode_combo.instate(["disabled"]) and not app.fuzz_enable_check.instate(["disabled"]) and not app.seg_mult_scale.widget.instate(["disabled"]),
       "and the ray engine's controls are back on")
+check(app.pre_seg_mult_scale.widget.instate(["disabled"]), "the pre-calculation length multiplier is greyed under the ray engine (Mandelbrot only)")
 check(app.emit_jitter_scale.widget.instate(["disabled"]), "(fuzzing is off, so its own settings stay greyed: the control's own rule)")
 check(lb.project_signature(app.capture_project()) != start_project, "(the Julia settings the user changed meanwhile are kept)")
 app.orbit_julia_re_var.set("0.0")

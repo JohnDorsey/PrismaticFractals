@@ -195,7 +195,7 @@ def placeholder_class(module, name):
 
 
 # Application modules are never imported here (that would pull in numba).
-DUMPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "debug", "dumps")     # where the program writes them
+DUMPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "debug", "dumps")     # where the program writes them
 APPLICATION_MODULES = ("__main__", "light_bounces", "lightbounces", "debug_dump", "test_light_bounces", "tests",
                        "test_harness")
 

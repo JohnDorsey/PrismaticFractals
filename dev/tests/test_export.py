@@ -765,7 +765,7 @@ def test_a_different_engine_enables_start_and_revert_like_any_figure_defining_se
 
 
 def test_a_different_mandelbrot_setting_is_a_different_figure_only_when_the_mandelbrot_engine_is_selected():
-    varied = m.MandelbrotSettings(exponent=3.5, z0=1, mapping=1, julia_re=-0.8, julia_im=0.156, escape=1)
+    varied = m.MandelbrotSettings(exponent=3.5, z0=1, mapping=1, julia_re=-0.8, julia_im=0.156, escape=1, pre_seg_mult=0.5)
     app = _fake_button_gating_app()
     _give_generated(app)
     app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)

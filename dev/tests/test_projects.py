@@ -1438,10 +1438,10 @@ def test_the_keys_of_the_path_engines_never_change():
 def test_the_mandelbrot_settings_are_saved_in_a_section_of_their_own_and_a_file_without_it_has_the_defaults():
     import json
     project = _sample_project().replace(mandelbrot=m.MandelbrotSettings(
-        exponent=-1.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=0.285, julia_im=0.01, escape=m.ORBIT_ESCAPE_BEYOND))
+        exponent=-1.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=0.285, julia_im=0.01, escape=m.ORBIT_ESCAPE_BEYOND, pre_seg_mult=0.4))
     data = json.loads(m.project_text(project))
     assert data["mandelbrot"] == {"orbit_exponent": -1.5, "orbit_z0": "c", "orbit_mapping": "julia", "orbit_julia_re": 0.285,
-                                  "orbit_julia_im": 0.01, "orbit_escape": "beyond"} and data["format_version"] == 9
+                                  "orbit_julia_im": 0.01, "orbit_escape": "beyond", "orbit_pre_seg_mult": 0.4} and data["format_version"] == 9
     assert _round_trip(project).mandelbrot == project.mandelbrot
     assert m.project_signature(project) != m.project_signature(_sample_project()), "(an unsaved change)"
     del data["mandelbrot"]

@@ -176,7 +176,7 @@ def test_a_number_outside_the_engines_range_is_clamped_and_a_whole_number_stays_
     assert corrected["iter"] == 100 and type(corrected["iter"]) is int
     assert corrected["seg_mult"] == 0.5 and corrected["escape_radius"] == 4.0 and corrected["fuzz_on"] is True
     assert [(c.tab, c.label, c.old_text, c.new_text) for c in _in(corrections, "Termination", "Mutations")] == [
-        ("Termination", "Iteration limit", "500", "100"), ("Mutations", "Segment length multiplier", "0.1", "0.5")]
+        ("Termination", "Iteration limit", "500", "100"), ("Mutations", "Segment length multiplier (after)", "0.1", "0.5")]
     half = small_engine(ranges={"iter": (10.5, 20.5), "escape_radius": (None, 3), "seg_mult": (2, None)})
     got, _ = _corrected({"iter": 1000, "escape_radius": 4.0, "seg_mult": 1.0}, half)
     assert got == {"iter": 20, "escape_radius": 3, "seg_mult": 2}
@@ -371,7 +371,9 @@ def test_the_mandelbrot_engine_offers_one_sequence_its_metrics_and_the_buddha_op
     assert (m.METRIC_LABELS[engine.default_other_metric], m.POINT_LABELS[engine.default_point],
             m.BUDDHA_POINT_LABELS[engine.default_buddha_option]) == ("Path: Point count / limit", "Path: First point", "Path: Mean point")
     assert m.new_obstacle_effects(engine) == (m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS)
-    assert engine.ignores("seg_mult") and engine.ignores("emit_offset") and engine.ignores("seed") and not engine.ignores("escape_radius")
+    assert engine.ignores("fuzz_on") and engine.ignores("emit_offset") and engine.ignores("seed") and not engine.ignores("escape_radius")
+    assert not engine.ignores("seg_mult") and not engine.ignores("orbit_pre_seg_mult"), "(both segment length multipliers are the orbit engine's)"
+    assert engine.ignored_tabs == ("Emissions",)
 
 
 def test_switching_to_mandelbrot_resets_reflect_the_bounce_count_and_the_bounce_mean_to_the_engines_own_defaults():

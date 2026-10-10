@@ -7,14 +7,14 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 # --------------------------------------------------------------------------- #
-# The dump viewer (dev/dump_viewer.py): loading, graph and layout. The window
+# The dump viewer (dev/tools/dump_viewer.py): loading, graph and layout. The window
 # itself needs a real Tk and was checked by hand.
 # --------------------------------------------------------------------------- #
 def _load_viewer():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "dump_viewer_under_test", os.path.join(ROOT,
-                                               "dev", "dump_viewer.py"))
+                                               "dev", "tools", "dump_viewer.py"))
     viewer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(viewer)
     return viewer
