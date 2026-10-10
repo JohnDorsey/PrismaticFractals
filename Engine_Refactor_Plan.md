@@ -325,6 +325,15 @@ Goal: D6 and D14 as controls (the dropdown still offers only Ray Bouncing).
 
 Done when: save, Open and keyframes round-trip them; a hand check in the window. Decisions: D6, D14, D26, D29, D30.
 
+Result (done; `FILE_VERSION` 161; 855 tests pass, 8 new): `MandelbrotSettings` (exponent, z_0, pixel mapping, Julia constant, escape
+behaviour) with its table, catalogs, project section `mandelbrot`, keyframe keys (numbers blend, choices hold), `KeyframeData` /
+`Project` / `GeneratedFigure` fields, and the controls under the engine dropdown with the greying and the D30 note. Figure-defining
+only when the Mandelbrot engine is selected. Verified: save and Open round-trip it (tests, and the real window through
+`project_roundtrip_check.py`, which builds the new controls); the ray engine's hashes and project pictures identical; an image
+rendered through the app with the Mandelbrot engine and with a Julia set differs from the ray one. Not looked at: how the controls
+look and grey in the window, and a keyframe loading them (headless tests only). Two stale dev tools (`project_roundtrip_check.py`,
+`project_images.py`) were repaired. Greying by the engine is done here for these controls only; step 13 makes it one resolver.
+
 ## Step 11. The Mandelbrot catalog, defaults and obstacle effects  (effort: high)
 
 Goal: what the Mandelbrot engine offers and uses.
@@ -341,6 +350,16 @@ Goal: what the Mandelbrot engine offers and uses.
 Done when: with the test engine replaced by the real one, the step 6 tests run against Mandelbrot; a Buddhabrot renders
 sensibly. Decisions: D11, D31, D35, D38, D39.
 
+Result (done; `FILE_VERSION` 162; 862 tests pass, 7 new): the interface offers what the selected engine offers - obstacle effects, the
+Colorations tab's metrics, points and Buddha checkboxes (greyed when not offered) - and a new obstacle gets the engine's effects (pass-through
+for Mandelbrot); the hover preview, its legends and its Numbers tab work for an orbit. The step 6 tests run against the real description
+(`test_engines.py`: the Mandelbrot description and a switch ray -> Mandelbrot -> ray that restores everything). A Buddhabrot of the
+escaping orbits and one of the others render through the app's own path, each symmetric about the real axis and unlike each other.
+- Found and fixed on the way: an export of a Buddha channel with only multi options and a limited kind of path raised KeyError (ray engine too).
+- Left for step 12 by design: nothing CORRECTS a value the engine does not offer (see the CLAUDE.md bullet), so switching the dropdown by hand
+  to Mandelbrot (it is not offered yet) fails on the default coloration. The window was checked only by `project_roundtrip_check.py`
+  (which found one build-order bug); how the filtered dropdowns and the greyed checkboxes look was not looked at.
+
 ## Step 12. The interface behaviour  (effort: high)
 
 Goal: every message and flow of the design, now that both engines are real (still reached through a developer switch).
@@ -356,6 +375,22 @@ Goal: every message and flow of the design, now that both engines are real (stil
 Done when: each flow is covered by a headless test where it can be, and checked by hand in the window where it cannot.
 Decisions: D7, D18, D19, D20, D21, D36. Risk: Tk dialogs are stubbed in the test harness; the real window is the check.
 
+Result (done; `FILE_VERSION` 163; 882 tests pass, 20 new): every flow of the design exists and is reached through the developer switch
+`LIGHT_BOUNCES_ENGINES=all`. The switch with its D7 notice, [ok] / [go back] and the engine memory; selecting a keyframe with values the
+engine does not accept (D36); the guard on saving into keyframes (D19: `keyframe_fixes`, tested on 100 random keyframe lists that applying its
+fixes leaves nothing more to fix); the correction at Start, a still export, every video frame (D20: status box), a new coloration and an opened
+project (unsaved afterwards); the status box cleared only when an export starts and the frame count over the progress bar (D21).
+- Verified in the real window (`dev/refactor/engine_switch_check.py`, all its checks, and the screenshots looked at): Mandelbrot resets the
+  obstacle and the default coloration with a notice; an image, the hover preview and a Julia set with it; going back and switching back restore
+  everything and the ray image is pixel-identical; saving the engine into a keyframe offers the fix for the keyframe before it; the frame count
+  shows over the progress bar. The ray engine's hashes and project pictures are identical.
+- Found on the way: the image on screen keeps the engine it was made with, so a switch (or going back) made the colour chain read data that is
+  not there (KeyError): `coloration_fits` now leaves the image alone until Start. And the previous engine must be put into the captured
+  settings by hand, since the dropdown already shows the new one.
+- Choices of mine to confirm: D20 says an error message per frame; the status box gets the full list once and a short line per later frame
+  with the same corrections. The notice is a window of its own with [ok] and [go back] (`show_notice`), since the message boxes of tk have no such
+  buttons. Deleting a keyframe's setting is not guarded. Not looked at: the notice window itself (the checks replace it).
+
 ## Step 13. Greying and the margin  (effort: medium)
 
 Goal: D4, D5, D13, D15, D22.
@@ -370,6 +405,12 @@ Goal: D4, D5, D13, D15, D22.
 Done when: switching engine in the window greys and restores the right controls, with the modified outlines still
 correct. Decisions: D4, D5, D13, D15, D22.
 
+Result (done; `FILE_VERSION` 164; 887 tests pass, 5 new): `refresh_enabled_states` is the one resolver (engine AND the control's own rule);
+Emissions and Mutations grey whole under Mandelbrot and come back, fuzzing's own rule never enables what the engine ignores; the figure
+settings margin lists ignored settings in medium grey (`GreyLine`) and gains the orbit's own settings block (grey under the ray engine). Checked in
+the real window (tabs greyed and back, the Termination tab untouched, the margin picture looked at). Not looked at: the blue modified outlines on a
+greyed control (they are drawn by the same frames as before; nothing about them was changed).
+
 ## Step 14. Switch it on and finish  (effort: medium)
 
 - Offer "Mandelbrot" in the dropdown.
@@ -378,6 +419,21 @@ correct. Decisions: D4, D5, D13, D15, D22.
 - Update `CLAUDE.md` and the module docstring; save a memory note for anything a later
   session must not rediscover.
 - Review `Engine_Refactor_Design.md` for decisions marked "revisit" and for anything no longer true.
+
+Result (done; `FILE_VERSION` 165; 888 tests pass): Mandelbrot is in the dropdown for everyone (`OFFERED_ENGINES`; the environment switch of
+step 12 is gone; a project may name either engine). `project_roundtrip_check.py` and `engine_switch_check.py` pass in the real window; hashes and
+project pictures of the ray engine identical. `CLAUDE.md` and the module docstring describe the engines (the docstring also said an ellipse is
+0 to 2 wide: fixed to 0 to 4). A bug found while checking: CRLF doubled to CR CR LF in six places of `CLAUDE.md`, from my own writes.
+- Re-measured: warm run times unchanged; first kernel calls cold 16.9 s and from the cache 10.5 s (13.9 and 7.8 s before the refactor);
+  3840 x 2160 exports, peak memory: ray default 895 MB (874 before the layouts), two simple Buddha options 1006 MB, Mandelbrot default 967 MB,
+  Mandelbrot Buddhabrot with all path points 1056 MB. The ray images have the same hashes as at the start of the refactor's step 8.
+- The design review: nothing is marked "revisit" except D2 (a third engine: none exists), and D27 (a perpendicular collision for orbits "may change":
+  parked). Where the program departs from the letter of a decision, on purpose: D20 (a message per frame: the first in full, then a short line
+  while the corrections stay the same), D18 ("changed since" is a comparison of the value with the one the reset put there, so typing the reset
+  value back counts as unchanged), D13 (the margin also lists the orbit's own settings, in grey under the ray engine), D21 (the progress text uses
+  the recipe of the link and works in the real window). D1 and D9 hold as written.
+- Not done, for you to decide: the start-up cost (about 3 s a launch) of keeping the engine switches inside the parallel loop (D28). Not looked at:
+  the notice window and the blue modified outlines on greyed controls.
 
 ---
 

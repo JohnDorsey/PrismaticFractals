@@ -19,14 +19,16 @@ from .constants import (
     DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
-    ITER_LIMIT_MAX, REFRESH_HZ
+    DEFAULT_ENGINE, ITER_LIMIT_MAX, REFRESH_HZ
 )
-from .settings import DEFAULT_ENGINE_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
+from .settings import DEFAULT_ENGINE_SETTINGS, DEFAULT_MANDELBROT_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
 from .colorations import ColorationConfig
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
+from .app_engine import EngineFlowMixin
+from .engines import EMPTY_ENGINE_MEMORY
 from .app_framing import FramingMixin
 from .app_render import RenderMixin
 from .app_video import VideoMixin
@@ -45,7 +47,7 @@ from .app_layout import LayoutMixin
 # --------------------------------------------------------------------------- #
 # GUI
 # --------------------------------------------------------------------------- #
-class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, TimelineMixin, DebugMixin, GenerationMixin,
+class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, TimelineMixin, DebugMixin, GenerationMixin,
           PreviewMixin, RecolorMixin, BuddhaMixin, ObstaclesMixin, ColorationMixin, ControlsMixin, LayoutMixin):
     PERIOD = 1.0 / REFRESH_HZ
 
@@ -81,6 +83,9 @@ class App(ProjectsMixin, ExportMixin, FramingMixin, RenderMixin, VideoMixin, Tim
         self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
         self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
         self.baseline_engine = DEFAULT_ENGINE_SETTINGS
+        self.baseline_mandelbrot = DEFAULT_MANDELBROT_SETTINGS
+        self.engine_applied = DEFAULT_ENGINE            # the engine the program has been using (the dropdown may already show another)
+        self.engine_memory = EMPTY_ENGINE_MEMORY        # what the engines remember of their settings, for the session (D18)
         self.last_iter = DEFAULT_ITER     # most recent valid entry values
         self.last_dist = DEFAULT_DIST
         self.last_escape_radius = DEFAULT_ESCAPE_RADIUS

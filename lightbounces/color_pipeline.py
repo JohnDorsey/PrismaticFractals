@@ -75,6 +75,14 @@ def ray_values(coloration, mapping, metrics, ray_characteristic_points, blurred_
                                                 np.asarray(ray_characteristic_points)[None, None, :, :], computed, counts, layout)]
 
 
+def coloration_fits(coloration, layout, seeds=None):
+    """Whether everything `coloration` (a ColorationSettings or a ColorationConfig) reads is kept by `layout`. It is not while the image on
+    screen is of one engine and the controls already hold another's choices (the engine was just switched: the image waits for Start): the
+    colour chain then leaves the image as it is rather than read what is not there. `seeds`: the Buddha seeding (see demand_layout)."""
+    need = demand_layout([coloration], seeds)
+    return all(layout.has_stat(s) for s in need.stat_ids) and all(layout.has_point(p) for p in need.point_ids)
+
+
 def demand_layout(colorations, seeds=None):
     """The StoredLayout that keeps exactly the slots the colorations (ColorationSettings, as an export renders them) read,
     for Buddha seeding `seeds` (a BuddhaSeedSettings; None means the camera's pixels): the characteristic points and

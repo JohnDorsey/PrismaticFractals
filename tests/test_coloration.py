@@ -337,10 +337,10 @@ def test_the_buddha_blur_defaults_are_a_record_of_their_own():
 
 
 def test_loading_keyframe_settings_refreshes_the_buddha_blur():
-    """apply_keyframe_settings and load_animated_setting write the blur controls like any other
+    """apply_setting_values (what selecting a keyframe loads through) and load_animated_setting write the blur controls like any other
     setting, so they must also trigger the (live) blur refresh."""
     import inspect
-    for name in ("apply_keyframe_settings", "load_animated_setting"):
+    for name in ("apply_setting_values", "load_animated_setting"):
         assert "self.on_buddha_blur_changed()" in inspect.getsource(getattr(m.App, name)), name
 
 
@@ -466,6 +466,8 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app.current_blur_settings = lambda: current[0]
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
     app.recolor = lambda r0, r1: None
     app.draw = lambda: None
@@ -495,6 +497,8 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.blurred_buddha_counts = m.App.blurred_buddha_counts.__get__(app)
 
     first = app.blurred_buddha_counts(0)
@@ -1436,3 +1440,16 @@ def test_a_limited_channel_says_which_paths_in_its_info_text_and_a_complete_one_
     assert "  paths: none" in m.coloration_info_lines(v)
     short = m.short_value_text("coloration:0:chan1", m.coloration_channel_value(v, 1))
     assert "[]" in short or short.startswith("Buddha:") and "[" in short
+
+
+def test_an_export_of_a_buddha_channel_with_only_multi_options_and_a_limited_kind_of_path_does_not_need_the_termination_metric():
+    """Regression test: scatter_stored_points read the stored termination metric whenever a kind of path was unticked, even when
+    every option the channel had traces its rays again (and so demand_layout had not kept the metric): an export raised KeyError."""
+    app = _fake_render_app()
+    config = m.ColorationConfig(0)
+    config.chan_src[:] = [m.CHAN_SRC_BUDDHA, m.CHAN_SRC_CONSTANT, m.CHAN_SRC_CONSTANT]
+    config.buddha_points[0] = tuple(label == "All self bounces" for label in m.BUDDHA_POINT_LABELS)
+    config.buddha_path_kinds[0] = (True, False, False)
+    data = m.resolve_frame_settings([], 0, {**m.DEFAULT_SETTING_VALUES, "outline": False, "iter": 30})
+    image = app.render_full_image(data, 64, 64, _starting_obst_arrays(), (_coloration_settings_from_config(config),), m.DEFAULT_FRAMING)
+    assert image.shape == (64, 64, 3)

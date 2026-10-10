@@ -3,9 +3,12 @@ coloration info and of the figure settings (the left margin that lists every fig
 functions that draw it into an image (overlay, bottom margin, left margin). Pure functions of settings, colorations and obstacles; no UI."""
 import time
 import numpy as np
-from .constants import CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, ENGINE_NAMES
+from .constants import (
+    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, ENGINE_NAMES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES
+)
+from .engines import engine_description
 from .image_io import jxl_quality_tag, render_text_line
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, PREVIEW_BOX
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, ENGINE_MANDELBROT, PREVIEW_BOX
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
     CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, PATH_KIND_LABELS, POINT_SHORT, POINT_METRICS,
@@ -66,6 +69,11 @@ def image_filename(ray, natural_termination, fmt, jxl_lossless, jxl_quality):
 # request), and a light gray - never pure white - for the text.
 COLORATION_INFO_BG = (0, 0, 0)
 COLORATION_INFO_FG = (210, 210, 210)
+COLORATION_INFO_IGNORED_FG = (120, 120, 120)         # medium grey: a setting the engine in use makes no use of (D13)
+
+
+class GreyLine(str):
+    """A line of margin text for a setting the engine in use ignores: it reads like any string and is drawn in medium grey."""
 COLORATION_INFO_SCALE = 1
 COLORATION_INFO_MARGIN = 4
 COLORATION_INFO_LINE_GAP = 2
@@ -118,7 +126,7 @@ FIGURE_INFO_COLUMN_CHARS = 32        # a column of figure settings holds lines u
 FIGURE_INFO_SEPARATOR = "-" * FIGURE_INFO_COLUMN_CHARS   # the line between the figure's settings and the framing's
 
 
-def figure_info_blocks(ray, natural_termination, obstacles, engine=None):
+def figure_info_blocks(ray, natural_termination, obstacles, engine=None, mandelbrot=None):
     """Every setting that defines the figure - the mathematical result of
     perfectly simulating these rules, of which each generated image is only a
     coloration - as a list of blocks of text lines: the termination limits and segment
@@ -128,7 +136,9 @@ def figure_info_blocks(ray, natural_termination, obstacles, engine=None):
     part of it.) The blocks' sizes depend only on how many obstacles there
     are, never on the settings' values - so a video's frames, whose settings
     may be animated, all lay out identically. `engine` (an EngineSettings, or None to leave the line out) adds the
-    first block, the path engine's name."""
+    first block, the path engine's name, and, with `mandelbrot` too (a MandelbrotSettings), a block of the Mandelbrot engine's own settings.
+    The lines of a setting the engine ignores (its description's `ignores`) are GreyLines: drawn in medium grey, still there (D13)."""
+    description = engine_description(engine.engine) if engine is not None else None
     limits = [f"Iter limit:{natural_termination.max_iter}",
               "Dist limit:" + ("none" if natural_termination.max_dist == 0
                                else f"{natural_termination.max_dist:.2f}"),
@@ -156,7 +166,16 @@ def figure_info_blocks(ray, natural_termination, obstacles, engine=None):
                 f"  Self {f.self_offset:+.1f}\u00b0 \u00b1{f.self_jitter:.1f}\u00b0 "
                 f"\u00d7{f.self_mult:.2f}",
                 f"  Seed {f.rng_seed}"]
+    def dim(lines, key):
+        return [GreyLine(line) for line in lines] if description is not None and description.ignores(key) else lines
+    limits = limits[:3] + dim(limits[3:], "seg_mult")
+    emission, fuzz = dim(emission, "emit_mode"), dim(fuzz, "fuzz_on")
     blocks = ([[f"Engine:{ENGINE_NAMES[engine.engine]}"]] if engine is not None else []) + [limits, emission, confinement, fuzz]
+    if engine is not None and mandelbrot is not None:
+        orbit = [f"Orbit:z^{mandelbrot.exponent:.9g}+c", f"  z0 {ORBIT_Z0_NAMES[mandelbrot.z0]}",
+                 f"  {ORBIT_MAPPING_NAMES[mandelbrot.mapping].split(' (')[0]}",
+                 f"  Julia {mandelbrot.julia_re:.9g}{mandelbrot.julia_im:+.9g}i", f"  escape {ORBIT_ESCAPE_NAMES[mandelbrot.escape].split(' ')[0]}"]
+        blocks.append(orbit if engine.engine == ENGINE_MANDELBROT else [GreyLine(line) for line in orbit])
     if obstacles:
         blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]
     else:
@@ -164,9 +183,9 @@ def figure_info_blocks(ray, natural_termination, obstacles, engine=None):
     return blocks
 
 
-def figure_info_lines(ray, natural_termination, obstacles, engine=None):
+def figure_info_lines(ray, natural_termination, obstacles, engine=None, mandelbrot=None):
     """figure_info_blocks(), flattened into one list of lines."""
-    return [line for block in figure_info_blocks(ray, natural_termination, obstacles, engine) for line in block]
+    return [line for block in figure_info_blocks(ray, natural_termination, obstacles, engine, mandelbrot) for line in block]
 
 
 def layout_info_columns(blocks, lines_per_column):
@@ -225,7 +244,7 @@ def _draw_text_block(img, lines, x0, y0, avail_w, avail_h, scale, draw_bg):
             bg_x1 = min(x0 + w + 2 * scale, x_limit)
             img[max(y0, y - scale):bg_y1, max(x0, x0 - scale):bg_x1] = COLORATION_INFO_BG
         region = img[y:y + draw_h, x0:x0 + draw_w]
-        region[mask[:draw_h, :draw_w]] = COLORATION_INFO_FG
+        region[mask[:draw_h, :draw_w]] = COLORATION_INFO_IGNORED_FG if isinstance(line, GreyLine) else COLORATION_INFO_FG
         y += line_h
 
 
@@ -268,7 +287,7 @@ def add_bottom_color_margin(img, colorations, coloration_width):
     return out
 
 
-def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine=None):
+def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine=None, mandelbrot=None):
     """The blocks of text lines of the left margin, as the Export designer's two "settings location" choices have
     it: the figure's settings (figure_info_blocks) if that location is "Left margin", then the framing's
     (framing_info_block) if its location is, below them with a line of dashes between (just the framing's, with
@@ -276,7 +295,7 @@ def left_margin_blocks(ray, natural_termination, obstacles, framing, figure_loca
     depend only on how many obstacles there are."""
     blocks = []
     if figure_location == "Left margin":
-        blocks += figure_info_blocks(ray, natural_termination, obstacles, engine)
+        blocks += figure_info_blocks(ray, natural_termination, obstacles, engine, mandelbrot)
     if framing_location == "Left margin":
         block = framing_info_block(framing)
         blocks.append([FIGURE_INFO_SEPARATOR] + block if blocks else block)
@@ -310,7 +329,7 @@ def add_left_info_margin(img, blocks):
 
 
 def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termination, obstacles, color_location,
-                         figure_location, framing, framing_location, mutate_ok, engine=None):
+                         figure_location, framing, framing_location, mutate_ok, engine=None, mandelbrot=None):
     """Applies the Export designer's Color info location, Figure settings
     location and Framing settings location choices to `rgb` (already composed, before any margin
     expansion), returning the (possibly larger) final image - a plain
@@ -329,7 +348,7 @@ def apply_info_locations(rgb, colorations, coloration_width, ray, natural_termin
         draw_coloration_info(rgb, colorations, coloration_width)
     elif color_location == "Bottom margin":
         rgb = add_bottom_color_margin(rgb, colorations, coloration_width)
-    blocks = left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine)
+    blocks = left_margin_blocks(ray, natural_termination, obstacles, framing, figure_location, framing_location, engine, mandelbrot)
     if blocks:
         rgb = add_left_info_margin(rgb, blocks)
     return rgb

@@ -13,7 +13,8 @@ import json
 import math
 import re
 from .constants import (
-    BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC, BUDDHA_BLUR_GAUSSIAN, BUDDHA_BLUR_TRIANGULAR, ENGINE_NAMES, OFFERED_ENGINES
+    BUDDHA_BLUR_BOKEH, BUDDHA_BLUR_CATADIOPTRIC, BUDDHA_BLUR_GAUSSIAN, BUDDHA_BLUR_TRIANGULAR, ENGINE_NAMES, OFFERED_ENGINES,
+    ORBIT_ESCAPE_BEYOND, ORBIT_ESCAPE_CLIP, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_MANDELBROT, ORBIT_Z0_C, ORBIT_Z0_ZERO
 )
 from .export_text import (
     COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS, VIDEO_BITRATE_MODES,
@@ -35,7 +36,7 @@ from .metrics import (
     PATH_KIND_TERMINATED_BY_OBSTACLE, POINT_METRICS, CHOICE_POINT_NEG1_POS1, CHOICE_TOP_LEFT_POINT, point_slot, stat_slot
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, EngineSettings, Keyframe, NaturalTerminationSettings,
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_SETTING_VALUES, EngineSettings, Keyframe, MandelbrotSettings, NaturalTerminationSettings,
     RaySettings, SETTING_TABLES,
     settings_from_dict, settings_to_dict, strict_record
 )
@@ -155,13 +156,17 @@ CAT_BLUR_TYPE = Catalog("blur type", [
     ("gaussian", BUDDHA_BLUR_GAUSSIAN), ("triangular", BUDDHA_BLUR_TRIANGULAR),
     ("bokeh", BUDDHA_BLUR_BOKEH), ("catadioptric_bokeh", BUDDHA_BLUR_CATADIOPTRIC)])
 CAT_ENGINE = Catalog("path engine", [("ray_bouncing", ENGINE_RAY_BOUNCING), ("mandelbrot", ENGINE_MANDELBROT)])
+CAT_ORBIT_Z0 = Catalog("orbit start", [("zero", ORBIT_Z0_ZERO), ("c", ORBIT_Z0_C)])
+CAT_ORBIT_MAPPING = Catalog("orbit pixel mapping", [("mandelbrot", ORBIT_MAPPING_MANDELBROT), ("julia", ORBIT_MAPPING_JULIA)])
+CAT_ORBIT_ESCAPE = Catalog("orbit escape behaviour", [("clip", ORBIT_ESCAPE_CLIP), ("beyond", ORBIT_ESCAPE_BEYOND)])
 CAT_EFFECT = Catalog("ray effect", [
     ("reflect", OBSTACLE_EFFECT_REFLECT), ("terminate", OBSTACLE_EFFECT_TERMINATE),
     ("pass_through", OBSTACLE_EFFECT_PASS)])
 CAT_SHAPE_KIND = Catalog("obstacle kind", [(cls.KEY, cls) for cls in SHAPE_CLASSES])
 # The settings (of any settings record) that are choices, by setting key
 SETTING_CHOICE_CATALOGS = {"emit_mode": CAT_EMIT_MODE, "confine_method": CAT_CONFINE_METHOD,
-                           "buddha_blur_type": CAT_BLUR_TYPE, "engine": CAT_ENGINE}
+                           "buddha_blur_type": CAT_BLUR_TYPE, "engine": CAT_ENGINE, "orbit_z0": CAT_ORBIT_Z0,
+                           "orbit_mapping": CAT_ORBIT_MAPPING, "orbit_escape": CAT_ORBIT_ESCAPE}
 # Choices made in the Export designer and video panel
 CAT_COLOR_INFO = _string_catalog("colour info location", ["none", "overlay", "bottom_margin"],
                                  COLOR_INFO_LOCATIONS)
@@ -225,6 +230,7 @@ class Project:
     buddha_blur: BuddhaBlurSettings     # the Buddha blur's, beside them (not inside)
     buddha_seed: BuddhaSeedSettings     # where the rays Buddha channels scatter start, beside them
     engine: EngineSettings              # which path engine makes the figure, beside them
+    mandelbrot: MandelbrotSettings      # the Mandelbrot engine's own settings, beside them (kept whichever engine is selected)
     decorations: dict                   # decoration key -> bool
     obstacles: tuple                    # frozen Shapes, in list order
     colorations: tuple                  # ColorationSnapshots, in list order
@@ -336,6 +342,7 @@ def project_to_dict(project):
         "buddha_blur": _settings_to_json(project.buddha_blur),
         "buddha_seeding": _settings_to_json(project.buddha_seed),
         "engine": _settings_to_json(project.engine),
+        "mandelbrot": _settings_to_json(project.mandelbrot),
         "decorations": dict(project.decorations),
         "obstacles": [{"kind": type(o).KEY, "id": o.id,
                        "fields": {name: _setting_to_json(f"obst:{o.id}:{name}", getattr(o, name))
@@ -894,6 +901,7 @@ def _project_from_dict(data):
     buddha_seed = _settings_from_section(data, "buddha_seeding", BuddhaSeedSettings,
                                          "the Buddha seeding settings")
     engine = _settings_from_section(data, "engine", EngineSettings, "the path engine")
+    mandelbrot = _settings_from_section(data, "mandelbrot", MandelbrotSettings, "the Mandelbrot engine's settings")
     _expect(engine.engine in OFFERED_ENGINES, f"This project uses the {ENGINE_NAMES[engine.engine]} path engine, which this "
             "version of the program cannot run yet.")
 
@@ -925,7 +933,7 @@ def _project_from_dict(data):
     selected_framing = selected.get("framing")
     return Project(
         ray=ray, natural_termination=natural_termination, buddha_blur=buddha_blur, buddha_seed=buddha_seed, engine=engine,
-        decorations=decorations, obstacles=obstacles, colorations=colorations, framings=framings,
+        mandelbrot=mandelbrot, decorations=decorations, obstacles=obstacles, colorations=colorations, framings=framings,
         keyframes=keyframes, export=export,
         obstacle_counter=max(counters.get("obstacle", 0), max(obstacle_ids, default=-1) + 1),
         coloration_counter=max(counters.get("coloration", 0), max(coloration_ids) + 1),

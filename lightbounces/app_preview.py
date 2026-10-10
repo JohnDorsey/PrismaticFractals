@@ -2,7 +2,7 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
+    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
     COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
@@ -10,11 +10,13 @@ from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_plac
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
     N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
+    ENGINE_MANDELBROT, RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
 )
 from .engines import layout_of_engine, tables_of_engine
-from .metrics import POINT_METRICS, resolve_point_xy
-from .settings import NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_ray_args
+from .metrics import CONSTANT_POINT_COORDS, POINT_METRICS, resolve_point_xy
+from .settings import (
+    NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_orbit_args, settings_ray_args
+)
 from .shapes import ObstacleRing, build_obstacle_arrays, draw_obstacle_outline
 from .colorations import COLOR_MODELS
 
@@ -234,7 +236,8 @@ class PreviewMixin:
         path_points, path_point_tags = self.hover_path_points, self.hover_path_point_tags
         raw, vec, ray_characteristic_points = self.hover_raw, self.hover_vec, self.hover_ray_characteristic_points
         engine = self.preview_engine_settings().engine
-        args = path_args(engine, settings_ray_args(ps), obstacles, tables=tables_of_engine(engine))
+        mandelbrot = self.generated.mandelbrot if self.generated is not None else self.current_mandelbrot_settings()
+        args = path_args(engine, settings_ray_args(ps), obstacles, settings_orbit_args(mandelbrot), tables_of_engine(engine))
         term, n = trace_engine_path(x, y, path_points, path_point_tags, settings_natural_termination(pn), args, raw)
         measure_path(engine, path_points, n, path_point_tags, raw, pn.max_iter, ps.seg_mult, args.tables, vec, ray_characteristic_points)
         layout = layout_of_engine(engine)
@@ -287,7 +290,9 @@ class PreviewMixin:
                     base_rad = 8 - 2 * c
                     for p, rad in ((live_coloration.point1_choice[c], base_rad),
                                   (live_coloration.point2_choice[c], base_rad + 3)):
-                        px, py = resolve_point_xy(ray_characteristic_points, p)
+                        if p not in CONSTANT_POINT_COORDS and not layout.has_point(p):
+                            continue                # a point this engine does not store (a choice it does not offer)
+                        px, py = resolve_point_xy(ray_characteristic_points, p, layout)
                         cx, cy = self.world_to_canvas(px, py)
                         cv.create_oval(cx - rad, cy - rad, cx + rad, cy + rad, width=2,
                                       outline=SAMPLE_COLORS[live_coloration.color_model][c], tags="ray")
@@ -302,9 +307,14 @@ class PreviewMixin:
         v = self.info_vars
         pin_tag = "  [pinned]" if self.pinned_px == (i, j) else ""
         v["start"].set(f"({i}, {j})  [{x:+.3f}, {y:+.3f}]{pin_tag}")
-        v["outcome"].set(TERM_OUTCOME_TEXT[term].format(bounces=bounces))
-        v["bounces"].set(f"{bounces}: {n_boundary} boundary, "
-                         f"{bounces - n_boundary} own path")
+        orbit = engine == ENGINE_MANDELBROT
+        if orbit:
+            v["outcome"].set(ORBIT_OUTCOME_TEXT[term].format(n=n - 1))
+            v["bounces"].set(f"none (an orbit: {n - 1} iterations)")
+        else:
+            v["outcome"].set(TERM_OUTCOME_TEXT[term].format(bounces=bounces))
+            v["bounces"].set(f"{bounces}: {n_boundary} boundary, "
+                             f"{bounces - n_boundary} own path")
         v["final"].set(f"({fx:+.4f}, {fy:+.4f})")
         v["length"].set(f"{raw[RAW_LENGTH]:.4f} (start-end {raw[RAW_DISP]:.4f})")
         seg = f"len {raw[RAW_LAST]:.3g}"
@@ -312,7 +322,9 @@ class PreviewMixin:
             seg += f" of {raw[RAW_LAST_FULL]:.3g}"
         seg += f", dir {raw[RAW_LAST_DIR]:.1f}\u00b0"
         v["lastseg"].set(seg)
-        if raw[RAW_SELF_K] >= 0:
+        if orbit:
+            v["loop"].set("none (an orbit)")
+        elif raw[RAW_SELF_K] >= 0:
             v["loop"].set(f"area {raw[RAW_AREA]:.4f}")
         else:
             v["loop"].set("never touches itself")

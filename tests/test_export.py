@@ -234,6 +234,8 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
 
     # coloration 1 starts non-live; cache its (default RGB) thumbnail first
@@ -670,7 +672,10 @@ def _fake_button_gating_app():
     app.baseline = m.DEFAULT_RAY_SETTINGS
     app.baseline_natural_termination = m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.baseline_engine = m.DEFAULT_ENGINE_SETTINGS
+    app.baseline_mandelbrot = m.DEFAULT_MANDELBROT_SETTINGS
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.running = False
     app.rows_done = 0
     app.start_btn = _RecordingButton()
@@ -750,8 +755,29 @@ def test_a_different_engine_enables_start_and_revert_like_any_figure_defining_se
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, False)
     app.current_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, True)
     app.baseline_engine = m.EngineSettings(engine=m.ENGINE_MANDELBROT)         # Revert would have nothing to restore
     app.update_buttons()
     assert (app.start_btn.enabled, app.revert_btn.enabled) == (True, False), "Start: the image is still of the other engine"
+
+
+def test_a_different_mandelbrot_setting_is_a_different_figure_only_when_the_mandelbrot_engine_is_selected():
+    varied = m.MandelbrotSettings(exponent=3.5, z0=1, mapping=1, julia_re=-0.8, julia_im=0.156, escape=1)
+    app = _fake_button_gating_app()
+    _give_generated(app)
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
+    app.current_mandelbrot_settings = lambda: varied
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, True), "(ray engine: nothing about the figure changed; Revert shows the control moved)"
+    app.current_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.generated = dataclasses.replace(app.generated, engine=m.EngineSettings(engine=m.ENGINE_MANDELBROT))
+    app.update_buttons()
+    assert app.start_btn.enabled is True
+    app.generated = dataclasses.replace(app.generated, mandelbrot=varied)
+    app.baseline_mandelbrot = varied
+    app.baseline_engine = m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.update_buttons()
+    assert (app.start_btn.enabled, app.revert_btn.enabled) == (False, False)

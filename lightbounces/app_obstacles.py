@@ -6,6 +6,7 @@ from .constants import (
     SELECTED_OUTLINE, SELECTED_OUTLINE_PX, THUMB_SIZE
 )
 from .image_io import encode_png_bytes
+from .engines import new_obstacle_effects
 from .kernels import OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT
 from .shapes import POSITION_PARAMS, SHAPE_CLASSES, Shape, render_obstacle_thumbnail
 
@@ -210,6 +211,7 @@ class ObstaclesMixin:
     def new_obstacle(self, shape_class):
         """Add an obstacle of kind `shape_class` (the kind is fixed from now on)."""
         o = shape_class(self._obst_counter)
+        o.in_effect, o.out_effect = new_obstacle_effects(self.current_engine_description())     # (D35: what the engine uses)
         self._obst_counter += 1
         self.obstacles.append(o)
         self.selected_obstacle = o

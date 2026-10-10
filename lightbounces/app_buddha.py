@@ -11,6 +11,7 @@ from .kernels import PIXEL_TRACED
 from .parsing import parse_target_coordinate
 from .metrics import BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, CHAN_SRC_BUDDHA
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
+from .color_pipeline import coloration_fits
 
 
 class BuddhaMixin:
@@ -226,6 +227,8 @@ class BuddhaMixin:
         coloration = self.live_coloration()
         if r1 <= r0 or not any(s == CHAN_SRC_BUDDHA for s in coloration.chan_src):
             return
+        if not coloration_fits(coloration, self.current_figure().layout, self.current_buddha_seed_settings()):
+            return                                  # (the image waits for Start: it is of another engine than the controls')
         seeds = self.current_buddha_seed_settings()
         fired = self.pixel_state[r0:r1] == PIXEL_TRACED
         stats = self.stats[r0:r1]

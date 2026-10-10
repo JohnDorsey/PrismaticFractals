@@ -98,6 +98,8 @@ def test_capture_all_settings_has_no_first_coloration_special_case():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.deco = {"outline": type("X", (), {"get": lambda self: True})()}
     v0 = m.ColorationConfig(0)
     v1 = m.ColorationConfig(5)

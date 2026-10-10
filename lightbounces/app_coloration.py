@@ -56,6 +56,7 @@ class ColorationMixin:
         """Add a new (default-settings) coloration right after the selected one,
         and select it - which also makes it the one shown in the preview."""
         v = ColorationConfig(self._coloration_counter)
+        self.correct_new_coloration(v)              # (the engine in use may not offer the usual defaults)
         self._coloration_counter += 1
         idx = self.all_coloration_ids().index(self.selected_coloration_id)
         self.colorations.insert(idx + 1, v)
@@ -147,6 +148,9 @@ class ColorationMixin:
                 self.buddha_brightness_vars[c].set(
                     BUDDHA_BRIGHTNESS_OPTIONS[coloration.buddha_brightness[c]])
                 self.refresh_row(c)
+                offered = self.current_engine_description().buddha_options
+                for i, chk in enumerate(self.buddha_point_checks[c]):
+                    chk.state(["!disabled"] if i in offered else ["disabled"])
         finally:
             self._color_editor_loading = False
 

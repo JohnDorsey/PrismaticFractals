@@ -6,10 +6,10 @@ from .framings import framing_image_size, framing_outline_pixel, framing_world_r
 from .kernels import PIXEL_TRACED, WORLD_RECT_DEFAULT, trace_rows, trace_rows_stored
 from .metrics import CHAN_BUDDHA, make_mapping
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
-from .color_pipeline import demand_layout, paint
+from .color_pipeline import coloration_fits, demand_layout, paint
 from .stored_layout import FULL_LAYOUT
 from .engines import tables_of_engine
-from .settings import path_args, settings_natural_termination, settings_ray_args
+from .settings import path_args, settings_natural_termination, settings_orbit_args, settings_ray_args
 from .shapes import draw_obstacle_outline, ring_layer_masks
 
 
@@ -53,7 +53,8 @@ class RenderMixin:
         case before this feature existed), this is exactly the one image
         it's always been."""
         termination = settings_natural_termination(data.natural_termination)
-        engine_args = path_args(data.engine.engine, settings_ray_args(data.ray), obst_arrays, tables=tables_of_engine(data.engine.engine))
+        engine_args = path_args(data.engine.engine, settings_ray_args(data.ray), obst_arrays, settings_orbit_args(data.mandelbrot),
+                                tables_of_engine(data.engine.engine))
         rng_seed = data.ray.fuzz.rng_seed
         layout = demand_layout(colorations, data.buddha_seed)     # keep only the slots these colorations read
         stats, characteristic_points = layout.allocate(out_h, out_w)
@@ -99,6 +100,9 @@ class RenderMixin:
         mapping = make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src,
                                v.constant_choice)
         img = np.empty((out_h, out_w, 3), dtype=np.uint8)
+        if not coloration_fits(v, layout, seeds):
+            img[:] = BACKGROUND                     # (another engine's choices than the data holds: nothing to colour it with)
+            return img
         computed = pixel_state == PIXEL_TRACED
         blurred = [None] * 3
         if computed.any():

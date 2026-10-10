@@ -10,6 +10,7 @@ from .settings import Keyframe, resolve_frame_settings, resolve_obstacles
 from .shapes import build_obstacle_arrays
 from .colorations import resolve_colorations, snapshot_coloration
 from .framings import resolve_framing
+from .engines import correct_frame, correction_message
 from .figure import settings_of
 
 
@@ -75,7 +76,8 @@ class ExportMixin:
             rgb, colorations, rgb.shape[1] // len(colorations), *settings_of(self.generated),
             self.generated.obstacle_snapshots if self.generated is not None else [], self.color_info_location_var.get(),
             self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
-            mutate_ok=len(colorations) > 1, engine=self.generated.engine if self.generated is not None else None)   # len(colorations) > 1 means rgb is already a fresh
+            mutate_ok=len(colorations) > 1, engine=self.generated.engine if self.generated is not None else None,
+            mandelbrot=self.generated.mandelbrot if self.generated is not None else None)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.image_for_export
         try:
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
@@ -127,6 +129,10 @@ class ExportMixin:
         obst_arrays = build_obstacle_arrays(obst_values)
         coloration_snapshots = [snapshot_coloration(v) for v in self.colorations_to_export()]
         colorations = resolve_colorations(coloration_snapshots, [fake_kf], 0)
+        data, obst_values, colorations, corrections = correct_frame(data, obst_values, colorations)    # (D20)
+        obst_arrays = build_obstacle_arrays(obst_values)
+        if corrections:                       # (a still image's problems are a pop-up, D21)
+            self.show_notice(correction_message(corrections, "Some values were clamped or defaulted for this image:"))
         framing = resolve_framing(self.selected_framing_snapshot(), [fake_kf], 0)
         color_location = self.color_info_location_var.get()
         figure_location = self.figure_info_location_var.get()
@@ -155,7 +161,7 @@ class ExportMixin:
             rgb = self.render_full_image(data, w, h, obst_arrays, colorations, framing)
             rgb = apply_info_locations(rgb, colorations, w, data.ray, data.natural_termination,
                                        obst_values, color_location, figure_location,
-                                       framing, framing_location, mutate_ok=True, engine=data.engine)
+                                       framing, framing_location, mutate_ok=True, engine=data.engine, mandelbrot=data.mandelbrot)
             encode_and_write(rgb, path, fmt, jxl_lossless, jxl_quality)
         except Exception as exc:                    # noqa: BLE001
             self.root.after(0, lambda m=str(exc): self._save_new_image_failed(path, m))

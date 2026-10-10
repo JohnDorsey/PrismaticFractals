@@ -50,6 +50,7 @@ class GenerationMixin:
 
     def start(self):
         """(Re)start generation using the current settings."""
+        self.correct_controls_for_render()
         snap = self.current_generation_settings()
         if snap is None:
             return
@@ -59,10 +60,12 @@ class GenerationMixin:
 
         settings, natural_termination = snap
         engine = self.current_engine_settings()
-        self.generated = generated_figure(settings, natural_termination, self.obstacles, engine)
+        mandelbrot = self.current_mandelbrot_settings()
+        self.generated = generated_figure(settings, natural_termination, self.obstacles, engine, mandelbrot)
         self.baseline = settings                   # Revert now returns to these values
         self.baseline_natural_termination = natural_termination
         self.baseline_engine = engine
+        self.baseline_mandelbrot = mandelbrot
         self.begin_generation()
 
     def begin_generation(self):

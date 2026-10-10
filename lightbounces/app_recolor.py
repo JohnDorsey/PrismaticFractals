@@ -9,7 +9,8 @@ from .metrics import (
     constant_label_to_metric, constant_metric_to_label, make_mapping, other_label_to_metric,
     other_metric_to_label
 )
-from .color_pipeline import paint, ray_values
+from .color_pipeline import coloration_fits, paint, ray_values
+from .engines import other_metric_labels, point_menu_labels, point_metric_labels
 from .stored_layout import FULL_LAYOUT
 from .ui_text import default_map_help
 from .colorations import COLOR_MODELS, channels_to_rgb
@@ -60,13 +61,16 @@ class RecolorMixin:
             return
         self.query_frames[c].grid()
         self.metric_type_vars[c].set(METRIC_TYPE_LABELS[coloration.metric_types[c]])
+        offered = self.current_engine_description()
+        for combo in (self.point1_combos[c], self.point2_combos[c]):
+            combo.configure(values=point_menu_labels(offered))
         if coloration.metric_types[c] == METRIC_TYPE_POINT_PAIR:
-            self.map_combos[c].configure(values=POINT_METRIC_LABELS)
+            self.map_combos[c].configure(values=point_metric_labels(offered))
             self.map_vars[c].set(METRIC_LABELS[coloration.point_metric[c]])
             self.point1_combos[c].grid()
             self.point2_combos[c].grid()
         else:
-            self.map_combos[c].configure(values=OTHER_LABELS)
+            self.map_combos[c].configure(values=other_metric_labels(offered))
             self.map_vars[c].set(other_metric_to_label(coloration.other_metric[c]))
             self.point1_combos[c].grid_remove()
             self.point2_combos[c].grid_remove()
@@ -203,8 +207,8 @@ class RecolorMixin:
 
     def recolor(self, r0, r1):
         """Turn stored metrics and characteristic points into pixel colors, rows [r0, r1) (see color_pipeline)."""
-        if r1 <= r0:
-            return
+        if r1 <= r0 or not coloration_fits(self.live_coloration(), self.current_figure().layout, self.current_buddha_seed_settings()):
+            return                                  # (the image waits for Start: it is of another engine than the controls')
         computed = self.pixel_state[r0:r1] == PIXEL_TRACED
         blurred = [None] * 3
         if computed.any():
@@ -218,6 +222,8 @@ class RecolorMixin:
         """The three channel values (0..1) for one ray under the current mapping. vec: its metrics,
         ray_characteristic_points: its characteristic points, (x0, y0): the pixel it was fired from (used to look up a
         Buddha channel's already-accumulated count at that same pixel). `layout` says which metrics and points they keep."""
+        if not coloration_fits(self.live_coloration(), layout, self.current_buddha_seed_settings()):
+            return (0.0, 0.0, 0.0)                  # (the controls hold another engine's choices than this ray's engine stores)
         at_pixel = [None] * 3
         for c in range(3):
             if self.mapping[c] != CHAN_BUDDHA:

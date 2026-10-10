@@ -11,10 +11,28 @@ from .kernels import (
 
 
 # The path engines, by code (the order of ENGINE_NAMES is the order of the codes), and the ones the Simulation tab's
-# dropdown offers. The Mandelbrot engine is not offered until it is finished (Engine_Refactor_Plan.md, step 14).
+# dropdown offers. Both are offered since the engine refactor's step 14.
 ENGINE_NAMES = ["Ray Bouncing", "Mandelbrot"]
-OFFERED_ENGINES = (ENGINE_RAY_BOUNCING,)
+OFFERED_ENGINES = (ENGINE_RAY_BOUNCING, ENGINE_MANDELBROT)
 DEFAULT_ENGINE = ENGINE_RAY_BOUNCING
+
+
+# The Mandelbrot engine's own settings (Engine_Refactor_Design.md D14, D26, D29): the orbit z -> z^p + c. Each choice's names are
+# what its dropdown shows; the code of a choice is its place in the list.
+DEFAULT_ORBIT_EXPONENT = 2.0
+ORBIT_Z0_NAMES = ["0", "c"]                                      # where the orbit starts
+ORBIT_Z0_ZERO, ORBIT_Z0_C = 0, 1
+DEFAULT_ORBIT_Z0 = ORBIT_Z0_ZERO
+ORBIT_MAPPING_NAMES = ["pixel is c (Mandelbrot)", "pixel is z_0 (Julia)"]
+ORBIT_MAPPING_MANDELBROT, ORBIT_MAPPING_JULIA = 0, 1
+DEFAULT_ORBIT_MAPPING = ORBIT_MAPPING_MANDELBROT
+DEFAULT_ORBIT_JULIA_RE = 0.0
+DEFAULT_ORBIT_JULIA_IM = 0.0
+ORBIT_ESCAPE_NAMES = ["clip at the escape radius", "end at the point beyond it"]
+ORBIT_ESCAPE_CLIP, ORBIT_ESCAPE_BEYOND = 0, 1
+DEFAULT_ORBIT_ESCAPE = ORBIT_ESCAPE_CLIP
+ORBIT_Z0_NOTE = ("With z_0 = 0 a path begins at the origin, not at its pixel: which shapes it starts inside is decided there "
+                 "(the origin), but whether it begins at all is decided by the pixel (c) being inside a shape that fires rays.")
 
 ITER_LIMIT_MIN = 1         # allowed range (whole numbers) for the iteration limit
 ITER_LIMIT_MAX = 9999
@@ -93,6 +111,16 @@ TERM_OUTCOME_TEXT = {
     TERM_PERPENDICULAR: "Perpendicular collision ({bounces} bounces)",
     TERM_ESCAPED: "Escaped ({bounces} bounces)",
     TERM_ITER: "Iteration limit reached ({bounces} bounces)",
+}
+
+# The same for an orbit (the Mandelbrot engine), which counts iterations and has no bounces - .format(n=...)
+ORBIT_OUTCOME_TEXT = {
+    TERM_CONFINED: "Converged after {n} iterations",
+    TERM_DIST: "Distance limit reached ({n} iterations)",
+    TERM_OBSTACLE: "Terminated by an obstacle ({n} iterations)",
+    TERM_PERPENDICULAR: "Perpendicular collision ({n} iterations)",
+    TERM_ESCAPED: "Escaped after {n} iterations",
+    TERM_ITER: "Iteration limit reached ({n} iterations)",
 }
 
 # How a shape's geometry is packed into its bound array (documented above ellipse_bound);

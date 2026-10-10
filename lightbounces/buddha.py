@@ -179,7 +179,8 @@ def scatter_stored_points(counts, chosen, row0, row1, world_rect, fired, stats, 
     scattered."""
     h, w = counts.shape
     touched = False
-    if not all(kinds):
+    simple = any(on and BUDDHA_POINT_CATALOG[index][1] != BUDDHA_MULTI for index, on in enumerate(chosen))
+    if not all(kinds) and simple:                 # (only the simple options read the stored data: the multi ones trace again)
         term_stat = stats[..., layout.stat_position(ST_TERMINATION)]
         fired = fired & _kind_mask(term_stat, kinds)
     for index, on in enumerate(chosen):

@@ -9,6 +9,8 @@ from math import cos, radians, sin
 from .constants import (
     BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_ENGINE,
     ENGINE_NAMES,
+    DEFAULT_ORBIT_ESCAPE, DEFAULT_ORBIT_EXPONENT, DEFAULT_ORBIT_JULIA_IM, DEFAULT_ORBIT_JULIA_RE, DEFAULT_ORBIT_MAPPING,
+    DEFAULT_ORBIT_Z0, ORBIT_ESCAPE_CLIP, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_C, ORBIT_Z0_NAMES,
     DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP, DEFAULT_BUDDHA_SEED_Y_START,
     DEFAULT_BUDDHA_SEED_Y_STOP, DEFAULT_BUDDHA_BLUR_TYPE, DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD,
     DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS, DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET,
@@ -122,6 +124,24 @@ DEFAULT_ENGINE_SETTINGS = EngineSettings(engine=DEFAULT_ENGINE)
 
 
 @strict_record
+class MandelbrotSettings:
+    """The Mandelbrot engine's own settings (the orbit z -> z^p + c and its Julia form): a record of its own, beside the engine
+    choice, and figure-defining like it. Held by the program whichever engine is selected (the Simulation tab shows them under
+    the engine dropdown, greyed when they are of no use), saved, and animated by keyframes where they are numbers."""
+    exponent: float                                  # p, any real number
+    z0: int                                          # an index into ORBIT_Z0_NAMES: the orbit starts at 0 or at c
+    mapping: int                                     # an index into ORBIT_MAPPING_NAMES: the pixel is c, or z_0 (a Julia set)
+    julia_re: float                                  # the Julia constant c (used when the pixel is z_0)
+    julia_im: float
+    escape: int                                      # an index into ORBIT_ESCAPE_NAMES: how an escaping orbit ends
+
+
+DEFAULT_MANDELBROT_SETTINGS = MandelbrotSettings(
+    exponent=DEFAULT_ORBIT_EXPONENT, z0=DEFAULT_ORBIT_Z0, mapping=DEFAULT_ORBIT_MAPPING, julia_re=DEFAULT_ORBIT_JULIA_RE,
+    julia_im=DEFAULT_ORBIT_JULIA_IM, escape=DEFAULT_ORBIT_ESCAPE)
+
+
+@strict_record
 class BuddhaSeedSettings:
     """Where the rays that Buddha channels scatter start (their seed points). With `camera_pixels` they start at the
     centres of the pixels of the image being made, in world space - for the live image from rays it has already
@@ -201,6 +221,7 @@ class KeyframeData:
     buddha_blur: BuddhaBlurSettings
     buddha_seed: BuddhaSeedSettings
     engine: EngineSettings
+    mandelbrot: MandelbrotSettings
     outline: bool
 
 
@@ -353,6 +374,20 @@ ENGINE_SETTING_SPECS = {
     "engine": _spec(("engine",), "engine_var", "engine_combo", "choice", "Simulation", "Engine", ENGINE_NAMES),
 }
 
+# The same for the Mandelbrot engine's own settings (a MandelbrotSettings).
+MANDELBROT_SETTING_SPECS = {
+    "orbit_exponent": _spec(("exponent",), "orbit_exponent_var", "orbit_exponent_entry", "float_text", "Simulation", "Exponent"),
+    "orbit_z0": _spec(("z0",), "orbit_z0_var", "orbit_z0_combo", "choice", "Simulation", "Starting value z_0", ORBIT_Z0_NAMES),
+    "orbit_mapping": _spec(("mapping",), "orbit_mapping_var", "orbit_mapping_combo", "choice", "Simulation", "Pixel maps to",
+                           ORBIT_MAPPING_NAMES),
+    "orbit_julia_re": _spec(("julia_re",), "orbit_julia_re_var", "orbit_julia_re_entry", "float_text", "Simulation",
+                            "Julia constant (real part)"),
+    "orbit_julia_im": _spec(("julia_im",), "orbit_julia_im_var", "orbit_julia_im_entry", "float_text", "Simulation",
+                            "Julia constant (imaginary part)"),
+    "orbit_escape": _spec(("escape",), "orbit_escape_var", "orbit_escape_combo", "choice", "Simulation", "An escaping orbit ends",
+                          ORBIT_ESCAPE_NAMES),
+}
+
 # Every record of settings and the table of its rows. This is the one place that says
 # which records there are: a new kind of settings (say, those of another way to generate
 # bounces) is a record class, a table like those above, and an entry here. Setting keys
@@ -360,10 +395,10 @@ ENGINE_SETTING_SPECS = {
 # setting), and run_self_checks() checks each table against its record's fields.
 SETTING_TABLES = {NaturalTerminationSettings: NATURAL_TERMINATION_SETTING_SPECS, RaySettings: RAY_SETTING_SPECS,
                   BuddhaBlurSettings: BLUR_SETTING_SPECS, BuddhaSeedSettings: BUDDHA_SEED_SETTING_SPECS,
-                  EngineSettings: ENGINE_SETTING_SPECS}
+                  EngineSettings: ENGINE_SETTING_SPECS, MandelbrotSettings: MANDELBROT_SETTING_SPECS}
 DEFAULT_SETTINGS = {NaturalTerminationSettings: DEFAULT_NATURAL_TERMINATION_SETTINGS, RaySettings: DEFAULT_RAY_SETTINGS,
                     BuddhaBlurSettings: DEFAULT_BUDDHA_BLUR, BuddhaSeedSettings: DEFAULT_BUDDHA_SEED,
-                    EngineSettings: DEFAULT_ENGINE_SETTINGS}
+                    EngineSettings: DEFAULT_ENGINE_SETTINGS, MandelbrotSettings: DEFAULT_MANDELBROT_SETTINGS}
 
 # Every static setting a keyframe can define, from all the tables, in table order.
 SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
@@ -544,6 +579,12 @@ def orbit_args(exponent, z0_is_c, julia, julia_re, julia_im, clip_escape):
 ORBIT_ARGS_DEFAULT = orbit_args(2.0, False, False, 0.0, 0.0, True)
 
 
+def settings_orbit_args(settings):
+    """orbit_args() for a MandelbrotSettings."""
+    return orbit_args(settings.exponent, settings.z0 == ORBIT_Z0_C, settings.mapping == ORBIT_MAPPING_JULIA, settings.julia_re,
+                      settings.julia_im, settings.escape == ORBIT_ESCAPE_CLIP)
+
+
 def path_args(engine, ray, obstacles, orbit=ORBIT_ARGS_DEFAULT, tables=RAY_SEQUENCE_TABLES):
     """What the drivers take as `engine_args`: the `engine` (an ENGINE_* code) to run, both engines' arguments, the one
     not run a dummy (`orbit` defaults to ORBIT_ARGS_DEFAULT), and the `obstacles` (an ObstacleArrays, see build_obstacle_arrays),
@@ -625,6 +666,7 @@ def resolve_frame_settings(keyframes_sorted, frame_number, base):
                         buddha_blur=settings_from_dict(BuddhaBlurSettings, v),
                         buddha_seed=settings_from_dict(BuddhaSeedSettings, v),
                         engine=settings_from_dict(EngineSettings, v),
+                        mandelbrot=settings_from_dict(MandelbrotSettings, v),
                         outline=bool(v["outline"]))
 
 

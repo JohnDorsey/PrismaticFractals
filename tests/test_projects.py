@@ -54,7 +54,7 @@ def _sample_project(**changes):
               "image_format": "png", "image_jxl_quality": 85, "image_width": "640",
               "video_fps": "24", "video_format": "JXL", "video_quality": 60.5,
               "video_jxl_mode": "Lossy"}
-    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=OLD_SEEDING, engine=m.DEFAULT_ENGINE_SETTINGS,
+    fields = dict(ray=ray, natural_termination=natural_termination, buddha_blur=blur, buddha_seed=OLD_SEEDING, engine=m.DEFAULT_ENGINE_SETTINGS, mandelbrot=m.DEFAULT_MANDELBROT_SETTINGS,
                   decorations={"outline": False, "pending": True},
                   obstacles=tuple(obstacles),
                   colorations=(m.snapshot_coloration(v0), m.snapshot_coloration(v1)),
@@ -1319,7 +1319,7 @@ def test_a_migrated_file_does_not_depend_on_the_defaults_of_the_program():
     def read(path):
         project = m.load_project(path)
         base = m.settings_to_dict(project.ray, project.natural_termination, project.buddha_blur, project.buddha_seed,
-                                  project.engine)
+                                  project.engine, project.mandelbrot)
         base["outline"] = bool(project.decorations.get("outline", True))
         ordered = sorted(project.keyframes, key=lambda k: k.frame_index)
         frames = [m.resolve_frame_settings(ordered, kf.frame_index, base) for kf in ordered]
@@ -1425,11 +1425,7 @@ def test_the_path_engine_is_saved_in_a_section_of_its_own_and_a_file_without_it_
     assert json.loads(m.project_text(mandelbrot))["engine"] == {"engine": "mandelbrot"}
     assert m.project_signature(mandelbrot) != m.project_signature(project), "a different engine is an unsaved change"
     data = json.loads(m.project_text(mandelbrot))
-    assert _raises(m.ProjectError, lambda: m.project_from_dict(data)), "(not until the engine is offered)"
-    try:
-        m.project_from_dict(data)
-    except m.ProjectError as exc:
-        assert "Mandelbrot" in str(exc) and "cannot run yet" in str(exc)
+    assert m.project_from_dict(data).engine == m.EngineSettings(engine=m.ENGINE_MANDELBROT), "(both engines are offered)"
     data["engine"]["engine"] = "warp_drive"
     assert _raises(m.ProjectError, lambda: m.project_from_dict(data))
 
@@ -1437,3 +1433,24 @@ def test_the_path_engine_is_saved_in_a_section_of_its_own_and_a_file_without_it_
 def test_the_keys_of_the_path_engines_never_change():
     assert m.CAT_ENGINE.by_key == {"ray_bouncing": m.ENGINE_RAY_BOUNCING, "mandelbrot": m.ENGINE_MANDELBROT}
     assert m.CAT_ENGINE.name == "path engine"
+
+
+def test_the_mandelbrot_settings_are_saved_in_a_section_of_their_own_and_a_file_without_it_has_the_defaults():
+    import json
+    project = _sample_project().replace(mandelbrot=m.MandelbrotSettings(
+        exponent=-1.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=0.285, julia_im=0.01, escape=m.ORBIT_ESCAPE_BEYOND))
+    data = json.loads(m.project_text(project))
+    assert data["mandelbrot"] == {"orbit_exponent": -1.5, "orbit_z0": "c", "orbit_mapping": "julia", "orbit_julia_re": 0.285,
+                                  "orbit_julia_im": 0.01, "orbit_escape": "beyond"} and data["format_version"] == 9
+    assert _round_trip(project).mandelbrot == project.mandelbrot
+    assert m.project_signature(project) != m.project_signature(_sample_project()), "(an unsaved change)"
+    del data["mandelbrot"]
+    assert m.project_from_dict(data).mandelbrot == m.DEFAULT_MANDELBROT_SETTINGS
+    data = json.loads(m.project_text(project))
+    data["mandelbrot"]["orbit_mapping"] = "elliptic"
+    assert _raises(m.ProjectError, lambda: m.project_from_dict(data)), "a key it has no code for is refused"
+
+
+def test_the_keys_of_the_mandelbrot_choices_never_change():
+    assert m.CAT_ORBIT_Z0.by_key == {"zero": 0, "c": 1} and m.CAT_ORBIT_MAPPING.by_key == {"mandelbrot": 0, "julia": 1}
+    assert m.CAT_ORBIT_ESCAPE.by_key == {"clip": 0, "beyond": 1}

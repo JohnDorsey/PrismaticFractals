@@ -3,6 +3,8 @@ import os
 import sys
 from tkinter import filedialog, messagebox
 from .constants import PROJECT_POLL_MS
+from .engines import EMPTY_ENGINE_MEMORY, PROJECT_HEADER, correct_project, correction_message
+from .shapes import obstacle_tab_title
 from .paths import ensure_project_dir
 from .projects import (
     EXPORT_OPTIONS, PROJECT_EXTENSION, PROJECT_FILE_TYPES, Project, ProjectError, _is_number,
@@ -82,6 +84,7 @@ class ProjectsMixin:
         return Project(
             ray=ray, natural_termination=natural_termination, buddha_blur=self.current_blur_settings(),
             buddha_seed=self.current_buddha_seed_settings(), engine=self.current_engine_settings(),
+            mandelbrot=self.current_mandelbrot_settings(),
             decorations={key: bool(var.get()) for key, var in self.deco.items()},
             obstacles=tuple(o.snapshot() for o in self.obstacles),
             colorations=tuple(snapshot_coloration(v) for v in self.colorations),
@@ -114,14 +117,16 @@ class ProjectsMixin:
         and export choices are replaced, and the image goes blank until Start. Used by
         File > Open and File > New alike, so a loaded project cannot differ from a fresh one."""
         self.discard_generated_image()
+        self.engine_memory = EMPTY_ENGINE_MEMORY                # (what the engines remember is for the session, not for a project)
         self.kf_applying = True
         try:
             for key, value in settings_to_dict(project.ray, project.natural_termination, project.buddha_blur,
-                                               project.buddha_seed, project.engine).items():
+                                               project.buddha_seed, project.engine, project.mandelbrot).items():
                 self.set_setting_control(key, value)
             self.baseline = project.ray
             self.baseline_natural_termination = project.natural_termination
             self.baseline_engine = project.engine
+            self.baseline_mandelbrot = project.mandelbrot
             for key, value in project.decorations.items():
                 if key in self.deco:
                     self.deco[key].set(value)
@@ -160,6 +165,8 @@ class ProjectsMixin:
         self.rebuild_coloration_list()                  # (which also rebuilds the framings' list)
         self.refresh_live_preview_state()
         self.on_buddha_seeds_changed()
+        self.on_orbit_changed()
+        self.apply_engine_offers()
         self.on_decoration_changed("outline")
         self.on_decoration_changed("pending")
         self.on_shape_param_changed()
@@ -241,9 +248,14 @@ class ProjectsMixin:
             return
         if not self.can_replace_project("open another project"):
             return
-        self.apply_project(project)
+        shown, corrections = correct_project(project, {f"obst:{o.id}": obstacle_tab_title(i, o) for i, o in enumerate(project.obstacles)})
+        self.apply_project(shown)
         self.project_path = path
         self.mark_project_saved()
+        if corrections:                          # (D20: the user is told, and the project has unsaved changes)
+            self.saved_signature = project_signature(project)
+            self.update_title()
+            self.show_notice(correction_message(corrections, PROJECT_HEADER))
 
     def project_dialog_dir(self):
         return os.path.dirname(self.project_path) if self.project_path else ensure_project_dir()

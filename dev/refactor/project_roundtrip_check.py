@@ -71,7 +71,7 @@ app.new_coloration()
 app.live_coloration().set_channel(0, lb.ChannelSettings(
     chan_src=lb.CHAN_SRC_BUDDHA, metric_type=lb.METRIC_TYPE_OTHER, metric_slot=lb.ST_BOUNCE_COUNT, point1=0, point2=1,
     buddha_points=(False,) * 8 + (True,) + (False,) * (lb.N_BUDDHA_POINTS - 9),
-    buddha_compression=0, buddha_brightness=1, constant=lb.NONE_ZERO))
+    buddha_path_kinds=lb.ALL_PATH_KINDS, buddha_compression=0, buddha_brightness=1, constant=lb.NONE_ZERO))
 app.refresh_color_controls_for_selected_coloration()
 app.rebuild_coloration_list()
 app.refresh_live_preview_state()

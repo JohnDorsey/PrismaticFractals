@@ -249,13 +249,14 @@ def extract_point_xy(characteristic_points, point_idx, computed, n, layout=None)
     return xy[:, 0], xy[:, 1]
 
 
-def resolve_point_xy(ray_characteristic_points, point_idx):
+def resolve_point_xy(ray_characteristic_points, point_idx, layout=None):
     """(x, y) for a single ray's chosen point: read from `ray_characteristic_points` (that ray's
-    own (N_POINTS, 2) characteristic points) for a real simulation point, or one of
-    the two fixed constant points."""
+    own characteristic points: all N_POINTS of them, or - when `layout`, a stored_layout.StoredLayout, says which
+    the engine stores - those) for a real simulation point, or one of the fixed constant points."""
     if point_idx in CONSTANT_POINT_COORDS:
         return CONSTANT_POINT_COORDS[point_idx]
-    return float(ray_characteristic_points[point_idx, 0]), float(ray_characteristic_points[point_idx, 1])
+    position = point_idx if layout is None else layout.point_position(point_idx)
+    return float(ray_characteristic_points[position, 0]), float(ray_characteristic_points[position, 1])
 
 
 # Buddha coloration: the points a channel can choose to scatter into its

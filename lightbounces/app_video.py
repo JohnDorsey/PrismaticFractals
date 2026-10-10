@@ -7,6 +7,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 from .constants import BOTTOM_H, PAD, TIMELINE_W
+from .engines import correct_frame, correction_message
 from .export_text import VIDEO_BITRATE_MODES, VIDEO_FORMATS, apply_info_locations
 from .external import cjxl_available
 from .image_io import (
@@ -201,7 +202,9 @@ class VideoMixin:
         self.clear_btn = ttk.Button(render_row, text="Clear",
                                     command=self.clear_temp_frames)
         self.clear_btn.grid(row=0, column=2, sticky="ew", padx=3)
-        self.video_progress = ttk.Progressbar(render_row, maximum=1, mode="determinate")
+        self.video_progress_style = self.make_labeled_progress_style()
+        self.video_progress = ttk.Progressbar(render_row, maximum=1, mode="determinate",
+                                              **({"style": self.video_progress_style} if self.video_progress_style else {}))
         self.video_progress.grid(row=0, column=3, sticky="ew", padx=(3, 0))
 
         status_frame = ttk.Frame(right_col)
@@ -235,6 +238,43 @@ class VideoMixin:
         self.video_status_text.delete("1.0", "end")
         self.video_status_text.insert("1.0", text)
         self.video_status_text.configure(state="disabled")
+
+    def append_video_status(self, text):
+        """Add a line to the render-status text and scroll to it. The text is cleared only when a new export starts (D21), so
+        everything one export said stays to be read."""
+        self.video_status_text.configure(state="normal")
+        if self.video_status_text.get("1.0", "end-1c"):
+            self.video_status_text.insert("end", "\n")
+        self.video_status_text.insert("end", text)
+        self.video_status_text.see("end")
+        self.video_status_text.configure(state="disabled")
+
+    def begin_video_status(self, text):
+        """A new export (a render or a re-encode) starts: the status text starts again with `text`, and the progress bar from nothing."""
+        self.set_video_status(text)
+        self.set_video_progress_text("")
+
+    def make_labeled_progress_style(self):
+        """A style of progress bar with a text over it (the frame count), or None where the theme cannot make one (the count is then a
+        line of the status text for every frame)."""
+        try:
+            style = ttk.Style()
+            name = "Labeled.Horizontal.TProgressbar"
+            style.layout(name, [("Horizontal.Progressbar.trough", {"children": [("Horizontal.Progressbar.pbar",
+                                                                                  {"side": "left", "sticky": "ns"})],
+                                                                    "sticky": "nswe"}),
+                                ("Horizontal.Progressbar.label", {"sticky": "nswe"})])
+            style.configure(name, text="", anchor="center")
+            return name
+        except tk.TclError:
+            return None
+
+    def set_video_progress_text(self, text):
+        """The frame count (or whatever `text` says) over the progress bar; without a labelled bar, a new line of the status text."""
+        if self.video_progress_style:
+            ttk.Style().configure(self.video_progress_style, text=text)
+        elif text:
+            self.append_video_status(f"Rendering frames: {text}")
 
     def describe_output_file(self, out_path, num_frames, fps):
         """'X.XX MB, N.NN Mbps (T.TTs)' for a just-written output file - size
@@ -375,7 +415,7 @@ class VideoMixin:
     def start_or_cancel_render(self):
         if self.busy_with_render_or_reencode():
             self.render_cancel.set()
-            self.set_video_status("Cancelling (finishing the current frame)...")
+            self.append_video_status("Cancelling (finishing the current frame)...")
             return
 
         if not self.keyframes:
@@ -433,7 +473,7 @@ class VideoMixin:
         self.render_btn.configure(text="Cancel Render")
         self.reencode_btn.state(["disabled"])
         self.clear_btn.state(["disabled"])
-        self.set_video_status("Starting...")
+        self.begin_video_status("Starting...")
         total = frame_hi - frame_lo + 1
         self.video_progress.configure(maximum=total)
         self.video_progress["value"] = 0
@@ -549,7 +589,7 @@ class VideoMixin:
         stream = external.ffmpeg.output(stream, ffmpeg_out_path, **kwargs)
         external.ffmpeg.run(stream, overwrite_output=True, quiet=True)
         if jxl_apng_temp is not None:
-            self.root.after(0, lambda: self.set_video_status("Converting to JXL with cjxl..."))
+            self.root.after(0, lambda: self.append_video_status("Converting to JXL with cjxl..."))
             try:
                 convert_apng_to_jxl(jxl_apng_temp, out_path, rs["jxl_lossless"],
                                     rs["jxl_quality"])
@@ -570,15 +610,27 @@ class VideoMixin:
         scratch_dir = None
         try:
             assigned_sorted = sorted(keyframes, key=lambda k: k.frame_index)
+            last_found = None
             total = frame_hi - frame_lo + 1
             for n, fn in enumerate(range(frame_lo, frame_hi + 1)):
                 if self.render_cancel.is_set():
-                    self.root.after(0, lambda: self.set_video_status("Cancelled."))
+                    self.root.after(0, lambda: self.append_video_status("Cancelled."))
                     return
                 data = resolve_frame_settings(assigned_sorted, fn, base_settings)
                 obst_values = resolve_obstacles(obst_snapshot, assigned_sorted, fn)
-                obst_arrays = build_obstacle_arrays(obst_values)
                 colorations = resolve_colorations(coloration_snapshot, assigned_sorted, fn)
+                # D20: what the engine of this frame does not accept (keyframes may hold such values) is corrected before
+                # the frame is drawn and before its margin text is made, and the status box says so
+                data, obst_values, colorations, corrections = correct_frame(data, obst_values, colorations)
+                if corrections:
+                    found = [(c.key, c.field, c.old, c.new) for c in corrections]
+                    if found != last_found:
+                        message = correction_message(corrections, f"Frame {fn}: some values were clamped or defaulted:")
+                    else:                           # (not the whole list again for every frame of a long video)
+                        message = f"Frame {fn}: the same values were clamped or defaulted."
+                    self.root.after(0, lambda t=message: self.append_video_status(t))
+                    last_found = found
+                obst_arrays = build_obstacle_arrays(obst_values)
                 framing = resolve_framing(framing_snapshot, assigned_sorted, fn)
                 rgb = self.render_full_image(data, rs["video_w"], rs["video_h"], obst_arrays,
                                              colorations, framing)
@@ -589,7 +641,7 @@ class VideoMixin:
                 rgb = apply_info_locations(rgb, colorations, rs["video_w"],
                                            data.ray, data.natural_termination, obst_values,
                                            color_location, figure_location, framing, framing_location,
-                                           mutate_ok=True, engine=data.engine)
+                                           mutate_ok=True, engine=data.engine, mandelbrot=data.mandelbrot)
                 path = os.path.join(paths.TEMP_DIR, f"frame_{fn - frame_lo + file_offset:05d}.png")
                 write_png(path, rgb)
                 done = n + 1
@@ -597,18 +649,18 @@ class VideoMixin:
                                 self._update_render_progress(d, t, im))
 
             if rs["downsample_factor"] > 1 and rs["downsample_method"] != "ffmpeg":
-                self.root.after(0, lambda: self.set_video_status("Downsampling frames..."))
+                self.root.after(0, lambda: self.append_video_status("Downsampling frames..."))
                 pattern, start_number, scratch_dir = self.prepare_ffmpeg_source(
                     file_offset, total, rs)
             else:
                 start_number = file_offset
-            self.root.after(0, lambda: self.set_video_status("Encoding video with ffmpeg..."))
+            self.root.after(0, lambda: self.append_video_status("Encoding video with ffmpeg..."))
             self.encode_video_output(pattern, start_number, rs, out_path)
             info = self.describe_output_file(out_path, total, rs["fps"])
-            self.root.after(0, lambda: self.set_video_status(f"Done: {out_path}\n{info}"))
+            self.root.after(0, lambda: self.append_video_status(f"Done: {out_path}\n{info}"))
         except Exception as exc:                    # noqa: BLE001
             detail = self.ffmpeg_error_detail(exc, out_path, pattern)
-            self.root.after(0, lambda m=detail: self.set_video_status(f"Render failed: {m}"))
+            self.root.after(0, lambda m=detail: self.append_video_status(f"Render failed: {m}"))
         finally:
             self.cleanup_scratch_dir(scratch_dir)
             self.root.after(0, self._render_finished)
@@ -643,7 +695,7 @@ class VideoMixin:
         self.render_btn.state(["disabled"])
         self.reencode_btn.state(["disabled"])
         self.clear_btn.state(["disabled"])
-        self.set_video_status(f"Re-encoding {len(frame_files)} existing frame(s)...")
+        self.begin_video_status(f"Re-encoding {len(frame_files)} existing frame(s)...")
         self.video_progress.configure(maximum=1)
         self.video_progress["value"] = 0
         self.render_thread = threading.Thread(
@@ -661,16 +713,16 @@ class VideoMixin:
         scratch_dir = None
         try:
             if rs["downsample_factor"] > 1 and rs["downsample_method"] != "ffmpeg":
-                self.root.after(0, lambda: self.set_video_status("Downsampling frames..."))
+                self.root.after(0, lambda: self.append_video_status("Downsampling frames..."))
                 pattern, start_number, scratch_dir = self.prepare_ffmpeg_source(
                     start_number, num_frames, rs)
-            self.root.after(0, lambda: self.set_video_status("Encoding video with ffmpeg..."))
+            self.root.after(0, lambda: self.append_video_status("Encoding video with ffmpeg..."))
             self.encode_video_output(pattern, start_number, rs, out_path)
             info = self.describe_output_file(out_path, num_frames, rs["fps"])
-            self.root.after(0, lambda: self.set_video_status(f"Done: {out_path}\n{info}"))
+            self.root.after(0, lambda: self.append_video_status(f"Done: {out_path}\n{info}"))
         except Exception as exc:                    # noqa: BLE001
             detail = self.ffmpeg_error_detail(exc, out_path, pattern)
-            self.root.after(0, lambda m=detail: self.set_video_status(f"Render failed: {m}"))
+            self.root.after(0, lambda m=detail: self.append_video_status(f"Render failed: {m}"))
         finally:
             self.cleanup_scratch_dir(scratch_dir)
             self.root.after(0, self._render_finished)
@@ -678,7 +730,7 @@ class VideoMixin:
     def _update_render_progress(self, done, total, latest_frame):
         self.video_progress.configure(maximum=total)
         self.video_progress["value"] = done
-        self.set_video_status(f"Rendering frames: {done}/{total}")
+        self.set_video_progress_text(f"{done}/{total}")
         self.set_preview_image(latest_frame)
 
     def clear_temp_frames(self):
@@ -721,7 +773,7 @@ class VideoMixin:
                 "Some files couldn't be deleted",
                 f"Deleted {deleted} of {len(frame_files)} file(s). Failures:\n{shown}")
         else:
-            self.set_video_status(f"Cleared {deleted} frame file(s) from TEMP.")
+            self.append_video_status(f"Cleared {deleted} frame file(s) from TEMP.")
 
     def _render_finished(self):
         self.render_thread = None

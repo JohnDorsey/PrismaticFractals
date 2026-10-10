@@ -601,6 +601,8 @@ def test_capture_all_settings_lists_every_framings_numbers_under_keys_of_its_own
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.deco = {"outline": _StubVar(True)}
     app.obstacles, app.colorations = [], []
     second = m.FramingConfig(3)

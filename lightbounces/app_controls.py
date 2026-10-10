@@ -8,22 +8,23 @@ from .constants import (
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
-    OFFERED_ENGINES,
+    OFFERED_ENGINES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES, ORBIT_Z0_NOTE,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
     DEFAULT_SEGMENT_MULT, DIST_LIMIT_MAX, DIST_LIMIT_MIN, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
     FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
+from .engines import effect_names, engine_description
 from .figure import settings_of
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH, ENGINE_MANDELBROT
 from .parsing import (
     parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
     parse_iter_limit,
     parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 )
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, EngineSettings, FuzzParams, NaturalTerminationSettings,
-    RaySettings, settings_to_dict
+    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
+    MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
 from .widgets import FloatEntryHandle
@@ -569,7 +570,9 @@ class ControlsMixin:
     def update_fuzz_enabled_state(self):
         """Grey out every Fuzzing-tab control except the Enable checkbox itself
         whenever fuzzing is disabled."""
-        enabled = self.fuzz_enabled_var.get()
+        engine_off = self.engine_ignores_tab("Mutations")
+        self.fuzz_enable_check.state(["disabled"] if engine_off else ["!disabled"])
+        enabled = self.fuzz_enabled_var.get() and not engine_off
         tk_state = tk.NORMAL if enabled else tk.DISABLED
         for w in self.fuzz_tk_widgets:
             w.configure(state=tk_state)
@@ -643,12 +646,140 @@ class ControlsMixin:
                                          values=[ENGINE_NAMES[e] for e in OFFERED_ENGINES])
         self.engine_combo.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=8)
         self.engine_combo.bind("<<ComboboxSelected>>", lambda _e: self.on_engine_changed())
+        self.build_mandelbrot_controls(parent)
 
-    def on_engine_changed(self):
-        """The engine dropdown was used."""
-        self.engine_combo.selection_clear()
+    def build_mandelbrot_controls(self, parent):
+        """The Mandelbrot engine's own settings, under the engine dropdown (D6, D14): the exponent, where the orbit starts (z_0),
+        whether the pixel is c (Mandelbrot) or z_0 (Julia), the Julia constant and how an escaping orbit ends. They exist whichever
+        engine is selected (they are saved and animated all the same) and are greyed out while they are of no use: all of them
+        unless the engine is Mandelbrot, the Julia constant unless the pixel is z_0, z_0 when it is. Figure-defining."""
+        frame = ttk.LabelFrame(parent, text="Mandelbrot engine")
+        frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+        self.orbit_labels, self.orbit_widgets = {}, {}
+        float_vcmd = (self.root.register(self.validate_signed_float), "%P")
+        self.last_orbit = {"exponent": DEFAULT_MANDELBROT_SETTINGS.exponent, "julia_re": DEFAULT_MANDELBROT_SETTINGS.julia_re,
+                           "julia_im": DEFAULT_MANDELBROT_SETTINGS.julia_im}
+        rows = (("exponent", "Exponent:", "entry"), ("z0", "Starting value z_0:", ORBIT_Z0_NAMES),
+                ("mapping", "Pixel maps to:", ORBIT_MAPPING_NAMES), ("julia_re", "Julia constant, real part:", "entry"),
+                ("julia_im", "Julia constant, imaginary part:", "entry"), ("escape", "An escaping orbit ends:", ORBIT_ESCAPE_NAMES))
+        for row, (field, label, kind) in enumerate(rows):
+            name = ttk.Label(frame, text=label)
+            name.grid(row=row, column=0, sticky="w", padx=(8, 6), pady=3)
+            if kind == "entry":
+                var = tk.StringVar(value=str(getattr(DEFAULT_MANDELBROT_SETTINGS, field)))
+                widget = ttk.Entry(frame, textvariable=var, width=14, justify="right", validate="key", validatecommand=float_vcmd)
+                for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
+                    widget.bind(event, self.on_orbit_commit)
+                setattr(self, f"orbit_{field}_entry", widget)
+            else:
+                var = tk.StringVar(value=kind[getattr(DEFAULT_MANDELBROT_SETTINGS, field)])
+                widget = ttk.Combobox(frame, textvariable=var, state="readonly", width=26, values=kind)
+                widget.bind("<<ComboboxSelected>>", lambda _e, w=widget: (w.selection_clear(), self.on_orbit_changed()))
+                setattr(self, f"orbit_{field}_combo", widget)
+            setattr(self, f"orbit_{field}_var", var)
+            widget.grid(row=row, column=1, sticky="w", padx=(0, 8), pady=3)
+            self.orbit_labels[field], self.orbit_widgets[field] = name, widget
+        self.orbit_note = ttk.Label(frame, text=ORBIT_Z0_NOTE, foreground="#666", wraplength=RIGHT_W - 70)
+        self.orbit_note.grid(row=len(rows), column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
+        self.update_orbit_state()
+
+    def update_orbit_state(self):
+        """Grey out the Mandelbrot engine's controls that are of no use now (nothing is hidden, D4)."""
+        mandelbrot_on = ENGINE_NAMES.index(self.engine_var.get()) == ENGINE_MANDELBROT
+        julia = self.orbit_mapping_var.get() == ORBIT_MAPPING_NAMES[ORBIT_MAPPING_JULIA]
+        useless = {"julia_re": not julia, "julia_im": not julia, "z0": julia}
+        for field, widget in self.orbit_widgets.items():
+            off = not mandelbrot_on or useless.get(field, False)
+            for w in (widget, self.orbit_labels[field]):
+                w.state(["disabled"] if off else ["!disabled"])
+        self.orbit_note.state(["disabled"] if not mandelbrot_on or julia else ["!disabled"])
+
+    def on_orbit_commit(self, _event=None):
+        """Enter pressed or focus left one of the exponent / Julia constant entries: an invalid one goes back to its last valid
+        value."""
+        for field in self.last_orbit:
+            var = getattr(self, f"orbit_{field}_var")
+            value = parse_target_coordinate(var.get())
+            var.set(str(self.last_orbit[field] if value is None else value))
+        self.on_orbit_changed()
+
+    def on_orbit_changed(self):
+        """A Mandelbrot engine setting changed (by hand, or loaded from a keyframe or a project): remember the entries' valid
+        values and refresh what depends on it."""
+        for field in self.last_orbit:
+            value = parse_target_coordinate(getattr(self, f"orbit_{field}_var").get())
+            if value is not None:
+                self.last_orbit[field] = value
+        self.update_orbit_state()
         self.update_buttons()
         self.refresh_timeline_diffs()
+
+    def on_engine_changed(self):
+        """The engine dropdown was used: switch to the engine it shows (see switch_to_selected_engine)."""
+        self.engine_combo.selection_clear()
+        self.switch_to_selected_engine()
+        self.update_buttons()
+        self.refresh_timeline_diffs()
+
+    def current_engine_description(self):
+        """What the engine selected in the dropdown offers and accepts (an EngineDescription)."""
+        if not hasattr(self, "engine_var"):                  # (the Simulation tab is built after the Colorations tab)
+            return engine_description(DEFAULT_ENGINE)
+        return engine_description(self.current_engine_settings().engine)
+
+    def set_tree_enabled(self, widget, enabled):
+        """Enable or grey out `widget` and everything inside it (ttk widgets by their state, classic Tk ones by their `state` option)."""
+        for child in widget.winfo_children():
+            if hasattr(child, "instate"):                  # (a ttk widget: classic ones have no `instate`)
+                child.state(["!disabled"] if enabled else ["disabled"])
+            else:
+                try:
+                    child.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+                except tk.TclError:
+                    pass                                # (a frame or canvas has none)
+            self.set_tree_enabled(child, enabled)
+
+    def refresh_enabled_states(self):
+        """THE resolver of whether a control is enabled (D4, D5, D13): the engine in use makes use of it AND its own rule allows it.
+        The tabs the engine ignores (Emissions and Mutations for Mandelbrot) are greyed out whole, nothing is hidden; for the others
+        the controls' own rules decide (fuzzing's settings while it is off, the Julia constant unless the pixel is z_0, ...). A greyed
+        setting is still saved, loaded and animated."""
+        for tab, frame in self.engine_tab_frames.items():
+            self.set_tree_enabled(frame, not self.engine_ignores_tab(tab))
+        self.update_fuzz_enabled_state()
+        self.update_orbit_state()
+
+    def engine_ignores_tab(self, tab):
+        """Whether the engine selected makes no use of what is in the tab named `tab`."""
+        return tab in self.current_engine_description().ignored_tabs
+
+    def apply_engine_offers(self):
+        """Show what the selected engine offers: the obstacle effect dropdowns list only its effects, and the Colorations tab's
+        metric and point dropdowns and Buddha checkboxes only its choices (a checkbox it does not offer is greyed out). The
+        values already chosen are not changed here: that is what correcting them is for (engines.correct_settings)."""
+        self.engine_applied = self.current_engine_settings().engine
+        description = self.current_engine_description()
+        self.refresh_enabled_states()
+        names = effect_names(description)
+        for combo in (self.obs_in_effect_combo, self.obs_out_effect_combo):
+            combo.configure(values=names)
+        self.refresh_color_controls_for_selected_coloration()
+
+    def current_mandelbrot_settings(self):
+        """The Mandelbrot engine controls' values (a MandelbrotSettings; never invalid: an entry holding nonsense for the moment
+        counts as its last valid value)."""
+        number = {}
+        for field, last in self.last_orbit.items():
+            value = parse_target_coordinate(getattr(self, f"orbit_{field}_var").get())
+            number[field] = last if value is None else value
+        return MandelbrotSettings(
+            z0=ORBIT_Z0_NAMES.index(self.orbit_z0_var.get()), mapping=ORBIT_MAPPING_NAMES.index(self.orbit_mapping_var.get()),
+            escape=ORBIT_ESCAPE_NAMES.index(self.orbit_escape_var.get()), **number)
+
+    def mandelbrot_defines_figure(self, mandelbrot):
+        """Whether `mandelbrot` (a MandelbrotSettings) matters to a figure made with the engine selected now: only when that is the
+        Mandelbrot engine."""
+        return self.current_engine_settings().engine == ENGINE_MANDELBROT and self.current_mandelbrot_settings() != mandelbrot
 
     def current_engine_settings(self):
         """The Simulation tab's engine (an EngineSettings; never invalid)."""
@@ -686,9 +817,11 @@ class ControlsMixin:
                     and (self.generated is None
                          or cur != settings_of(self.generated)
                          or self.current_engine_settings() != self.generated.engine
+                         or self.mandelbrot_defines_figure(self.generated.mandelbrot)
                          or obstacles_signature(self.obstacles) != self.generated.obstacles_signature))
         revert_ok = (cur is None or cur != (self.baseline, self.baseline_natural_termination)
-                     or self.current_engine_settings() != self.baseline_engine)
+                     or self.current_engine_settings() != self.baseline_engine
+                     or self.current_mandelbrot_settings() != self.baseline_mandelbrot)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if hasattr(self, "save_btn"):
@@ -704,7 +837,8 @@ class ControlsMixin:
     def revert_settings(self):
         """Put every simulation control back to the baseline: its value when the
         program started, or when the last generation was started."""
-        for key, value in settings_to_dict(self.baseline, self.baseline_natural_termination, self.baseline_engine).items():
+        for key, value in settings_to_dict(self.baseline, self.baseline_natural_termination, self.baseline_engine,
+                                   self.baseline_mandelbrot).items():
             self.set_setting_control(key, value)
         self.on_limit_var_changed()
         self.on_shape_param_changed()

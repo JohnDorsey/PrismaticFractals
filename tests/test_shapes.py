@@ -326,6 +326,8 @@ def test_obstacle_keyframe_capture_and_load_round_trip():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.deco = {"outline": _StubVar(True)}
     app.colorations = [m.ColorationConfig(0)]
     o1 = _make_distinct_obstacle(shape=m.SHAPE_MOSS_EGG)
@@ -574,7 +576,8 @@ def test_no_keyframe_setting_describes_a_bounding_shape_any_more():
                     "confine_lookback", "confine_method", "confine_threshold",
                     "emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx",
                     "emit_target_cy", "emit_offset", "buddha_seed_camera", "buddha_seed_x_start",
-                    "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop", "engine"}
+                    "buddha_seed_x_stop", "buddha_seed_y_start", "buddha_seed_y_stop", "engine",
+                    "orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape"}
     assert keys == set(m.DEFAULT_SETTING_VALUES)
     tabs = {tab for _k, tab, _label in m.SETTING_INFO}
     assert tabs == {"Emissions", "Termination", "Mutations", "Buddha seeding", "Buddha blur", "Decorations", "Simulation"}

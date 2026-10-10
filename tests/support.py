@@ -58,6 +58,8 @@ def _make_fake_app_for_snapshot():
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
 
     app.rng_seed_var = _Get("0")
     app.last_rng_seed = 0
@@ -179,6 +181,7 @@ def _fake_coloration_list_app():
     app.selected_coloration_obj = m.App.selected_coloration_obj.__get__(app)
     app.all_coloration_ids = m.App.all_coloration_ids.__get__(app)
     app.new_coloration = m.App.new_coloration.__get__(app)
+    app.correct_new_coloration = lambda v: None
     app.duplicate_coloration = m.App.duplicate_coloration.__get__(app)
     app.delete_coloration = m.App.delete_coloration.__get__(app)
     app.select_coloration = m.App.select_coloration.__get__(app)
@@ -268,6 +271,7 @@ def _fake_export_app():
     app.colorations_to_export = m.App.colorations_to_export.__get__(app)
     _give_framings(app)
     app.new_coloration = m.App.new_coloration.__get__(app)
+    app.correct_new_coloration = lambda v: None
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app.rebuild_buddha_counts = lambda: None
     app.update_stat_tags = lambda: None
@@ -286,6 +290,8 @@ def _fake_export_app():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.deco = {"outline": _StubVar(False)}
     app.render_full_image = m.App.render_full_image.__get__(app)
     app.apply_coloration = m.App.apply_coloration.__get__(app)
@@ -322,6 +328,8 @@ def _fake_current_image_app():
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     empty_i = np.empty(0, dtype=np.int64)
     empty_b = np.empty((0, m.OBST_BOUND_LEN))
     empty_f = np.empty(0)
@@ -506,6 +514,7 @@ def _fake_color_editor_app():
     app.select_coloration = m.App.select_coloration.__get__(app)
     app.refresh_live_preview_state = m.App.refresh_live_preview_state.__get__(app)
     app._color_editor_loading = False
+    app.current_engine_description = lambda: m.RAY_BOUNCING_ENGINE
 
     app.color_model_var = _StubVar("RGB")
     app.color_model_combo = _StubWidget()

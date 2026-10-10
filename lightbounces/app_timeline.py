@@ -164,7 +164,7 @@ class TimelineMixin:
                                      "Fix the iteration/distance limit fields first.")
             return None
         d = settings_to_dict(*snap, self.current_blur_settings(), self.current_buddha_seed_settings(),
-                             self.current_engine_settings())
+                             self.current_engine_settings(), self.current_mandelbrot_settings())
         d["outline"] = self.deco["outline"].get()
         for o in self.obstacles:
             for field in o.FIELD_NAMES:
@@ -186,9 +186,10 @@ class TimelineMixin:
             return
         frame_index = (0 if not self.keyframes
                       else max(kf.frame_index for kf in self.keyframes) + 1)
-        kf = Keyframe(self._kf_counter, frame_index, data)
+        kf = Keyframe(self._kf_counter, frame_index, {})
+        if not self.commit_to_keyframe(kf, data, is_new=True):
+            return
         self._kf_counter += 1
-        self.keyframes.append(kf)
         self.select_keyframe(kf, apply=False)      # it holds exactly the current values
 
     def new_keyframe_empty(self):
@@ -333,10 +334,7 @@ class TimelineMixin:
         they're too expensive to repeat once per key) - callers loading
         several settings at once should pass False here and do one shared
         refresh afterwards (see apply_keyframe_settings)."""
-        sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
-        val = resolve_value(key, sorted_kfs, kf.frame_index,
-                            self.setting_fallback(key), self.setting_is_float(key))
-        self.load_value(key, val)
+        self.load_value(key, self.animated_value(kf, key))
         if refresh:
             self.on_limit_var_changed()
             self.on_framings_loaded()
@@ -344,6 +342,7 @@ class TimelineMixin:
             self.on_fuzz_changed()
             self.on_buddha_blur_changed()
             self.on_buddha_seeds_changed()
+            self.on_orbit_changed()
             self.refresh_timeline_diffs()
 
     def save_settings(self, kf, keys):
@@ -352,9 +351,8 @@ class TimelineMixin:
         current = self.capture_all_settings()
         if current is None:
             return
-        for key in keys:
-            if key in current:
-                kf.data[key] = current[key]
+        if not self.commit_to_keyframe(kf, {key: current[key] for key in keys if key in current}):
+            return                                  # (the keyframes would have been left invalid, and the user went back)
         self.kf_modified.difference_update(keys)
         self.rebuild_keyframe_list()
         self.refresh_timeline_diffs()
@@ -416,23 +414,18 @@ class TimelineMixin:
         what depends on them once."""
         sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame_index)
         idx_kf = sorted_kfs.index(kf)
-        self.kf_applying = True
-        try:
-            for entry in self.all_setting_entries():
-                key = entry.key
-                status = self.setting_status(kf, key, sorted_kfs, idx_kf)
-                if status == "present":
-                    self.load_value(key, kf.data[key])
-                elif status == "animated":
-                    self.load_animated_setting(kf, key, refresh=False)
-            self.on_limit_var_changed()
-            self.on_shape_param_changed()
-            self.on_fuzz_changed()
-            self.on_buddha_blur_changed()
-            self.on_buddha_seeds_changed()
-            self.on_framings_loaded()
-        finally:
-            self.kf_applying = False
+        values = {}
+        for entry in self.all_setting_entries():
+            key = entry.key
+            status = self.setting_status(kf, key, sorted_kfs, idx_kf)
+            if status == "present":
+                values[key] = kf.data[key]
+            elif status == "animated":
+                values[key] = self.animated_value(kf, key, sorted_kfs)
+        values, notice = self.correct_loaded_values(values)         # (D36: what the engine it puts in effect does not accept)
+        self.apply_setting_values(values)
+        if notice is not None:
+            self.show_notice(notice)
 
     def poll_modified(self):
         """Runs every MODIFIED_POLL_MS for the life of the program."""

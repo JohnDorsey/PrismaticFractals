@@ -21,12 +21,33 @@ The figure
   Coloration, decorations and the Buddha blur are not part of it: they only
   process or decorate the data generated from it.
 
+Path engines
+  What makes the path of points that each pixel of the figure gets is the "path
+  engine", chosen in the Simulation tab. Ray Bouncing (the default) is what this
+  description is mostly about: a ray from every pixel bounces around the
+  obstacles. Mandelbrot makes the orbit of z -> z^p + c instead (any real
+  exponent p; z_0 = 0 or c; the pixel is c, or - for a Julia set - z_0, with a
+  Julia constant of your choice; an escaping orbit is clipped at the escape
+  radius or ends at the point beyond it). The obstacles belong to neither
+  engine: they decide which pixels get a path (their "fire rays inside"), and an
+  orbit meets them like a ray does - every segment from one point to the next
+  is tested, an edge can pass the orbit through or end it (Reflect is not
+  offered). Everything else is shared: the termination limits, the confinement
+  rule, the colorations (the metrics and points a coloration can choose are
+  those the engine offers: iteration count, path length, last direction,
+  termination reason, the four distances and the seven points of the path), the
+  Buddha coloration (with the choice of which kinds of path - escaping,
+  non-escaping, ended by an obstacle - a channel scatters) and the exports.
+  Switching engine resets what the new engine does not accept and says what it
+  reset, with the choice to go back; the Emissions and Mutations tabs, which
+  Mandelbrot makes no use of, are greyed out, not removed.
+
 Obstacles
   Any number of shapes, each one of eighteen kinds with its own size/angle
   parameters and rotation:
 
-  * an ellipse (width and height 0 to 2, plus rotation; 2.0 x 2.0 is the unit
-    circle),
+  * an ellipse (width and height 0 to 4, plus rotation; 4.0 x 4.0 is the circle
+    that fills the default world),
   * a regular polygon (number of sides and a radius),
   * a Moss's egg, a circular sector, a circular segment, a two-circle lens,
     a Reuleaux polygon (odd number of sides), or a capsule,
@@ -300,7 +321,7 @@ Development aids (screenshots and dumps)
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
 """
-from . import app_buddha, app_coloration, app_controls, app_debug, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, engines, export_text, framings, external, figure, geometry, image_io, kernels, metrics, buddha, color_pipeline, parsing, stored_layout, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
+from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, engines, export_text, framings, external, figure, geometry, image_io, kernels, metrics, buddha, color_pipeline, parsing, stored_layout, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
@@ -310,7 +331,7 @@ PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": 
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, stored_layout, figure, metrics, buddha, colorations, engines, color_pipeline, framings, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_generation, app_preview, app_recolor, app_buddha, app_obstacles, app_coloration, app_controls, app_layout, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, stored_layout, figure, metrics, buddha, colorations, engines, color_pipeline, framings, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_engine, app_generation, app_preview, app_recolor, app_buddha, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a

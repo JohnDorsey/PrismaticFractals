@@ -282,3 +282,119 @@ def test_the_area_of_the_mandelbrot_set_is_estimated_by_the_drivers_as_about_1_5
     inside = (stats[..., layout.stat_position(m.ST_TERMINATION)] < 1.0)[traced].sum()
     area = inside * (4.0 / n) ** 2
     assert 1.49 < area < 1.58, area
+
+
+def test_the_app_renders_an_image_with_the_mandelbrot_engine_and_its_settings():
+    app = _fake_render_app()
+    base = dict(m.DEFAULT_SETTING_VALUES)
+    start = m.default_starting_obstacle(0)
+    start.in_effect = start.out_effect = PASS
+    arrays = m.build_obstacle_arrays([start])
+    config = m.ColorationConfig(0)
+    config.metric_types[:] = [m.METRIC_TYPE_POINT_PAIR] * 3         # (the default third channel counts bounces: not stored by this engine)
+    coloration = _coloration_settings_from_config(config)
+    ray_data = m.resolve_frame_settings([], 0, base)
+    images = {}
+    for name, changes in (("ray", {}), ("mandelbrot", {"engine": m.ENGINE_MANDELBROT}),
+                          ("julia", {"engine": m.ENGINE_MANDELBROT, "orbit_mapping": 1, "orbit_julia_re": -0.8, "orbit_julia_im": 0.156})):
+        data = m.resolve_frame_settings([], 0, {**base, "outline": False, **changes})
+        images[name] = app.render_full_image(data, 96, 96, arrays, (coloration,), m.DEFAULT_FRAMING)
+    background = np.array(m.BACKGROUND, dtype=np.uint8)
+    assert all((image != background).any() for image in images.values())
+    assert not np.array_equal(images["ray"], images["mandelbrot"]) and not np.array_equal(images["mandelbrot"], images["julia"])
+    assert ray_data.engine == m.DEFAULT_ENGINE_SETTINGS
+
+
+# --------------------------------------------------------------------------- #
+# What the engine offers, shown by the interface; the hover preview of an orbit
+# --------------------------------------------------------------------------- #
+class _Recorder:
+    """A widget that remembers the last `values` it was configured with."""
+    values = None
+
+    def configure(self, **options):
+        self.values = options.get("values", self.values)
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: None
+
+
+def test_the_lists_of_choices_hold_only_what_the_engine_offers_in_the_order_of_the_dropdowns():
+    ray, orbit = m.RAY_BOUNCING_ENGINE, m.MANDELBROT_ENGINE
+    assert m.point_metric_labels(ray) == m.POINT_METRIC_LABELS and m.other_metric_labels(ray) == m.OTHER_LABELS
+    assert m.point_menu_labels(ray) == m.POINT_MENU_LABELS
+    assert m.point_metric_labels(orbit) == m.POINT_METRIC_LABELS, "(all four distances)"
+    assert m.other_metric_labels(orbit) == ["Termination reason", "Path: Point count / limit", "Path: Length (arctan)", "Path: Last segment direction"]
+    assert m.point_menu_labels(orbit)[:3] == ["Origin", "Top left point", "(-1,1)"] and len(m.point_menu_labels(orbit)) == 3 + 7
+    assert not any(label.startswith(("Self", "Boundary", "All bounces")) for label in m.point_menu_labels(orbit))
+    assert m.effect_names(ray) == m.OBSTACLE_EFFECT_NAMES and m.effect_names(orbit) == ["Terminate", "Pass through"]
+
+
+def test_the_colorations_editor_lists_only_the_selected_engines_choices_and_greys_the_options_it_lacks():
+    app = _fake_color_editor_app()
+    app.current_engine_description = lambda: m.MANDELBROT_ENGINE
+    app.map_combos = [_Recorder() for _ in range(3)]
+    app.point1_combos = [_Recorder() for _ in range(3)]
+    app.point2_combos = [_Recorder() for _ in range(3)]
+    coloration = app.selected_coloration_obj()
+    coloration.metric_types[:] = [m.METRIC_TYPE_POINT_PAIR, m.METRIC_TYPE_OTHER, m.METRIC_TYPE_OTHER]
+    for c in range(2):
+        app.refresh_row(c)
+    assert app.map_combos[0].values == m.POINT_METRIC_LABELS and app.map_combos[1].values == m.other_metric_labels(m.MANDELBROT_ENGINE)
+    assert app.point1_combos[0].values == m.point_menu_labels(m.MANDELBROT_ENGINE)
+    checks = [[_StateRecorder() for _ in range(m.N_BUDDHA_POINTS)] for _ in range(3)]
+    app.buddha_point_checks = checks
+    app.mode_var = object()
+    app.buddha_kind_vars = [[_StubVar(True) for _ in range(3)] for _ in range(3)]
+    m.App.refresh_color_controls_for_selected_coloration(app)
+    offered = m.MANDELBROT_ENGINE.buddha_options
+    assert all(checks[c][i].last == (["!disabled"] if i in offered else ["disabled"]) for c in range(3) for i in range(m.N_BUDDHA_POINTS))
+    assert checks[0][m.POINT_ALL_MEAN].last == ["disabled"] and checks[0][m.point_slot(m.SEQ_PATH, m.PRED_MEAN)].last == ["!disabled"]
+
+
+class _StateRecorder:
+    last = None
+
+    def state(self, flags):
+        self.last = flags
+
+
+def test_a_new_obstacle_gets_the_effects_the_selected_engine_uses_pass_through_for_mandelbrot():
+    class FakeApp:
+        pass
+    for description, want in ((m.RAY_BOUNCING_ENGINE, (m.OBSTACLE_EFFECT_REFLECT,) * 2), (m.MANDELBROT_ENGINE, (PASS, PASS))):
+        app = FakeApp()
+        app.obstacles, app._obst_counter, app.current_engine_description = [], 1, lambda d=description: d
+        app.rebuild_obstacle_list = app.refresh_obstacle_editor = app.on_shape_param_changed = lambda: None
+        m.App.new_obstacle(app, m.EllipseShape)
+        assert (app.obstacles[0].in_effect, app.obstacles[0].out_effect) == want
+
+
+def test_every_tag_a_path_point_can_have_has_a_colour_for_the_graphs():
+    tags = {value for name, value in vars(m).items() if name.startswith("TAG_") and isinstance(value, float) and name != "TAG_COLOR"}
+    assert tags == set(m.TAG_COLOR) and m.TAG_ORBIT in tags
+
+
+def test_a_buddhabrot_of_the_escaping_orbits_is_symmetric_about_the_real_axis_and_unlike_that_of_the_others():
+    """The Buddhabrot (every point of every orbit, scattered into a histogram) from the app's own render path with the Mandelbrot
+    engine: the orbit of the conjugate of c is the conjugate orbit, so the image is the same upside down; the escaping orbits and
+    the non-escaping ones make different images."""
+    app = _fake_render_app()
+    start = m.default_starting_obstacle(0)
+    start.in_effect = start.out_effect = PASS
+    arrays = m.build_obstacle_arrays([start])
+    data = m.resolve_frame_settings([], 0, {**m.DEFAULT_SETTING_VALUES, "outline": False, "engine": m.ENGINE_MANDELBROT, "iter": 60,
+                                            "escape_radius": 2.0})
+    all_path = m.BUDDHA_POINT_LABELS.index("All path points")
+    images = {}
+    for name, kinds in (("escaping", (True, False, False)), ("others", (False, True, True))):
+        config = m.ColorationConfig(0)
+        config.chan_src[:] = [m.CHAN_SRC_BUDDHA, m.CHAN_SRC_CONSTANT, m.CHAN_SRC_CONSTANT]
+        config.buddha_points[0] = tuple(i == all_path for i in range(m.N_BUDDHA_POINTS))
+        config.buddha_path_kinds[0] = kinds
+        images[name] = app.render_full_image(data, 128, 128, arrays, (_coloration_settings_from_config(config),), m.DEFAULT_FRAMING)
+    red = {name: image[..., 0].astype(float) for name, image in images.items()}
+    assert red["escaping"].max() > 0 and red["others"].max() > 0
+    for image in red.values():
+        assert np.abs(image - image[::-1]).mean() < 0.02 * image.max(), "(the same upside down)"
+    assert np.abs(red["escaping"] - red["others"]).mean() > 0.05 * red["escaping"].max()

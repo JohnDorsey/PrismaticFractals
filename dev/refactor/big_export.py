@@ -1,6 +1,6 @@
 """One large export in a fresh process (so the peak is its own):
 
-    python dev/refactor/big_export.py <default|point_pairs|buddha_simple|buddha_all> <full|demand> [w h]
+    python dev/refactor/big_export.py <default|point_pairs|buddha_simple|buddha_all|mandelbrot_default|mandelbrot_buddha> <full|demand> [w h]
 
 Prints the peak memory of the process (Windows peak working set; about 207 MB of it is the interpreter and numba), the
 time and a hash of the image. "demand" is what render_full_image does (it keeps only the stored slots the colorations
@@ -23,8 +23,14 @@ kind, mode = sys.argv[1], sys.argv[2]
 w = int(sys.argv[3]) if len(sys.argv) > 3 else 3840
 h = int(sys.argv[4]) if len(sys.argv) > 4 else 2160
 
+mandelbrot = kind.startswith("mandelbrot")
 v = m.ColorationConfig(0)
-if kind == "point_pairs":
+if mandelbrot:                                     # "mandelbrot_default" (three distances) or "mandelbrot_buddha" (all path points)
+    v.metric_types = [0, 0, 0]
+    if kind == "mandelbrot_buddha":
+        v.chan_src[1] = m.CHAN_SRC_BUDDHA
+        v.buddha_points[1] = tuple(label == "All path points" for label in m.BUDDHA_POINT_LABELS)
+elif kind == "point_pairs":
     v.point1_choice = [m.POINT_TOP, m.POINT_BOTTOM, m.POINT_LEFT]
     v.point2_choice = [m.POINT_RIGHT, m.CHOICE_ORIGIN, m.POINT_SELF_MEAN]
     v.metric_types = [0, 0, 0]
@@ -36,9 +42,14 @@ elif kind == "buddha_simple":
     v.buddha_points[1] = sup._buddha_choice(m.POINT_ALL_MEAN, m.POINT_END)
 settings = (sup._coloration_settings_from_config(v),)
 values = dict(m.DEFAULT_SETTING_VALUES)
-values["iter"] = 16
+values["iter"] = 64 if mandelbrot else 16
+if mandelbrot:
+    values["engine"] = m.ENGINE_MANDELBROT
 data = m.resolve_frame_settings([m.Keyframe(1, 0, values)], 0, values).replace(outline=False)
-obst = sup._starting_obst_arrays()
+start = m.default_starting_obstacle(0)
+if mandelbrot:
+    start.in_effect = start.out_effect = m.OBSTACLE_EFFECT_PASS
+obst = m.build_obstacle_arrays([start])
 app = sup._fake_render_app()
 proc = psutil.Process()
 t0 = time.perf_counter()

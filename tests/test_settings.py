@@ -118,7 +118,7 @@ def test_records_pickle_by_field_name_not_position():
 def test_a_keyframes_data_holds_the_ray_settings_the_natural_termination_and_the_buddha_blur_side_by_side():
     data = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
     assert [f.name for f in dataclasses.fields(m.KeyframeData)] == [
-        "ray", "natural_termination", "buddha_blur", "buddha_seed", "engine", "outline"]
+        "ray", "natural_termination", "buddha_blur", "buddha_seed", "engine", "mandelbrot", "outline"]
     assert isinstance(data.ray, m.RaySettings) and isinstance(data.buddha_blur, m.BuddhaBlurSettings)
     assert isinstance(data.natural_termination, m.NaturalTerminationSettings)
     assert data.natural_termination == m.DEFAULT_NATURAL_TERMINATION_SETTINGS and data.ray == m.DEFAULT_RAY_SETTINGS
@@ -172,6 +172,8 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     app.current_blur_settings = lambda: blur
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     seen = []
 
     def fake_colorize(coloration, stats, characteristic_points, pixel_state, w, h, blur, termination, engine_args, rng_seed_base, seeds=None, world_rect=None, layout=None):
@@ -231,7 +233,7 @@ def _varied_seed_settings():
 
 def test_each_settings_table_and_its_record_fields_are_the_same_set():
     assert set(m.SETTING_TABLES) == {m.NaturalTerminationSettings, m.RaySettings, m.BuddhaBlurSettings,
-                                     m.BuddhaSeedSettings, m.EngineSettings}
+                                     m.BuddhaSeedSettings, m.EngineSettings, m.MandelbrotSettings}
     assert m.SETTING_TABLES[m.EngineSettings] is m.ENGINE_SETTING_SPECS
     assert m.SETTING_TABLES[m.BuddhaSeedSettings] is m.BUDDHA_SEED_SETTING_SPECS
     assert m.SETTING_TABLES[m.NaturalTerminationSettings] is m.NATURAL_TERMINATION_SETTING_SPECS
@@ -247,7 +249,7 @@ def test_each_settings_table_and_its_record_fields_are_the_same_set():
     assert seen == {k for k, _t, _l in m.SETTING_INFO} - {"outline"}
     assert list(m.SETTING_SPECS) == (list(m.NATURAL_TERMINATION_SETTING_SPECS) + list(m.RAY_SETTING_SPECS)
                                      + list(m.BLUR_SETTING_SPECS) + list(m.BUDDHA_SEED_SETTING_SPECS)
-                                     + list(m.ENGINE_SETTING_SPECS))
+                                     + list(m.ENGINE_SETTING_SPECS) + list(m.MANDELBROT_SETTING_SPECS))
     assert set(m.NATURAL_TERMINATION_SETTING_SPECS) == {"iter", "dist", "escape_radius", "confine_lookback",
                                                 "confine_method", "confine_threshold"}
     assert set(m.BLUR_SETTING_SPECS) == {"buddha_blur_radius", "buddha_blur_type"}
@@ -329,7 +331,7 @@ def test_settings_records_round_trip_through_the_key_dictionary():
         assert m.settings_from_dict(m.BuddhaSeedSettings, values) == seeds
     ray, termination, blur = _varied_ray_settings(), _varied_natural_termination_settings(), _varied_blur_settings()
     seeds = _varied_seed_settings()
-    values = m.settings_to_dict(ray, termination, blur, seeds, m.DEFAULT_ENGINE_SETTINGS)       # side by side in one dictionary...
+    values = m.settings_to_dict(ray, termination, blur, seeds, m.DEFAULT_ENGINE_SETTINGS, m.DEFAULT_MANDELBROT_SETTINGS)       # side by side in one dictionary...
     assert set(values) == set(m.SETTING_SPECS)
     assert m.settings_from_dict(m.RaySettings, values) == ray          # ...each record picks out its own
     assert m.settings_from_dict(m.NaturalTerminationSettings, values) == termination
@@ -363,7 +365,8 @@ def test_the_derived_setting_tables_follow_the_settings_field_types():
                  "buddha_blur_type", "outline"} & floats)
     assert m.DEFAULT_SETTING_VALUES == {
         **m.settings_to_dict(m.DEFAULT_NATURAL_TERMINATION_SETTINGS, m.DEFAULT_RAY_SETTINGS,
-                             m.DEFAULT_BUDDHA_BLUR, m.DEFAULT_BUDDHA_SEED, m.DEFAULT_ENGINE_SETTINGS), "outline": True}
+                             m.DEFAULT_BUDDHA_BLUR, m.DEFAULT_BUDDHA_SEED, m.DEFAULT_ENGINE_SETTINGS,
+                             m.DEFAULT_MANDELBROT_SETTINGS), "outline": True}
     assert m.SETTING_WIDGET_ATTRS["seed"] == "rng_seed_entry"
     assert m.SETTING_WIDGET_ATTRS["outline"] == "deco_outline_check"
 
@@ -421,6 +424,7 @@ def test_revert_writes_every_control_from_the_baseline_through_the_same_table():
     app.baseline = _varied_ray_settings()
     app.baseline_natural_termination = _varied_natural_termination_settings()
     app.baseline_engine = m.DEFAULT_ENGINE_SETTINGS
+    app.baseline_mandelbrot = m.DEFAULT_MANDELBROT_SETTINGS
     app.revert_settings()
     for key, value in m.settings_to_dict(app.baseline, app.baseline_natural_termination, app.baseline_engine).items():
         spec = m.SETTING_SPECS[key]
@@ -603,7 +607,10 @@ def test_start_makes_the_whole_figure_at_once():
     ray, termination = _varied_ray_settings(), _varied_natural_termination_settings()
     app.current_generation_settings = lambda: (ray, termination)
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.tick_id = None
+    app.correct_controls_for_render = lambda: None
     app.obstacles = [m.default_starting_obstacle(0)]
     app.begin_generation = lambda: app.__dict__.setdefault("began", []).append(app.generated)
     assert getattr(app, "generated", None) is None
@@ -622,7 +629,7 @@ def test_the_path_engine_is_a_record_of_its_own_with_one_row_a_catalog_and_a_dro
     assert m.DEFAULT_ENGINE_SETTINGS == m.EngineSettings(engine=m.ENGINE_RAY_BOUNCING) and m.ENGINE_RAY_BOUNCING == 0
     assert (m.ENGINE_RAY_BOUNCING, m.ENGINE_MANDELBROT, m.N_ENGINES) == (0, 1, 2)
     assert m.ENGINE_NAMES == ["Ray Bouncing", "Mandelbrot"]
-    assert m.OFFERED_ENGINES == (m.ENGINE_RAY_BOUNCING,), "Mandelbrot is not offered until it is finished"
+    assert m.OFFERED_ENGINES == (m.ENGINE_RAY_BOUNCING, m.ENGINE_MANDELBROT)
     spec = m.ENGINE_SETTING_SPECS["engine"]
     assert (spec.path, spec.kind, spec.tab, spec.label, spec.names) == (("engine",), "choice", "Simulation", "Engine", tuple(m.ENGINE_NAMES))
     assert m.SETTING_TABS_ORDER[-1] == "Simulation" and ("engine", "Simulation", "Engine") in m.SETTING_INFO
@@ -638,6 +645,7 @@ def test_the_engine_controls_list_only_the_offered_engines_and_read_back_as_a_re
     app = FakeApp()
     app.update_buttons = lambda: app.__dict__.setdefault("calls", []).append("update_buttons")
     app.refresh_timeline_diffs = lambda: app.__dict__.setdefault("calls", []).append("diffs")
+    app.build_mandelbrot_controls = app.update_orbit_state = app.apply_engine_offers = lambda *args: None
     m.App.build_engine_controls(app, m.ttk.Frame(None))
     app.current_engine_settings = m.App.current_engine_settings.__get__(app)
     assert app.engine_var.get() == "Ray Bouncing" and app.current_engine_settings() == m.DEFAULT_ENGINE_SETTINGS
@@ -646,9 +654,10 @@ def test_the_engine_controls_list_only_the_offered_engines_and_read_back_as_a_re
     app.set_setting_control = m.App.set_setting_control.__get__(app)
     app.set_setting_control("engine", m.ENGINE_MANDELBROT)               # (a project or keyframe can say so)
     assert app.current_engine_settings() == m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.switch_to_selected_engine = lambda: app.__dict__.setdefault("calls", []).append("switch")
     app.engine_combo.selection_clear = lambda: None
     m.App.on_engine_changed(app)
-    assert app.calls == ["update_buttons", "diffs"], "a new engine is a new figure: Start must notice, and the keyframe list"
+    assert app.calls == ["switch", "update_buttons", "diffs"], "a new engine is a new figure: Start must notice, and the keyframe list"
 
 
 def test_a_generated_figure_holds_the_engine_it_was_made_with():
@@ -675,3 +684,61 @@ def test_the_figure_settings_name_the_engine_first_when_it_is_given_and_the_bloc
     assert m.figure_info_lines(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [], m.DEFAULT_ENGINE_SETTINGS)[0] == "Engine:Ray Bouncing"
     assert "Engine" not in "".join(m.figure_info_lines(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, []))
     assert "ray_bouncing" not in m.image_filename(*_generation(), "png", False, 90), "new settings stay out of file names"
+
+
+# --------------------------------------------------------------------------- #
+# The Mandelbrot engine's own settings
+# --------------------------------------------------------------------------- #
+def _varied_mandelbrot():
+    return m.MandelbrotSettings(exponent=3.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=-0.8, julia_im=0.156,
+                                escape=m.ORBIT_ESCAPE_BEYOND)
+
+
+def test_the_mandelbrot_settings_are_a_record_of_their_own_with_a_row_a_catalog_and_a_control_each():
+    assert [f.name for f in dataclasses.fields(m.MandelbrotSettings)] == ["exponent", "z0", "mapping", "julia_re", "julia_im", "escape"]
+    assert m.DEFAULT_MANDELBROT_SETTINGS == m.MandelbrotSettings(exponent=2.0, z0=0, mapping=0, julia_re=0.0, julia_im=0.0, escape=0)
+    assert set(m.MANDELBROT_SETTING_SPECS) == {"orbit_exponent", "orbit_z0", "orbit_mapping", "orbit_julia_re", "orbit_julia_im", "orbit_escape"}
+    assert {spec.tab for spec in m.MANDELBROT_SETTING_SPECS.values()} == {"Simulation"}
+    assert m.SETTING_TABLES[m.MandelbrotSettings] is m.MANDELBROT_SETTING_SPECS
+    assert {"orbit_exponent", "orbit_julia_re", "orbit_julia_im"} <= m.SETTING_FLOAT_KEYS, "the numbers are interpolated"
+    assert not ({"orbit_z0", "orbit_mapping", "orbit_escape"} & m.SETTING_FLOAT_KEYS), "the choices are held"
+    for key, catalog in (("orbit_z0", m.CAT_ORBIT_Z0), ("orbit_mapping", m.CAT_ORBIT_MAPPING), ("orbit_escape", m.CAT_ORBIT_ESCAPE)):
+        assert m.SETTING_CHOICE_CATALOGS[key] is catalog and len(m.MANDELBROT_SETTING_SPECS[key].names) == len(catalog.by_key)
+    assert m.CAT_ORBIT_Z0.by_key == {"zero": 0, "c": 1} and m.CAT_ORBIT_MAPPING.by_key == {"mandelbrot": 0, "julia": 1}
+    assert m.CAT_ORBIT_ESCAPE.by_key == {"clip": 0, "beyond": 1}
+
+
+def test_the_mandelbrot_settings_become_the_kernels_orbit_arguments():
+    assert m.settings_orbit_args(m.DEFAULT_MANDELBROT_SETTINGS) == m.ORBIT_ARGS_DEFAULT
+    assert m.settings_orbit_args(_varied_mandelbrot()) == m.OrbitArgs(exponent=3.5, z0_is_c=True, julia=True, julia_re=-0.8,
+                                                                        julia_im=0.156, clip_escape=False)
+    figure = m.generated_figure(m.DEFAULT_RAY_SETTINGS, m.DEFAULT_NATURAL_TERMINATION_SETTINGS, [],
+                                m.EngineSettings(engine=m.ENGINE_MANDELBROT), _varied_mandelbrot())
+    assert figure.mandelbrot == _varied_mandelbrot() and figure.engine_args.orbit == m.settings_orbit_args(_varied_mandelbrot())
+    assert m.PLACEHOLDER_FIGURE.mandelbrot == m.DEFAULT_MANDELBROT_SETTINGS
+
+
+def test_the_mandelbrot_settings_are_keyframe_settings_the_numbers_blend_and_the_choices_hold():
+    kfs = [m.Keyframe(1, 0, {"orbit_exponent": 2.0, "orbit_mapping": 0, "orbit_julia_re": 0.0}),
+           m.Keyframe(2, 10, {"orbit_exponent": 4.0, "orbit_mapping": 1, "orbit_julia_re": -1.0})]
+    base = dict(m.DEFAULT_SETTING_VALUES)
+    frames = {f: m.resolve_frame_settings(kfs, f, base).mandelbrot for f in (0, 5, 9, 10)}
+    assert [frames[f].exponent for f in (0, 5, 9, 10)] == [2.0, 3.0, 3.8, 4.0] and [frames[f].julia_re for f in (5, 10)] == [-0.5, -1.0]
+    assert [frames[f].mapping for f in (0, 5, 9, 10)] == [0, 0, 0, 1]
+    assert m.resolve_frame_settings([], 0, {**base, "orbit_z0": 1}).mandelbrot.z0 == 1, "(the base: the controls when the export began)"
+
+
+def test_the_mandelbrot_controls_read_back_as_a_record_and_grey_out_what_is_of_no_use():
+    import inspect
+    source = inspect.getsource(m.App.update_orbit_state)
+    assert '"julia_re": not julia' in source and '"z0": julia' in source and "mandelbrot_on" in source
+    class FakeApp:
+        pass
+    app = FakeApp()
+    app.last_orbit = {"exponent": 2.5, "julia_re": 0.25, "julia_im": -0.5}
+    for field, value in (("exponent", "oops"), ("julia_re", "0.75"), ("julia_im", "")):
+        setattr(app, f"orbit_{field}_var", _StubVar(value))
+    app.orbit_z0_var, app.orbit_mapping_var, app.orbit_escape_var = (_StubVar(m.ORBIT_Z0_NAMES[1]), _StubVar(m.ORBIT_MAPPING_NAMES[1]),
+                                                                       _StubVar(m.ORBIT_ESCAPE_NAMES[1]))
+    assert m.App.current_mandelbrot_settings(app) == m.MandelbrotSettings(
+        exponent=2.5, z0=1, mapping=1, julia_re=0.75, julia_im=-0.5, escape=1), "(nonsense counts as the last valid value)"

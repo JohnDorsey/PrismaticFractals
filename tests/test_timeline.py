@@ -354,19 +354,26 @@ def _fake_kf_app():
         for k, v in app.current.items()]
     app.setting_fallback = lambda key: app.current[key]
     app.setting_is_float = lambda key: isinstance(app.current[key], float)
+    app.engine_var = _StubVar(m.ENGINE_NAMES[0])
+    app.engine_titles = lambda: {}
+    app.notices = []
+    app.show_notice = lambda message, can_go_back=False, **kw: app.notices.append(message) or True
+    app.apply_engine_offers = lambda: None
+    app.on_framings_loaded = lambda: None
 
     def load_value(key, val):
         app.loaded.append(key)
         app.current[key] = val
     app.load_value = load_value
     for name in ("on_limit_var_changed", "on_shape_param_changed", "on_fuzz_changed",
-                 "on_buddha_blur_changed", "on_buddha_seeds_changed", "rebuild_keyframe_list", "refresh_timeline_diffs",
+                 "on_buddha_blur_changed", "on_buddha_seeds_changed", "on_orbit_changed", "rebuild_keyframe_list", "refresh_timeline_diffs",
                  "refresh_modified_outlines"):
         setattr(app, name, lambda *a, **k: None)
     for name in ("select_keyframe", "deselect_keyframe", "apply_keyframe_settings",
                  "check_modified", "save_settings", "save_modified_settings",
                  "setting_status", "load_animated_setting", "new_keyframe",
-                 "new_keyframe_empty", "delete_selected_keyframe"):
+                 "new_keyframe_empty", "delete_selected_keyframe", "apply_setting_values", "animated_value",
+                 "correct_loaded_values", "commit_to_keyframe"):
         setattr(app, name, getattr(m.App, name).__get__(app))
     return app
 

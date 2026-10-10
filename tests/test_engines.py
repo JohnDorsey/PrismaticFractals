@@ -395,19 +395,19 @@ def test_switching_to_mandelbrot_resets_reflect_the_bounce_count_and_the_bounce_
 # --------------------------------------------------------------------------- #
 def test_self_checks_catch_an_engine_description_that_is_inconsistent():
     fresh = load_module()
-    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(metrics=frozenset(range(fresh.N_STATS + 1)))}
+    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(metrics=frozenset(range(fresh.N_STATS + 1))), 1: fresh.MANDELBROT_ENGINE}
     _breaks_a_self_check(fresh, "not in the catalogs")
     fresh = load_module()
-    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(default_point=fresh.CHOICE_ORIGIN, points=frozenset())}
+    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(default_point=fresh.CHOICE_ORIGIN, points=frozenset()), 1: fresh.MANDELBROT_ENGINE}
     _breaks_a_self_check(fresh, "does not offer its own default")
     fresh = load_module()
-    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(buddha_options=frozenset({fresh.POINT_ALL_MEAN}))}
+    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(buddha_options=frozenset({fresh.POINT_ALL_MEAN})), 1: fresh.MANDELBROT_ENGINE}
     _breaks_a_self_check(fresh, "every choice there is")
     fresh = load_module()
     fresh.selfchecks.ENGINE_DESCRIPTIONS = {}
     _breaks_a_self_check(fresh, "needs a description")
     fresh = load_module()
-    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(ranges={"obst:3:radius": (0, 1)})}
+    fresh.selfchecks.ENGINE_DESCRIPTIONS = {0: fresh.RAY_BOUNCING_ENGINE.replace(ranges={"obst:3:radius": (0, 1)}), 1: fresh.MANDELBROT_ENGINE}
     _breaks_a_self_check(fresh, "key pattern")
     fresh = load_module()
     shifted = fresh.RAY_SEQUENCE_TABLES._replace(stat_pos=fresh.RAY_SEQUENCE_TABLES.stat_pos[::-1].copy())
@@ -435,3 +435,100 @@ def _random_settings(rng):
     values["iter"] = rng.choice([1, 20, 100, 101, 5000])
     values["seg_mult"] = rng.choice([0.0, 0.5, 0.75, 1.0, 3.0])
     return values
+
+
+# --------------------------------------------------------------------------- #
+# Keyframes that cannot all be right at once (D19), and a frame, a project corrected (D20)
+# --------------------------------------------------------------------------- #
+RAY_CODE, ORBIT_CODE = m.ENGINE_RAY_BOUNCING, m.ENGINE_MANDELBROT
+
+
+def _fixes(keyframes, saved=(), **kwargs):
+    return {(f.kf_id, f.key): f.new for f in m.keyframe_fixes(keyframes, RAY_CODE, saved=frozenset(saved), **kwargs)}
+
+
+def test_saving_the_mandelbrot_engine_suggests_changing_the_reflect_an_earlier_keyframe_still_holds():
+    kfs = [m.Keyframe(1, 0, {"engine": RAY_CODE, "obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT}),
+           m.Keyframe(2, 10, {"engine": ORBIT_CODE})]
+    fixes = m.keyframe_fixes(kfs, RAY_CODE, saved={(2, "engine")})
+    assert [(f.kf_id, f.key, f.new) for f in fixes] == [(1, "obst:1:in_effect", m.OBSTACLE_EFFECT_PASS)]
+    assert (fixes[0].correction.tab, fixes[0].correction.old_text, fixes[0].correction.new_text) == (
+        "Keyframe at frame 0", "Reflect", "Pass through")
+    assert _fixes([m.Keyframe(1, 0, {"engine": RAY_CODE, "obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT}),
+                   m.Keyframe(2, 10, {"engine": RAY_CODE})], saved=[(2, "engine")]) == {}, "(the ray engine accepts it)"
+
+
+def test_saving_a_reflect_before_a_later_mandelbrot_keyframe_suggests_changing_that_keyframes_engine_instead():
+    kfs = [m.Keyframe(1, 0, {"obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT}), m.Keyframe(2, 10, {"engine": ORBIT_CODE})]
+    assert _fixes(kfs, saved=[(1, "obst:1:in_effect")]) == {(2, "engine"): RAY_CODE}, "(the value being saved is left alone)"
+    assert _fixes(kfs) == {(1, "obst:1:in_effect"): m.OBSTACLE_EFFECT_PASS}, "(nothing being saved: the value is corrected)"
+    both = [m.Keyframe(1, 0, {"engine": ORBIT_CODE, "obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT})]
+    assert _fixes(both, saved=[(1, "engine"), (1, "obst:1:in_effect")]) == {(1, "obst:1:in_effect"): m.OBSTACLE_EFFECT_PASS},         "(both saved together: it is the other setting that gives way, never the engine)"
+
+
+def test_a_value_in_effect_only_under_engines_that_accept_it_needs_no_fix_and_numbers_are_blended_across_engines():
+    kfs = [m.Keyframe(1, 0, {"engine": RAY_CODE}), m.Keyframe(2, 10, {"engine": ORBIT_CODE, "obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT}),
+           m.Keyframe(3, 20, {"obst:1:in_effect": m.OBSTACLE_EFFECT_PASS})]
+    assert _fixes(kfs) == {(2, "obst:1:in_effect"): m.OBSTACLE_EFFECT_PASS}, "(held from frame 10 on, under Mandelbrot)"
+    only_ray = [m.Keyframe(1, 0, {"obst:1:in_effect": m.OBSTACLE_EFFECT_REFLECT}), m.Keyframe(2, 10, {"obst:1:in_effect": m.OBSTACLE_EFFECT_PASS})]
+    assert _fixes(only_ray) == {}, "(no engine keyframe: the live engine, ray)"
+    assert m.keyframe_fixes(only_ray, ORBIT_CODE) and m.keyframe_fixes(only_ray, ORBIT_CODE)[0].new == m.OBSTACLE_EFFECT_PASS
+    tight = {RAY_CODE: m.RAY_BOUNCING_ENGINE, 1: small_engine(ranges={"seg_mult": (0.5, 1.0)})}
+    blend = [m.Keyframe(1, 0, {"engine": RAY_CODE, "seg_mult": 0.2}), m.Keyframe(2, 10, {"engine": 1, "seg_mult": 0.9}),
+             m.Keyframe(3, 30, {"seg_mult": 0.3})]
+    assert _fixes(blend, descriptions=tight) == {(3, "seg_mult"): 0.5},         "(0.2 is only ever under the ray engine; 0.3 is blended with the 0.9 under the other, which cannot have it)"
+
+
+def test_the_fixes_that_a_save_asks_for_leave_keyframes_that_need_no_more():
+    rng = random.Random(4)
+    for _ in range(100):
+        kfs = []
+        for k in range(rng.randrange(1, 5)):
+            data = {}
+            if rng.random() < 0.5:
+                data["engine"] = rng.choice([RAY_CODE, ORBIT_CODE])
+            if rng.random() < 0.7:
+                data["obst:1:in_effect"] = rng.randrange(3)
+            if rng.random() < 0.5:
+                data["obst:1:out_effect"] = rng.randrange(3)
+            kfs.append(m.Keyframe(k + 1, 10 * k, data))
+        saved = {(kf.id, key) for kf in kfs for key in kf.data if rng.random() < 0.4}
+        applied = [m.Keyframe(kf.id, kf.frame_index, {**kf.data, **{f.key: f.new for f in m.keyframe_fixes(kfs, RAY_CODE, saved)
+                                                                    if f.kf_id == kf.id}}) for kf in kfs]
+        assert m.keyframe_fixes(applied, RAY_CODE) == [], (kfs, saved)
+
+
+def test_a_frame_is_corrected_for_its_engine_in_its_settings_obstacles_and_colorations_and_one_that_needs_nothing_comes_back_as_it_was():
+    base = {**m.DEFAULT_SETTING_VALUES, "engine": ORBIT_CODE, "orbit_exponent": 3.0}
+    data = m.resolve_frame_settings([], 0, base)
+    shape = m.default_starting_obstacle(7)                                 # Reflect both ways
+    config = m.ColorationConfig(0)
+    config.metric_types[2] = m.METRIC_TYPE_OTHER                            # (its third channel counts bounces)
+    coloration = m.decompose_chans("RGB", [m.coloration_channel_value(config, c) for c in range(3)])
+    new_data, obstacles, colorations, corrections = m.correct_frame(data, [m.snapshot_obstacle(shape) if hasattr(m, "snapshot_obstacle") else shape.snapshot()],
+                                                                    (coloration,))
+    assert new_data is data and (obstacles[0].in_effect, obstacles[0].out_effect) == (m.OBSTACLE_EFFECT_PASS,) * 2
+    assert m.METRIC_LABELS[colorations[0].other_metric[2]] == "Path: Point count / limit" and len(corrections) == 3
+    assert shape.in_effect == m.OBSTACLE_EFFECT_REFLECT, "(the live shape is not touched)"
+    ray = m.resolve_frame_settings([], 0, m.DEFAULT_SETTING_VALUES)
+    same = m.correct_frame(ray, [shape.snapshot()], (coloration,))
+    assert same[0] is ray and same[3] == [] and same[2][0] is coloration
+
+
+def test_a_loaded_project_is_corrected_for_its_engine_and_its_keyframes_are_left_alone():
+    project = _project_for(m.EngineSettings(engine=ORBIT_CODE))
+    fixed, corrections = m.correct_project(project)
+    assert corrections and not any(m.OBSTACLE_EFFECT_REFLECT in (o.in_effect, o.out_effect) for o in fixed.obstacles)
+    assert fixed.keyframes == project.keyframes and fixed.ray == project.ray
+    assert m.correct_project(_project_for(m.DEFAULT_ENGINE_SETTINGS))[1] == []
+    assert all(m.METRIC_LABELS[v.other_metric[2]] != "All bounces: Point count / limit" for v in fixed.colorations)
+
+
+def _project_for(engine):
+    project = _sample_project_for_engines()
+    return project.replace(engine=engine)
+
+
+def _sample_project_for_engines():
+    import tests.test_projects as projects
+    return projects._sample_project()

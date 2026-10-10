@@ -422,7 +422,7 @@ def _fake_encode_app():
     app.ffmpeg_output_kwargs = m.App.ffmpeg_output_kwargs.__get__(app)
     app.encode_video_output = m.App.encode_video_output.__get__(app)
     app.status_calls = []
-    app.set_video_status = lambda text: app.status_calls.append(text)
+    app.set_video_status = app.append_video_status = lambda text: app.status_calls.append(text)
     app.root = type("R", (), {"after": lambda self, delay, fn: fn()})()
     return app
 
@@ -538,7 +538,7 @@ def _fake_app_for_clear_temp_frames(busy=False):
     app = FakeApp()
     app.busy_with_render_or_reencode = lambda: busy
     app.video_status_calls = []
-    app.set_video_status = lambda text: app.video_status_calls.append(text)
+    app.set_video_status = app.append_video_status = lambda text: app.video_status_calls.append(text)
     app.clear_temp_frames = m.App.clear_temp_frames.__get__(app)
     return app
 

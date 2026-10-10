@@ -10,7 +10,7 @@ from .constants import (
 from .export_text import COLOR_INFO_LOCATIONS, FIGURE_INFO_LOCATIONS, FRAMING_INFO_LOCATIONS, SAVE_SOURCE_OPTIONS
 from .image_io import SAVE_NEW_FORMATS, lerp_color, png_rgba
 from .kernels import (
-    TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, PREVIEW_BOX
+    TAG_BOUNDARY, TAG_ESCAPED, TAG_OBSTACLE_TERM, TAG_ORBIT, TAG_PERPENDICULAR, TAG_SELF, TAG_START, N_STATS, PREVIEW_BOX
 )
 from .metrics import METRIC_SHORT
 from .widgets import JxlQualityControls, Tooltip, make_scrollable_tab
@@ -116,6 +116,7 @@ class LayoutMixin:
         self.build_limits_controls(termination_inner)
         self.build_confinement_controls(termination_inner)
         self.mutations_canvas, mutations_inner = make_scrollable_tab(mutations_tab)
+        self.engine_tab_frames = {"Emissions": emissions_inner, "Mutations": mutations_inner}   # what an engine may leave unused
         self.build_fuzzing_controls(mutations_inner)
         self.build_segment_mult_controls(mutations_inner)
         # The Perception tab has two tabs of its own: Framing (the list of framings - what part of the world the image
@@ -284,7 +285,8 @@ class LayoutMixin:
                           (TAG_COLOR[TAG_SELF], "self bounce"),
                           (TAG_COLOR[TAG_OBSTACLE_TERM], "edge termination"),
                           (TAG_COLOR[TAG_PERPENDICULAR], "perpendicular end"),
-                          (TAG_COLOR[TAG_ESCAPED], "escape")]:
+                          (TAG_COLOR[TAG_ESCAPED], "escape"),
+                          (TAG_COLOR[TAG_ORBIT], "orbit point")]:
             sw = tk.Label(legend, text="  ", bg=lerp_color(rgb, rgb, 0.0))
             sw.pack(side="left", padx=(4, 2))
             ttk.Label(legend, text=text).pack(side="left", padx=(0, 8))
@@ -310,7 +312,8 @@ class LayoutMixin:
                            (TAG_COLOR[TAG_SELF], "self bounce"),
                            (TAG_COLOR[TAG_OBSTACLE_TERM], "edge end"),
                            (TAG_COLOR[TAG_PERPENDICULAR], "perpendicular end"),
-                           (TAG_COLOR[TAG_ESCAPED], "escape")]:
+                           (TAG_COLOR[TAG_ESCAPED], "escape"),
+                           (TAG_COLOR[TAG_ORBIT], "orbit point")]:
             row = ttk.Frame(text)
             row.pack(anchor="w", pady=(2, 0))
             tk.Label(row, text="  ", bg=lerp_color(rgb, rgb, 0.0)).pack(side="left", padx=(0, 4))

@@ -23,6 +23,7 @@ def _fake_preview_app(pinned):
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.preview_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
     app.hover_path_points = np.empty((m.ITER_LIMIT_MAX + 2, 2))
     app.hover_path_point_tags = np.empty(m.ITER_LIMIT_MAX + 2)
     app.hover_raw = np.empty(m.N_RAW)
@@ -631,6 +632,8 @@ def test_the_preview_runs_the_engine_of_the_image_on_screen_and_before_any_the_d
     app = FakeApp()
     app.generated = None
     app.current_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
+    app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     preview_engine = m.App.preview_engine_settings.__get__(app)
     assert preview_engine().engine == m.ENGINE_MANDELBROT, "nothing generated yet: the dropdown"
     app.generated = m.PLACEHOLDER_FIGURE
@@ -654,3 +657,25 @@ def test_the_buffers_of_the_image_on_screen_are_those_of_the_layout_of_the_figur
     app.make_image_buffers()
     assert app.stats.shape[-1] == m.N_STATS, "back to the ray engine's: the buffers are made again, not cleared in place"
     assert m.PLACEHOLDER_FIGURE.layout.stat_ids.tolist() == m.FULL_LAYOUT.stat_ids.tolist()
+
+
+def test_the_hover_preview_of_an_orbit_shows_iterations_and_has_no_bounces_or_loop_and_greys_what_it_does_not_store():
+    import collections
+    start = m.default_starting_obstacle(0)
+    start.in_effect = start.out_effect = m.OBSTACLE_EFFECT_PASS
+    app = _fake_preview_app(pinned=None)
+    app.obstacles = [start]
+    app.preview_engine_settings = lambda: m.EngineSettings(engine=m.ENGINE_MANDELBROT)
+    app.deco["samples"] = _StubVar(True)
+    app.live_coloration = lambda: m.ColorationConfig(0)
+    app.mapping = m.make_mapping(m.DEFAULT_METRIC_TYPES, m.DEFAULT_POINT_METRICS, m.DEFAULT_OTHER_METRICS, m.DEFAULT_CHAN_SRCS, m.DEFAULT_CONSTANT_CHOICES)
+    app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS.replace(max_iter=50)
+    app.update_preview(300, 256)                                   # near c = 0.35 + 0.0i: inside the set
+    v = app.info_vars
+    assert v["outcome"].get().endswith("iterations)") or "iterations" in v["outcome"].get(), v["outcome"].get()
+    assert v["bounces"].get().startswith("none (an orbit") and v["loop"].get() == "none (an orbit)"
+    stats = [var.get() for var in app.stat_vars]
+    layout = m.layout_of_engine(m.ENGINE_MANDELBROT)
+    assert [s != "-" for s in stats] == [layout.has_stat(s) for s in range(m.N_STATS)] and stats.count("-") == m.N_STATS - 8
+    app.update_preview(20, 20)                                      # c = -1.96 - 1.96i: escapes at once
+    assert v["outcome"].get().startswith("Escaped after")
