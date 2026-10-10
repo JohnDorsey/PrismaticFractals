@@ -366,7 +366,8 @@ def test_the_mandelbrot_engine_offers_one_sequence_its_metrics_and_the_buddha_op
         "Path: Length (arctan)", "Path: Last segment direction", "Termination reason"}
     assert {m.POINT_LABELS[i] for i in engine.points} == {f"Path: {r}" for r in m.POINT_REDUCTION_LABELS} | {"Origin", "(-1,1)", "Top left point"}
     assert {m.BUDDHA_POINT_LABELS[i] for i in engine.buddha_options} == (
-        {f"Path: {r}" for r in m.POINT_REDUCTION_LABELS} | {"Path: Last point (distance limit)", "Path: Last point (confined)", "All path points"}),         "no midpoints, no self bounces, no perpendicular collision (D38)"
+        {f"Path: {r}" for r in m.POINT_REDUCTION_LABELS} | {"Path: Last point (distance limit)", "Path: Last point (confined)", "All path points",
+         "All segment midpoints", "Progressive means of segment midpoints"}), "no self bounces, no perpendicular collision (D38)"
     assert (m.METRIC_LABELS[engine.default_other_metric], m.POINT_LABELS[engine.default_point],
             m.BUDDHA_POINT_LABELS[engine.default_buddha_option]) == ("Path: Point count / limit", "Path: First point", "Path: Mean point")
     assert m.new_obstacle_effects(engine) == (m.OBSTACLE_EFFECT_PASS, m.OBSTACLE_EFFECT_PASS)

@@ -289,7 +289,10 @@ The bar graph of the sequence preview truncates a segment at two world units (it
 ## D38. "All path points" is a Buddha option of both engines
 
 "All path points" (every point of the path, the starting point included) exists as a Buddha option for both engines. The
-Mandelbrot engine does not offer the options "All segment midpoints" and "Progressive means of segment midpoints".
+Mandelbrot engine does not offer the options "All self bounces" and "Progressive means of bounce points" (an orbit has no bounces).
+
+Revised at FILE_VERSION 168: the Mandelbrot engine DOES offer "All segment midpoints" and "Progressive means of segment midpoints" (first decided
+against). The kernels make both from the path's points alone, they give a smoothed Buddhabrot, and the user's own image showed they work.
 
 ## D39. The Mandelbrot engine has defaults of its own
 

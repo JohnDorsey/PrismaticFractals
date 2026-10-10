@@ -534,6 +534,8 @@ def _fake_color_editor_app():
     app.buddha_frames = [_TrackedFrame() for _ in range(3)]
     app.buddha_point_vars = [[_StubVar(False) for _ in range(m.N_BUDDHA_POINTS)]
                              for _ in range(3)]
+    app.buddha_point_checks = [[_StubWidget() for _ in range(m.N_BUDDHA_POINTS)] for _ in range(3)]
+    app.buddha_kind_vars = [[_StubVar(True) for _ in range(3)] for _ in range(3)]
     app.buddha_compression_vars = [_StubVar(m.BUDDHA_COMPRESSION_LABELS[0]) for _ in range(3)]
     app.buddha_compression_combos = [_StubWidget() for _ in range(3)]
     app.buddha_brightness_vars = [_StubVar(m.BUDDHA_BRIGHTNESS_OPTIONS[2]) for _ in range(3)]

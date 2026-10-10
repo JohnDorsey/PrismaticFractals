@@ -344,7 +344,6 @@ def test_the_colorations_editor_lists_only_the_selected_engines_choices_and_grey
     assert app.point1_combos[0].values == m.point_menu_labels(m.MANDELBROT_ENGINE)
     checks = [[_StateRecorder() for _ in range(m.N_BUDDHA_POINTS)] for _ in range(3)]
     app.buddha_point_checks = checks
-    app.mode_var = object()
     app.buddha_kind_vars = [[_StubVar(True) for _ in range(3)] for _ in range(3)]
     m.App.refresh_color_controls_for_selected_coloration(app)
     offered = m.MANDELBROT_ENGINE.buddha_options
@@ -398,3 +397,73 @@ def test_a_buddhabrot_of_the_escaping_orbits_is_symmetric_about_the_real_axis_an
     for image in red.values():
         assert np.abs(image - image[::-1]).mean() < 0.02 * image.max(), "(the same upside down)"
     assert np.abs(red["escaping"] - red["others"]).mean() > 0.05 * red["escaping"].max()
+
+
+def test_the_colorations_editor_shows_what_the_selected_coloration_holds_after_an_engine_switch_corrected_it():
+    """Regression: `refresh_color_controls_for_selected_coloration` began with a guard on an attribute (`mode_var`) that a rename had
+    left nothing to create, so it returned at once and the editor was never refreshed: after switching to Mandelbrot the
+    corrected "All self bounces" stayed ticked (and enabled) in the editor, and the next click on any Buddha checkbox wrote it
+    back into the coloration, so the live image scattered an option the engine does not offer and an export (which corrects it
+    again) came out different."""
+    app = _fake_color_editor_app()
+    app.current_engine_description = lambda: m.MANDELBROT_ENGINE
+    app.buddha_point_checks = [[_StateRecorder() for _ in range(m.N_BUDDHA_POINTS)] for _ in range(3)]
+    app.buddha_kind_vars = [[_StubVar(True) for _ in range(3)] for _ in range(3)]
+    midpoints = m.BUDDHA_POINT_LABELS.index("All self bounces")
+    path_mean = m.BUDDHA_POINT_LABELS.index("Path: Mean point")
+    coloration = app.selected_coloration_obj()
+    coloration.chan_src[1] = m.CHAN_SRC_BUDDHA
+    for c in range(3):
+        app.buddha_point_vars[c][midpoints].set(True)               # (the editor as the user left it)
+    coloration.buddha_points[1] = tuple(i == path_mean for i in range(m.N_BUDDHA_POINTS))     # (what the switch corrected it to)
+    m.App.refresh_color_controls_for_selected_coloration(app)
+    assert [i for i, var in enumerate(app.buddha_point_vars[1]) if var.get()] == [path_mean], "the editor shows the corrected choice"
+    assert app.buddha_point_checks[1][midpoints].last == ["disabled"], "and greys out the option the engine lacks"
+
+
+def test_the_two_segment_midpoint_options_scatter_the_midpoints_of_an_orbits_segments_and_their_progressive_means():
+    """D38 reversed: the Mandelbrot engine offers "All segment midpoints" and "Progressive means of segment midpoints" (the kernels
+    take them from the path's points alone). For a real orbit they land exactly where the midpoints, and the running means of the
+    midpoints, of the Python reference orbit do - and an export with them makes a picture, with nothing corrected."""
+    labels = [m.BUDDHA_POINT_LABELS[i] for i in m.MANDELBROT_ENGINE.buddha_options]
+    assert "All segment midpoints" in labels and "Progressive means of segment midpoints" in labels
+    c = complex(0.3, 0.55)
+    term, points, tags, _raw = _orbit(c.real, c.imag, max_iter=40)
+    ref, _escaped = _reference(c, 0j, 2, 2.0, 40)
+    assert len(points) >= 4
+    mids = [(ref[k] + ref[k + 1]) / 2 for k in range(len(points) - 2)]       # (all but the clipped last segment, which is shorter)
+    rect = m.WorldRect(x_start=-2.0, x_stop=2.0, y_start=-2.0, y_stop=2.0)
+
+    def scattered(want_mid, want_prog):
+        counts = np.zeros((64, 64))
+        m.scatter_trace_points(counts, rect, points, tags, len(points), 0, False, want_mid, False, want_prog, False)
+        return counts
+
+    def expected(coords):
+        counts = np.zeros((64, 64))
+        for x, y in coords:
+            m.scatter_one_buddha_point(counts, x, y, rect)
+        return counts
+
+    every = [(0.5 * (points[k, 0] + points[k + 1, 0]), 0.5 * (points[k, 1] + points[k + 1, 1])) for k in range(len(points) - 1)]
+    assert np.array_equal(scattered(True, False), expected(every)) and scattered(True, False).sum() > 0
+    assert all(abs(complex(*every[k]) - mids[k]) < 1e-9 for k in range(len(mids))), "(the first midpoints are the reference orbit's)"
+    running, total = [], 0j
+    for k, (x, y) in enumerate(every):
+        total += complex(x, y)
+        if k >= 1:
+            running.append((total.real / (k + 1), total.imag / (k + 1)))
+    assert np.array_equal(scattered(False, True), expected(running)) and scattered(False, True).sum() > 0
+
+    app = _fake_render_app()
+    start = m.default_starting_obstacle(0)
+    start.in_effect = start.out_effect = PASS
+    data = m.resolve_frame_settings([], 0, {**m.DEFAULT_SETTING_VALUES, "outline": False, "engine": m.ENGINE_MANDELBROT, "iter": 60,
+                                            "escape_radius": 2.0})
+    for label in ("All segment midpoints", "Progressive means of segment midpoints"):
+        config = m.ColorationConfig(0)
+        config.chan_src[:] = [m.CHAN_SRC_BUDDHA, m.CHAN_SRC_CONSTANT, m.CHAN_SRC_CONSTANT]
+        config.buddha_points[0] = tuple(i == m.BUDDHA_POINT_LABELS.index(label) for i in range(m.N_BUDDHA_POINTS))
+        image = app.render_full_image(data, 96, 96, m.build_obstacle_arrays([start]), (_coloration_settings_from_config(config),), m.DEFAULT_FRAMING)
+        assert image[..., 0].max() > 0, label
+

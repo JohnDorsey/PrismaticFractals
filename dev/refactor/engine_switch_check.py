@@ -173,6 +173,21 @@ editor = [w for w in app.colorations_tab.winfo_children() if w.winfo_class() == 
 check(editor.winfo_rooty() + editor.winfo_height() <= app.colorations_tab.winfo_rooty() + app.colorations_tab.winfo_height(),
       "the coloration editor, with three Buddha channels, fits inside its tab")
 
+# an option the engine lacks, ticked under the ray engine, is unticked AND greyed in the editor after the switch, and a click on another
+# checkbox does not bring it back (the editor was once never refreshed, so the stale tick was written back and the live image drew it)
+midpoints = lb.BUDDHA_POINT_LABELS.index("All self bounces")
+choose("Ray Bouncing")
+app.buddha_point_vars[1][midpoints].set(True)
+app.on_buddha_points_changed(1)
+check(app.selected_coloration_obj().buddha_points[1][midpoints], "(the ray engine takes All self bounces)")
+choose("Mandelbrot")
+check(not app.buddha_point_vars[1][midpoints].get() and app.buddha_point_checks[1][midpoints].instate(["disabled"]),
+      "after the switch the editor shows All self bounces unticked and greyed out")
+other = lb.BUDDHA_POINT_LABELS.index("Path: Last point")
+app.buddha_point_vars[1][other].set(True)
+app.on_buddha_points_changed(1)
+check(not app.selected_coloration_obj().buddha_points[1][midpoints], "ticking another option does not bring the corrected one back")
+
 # the progress bar's frame count
 check(app.video_progress_style is not None, "the progress bar has a style that can carry text")
 app.set_video_progress_text("3/10")

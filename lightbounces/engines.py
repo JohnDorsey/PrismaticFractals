@@ -75,13 +75,15 @@ def _mandelbrot_description():
     """The Mandelbrot engine (Engine_Refactor_Design.md D31, D38, D39, D11, D35, D5): one sequence, "Path", with its seven point
     reductions; the metrics iteration count (the path's point count), path length, last direction, termination reason and the four
     point distances; the Buddha options of the path (its stored points, the last point for a distance limit or confinement - not
-    for a perpendicular collision, which it has none of - and every point of the path), none of the bounce-based ones; no Reflect
+    for a perpendicular collision, which it has none of -, every point of the path and the two segment-midpoint options (D38), none
+    of the bounce-based ones; no Reflect
     (pass-through in its place); its own defaults (Path count, Path: Mean point); and the Emissions and Mutations tabs unused."""
     path_points = {point_slot(SEQ_PATH, red) for red in range(N_PRED)}
     metrics = set(POINT_METRICS) | {stat_slot(SEQ_PATH, SRED_COUNT), stat_slot(SEQ_PATH, SRED_LENGTH),
                                     stat_slot(SEQ_PATH, SRED_LAST_DIR), ST_TERMINATION}
     options = set(path_points) | {BUDDHA_POINT_LABELS.index(label) for label in
-                                  ("Path: Last point (distance limit)", "Path: Last point (confined)", "All path points")}
+                                  ("Path: Last point (distance limit)", "Path: Last point (confined)", "All path points",
+                                   "All segment midpoints", "Progressive means of segment midpoints")}
     effects = frozenset({OBSTACLE_EFFECT_TERMINATE, OBSTACLE_EFFECT_PASS})
     return EngineDescription(
         engine=ENGINE_MANDELBROT, name=ENGINE_NAMES[ENGINE_MANDELBROT], metrics=frozenset(metrics),

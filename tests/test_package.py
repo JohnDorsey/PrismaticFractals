@@ -218,3 +218,32 @@ def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_n
                     and node.value.id in ("fuzz", "confine", "emission", "obstacles"):
                 checked += 1
     assert checked >= 20, "the scan should have found the field reads it is protecting"
+
+
+def test_a_hasattr_guard_in_the_window_code_names_an_attribute_something_sets():
+    """Regression: `refresh_color_controls_for_selected_coloration` guarded itself with `hasattr(self, "mode_var")`, an attribute
+    that a rename had left nothing to create, so the guard held for good and the method never did its work (and the one test that
+    called it set the attribute by hand). Every attribute a `hasattr(self, "x")` names must be assigned somewhere in the package."""
+    import ast
+    import glob
+    import re
+    trees = {}
+    for path in glob.glob(os.path.join(PACKAGE_DIR, "*.py")):
+        with open(path, encoding="utf-8") as handle:
+            trees[path] = ast.parse(handle.read())
+    assigned = {node.attr for tree in trees.values() for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)}
+    templates = []                                      # setattr(self, f"framing_{field}_var", ...): a name with a hole in it
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr"
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr)):
+                templates.append("".join(re.escape(part.value) if isinstance(part, ast.Constant) else ".+" for part in node.args[1].values))
+    guards = [(os.path.basename(path), node.args[1].value) for path, tree in trees.items() for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "hasattr"
+              and len(node.args) == 2 and isinstance(node.args[0], ast.Name) and node.args[0].id == "self"
+              and isinstance(node.args[1], ast.Constant)]
+    assert len(guards) >= 8, "the scan should have found the guards it is checking"
+    missing = [f"{name}: hasattr(self, {attr!r})" for name, attr in guards
+               if attr not in assigned and not any(re.fullmatch(template, attr) for template in templates)]
+    assert not missing, "nothing ever assigns " + "; ".join(missing)

@@ -124,7 +124,7 @@ class ColorationMixin:
         """Populate every Color mapping control from the selected coloration (or
         leave them as-is if the Colorations tab hasn't been built yet, or no
         coloration is selected). Mirrors refresh_obstacle_editor."""
-        if not hasattr(self, "mode_var"):
+        if not hasattr(self, "color_model_var"):
             return                                  # Colorations tab not built yet
         coloration = self.selected_coloration_obj()
         if coloration is None:
