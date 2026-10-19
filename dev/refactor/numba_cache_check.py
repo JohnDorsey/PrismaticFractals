@@ -7,8 +7,8 @@ builds two tiny throw-away projects in a temp folder and shows it.
 
 Expected result with the numba this project was developed with (0.6x): both cases print
 "STALE (as documented)". If either prints "fresh", numba's behaviour has changed and the rule
-in CLAUDE.md ("kernels, the constants they read and the njit functions they call live in one
-file") could be relaxed - tell the user.
+in CLAUDE.md ("Numba": kernels, the constants they read and the njit functions they call live in
+one file) could be relaxed - tell the user.
 """
 import os
 import subprocess
