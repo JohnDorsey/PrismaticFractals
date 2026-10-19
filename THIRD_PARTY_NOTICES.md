@@ -2,7 +2,36 @@
 
 PrismaticFractals is Copyright (C) 2026 John Dorsey and is released under the GNU General Public License, version 3 or (at your option) any later version; see `LICENSE`.
 
-This repository contains no third-party source code or binaries. The software below is installed separately by whoever runs the program; it is listed here so that its licenses and authors are acknowledged, and so that it is clear which of them are only run as separate programs.
+The one piece of third-party material in this repository is the pixel font's glyph table (see the next section). The software in the sections after it is installed separately by whoever runs the program; it is listed here so that its licenses and authors are acknowledged, and so that it is clear which of them are only run as separate programs.
+
+## Pixel font (included in this repository)
+
+The glyphs that `FONT_5X8` in `PrismaticFractals/image_io.py` draws text with - printable ASCII, and the degree sign, plus-minus sign, middle dot and a with acute accent - are taken from the "classic" 5x8 font of the [Adafruit-GFX-Library](https://github.com/adafruit/Adafruit-GFX-Library) (`glcdfont.c`, "the classic fixed-space bitmap font for Adafruit_GFX since 1.0"), Copyright (c) 2012 Adafruit Industries, under the BSD license reproduced below. The picture of each glyph is kept as it is in that font (stored there as five columns of eight bits; here as eight rows of five cells); the order and notation of the table are this program's. The two glyphs that font lacks, theta and the multiplication sign, were drawn for this program. The BSD license is compatible with the GPL-3.0-or-later this program is released under.
+
+    Software License Agreement (BSD License)
+
+    Copyright (c) 2012 Adafruit Industries.  All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    - Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    - Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
 
 ## Python packages (imported by the program)
 

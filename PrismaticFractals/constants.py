@@ -349,7 +349,7 @@ SELECTED_OUTLINE = "#ffeb3b"       # yellow
 SELECTED_OUTLINE_PX = 4
 
 # The live preview's "coloration N" name overlay (bottom-left corner, drawn with
-# FONT_5X7 - see draw_coloration_name_overlay). Preview-only: never part of an
+# FONT_5X8 - see draw_coloration_name_overlay). Preview-only: never part of an
 # exported image.
 COLORATION_NAME_OVERLAY_SCALE = 2
 COLORATION_NAME_OVERLAY_PAD = 3          # blank border between the text and its background box

@@ -1005,10 +1005,10 @@ def test_a_spiral_too_small_to_hold_its_ribbon_is_empty_and_harmless():
 
 
 def test_the_pixel_font_has_a_acute_for_the_fernandez_guasti_name():
-    glyph = m.FONT_5X7["á"]
-    assert len(glyph) == 7 and all(len(row) == 5 for row in glyph)
-    assert glyph[1:] == m.FONT_5X7["a"][1:]                    # an a ...
-    assert glyph[0] != m.FONT_5X7["a"][0] and "1" in glyph[0]  # ... with an accent above it
+    glyph = m.FONT_5X8["á"]
+    assert len(glyph) == m.GLYPH_ROWS and all(len(row) == 5 for row in glyph)
+    assert glyph[2:] == m.FONT_5X8["a"][2:]                    # an a ...
+    assert glyph[:2] != m.FONT_5X8["a"][:2] and "1" in glyph[0]  # ... with an accent above it
     assert m.render_text_line("Fernández", 1).any()
 
 

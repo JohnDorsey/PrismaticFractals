@@ -391,7 +391,7 @@ def test_a_greyed_line_is_drawn_in_medium_grey_and_the_others_in_the_usual_colou
 
 
 def test_the_pixel_font_has_a_caret_for_exponents_and_it_is_not_blank_or_another_glyph():
-    rows = m.FONT_5X7["^"]
-    assert len(rows) == 7 and all(len(r) == 5 for r in rows) and any("1" in r for r in rows)
-    assert all(tuple(rows) != tuple(other) for ch, other in m.FONT_5X7.items() if ch != "^")
+    rows = m.FONT_5X8["^"]
+    assert len(rows) == m.GLYPH_ROWS and all(len(r) == 5 for r in rows) and any("1" in r for r in rows)
+    assert all(tuple(rows) != tuple(other) for ch, other in m.FONT_5X8.items() if ch != "^")
     assert m.render_text_line("z^2+c", 1).any(), "(the margin's orbit line draws)"

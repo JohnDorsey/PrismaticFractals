@@ -402,7 +402,7 @@ def test_every_obstacle_line_fits_a_column_and_uses_only_glyphs_the_font_has():
     settings = _generation(max_iter=9999, max_dist=9999.0, seg_mult=0.01, fuzz=fuzz)
     for line in m.figure_info_lines(*settings, scene):
         assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
-        missing = [c for c in line if c not in m.FONT_5X7]
+        missing = [c for c in line if c not in m.FONT_5X8]
         assert not missing, (line, missing)
         m.render_text_line(line, scale=1)          # must not raise
 

@@ -508,7 +508,7 @@ def test_the_left_margin_holds_the_figure_and_the_framing_settings_as_their_two_
     assert both[:-1] == figure, "the figure's settings first ..."
     assert both[-1] == [m.FIGURE_INFO_SEPARATOR] + m.framing_info_block(f), "... the framing's below, after a line"
     assert set(m.FIGURE_INFO_SEPARATOR) == {"-"} and len(m.FIGURE_INFO_SEPARATOR) == m.FIGURE_INFO_COLUMN_CHARS
-    assert "-" in m.FONT_5X7, "the pixel font can draw the line"
+    assert "-" in m.FONT_5X8, "the pixel font can draw the line"
 
 
 def test_the_framing_settings_block_comes_below_the_figures_in_the_margins_column_with_the_line_between():

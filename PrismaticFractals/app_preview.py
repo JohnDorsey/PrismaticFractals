@@ -127,7 +127,7 @@ class PreviewMixin:
 
     def draw_coloration_name_overlay(self):
         """Stamps the live coloration's display name ("coloration N") into the bottom-left
-        corner of self.image_for_screen, in the tiny 5x7 pixel font, on a solid
+        corner of self.image_for_screen, in the tiny 5x8 pixel font, on a solid
         background box so it stays legible over any image content. Never
         touches self.image_for_export - this is preview-only and must never end up in
         a saved/exported image."""

@@ -118,7 +118,7 @@ def test_only_the_pinned_pixel_is_exempt_from_the_must_fire_rule():
     assert app.cleared == [1]
 
 
-def test_font_5x7_covers_every_character_any_coloration_label_could_use():
+def test_font_5x8_covers_every_character_any_coloration_label_could_use():
     """Every string that coloration_info_lines could ever produce must be
     renderable - a missing glyph would KeyError mid-export."""
     strings = list(m.COLOR_MODEL_NAMES)
@@ -134,17 +134,17 @@ def test_font_5x7_covers_every_character_any_coloration_label_could_use():
     missing = set()
     for s in strings:
         for ch in s:
-            if ch not in m.FONT_5X7:
+            if ch not in m.FONT_5X8:
                 missing.add(ch)
-    assert not missing, f"FONT_5X7 is missing glyphs for: {sorted(missing)}"
+    assert not missing, f"FONT_5X8 is missing glyphs for: {sorted(missing)}"
 
 
-def test_font_5x7_new_glyphs_are_not_blank():
+def test_font_5x8_new_glyphs_are_not_blank():
     """Every new glyph must actually light up some pixels (catches a
     copy-paste that left a row all zeros)."""
     for ch in "abcdfstuxyzABCEGHLMPQRSTV()+-/:" + "\u00b7\u00b0":
         mask = m.render_text_line(ch, scale=1)
-        assert mask.shape[0] == 7
+        assert mask.shape[0] == m.GLYPH_ROWS
         assert mask.any(), f"glyph {ch!r} renders as entirely blank"
 
 

@@ -7,7 +7,7 @@ from .constants import (
     CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, ENGINE_NAMES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES
 )
 from .engines import engine_description
-from .image_io import jxl_quality_tag, render_text_line
+from .image_io import GLYPH_ROWS, jxl_quality_tag, render_text_line
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, ENGINE_MANDELBROT, PREVIEW_BOX
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
@@ -226,7 +226,7 @@ def _draw_text_block(img, lines, x0, y0, avail_w, avail_h, scale, draw_bg):
     content); draw_bg=False skips that (for a margin area that's already a
     solid color). Clips safely to (avail_w, avail_h) and to img's own
     bounds - never raises even if the text would overflow."""
-    line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
+    line_h = GLYPH_ROWS * scale + COLORATION_INFO_LINE_GAP * scale
     y = y0
     y_limit = min(y0 + avail_h, img.shape[0])
     x_limit = min(x0 + avail_w, img.shape[1])
@@ -315,7 +315,7 @@ def add_left_info_margin(img, blocks):
     scale = resolution_scale(h)   # the coloration's own size, not the margin's (see
                                   # add_bottom_color_margin's identical fix)
     m = COLORATION_INFO_MARGIN * scale
-    line_h = 7 * scale + COLORATION_INFO_LINE_GAP * scale
+    line_h = GLYPH_ROWS * scale + COLORATION_INFO_LINE_GAP * scale
     columns = layout_info_columns(blocks, max(1, (h - 2 * m) // line_h))
     col_w = 6 * FIGURE_INFO_COLUMN_CHARS * scale
     col_gap = 12 * scale

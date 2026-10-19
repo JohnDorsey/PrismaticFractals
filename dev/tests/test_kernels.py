@@ -899,7 +899,7 @@ def test_confinement_lines_fit_a_column_for_extreme_values_and_use_known_glyphs(
                                                   confine_threshold=threshold), _unit_scene())
             for line in lines:
                 assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
-                assert all(c in m.FONT_5X7 for c in line), line
+                assert all(c in m.FONT_5X8 for c in line), line
 
 
 def test_the_confinement_block_has_the_same_size_whatever_its_values():
@@ -1259,7 +1259,7 @@ def test_emission_lines_fit_a_column_for_extreme_values_and_use_known_glyphs():
                                     _unit_scene())
         for line in lines:
             assert len(line) <= m.FIGURE_INFO_COLUMN_CHARS, line
-            assert all(c in m.FONT_5X7 for c in line), line
+            assert all(c in m.FONT_5X8 for c in line), line
 
 
 def test_the_emission_block_has_the_same_size_whatever_its_values():

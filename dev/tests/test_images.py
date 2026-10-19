@@ -130,63 +130,79 @@ def test_the_pixel_font_has_every_letter_in_both_cases_every_digit_and_the_symbo
     import string
     needed = (string.ascii_uppercase + string.ascii_lowercase + string.digits
               + "#\u03b8 ")
-    assert [c for c in needed if c not in m.FONT_5X7] == []
+    assert [c for c in needed if c not in m.FONT_5X8] == []
 
 
-def test_every_pixel_font_glyph_is_seven_rows_of_five_zero_or_one_cells():
-    for ch, rows in m.FONT_5X7.items():
-        assert len(rows) == 7, ch
+def test_every_pixel_font_glyph_is_eight_rows_of_five_zero_or_one_cells():
+    assert m.GLYPH_ROWS == 8
+    for ch, rows in m.FONT_5X8.items():
+        assert len(rows) == m.GLYPH_ROWS, ch
         for row in rows:
             assert len(row) == 5 and set(row) <= {"0", "1"}, (ch, row)
 
 
 def test_no_visible_pixel_font_glyph_is_blank_and_letters_are_told_apart():
     import string
-    for ch, rows in m.FONT_5X7.items():
+    for ch, rows in m.FONT_5X8.items():
         if ch != " ":
             assert any("1" in row for row in rows), f"{ch!r} is blank"
-    letters = {c: tuple(m.FONT_5X7[c]) for c in string.ascii_letters + "#\u03b8"}
+    letters = {c: tuple(m.FONT_5X8[c]) for c in string.ascii_letters + "#\u03b8"}
     assert len(set(letters.values())) == len(letters), "two letters share a glyph"
 
 
-def test_the_only_glyphs_sharing_a_picture_are_the_two_long_standing_pairs():
+def test_no_two_pixel_font_glyphs_share_a_picture():
     seen = {}
-    for ch, rows in m.FONT_5X7.items():
+    for ch, rows in m.FONT_5X8.items():
         seen.setdefault(tuple(rows), []).append(ch)
     shared = sorted(sorted(v) for v in seen.values() if len(v) > 1)
-    assert shared == [["0", "o"], ["x", "\u00d7"]]
+    assert shared == []
+
+
+def test_the_notices_credit_the_font_the_glyphs_are_taken_from_with_its_license():
+    """The glyphs are Adafruit's (BSD-2-Clause): the license requires its copyright notice, both conditions and the
+    disclaimer to be kept with the table, which THIRD_PARTY_NOTICES.md and the comment above FONT_5X8 do."""
+    with open(os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), encoding="utf-8") as handle:
+        notices = " ".join(handle.read().split())
+    for part in ("Adafruit-GFX-Library", "Copyright (c) 2012 Adafruit Industries.", "Redistributions of source code must retain the above copyright notice",
+                 "Redistributions in binary form must reproduce the above copyright notice", "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS"):
+        assert part in notices, part
+    with open(os.path.join(ROOT, "PrismaticFractals", "image_io.py"), encoding="utf-8") as handle:
+        source = handle.read()
+    assert "Adafruit" in source[:source.index("FONT_5X8 = {")]
 
 
 def test_the_new_glyphs_are_the_right_shape():
     def art(ch):
-        return ["".join("#" if c == "1" else "." for c in row) for row in m.FONT_5X7[ch]]
+        return ["".join("#" if c == "1" else "." for c in row) for row in m.FONT_5X8[ch]]
     assert art("#")[2] == "#####" and art("#")[4] == "#####"
-    theta = art("\u03b8")
-    assert theta[3] == "#####" and theta[0] == ".###." and theta[6] == ".###."
-    assert art("W")[3] == "#.#.#" and art("N")[1] == "##..#" and art("Z")[0] == "#####"
+    theta = art("\u03b8")                                       # drawn for this program (Adafruit's font lacks it)
+    assert theta[3] == "#####" and theta[0] == ".###." and theta[6] == ".###." and theta[7] == "....."
+    cross = art("\u00d7")                                       # drawn for this program too: small and centred
+    assert cross[2] == ".#.#." and cross[3] == "..#.." and cross[4] == ".#.#."
+    assert art("W")[3] == "#.#.#" and art("N")[1] == "#...#" and art("N")[2] == "##..#" and art("Z")[0] == "#####"
 
 
 def test_render_text_line_can_draw_every_letter_hash_and_theta():
     import string
     text = string.ascii_uppercase + string.ascii_lowercase + "#\u03b8 0123456789"
     mask = m.render_text_line(text, scale=1)
-    assert mask.shape == (7, 6 * len(text) - 1) and mask.any()
+    assert mask.shape == (m.GLYPH_ROWS, 6 * len(text) - 1) and mask.any()
 
 
 # --------------------------------------------------------------------------- #
 # The coloration-name pixel-font overlay on the live preview
 # --------------------------------------------------------------------------- #
-def test_font_5x7_covers_every_character_needed_for_coloration_names():
+def test_font_5x8_covers_every_character_needed_for_coloration_names():
     for ch in "coloration0123456789 ":
-        assert ch in m.FONT_5X7, f"FONT_5X7 is missing {ch!r}, needed for 'coloration N' text"
+        assert ch in m.FONT_5X8, f"FONT_5X8 is missing {ch!r}, needed for 'coloration N' text"
 
 
 def test_render_text_line_produces_legible_glyphs_for_every_digit():
     """Each digit glyph must actually light up some pixels (not be blank/a
-    typo'd all-zero row) and must be exactly 7 rows tall."""
+    typo'd all-zero row) and must be exactly GLYPH_ROWS (8) rows tall."""
     for ch in "0123456789":
         mask = m.render_text_line(ch, scale=1)
-        assert mask.shape[0] == 7
+        assert mask.shape[0] == m.GLYPH_ROWS
         assert mask.any(), f"digit {ch!r} renders as entirely blank"
 
 
