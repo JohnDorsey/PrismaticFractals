@@ -241,7 +241,8 @@ class VideoMixin:
 
     def make_labeled_progress_style(self):
         """A style of progress bar with a text over it (the frame count), or None where the theme cannot make one (the count is then a
-        line of the status text for every frame)."""
+        line of the status text for every frame). The technique (a ttk layout with a label element, set through the style's `text`)
+        follows an answer at https://stackoverflow.com/questions/74895125 (CC BY-SA 4.0); see THIRD_PARTY_NOTICES.md."""
         try:
             style = ttk.Style()
             name = "Labeled.Horizontal.TProgressbar"

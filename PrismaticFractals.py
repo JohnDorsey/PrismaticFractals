@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 John Dorsey. See the file LICENSE.
 """Prismatic Fractals: run this file (python PrismaticFractals.py).
 
 The program is the `PrismaticFractals` package next to this launcher; its docstring (PrismaticFractals/__init__.py) is the

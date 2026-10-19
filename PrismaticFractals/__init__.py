@@ -325,6 +325,16 @@ Development aids (screenshots and dumps)
   no screenshot. The dumping code is dev/debug_dump.py, which also reads a dump
   back (load_dump). Nothing happens if the dev folder is missing (or Pillow,
   for screenshots).
+
+License
+  Copyright (C) 2026 John Dorsey. This program is free software: you can
+  redistribute it and/or modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation, either version 3 of
+  the License, or (at your option) any later version. It is distributed in the
+  hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+  implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
+  the file LICENSE. The third-party software it uses is listed in
+  THIRD_PARTY_NOTICES.md.
 """
 from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, engines, export_text, framings, external, figure, geometry, image_io, kernels, metrics, buddha, color_pipeline, parsing, stored_layout, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
 

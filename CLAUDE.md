@@ -62,6 +62,8 @@ python PrismaticFractals.py                        # launch the Tkinter app
 - Output file names derive from the launcher's name (`PROGRAM_NAME`), so renaming the launcher renames them. A JXL name carries the quality, `name.q90.jxl`, and `q100` always means lossless (so lossy stops at 95).
 - The package, launcher and test runner share the name `PrismaticFractals` (renamed from `light_bounces` / `lightbounces` at FILE_VERSION 174): from this folder `import PrismaticFractals` finds the package directory, not the launcher. `dev/finished_plans/` is history and still uses the old names; the dump viewer keeps the old module names so old dumps still read.
 
+- The program is licensed GPL-3.0-or-later (`LICENSE`, Copyright (C) 2026 John Dorsey; the header is in the launcher and the package docstring, not in every file). Everything third-party is installed by the user, never vendored; when a dependency or borrowed technique is added, list it in `THIRD_PARTY_NOTICES.md` (with the license, and the source of a borrowed technique in a comment at its place).
+
 ## Measured (this machine; the numbers are the reason for decisions)
 
 - Each call added to the parallel kernel's loop body costs first-kernel-call time when it is loaded from the cache (the engine switch about 0.8 s, `measure_path` about 0.4 s); together the two engines cost about 3 s more at every launch (cold 13.9 -> 17 s, from the numba cache 7.8 -> 10.6 s). Separate drivers per engine, chosen from Python, would remove most of it and reverse D28; the user said it is fine for now. Warm run times are unchanged.
