@@ -1,4 +1,6 @@
 """Tests: widgets."""
+import os
+import types
 
 from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared helpers
 
@@ -71,3 +73,58 @@ def test_the_perception_tab_holds_a_framing_tab_then_a_colorations_tab_each_with
         source.index('perception_notebook.add(colorations_tab, text="Colorations")'), "Framing is the left tab"
     assert "self.build_framing_controls(framing_tab)" in source
     assert "self.build_color_controls(colorations_tab)" in source, "the controls the tab always held are in Colorations"
+
+
+class _HelpButtonWithoutPlacing(m.HelpButton):
+    def _place(self):                       # (the headless stubs have no geometry to place by)
+        self.placed = True
+
+
+def test_a_help_button_shows_its_text_on_a_click_and_hides_it_on_the_next_or_on_a_click_elsewhere_or_on_the_popup():
+    button = _HelpButtonWithoutPlacing(None, "what this panel does")
+    assert button.text == "what this panel does" and not button.shown
+    button.toggle()
+    assert button.shown and button.placed
+    button.toggle()
+    assert not button.shown
+    button.show()
+    button._clicked_elsewhere(types.SimpleNamespace(widget=button))
+    assert button.shown, "(a click on the button itself is its own command's business)"
+    button._clicked_elsewhere(types.SimpleNamespace(widget=object()))
+    assert not button.shown
+    button.show()
+    button.hide()
+    button.hide()
+    assert not button.shown
+    assert not _HelpButtonWithoutPlacing(None, "").show() and not _HelpButtonWithoutPlacing(None, "").shown, "(nothing to show, no popup)"
+
+
+def test_the_bottom_middle_holds_the_export_designer_and_a_notebook_of_the_image_and_video_tabs_and_the_bottom_right_is_empty():
+    import inspect
+    layout = inspect.getsource(m.App.build_status_quadrant)
+    assert "self.bottom_notebook = ttk.Notebook(container)" in layout
+    assert 'add(exp, text="Image")' in layout and 'add(self.video_tab, text="Video")' in layout
+    assert "self.bottom_right_panel = ttk.LabelFrame(self.root" in layout
+    video = inspect.getsource(m.App.build_video_panel)
+    assert "vp = self.video_tab" in video and "self.root, text" not in video, "(the video controls are in the tab, not a panel of their own)"
+    assert "wraplength" not in video, "(no help text takes room in the tab: it is behind the ? button)"
+    assert "HelpButton(" in video and "self.video_help_text()" in video
+    assert inspect.getsource(m.App.build_video_panel).count("bottom_right_panel") == 0, "(nothing is put into the empty panel)"
+
+
+def test_the_video_help_text_names_the_folders_relative_to_the_program_and_survives_another_drive():
+    app = types.SimpleNamespace()
+    saved = m.paths.SCRIPT_DIR, m.paths.TEMP_DIR, m.paths.EXPORT_DIR
+    try:
+        root = os.path.abspath(os.sep + "program")
+        m.paths.SCRIPT_DIR, m.paths.EXPORT_DIR = root, os.path.join(root, "data", "exports")
+        m.paths.TEMP_DIR = os.path.join(m.paths.EXPORT_DIR, "TEMP")
+        text = m.App.video_help_text(app)
+        assert "data/exports/TEMP/" in text and "saved in data/exports/." in text and "Re-encode" in text
+        if os.name == "nt":                                 # (relpath raises across drives)
+            m.paths.EXPORT_DIR = "D:\\elsewhere\\exports"
+            m.paths.TEMP_DIR = "D:\\elsewhere\\exports\\TEMP"
+            assert "D:/elsewhere/exports/TEMP/" in m.App.video_help_text(app)
+    finally:
+        m.paths.SCRIPT_DIR, m.paths.TEMP_DIR, m.paths.EXPORT_DIR = saved
+

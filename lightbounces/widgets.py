@@ -225,6 +225,57 @@ class Tooltip:
             self.tip = None
 
 
+class HelpButton(ttk.Button):
+    """A small "?" button that keeps a help text out of the way until it is wanted: a click shows `text` in a popup under the button
+    (wrapped at `wraplength` pixels), another click on the button, a click on the popup, Escape or a click anywhere else in the window
+    hides it. `shown` says whether the popup is up."""
+    def __init__(self, parent, text, wraplength=420):
+        super().__init__(parent, text="?", width=2, command=self.toggle)
+        self.text, self.wraplength, self.tip = text, wraplength, None
+        self.bind_all("<Button-1>", self._clicked_elsewhere, add="+")
+        self.bind_all("<Escape>", lambda _e: self.hide(), add="+")
+
+    @property
+    def shown(self):
+        return self.tip is not None
+
+    def toggle(self):
+        if self.shown:
+            self.hide()
+        else:
+            self.show()
+
+    def show(self):
+        """Pop the text up (see _place for where)."""
+        if self.shown or not self.text:
+            return
+        self.tip = tk.Toplevel(self)
+        self.tip.wm_overrideredirect(True)
+        label = tk.Label(self.tip, text=self.text, background="#ffffe0", relief="solid", borderwidth=1, padx=6, pady=4,
+                         justify="left", wraplength=self.wraplength)
+        label.pack()
+        label.bind("<Button-1>", lambda _e: self.hide())
+        self.tip.update_idletasks()
+        self._place()
+
+    def _place(self):
+        """Put the popup under the button - or above it when there is no room below - moved left if it would run off the screen."""
+        x = min(self.winfo_rootx(), self.winfo_screenwidth() - self.tip.winfo_reqwidth() - 8)
+        y = self.winfo_rooty() + self.winfo_height() + 2
+        if y + self.tip.winfo_reqheight() > self.winfo_screenheight() - 48:          # (48: the taskbar)
+            y = max(0, self.winfo_rooty() - self.tip.winfo_reqheight() - 2)
+        self.tip.wm_geometry(f"+{max(0, x)}+{y}")
+
+    def hide(self):
+        if self.tip is not None:
+            self.tip.destroy()
+            self.tip = None
+
+    def _clicked_elsewhere(self, event):
+        if self.shown and event.widget is not self:
+            self.hide()
+
+
 class FloatEntryHandle:
     """A .get()/.set() wrapper around a float Entry, making it a drop-in
     replacement for a tk.Scale everywhere else in the code that calls

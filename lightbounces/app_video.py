@@ -6,7 +6,6 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
-from .constants import BOTTOM_H, PAD, TIMELINE_W
 from .engines import correct_frame, correction_message
 from .export_text import VIDEO_BITRATE_MODES, VIDEO_FORMATS, apply_info_locations
 from .external import cjxl_available
@@ -20,7 +19,7 @@ from .settings import resolve_frame_settings, resolve_obstacles, snapshot_keyfra
 from .shapes import build_obstacle_arrays
 from .colorations import resolve_colorations, snapshot_coloration
 from .framings import resolve_framing
-from .widgets import JxlQualityControls
+from .widgets import HelpButton, JxlQualityControls
 from . import external, paths
 
 
@@ -41,23 +40,15 @@ def frame_file_offset(first_frame, number_from_start):
 
 class VideoMixin:
     def build_video_panel(self):
-        """Bottom right: resolution/framerate/quality/bitrate settings, a
-        preview of the latest rendered frame, and the render button."""
-        vp = ttk.LabelFrame(self.root, text="Video", width=TIMELINE_W, height=BOTTOM_H)
-        vp.grid(row=1, column=2, sticky="nsew", padx=(PAD // 2, PAD), pady=(PAD // 2, PAD))
-        vp.grid_propagate(False)
-        vp.columnconfigure(0, weight=1)
-        vp.columnconfigure(1, weight=1)
-        vcmd = (self.root.register(self.validate_digits), "%P")
+        """The Video tab (`self.video_tab`, made by build_status_quadrant), in rows: resolution and which frames to render, the
+        encoding (framerate, format, downsampling, bitrate), the render buttons with the progress bar and a "?" button that holds
+        the long explanation, and below them a preview of the latest rendered frame beside the status box."""
+        vp = self.video_tab
         vcmd_wide = (self.root.register(self.validate_bitrate_digits), "%P")
 
-        # ---- Render settings (left): resolution and which frames to render ----
-        render_settings_frame = ttk.LabelFrame(vp, text="Render settings")
-        render_settings_frame.grid(row=0, column=0, sticky="new", padx=(8, 4), pady=(8, 6))
-        render_settings_frame.columnconfigure(0, weight=1)
-
-        dims_row = ttk.Frame(render_settings_frame)
-        dims_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 2))
+        # ---- Render settings: resolution and which frames to render ----
+        dims_row = ttk.Frame(vp)
+        dims_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 2))
         self.video_w_var = tk.StringVar(value="1080")
         self.video_h_var = tk.StringVar(value="1080")
         for label, var, width in [("Width (px):", self.video_w_var, 6),
@@ -68,25 +59,18 @@ class VideoMixin:
             entry.pack(side="left", padx=(0, 10))
             for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
                 entry.bind(event, lambda _e, var=var: self.commit_resolution_var(var))
-
-        start_row = ttk.Frame(render_settings_frame)
-        start_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(2, 2))
         self.start_frame_var = tk.StringVar(value="0")
-        ttk.Label(start_row, text="Starting frame:").pack(side="left", padx=(0, 4))
-        ttk.Entry(start_row, textvariable=self.start_frame_var, width=7, justify="right",
+        ttk.Label(dims_row, text="Starting frame:").pack(side="left", padx=(0, 4))
+        ttk.Entry(dims_row, textvariable=self.start_frame_var, width=7, justify="right",
                   validate="key", validatecommand=vcmd_wide).pack(side="left")
         self.number_files_from_start_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(render_settings_frame, text="Number frame files from the starting frame",
+        ttk.Checkbutton(vp, text="Number frame files from the starting frame",
                         variable=self.number_files_from_start_var).grid(
-            row=2, column=0, sticky="w", padx=8, pady=(2, 6))
+            row=1, column=0, sticky="w", padx=8, pady=(0, 2))
 
-        # ---- Encoding (right): format, bitrate, framerate, downsampling ----
-        encoding_frame = ttk.LabelFrame(vp, text="Encoding")
-        encoding_frame.grid(row=0, column=1, sticky="new", padx=(4, 8), pady=(8, 6))
-        encoding_frame.columnconfigure(0, weight=1)
-
-        fmt_row = ttk.Frame(encoding_frame)
-        fmt_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 2))
+        # ---- Encoding: framerate, format, downsampling, bitrate ----
+        fmt_row = ttk.Frame(vp)
+        fmt_row.grid(row=2, column=0, sticky="ew", padx=8, pady=2)
         self.fps_var = tk.StringVar(value="30")
         ttk.Label(fmt_row, text="FPS:").pack(side="left", padx=(0, 4))
         ttk.Entry(fmt_row, textvariable=self.fps_var, width=5, justify="right",
@@ -96,11 +80,25 @@ class VideoMixin:
         format_combo = ttk.Combobox(fmt_row, textvariable=self.export_format_var,
                                     values=VIDEO_FORMATS,
                                     state="readonly", width=6)
-        format_combo.pack(side="left")
+        format_combo.pack(side="left", padx=(0, 10))
         format_combo.bind("<<ComboboxSelected>>", self.on_export_format_changed)
+        ttk.Label(fmt_row, text="Downsample:").pack(side="left", padx=(0, 4))
+        self.downsample_factor_var = tk.StringVar(value=DOWNSAMPLE_FACTORS[0])
+        downsample_combo = ttk.Combobox(
+            fmt_row, textvariable=self.downsample_factor_var,
+            values=DOWNSAMPLE_FACTORS, state="readonly", width=9)
+        downsample_combo.pack(side="left", padx=(0, 10))
+        downsample_combo.bind("<<ComboboxSelected>>", self.on_downsample_factor_changed)
+        self.downsample_method_label = ttk.Label(fmt_row, text="Method:")
+        self.downsample_method_label.pack(side="left", padx=(0, 4))
+        self.downsample_method_var = tk.StringVar(value=DOWNSAMPLE_METHODS[0])
+        self.downsample_method_combo = ttk.Combobox(
+            fmt_row, textvariable=self.downsample_method_var,
+            values=DOWNSAMPLE_METHODS, state="readonly", width=7)
+        self.downsample_method_combo.pack(side="left")
 
-        mode_line = ttk.Frame(encoding_frame)
-        mode_line.grid(row=1, column=0, sticky="ew", padx=8, pady=2)
+        mode_line = ttk.Frame(vp)
+        mode_line.grid(row=3, column=0, sticky="ew", padx=8, pady=2)
         self.bitrate_mode_row = ttk.Frame(mode_line)
         self.bitrate_mode_row.pack(side="left")
         ttk.Label(self.bitrate_mode_row, text="Bitrate mode:").pack(
@@ -138,60 +136,13 @@ class VideoMixin:
                      validate="key", validatecommand=vcmd_wide).pack(
                 side="left", padx=(0, 10))
 
-        downsample_row = ttk.Frame(encoding_frame)
-        downsample_row.grid(row=2, column=0, sticky="ew", padx=8, pady=(2, 6))
-        ttk.Label(downsample_row, text="Downsample:").pack(side="left", padx=(0, 4))
-        self.downsample_factor_var = tk.StringVar(value=DOWNSAMPLE_FACTORS[0])
-        downsample_combo = ttk.Combobox(
-            downsample_row, textvariable=self.downsample_factor_var,
-            values=DOWNSAMPLE_FACTORS, state="readonly", width=9)
-        downsample_combo.pack(side="left", padx=(0, 10))
-        downsample_combo.bind("<<ComboboxSelected>>", self.on_downsample_factor_changed)
-        self.downsample_method_label = ttk.Label(downsample_row, text="Method:")
-        self.downsample_method_label.pack(side="left", padx=(0, 4))
-        self.downsample_method_var = tk.StringVar(value=DOWNSAMPLE_METHODS[0])
-        self.downsample_method_combo = ttk.Combobox(
-            downsample_row, textvariable=self.downsample_method_var,
-            values=DOWNSAMPLE_METHODS, state="readonly", width=7)
-        self.downsample_method_combo.pack(side="left")
-
         self.on_bitrate_mode_changed()
         self.on_export_format_changed()
         self.on_downsample_factor_changed()
 
-        note = "" if external.ffmpeg is not None else ("\nffmpeg-python was not found - install "
-                                              "it with:  pip install ffmpeg-python")
-        ttk.Label(vp, foreground="#666", wraplength=TIMELINE_W - 30,
-                  text=f"Frames are written as PNGs to exports/{os.path.basename(paths.TEMP_DIR)}/ "
-                       "next to this program at the resolution above (same world "
-                       "area as the viewport), then combined with ffmpeg into an "
-                       ".mp4, .gif or .apng saved in exports/. Downsampling "
-                       "shrinks only that combined video, not the PNG sequence. "
-                       "Re-encode combines whatever frames are already in TEMP with "
-                       "the current encoding settings (ignoring width/height - it "
-                       "uses the existing frames' own resolution). Nothing is ever "
-                       f"deleted automatically - clear TEMP yourself between "
-                       f"renders.{note}"
-                 ).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
-
-        # Preview of the latest rendered frame, beside the render controls
-        lower = ttk.Frame(vp)
-        lower.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=8, pady=(2, 8))
-        lower.columnconfigure(1, weight=1)
-        lower.rowconfigure(0, weight=1)
-        vp.rowconfigure(2, weight=1)
-
-        self.preview_label = tk.Label(lower, bd=1, relief="solid")
-        self.preview_label.grid(row=0, column=0, sticky="n", padx=(0, 8))
-        self.set_preview_image(None)
-
-        right_col = ttk.Frame(lower)
-        right_col.grid(row=0, column=1, sticky="nsew")
-        right_col.columnconfigure(0, weight=1)
-        right_col.rowconfigure(1, weight=1)
-
-        render_row = ttk.Frame(right_col)
-        render_row.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        # ---- the buttons, the progress bar and the "?" that holds the long explanation ----
+        render_row = ttk.Frame(vp)
+        render_row.grid(row=4, column=0, sticky="ew", padx=8, pady=(4, 4))
         render_row.columnconfigure(3, weight=1)
         self.render_btn = ttk.Button(render_row, text="Start Render",
                                      command=self.start_or_cancel_render)
@@ -205,13 +156,26 @@ class VideoMixin:
         self.video_progress_style = self.make_labeled_progress_style()
         self.video_progress = ttk.Progressbar(render_row, maximum=1, mode="determinate",
                                               **({"style": self.video_progress_style} if self.video_progress_style else {}))
-        self.video_progress.grid(row=0, column=3, sticky="ew", padx=(3, 0))
+        self.video_progress.grid(row=0, column=3, sticky="ew", padx=(3, 3))
+        self.video_help = HelpButton(render_row, self.video_help_text())
+        self.video_help.grid(row=0, column=4, padx=(3, 0))
 
-        status_frame = ttk.Frame(right_col)
-        status_frame.grid(row=1, column=0, sticky="nsew")
+        # ---- a preview of the latest rendered frame, beside the status box ----
+        lower = ttk.Frame(vp)
+        lower.grid(row=5, column=0, sticky="nsew", padx=8, pady=(0, 6))
+        lower.columnconfigure(1, weight=1)
+        lower.rowconfigure(0, weight=1)
+        vp.rowconfigure(5, weight=1)
+
+        self.preview_label = tk.Label(lower, bd=1, relief="solid")
+        self.preview_label.grid(row=0, column=0, sticky="n", padx=(0, 8))
+        self.set_preview_image(None)
+
+        status_frame = ttk.Frame(lower)
+        status_frame.grid(row=0, column=1, sticky="nsew")
         status_frame.columnconfigure(0, weight=1)
         status_frame.rowconfigure(0, weight=1)
-        self.video_status_text = tk.Text(status_frame, height=7, wrap="word",
+        self.video_status_text = tk.Text(status_frame, height=6, wrap="word",
                                          font=self.small_font, state="disabled",
                                          bd=1, relief="solid")
         status_vsb = ttk.Scrollbar(status_frame, orient="vertical",
@@ -219,7 +183,28 @@ class VideoMixin:
         self.video_status_text.configure(yscrollcommand=status_vsb.set)
         self.video_status_text.grid(row=0, column=0, sticky="nsew")
         status_vsb.grid(row=0, column=1, sticky="ns")
-        self.set_video_status("")
+        self.set_video_status("" if external.ffmpeg is not None else
+                              "ffmpeg-python was not found - install it with:  pip install ffmpeg-python")
+
+    def video_help_text(self):
+        """What the "?" button of the Video tab shows."""
+        def near(path):                                      # (relative to the program, unless that is on another drive)
+            try:
+                return os.path.relpath(path, paths.SCRIPT_DIR).replace(os.sep, "/")
+            except ValueError:
+                return path.replace(os.sep, "/")
+        temp, exports = near(paths.TEMP_DIR), near(paths.EXPORT_DIR)
+        note = "" if external.ffmpeg is not None else ("\nffmpeg-python was not found - install "
+                                                      "it with:  pip install ffmpeg-python")
+        return (f"Frames are written as PNGs to {temp}/ next to this program at the resolution "
+                "above (same world area as the viewport), then combined with ffmpeg into an "
+                f".mp4, .gif or .apng saved in {exports}/. Downsampling "
+                "shrinks only that combined video, not the PNG sequence. "
+                "Re-encode combines whatever frames are already in TEMP with "
+                "the current encoding settings (ignoring width/height - it "
+                "uses the existing frames' own resolution). Nothing is ever "
+                "deleted automatically - clear TEMP yourself between "
+                f"renders.{note}")
 
     def on_downsample_factor_changed(self, _event=None):
         """The Method dropdown only matters once downsampling is actually on."""

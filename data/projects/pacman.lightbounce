@@ -1,0 +1,232 @@
+{
+  "format": "light-bounces-project",
+  "format_version": 9,
+  "program_version": 172,
+  "simulation": {
+    "seg_mult": 1.0,
+    "emit_mode": "up",
+    "emit_target_r": 0.0,
+    "emit_target_theta": 0.0,
+    "emit_target_cx": 0.0,
+    "emit_target_cy": 0.0,
+    "emit_offset": -45.0,
+    "fuzz_on": false,
+    "emit_jitter": 0.0,
+    "bnd_offset": 0.0,
+    "bnd_jitter": 0.0,
+    "bnd_mult": 1.0,
+    "self_offset": 0.0,
+    "self_jitter": 0.0,
+    "self_mult": 1.0,
+    "seed": 0
+  },
+  "natural_termination": {
+    "iter": 256,
+    "dist": 0,
+    "escape_radius": 4.0,
+    "confine_lookback": 4,
+    "confine_method": "box",
+    "confine_threshold": 0.0078125
+  },
+  "buddha_blur": {
+    "buddha_blur_radius": 0.0,
+    "buddha_blur_type": "gaussian"
+  },
+  "buddha_seeding": {
+    "buddha_seed_camera": true,
+    "buddha_seed_x_start": -2.0,
+    "buddha_seed_x_stop": 2.0,
+    "buddha_seed_y_start": -2.0,
+    "buddha_seed_y_stop": 2.0
+  },
+  "engine": {
+    "engine": "ray_bouncing"
+  },
+  "mandelbrot": {
+    "orbit_exponent": 2.0,
+    "orbit_z0": "zero",
+    "orbit_mapping": "mandelbrot",
+    "orbit_julia_re": 0.0,
+    "orbit_julia_im": 0.0,
+    "orbit_escape": "clip",
+    "orbit_pre_seg_mult": 1.0
+  },
+  "decorations": {
+    "outline": true,
+    "pending": true,
+    "ray_path": true,
+    "ray_start": true,
+    "ray_end": true,
+    "guides": true,
+    "samples": false
+  },
+  "obstacles": [
+    {
+      "kind": "ellipse",
+      "id": 0,
+      "fields": {
+        "rotation": 0.0,
+        "width": 4.0,
+        "height": 4.0,
+        "r": 0.0,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    },
+    {
+      "kind": "circular_sector",
+      "id": 1,
+      "fields": {
+        "rotation": 0.0,
+        "radius": 2.0,
+        "sector_span": 1.0,
+        "r": 0.0,
+        "theta": 0.0,
+        "cx": 0.0,
+        "cy": 0.0,
+        "in_effect": "reflect",
+        "out_effect": "reflect",
+        "fire_inside": true
+      }
+    }
+  ],
+  "colorations": [
+    {
+      "id": 0,
+      "color_model": "RGB",
+      "channels": [
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_self_bounces"
+          ],
+          "buddha_path_kinds": [
+            "escaping",
+            "non_escaping",
+            "terminated_by_obstacle"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "all_segment_midpoints"
+          ],
+          "buddha_path_kinds": [
+            "escaping",
+            "non_escaping",
+            "terminated_by_obstacle"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        },
+        {
+          "source": "buddha",
+          "buddha_points": [
+            "progressive_means_of_bounce_points"
+          ],
+          "buddha_path_kinds": [
+            "escaping",
+            "non_escaping",
+            "terminated_by_obstacle"
+          ],
+          "buddha_compression": "arctangent",
+          "buddha_brightness": "1x"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "color_model": "RGB",
+      "channels": [
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "horizontal_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        },
+        {
+          "source": "query",
+          "kind": "point_metric",
+          "metric": "vertical_distance",
+          "point1": "path_first",
+          "point2": "path_last"
+        },
+        {
+          "source": "query",
+          "kind": "other_metric",
+          "metric": "boundary_bounces_share"
+        }
+      ]
+    }
+  ],
+  "framings": [
+    {
+      "id": 0,
+      "x": 0.0,
+      "y": 0.0,
+      "diagonal": 5.656854249492381,
+      "aspect": 1.0
+    }
+  ],
+  "keyframes": [
+    {
+      "id": 0,
+      "frame_index": 0,
+      "settings": {
+        "obst:1:sector_span": 180.0
+      }
+    },
+    {
+      "id": 1,
+      "frame_index": 2879,
+      "settings": {
+        "obst:1:sector_span": 1.0
+      }
+    }
+  ],
+  "export": {
+    "include_all_colorations": true,
+    "color_info_location": "bottom_margin",
+    "figure_info_location": "left_margin",
+    "framing_info_location": "none",
+    "image_source": "current_image",
+    "image_format": "jxl",
+    "image_jxl_mode": "lossless",
+    "image_jxl_quality": 90,
+    "image_width": "1080",
+    "image_height": "1080",
+    "video_fps": "60",
+    "video_width": "2048",
+    "video_height": "2048",
+    "video_start_frame": "0",
+    "video_number_files_from_start": true,
+    "video_format": "mp4_h264",
+    "video_bitrate_mode": "target_bitrate",
+    "video_quality": 90,
+    "video_bitrate": "16384",
+    "video_vbr_target": "512",
+    "video_vbr_max": "1024",
+    "video_downsample_factor": "none",
+    "video_downsample_method": "mean",
+    "video_jxl_mode": "lossless",
+    "video_jxl_quality": 90
+  },
+  "counters": {
+    "obstacle": 2,
+    "coloration": 2,
+    "framing": 1,
+    "keyframe": 2
+  },
+  "selected": {
+    "obstacle": 1,
+    "coloration": 1,
+    "framing": 0
+  }
+}

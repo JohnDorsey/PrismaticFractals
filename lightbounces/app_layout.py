@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 import numpy as np
 from .constants import (
-    BOTTOM_H, CORKSCREW_LINE_WIDTH, CORKSCREW_MARGIN, CORKSCREW_MARGIN_MIN, CORKSCREW_SIDE_MIN,
+    BOTTOM_H, TIMELINE_W, CORKSCREW_LINE_WIDTH, CORKSCREW_MARGIN, CORKSCREW_MARGIN_MIN, CORKSCREW_SIDE_MIN,
     CORKSCREW_TEXT_W, DECO_IMAGE, DECO_PREVIEW, GUIDE_RGBA, TAG_COLOR, PAD, RIGHT_W, SEG_CANVAS_H,
     SEG_CANVAS_W, SEG_CANVAS_WORLD_HEIGHT
 )
@@ -404,8 +404,11 @@ class LayoutMixin:
 
     def build_status_quadrant(self):
         """Bottom middle: the Export designer (whether to include one coloration
-        or all of them in exported output), then the Export controls (what
-        to export, its format, and the Export / Export As buttons)."""
+        or all of them in exported output), then a notebook of two tabs: Image
+        (what to export, its format, and the Export / Export As buttons) and
+        Video (render settings, encoding, the render buttons and their status:
+        build_video_panel fills it). The bottom right panel, where the Video panel
+        used to be, is left empty."""
         container = ttk.Frame(self.root, width=RIGHT_W, height=BOTTOM_H)
         container.grid(row=1, column=1, sticky="nsew",
                        padx=(PAD // 2, PAD // 2), pady=(PAD // 2, PAD))
@@ -444,10 +447,20 @@ class LayoutMixin:
         ttk.Combobox(framing_info_row, textvariable=self.framing_info_location_var,
                     values=FRAMING_INFO_LOCATIONS, state="readonly", width=13).pack(side="left")
 
-        # ---- Export: what to export, its format, and the buttons ----
-        exp = ttk.LabelFrame(container, text="Export")
-        exp.grid(row=1, column=0, sticky="nsew")
+        # ---- the two ways to export, in tabs: one image, or a video ----
+        self.bottom_notebook = ttk.Notebook(container)
+        self.bottom_notebook.grid(row=1, column=0, sticky="nsew")
+        exp = ttk.Frame(self.bottom_notebook)                  # Image: what to export, its format, and the buttons
+        self.video_tab = ttk.Frame(self.bottom_notebook)       # Video: see build_video_panel
+        self.bottom_notebook.add(exp, text="Image")
+        self.bottom_notebook.add(self.video_tab, text="Video")
         exp.columnconfigure(0, weight=1)
+        self.video_tab.columnconfigure(0, weight=1)
+
+        # the bottom right panel: nothing in it for now
+        self.bottom_right_panel = ttk.LabelFrame(self.root, text="", width=TIMELINE_W, height=BOTTOM_H)
+        self.bottom_right_panel.grid(row=1, column=2, sticky="nsew", padx=(PAD // 2, PAD), pady=(PAD // 2, PAD))
+        self.bottom_right_panel.grid_propagate(False)
 
         # Export buttons are packed at the bottom FIRST, so they always get
         # their space no matter how tall everything else below ends up

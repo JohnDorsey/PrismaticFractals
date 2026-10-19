@@ -280,10 +280,13 @@ Window layout (six panels, in three columns)
   top right      Timeline: the keyframe list, each
                  keyframe's settings, and the selected keyframe's controls
   bottom left    Sequence preview: the previewed ray, in Numbers, Bar graph and Corkscrew tabs
-  bottom middle  the Export designer, and Export
-  bottom right   Video: render settings (size, starting frame), encoding
-                 settings (fps, format, bitrate, downsampling), a preview of
-                 the latest frame, and Start Render / Re-encode / Clear
+  bottom middle  the Export designer, and below it two tabs: Image (what to
+                 export, its format, Export / Export As) and Video (size,
+                 starting frame, fps, format, downsampling, bitrate, Start Render /
+                 Re-encode / Clear with a progress bar, a preview of the latest
+                 frame and a status box; its long explanation is behind a "?"
+                 button)
+  bottom right   empty for now
 
 Projects
   File > New / Open / Save / Save as (Ctrl+N, O, S, Shift+S) keep a whole setup in a
