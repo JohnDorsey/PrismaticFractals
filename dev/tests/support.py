@@ -12,7 +12,7 @@ import numpy as np
 
 from test_harness import load_module
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # the folder with light_bounces.py
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # the folder with PrismaticFractals.py
 m = load_module()
 
 
@@ -778,7 +778,7 @@ def _buddha_choice(*points):
 
 
 # --------------------------------------------------------------------------- #
-# A test double for a second path engine (the engine refactor, `lightbounces/engines.py`)
+# A test double for a second path engine (the engine refactor, `PrismaticFractals/engines.py`)
 # --------------------------------------------------------------------------- #
 TEST_ENGINE_CODE = 1
 

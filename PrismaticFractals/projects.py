@@ -51,7 +51,7 @@ from .framings import (
 PROJECT_EXTENSION = ".lightbounce"
 PROJECT_FORMAT_NAME = "light-bounces-project"
 PROJECT_FORMAT_VERSION = 9
-PROJECT_FILE_TYPES = [("Light bounces project", f"*{PROJECT_EXTENSION}")]
+PROJECT_FILE_TYPES = [("Prismatic Fractals project", f"*{PROJECT_EXTENSION}")]
 # A key is lower-case words joined by underscores, or the coordinates of a fixed point, "(-1,1)": a point that is named
 # by where it is can never change what it means (a different point is a different key).
 PROJECT_KEY_PATTERN = re.compile(r"[a-z0-9_]+|\(-?\d+,-?\d+\)")
@@ -882,7 +882,7 @@ def project_from_dict(data):
 
 def _project_from_dict(data):
     _expect(isinstance(data, dict) and data.get("format") == PROJECT_FORMAT_NAME,
-            "This is not a Light bounces project file.")
+            "This is not a Prismatic Fractals project file.")
     version = data.get("format_version")
     _expect(isinstance(version, int) and not isinstance(version, bool) and version >= 1,
             "The project file has no valid format version.")

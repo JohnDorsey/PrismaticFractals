@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fake `cjxl` for test_light_bounces.py (POSIX). Windows counterpart: cjxl.cmd.
+# Fake `cjxl` for test_PrismaticFractals.py (POSIX). Windows counterpart: cjxl.cmd.
 # Usage mimics the real tool's `cjxl <input> <output> ...`: copies <input> to
 # <output> and exits 0. If the FAKE_CJXL_FAIL_ON environment variable is set
 # and <input>'s path contains that text, instead prints a message to stderr

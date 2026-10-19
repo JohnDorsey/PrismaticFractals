@@ -1,7 +1,7 @@
 """The window: class App, assembled from the mixins of the app_*.py modules (each holds one area of its methods, which use
 `self` and the attributes __init__ creates), and main(). All of the application's state is created in App.__init__.
 
-The program's feature description is the docstring of the package (lightbounces/__init__.py)."""
+The program's feature description is the docstring of the package (PrismaticFractals/__init__.py)."""
 
 
 import os
@@ -53,7 +53,7 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
 
     def __init__(self, root):
         self.root = root
-        root.title(os.path.basename(sys.argv[0]) or "Light bounces")
+        root.title(os.path.basename(sys.argv[0]) or "Prismatic Fractals")
         root.resizable(False, False)
         self.build_menu_bar()
         self._crash_dumps = 0

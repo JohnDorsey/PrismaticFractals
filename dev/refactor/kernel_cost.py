@@ -3,7 +3,7 @@
 Prints the import time and the time of the first calls of two kernel entry points. Run it twice
 (the second run shows the warm-cache time), and once after `touch`ing a source file (shows what a
 recompile costs). Baseline at FILE_VERSION 113, before any split: warm 4.0 s; after touching
-light_bounces.py without changing any kernel 6.4 s (the extra 2.4 s is the recompile that a split
+PrismaticFractals.py without changing any kernel 6.4 s (the extra 2.4 s is the recompile that a split
 should stop UI/project edits from causing).
 """
 import os

@@ -28,7 +28,7 @@ def check(path):
 
 
 bad = 0
-for path in sorted(glob.glob(os.path.join(ROOT, "lightbounces", "**", "*.py"), recursive=True)):
+for path in sorted(glob.glob(os.path.join(ROOT, "PrismaticFractals", "**", "*.py"), recursive=True)):
     missing = check(path)
     if missing:
         bad += 1

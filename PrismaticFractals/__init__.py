@@ -330,8 +330,8 @@ from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, a
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
-# later patch do nothing. They are deliberately NOT re-exported below: `lightbounces.EXPORT_DIR` would be a stale
-# copy after a patch, so it does not exist - use `lightbounces.paths.EXPORT_DIR`.
+# later patch do nothing. They are deliberately NOT re-exported below: `PrismaticFractals.EXPORT_DIR` would be a stale
+# copy after a patch, so it does not exist - use `PrismaticFractals.paths.EXPORT_DIR`.
 PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": "paths", "DEV_DIR": "paths", "DEBUG_DIR": "paths",
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
@@ -339,8 +339,8 @@ PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": 
 _MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, stored_layout, figure, metrics, buddha, colorations, engines, color_pipeline, framings, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_engine, app_generation, app_preview, app_recolor, app_buddha, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
-# names alike), so `lightbounces.write_png` works wherever it lives; tests read names this way. To PATCH a
-# global, patch the module that owns it (`lightbounces.paths.EXPORT_DIR`): functions read their own module's
+# names alike), so `PrismaticFractals.write_png` works wherever it lives; tests read names this way. To PATCH a
+# global, patch the module that owns it (`PrismaticFractals.paths.EXPORT_DIR`): functions read their own module's
 # globals.
 for _module in _MODULES:
     for _name, _value in vars(_module).items():

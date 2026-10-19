@@ -25,7 +25,7 @@ def test_ffv1_uses_mkv_extension_with_ffv1_suffix():
     ext, suffix = app.output_extension_and_suffix({"fmt": "mkv (ffv1)"})
     assert ext == "mkv"
     assert suffix == ".ffv1"
-    filename = f"light_bounces-video-20260101-000000{suffix}.{ext}"
+    filename = f"PrismaticFractals-video-20260101-000000{suffix}.{ext}"
     assert filename.endswith(".ffv1.mkv")
 
 
@@ -505,7 +505,7 @@ class _ClearTempFramesContext:
     """Patches m.paths.TEMP_DIR to a fresh scratch directory and m.messagebox's
     dialog functions to controllable, call-counting stubs, for the duration
     of a `with` block - and restores both afterward, since the test module
-    loads light_bounces once and shares it across every test."""
+    loads PrismaticFractals once and shares it across every test."""
     def __init__(self, confirm=True):
         self.confirm = confirm
         self.showinfo_calls = []

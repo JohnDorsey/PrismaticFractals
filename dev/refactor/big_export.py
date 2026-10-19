@@ -4,7 +4,7 @@
 
 Prints the peak memory of the process (Windows peak working set; about 207 MB of it is the interpreter and numba), the
 time and a hash of the image. "demand" is what render_full_image does (it keeps only the stored slots the colorations
-read, see lightbounces.stored_layout); "full" stores every slot of every pixel, as it did before FILE_VERSION 151, to
+read, see PrismaticFractals.stored_layout); "full" stores every slot of every pixel, as it did before FILE_VERSION 151, to
 compare with. Defaults to 3840 x 2160, 16 iterations, outlines off. Needs psutil."""
 import hashlib
 import os

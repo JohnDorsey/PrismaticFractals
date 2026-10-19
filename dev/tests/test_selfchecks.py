@@ -7,7 +7,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # Registry self-checks
 # --------------------------------------------------------------------------- #
 def test_self_checks_pass_on_the_real_file():
-    """run_self_checks() (in light_bounces.py itself) already runs at import
+    """run_self_checks() (in PrismaticFractals.py itself) already runs at import
     time, so if we got this far it already passed - this just re-runs it
     explicitly so a failure here points straight at the registry check
     rather than an opaque import error."""

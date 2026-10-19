@@ -1,5 +1,5 @@
 @echo off
-rem Fake `cjxl` for test_light_bounces.py (Windows). POSIX counterpart: cjxl.
+rem Fake `cjxl` for test_PrismaticFractals.py (Windows). POSIX counterpart: cjxl.
 rem Usage mimics the real tool's `cjxl <input> <output> ...`: copies <input> to
 rem <output> and exits 0. If the FAKE_CJXL_FAIL_ON environment variable is set
 rem and <input>'s path contains that text, instead prints a message to stderr

@@ -1,9 +1,9 @@
-"""Finds and runs the tests (the folder's test_*.py files and support.py); used by dev/test_light_bounces.py.
+"""Finds and runs the tests (the folder's test_*.py files and support.py); used by dev/test_PrismaticFractals.py.
 
-    python dev/test_light_bounces.py                 every test (what to run after every edit)
-    python dev/test_light_bounces.py kernels colorations   only the tests of those areas (dev/tests/test_<area>.py)
-    python dev/test_light_bounces.py -k golden       only the tests whose name contains the text (any number of -k)
-    python dev/test_light_bounces.py --list          the areas and how many tests each has
+    python dev/test_PrismaticFractals.py                 every test (what to run after every edit)
+    python dev/test_PrismaticFractals.py kernels colorations   only the tests of those areas (dev/tests/test_<area>.py)
+    python dev/test_PrismaticFractals.py -k golden       only the tests whose name contains the text (any number of -k)
+    python dev/test_PrismaticFractals.py --list          the areas and how many tests each has
 
 A test is a plain function named test_* taking no arguments that raises AssertionError on failure (SkipTest, from support, to skip).
 Tests run in name order, so the order does not depend on the file they are in. Exit code 1 if any failed."""

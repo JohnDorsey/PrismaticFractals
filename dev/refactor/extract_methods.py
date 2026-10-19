@@ -1,4 +1,4 @@
-"""Moves methods of `class App` (lightbounces/core.py) into a mixin class in a new module.
+"""Moves methods of `class App` (PrismaticFractals/core.py) into a mixin class in a new module.
 
     python dev/refactor/extract_methods.py MODULE MixinName DOCFILE [--go] first_method:last_method [name ...]
 

@@ -1,6 +1,6 @@
 """Warm run time and first-call compile time of the drivers (run: python dev/refactor/driver_bench.py [ROOT] [--first]).
 
-ROOT is a folder holding `lightbounces/` and `test_harness.py` (here or in its dev/; default: this project), so an old copy of the package can be timed
+ROOT is a folder holding `PrismaticFractals/` and `test_harness.py` (here or in its dev/; default: this project), so an old copy of the package can be timed
 against the present one, alternately, in separate processes. Without --first it times, after a warm-up call, the best of several runs of
 four runs on fixed scenes (a 512 x 512 trace_rows of the starting scene; the same of a scene with two shapes and a segment
 multiplier; scatter_multi_buddha, serial, of 256 x 256 seeds with all segment midpoints; a 256 x 256 trace_rows of 2000 iterations) and prints one line of seconds per scene.

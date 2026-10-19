@@ -192,7 +192,7 @@ class ProjectsMixin:
 
     def update_title(self):
         title = f"{'*' if self.is_dirty() else ''}{self.project_display_name()} - " \
-                f"{os.path.basename(sys.argv[0]) or 'Light bounces'}"
+                f"{os.path.basename(sys.argv[0]) or 'Prismatic Fractals'}"
         if title != self.title_shown:
             self.title_shown = title
             self.root.title(title)

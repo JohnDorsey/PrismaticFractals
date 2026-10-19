@@ -6,11 +6,11 @@ at import and make a later patch do nothing).
 """
 import os
 
-# The folder with the launcher (light_bounces.py): the one above this package.
+# The folder with the launcher (PrismaticFractals.py): the one above this package.
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # What the files the program writes are named after. This default is the launcher's usual file name; the launcher
 # sets it to its own actual file name, so renaming the launcher renames the output files.
-PROGRAM_NAME = "light_bounces"
+PROGRAM_NAME = "PrismaticFractals"
 # What the program reads and writes (exports, projects, the debug captures) lives in the data folder next to the launcher.
 DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 # Everything the program writes (exported images and videos) goes in EXPORT_DIR;

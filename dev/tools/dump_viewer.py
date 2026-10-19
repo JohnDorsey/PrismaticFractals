@@ -6,7 +6,7 @@ Run:   python dump_viewer.py [dump.pkl]
        (with no argument it offers the newest file in data/debug/dumps)
 
 Mostly standalone: it needs only Python's standard library (tkinter) and, if
-installed, numpy (to read arrays). It does NOT import light_bounces.py, so it
+installed, numpy (to read arrays). It does NOT import PrismaticFractals.py, so it
 starts instantly and works without numba; classes that belong to the
 application are read back as placeholder objects showing their attributes.
 
@@ -196,7 +196,8 @@ def placeholder_class(module, name):
 
 # Application modules are never imported here (that would pull in numba).
 DUMPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "debug", "dumps")     # where the program writes them
-APPLICATION_MODULES = ("__main__", "light_bounces", "lightbounces", "debug_dump", "test_light_bounces", "tests",
+APPLICATION_MODULES = ("__main__", "PrismaticFractals", "light_bounces", "lightbounces", "debug_dump", "test_PrismaticFractals",
+                       "test_light_bounces", "tests",
                        "test_harness")
 
 

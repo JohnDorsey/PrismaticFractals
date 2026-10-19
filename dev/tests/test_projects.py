@@ -255,8 +255,8 @@ def _refused(data, expected_text):
 
 def test_a_file_that_is_not_a_usable_project_is_refused_with_a_clear_message():
     d = _dict_of()
-    _refused([], "not a Light bounces project")
-    _refused({**d, "format": "something-else"}, "not a Light bounces project")
+    _refused([], "not a Prismatic Fractals project")
+    _refused({**d, "format": "something-else"}, "not a Prismatic Fractals project")
     _refused({**d, "format_version": 99}, "newer version")
     _refused({**d, "format_version": "1"}, "format version")
     _refused({**d, "format_version": 0}, "format version")

@@ -5,7 +5,7 @@ function reads, which of them are other @njit functions it calls, and groups the
 components. numba freezes the value of every global a kernel reads into the compiled code and only checks the
 modification time of the kernel's own file when it reuses a cached compile (see dev/refactor/numba_cache_check.py), so
 every such global, and every function a kernel calls, has to be defined in that same file. Default file:
-lightbounces/kernels.py (pass lightbounces/core.py to see what the kernels read before step 3 of dev/finished_plans/refactor_plan.md
+PrismaticFractals/kernels.py (pass PrismaticFractals/core.py to see what the kernels read before step 3 of dev/finished_plans/refactor_plan.md
 moved them).
 
 kernel_rule_violations() turns that into a verdict and is what the guard test in tests/test_package.py runs on every
@@ -114,7 +114,7 @@ def import_origins(tree):
 
 def kernel_rule_violations(source, kernels_file=False):
     """The ways `source` breaks the rule that a file's @njit functions read only what the same file defines
-    (see the docstring of lightbounces/kernels.py for why), as a list of sentences; empty means it keeps the rule.
+    (see the docstring of PrismaticFractals/kernels.py for why), as a list of sentences; empty means it keeps the rule.
     A kernel may read: a builtin, a name defined or imported in its own file from OUTSIDE the package (numpy, math,
     collections...), or njit/prange from .external. It may not read a name imported from another module of the
     package: numba would freeze that module's current value into the compiled code and only look at this file's
@@ -200,4 +200,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "lightbounces", "kernels.py"))
+    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "PrismaticFractals", "kernels.py"))

@@ -5,7 +5,7 @@ holds into one file, for inspecting later.
 This file is deliberately standalone. It knows nothing about what the
 application's attributes mean, only about kinds of Python values, so a new
 attribute or setting added to the application is captured without touching
-this file. light_bounces.py loads it only if the dev/ folder exists (see
+this file. PrismaticFractals.py loads it only if the dev/ folder exists (see
 dump_app_state there), exactly like the startup screenshot.
 
 What goes in: every attribute of the application object, and the module's own
@@ -31,8 +31,8 @@ list of which attributes hold the simulation's output or other big buffers.
 
 Loading: use load_dump(path). A dump written while the program ran as a script
 names its classes as belonging to "__main__"; load_dump maps that to the real
-module name (default "lightbounces", the package, which must be importable; the program's own classes
-are recorded under their real module names, e.g. "lightbounces.core", and need no mapping).
+module name (default "PrismaticFractals", the package, which must be importable; the program's own classes
+are recorded under their real module names, e.g. "PrismaticFractals.core", and need no mapping).
 """
 import os
 import pickle
@@ -282,7 +282,7 @@ class _Unpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def load_dump(path, module_name="lightbounces"):
+def load_dump(path, module_name="PrismaticFractals"):
     """Read a dump back. Classes recorded as belonging to "__main__" (the program
     run as a script) are looked up in `module_name` instead."""
     with open(path, "rb") as f:

@@ -23,7 +23,7 @@ sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 import tkinter as tk                                 # noqa: E402
 import numpy as np                                   # noqa: E402
-import light_bounces as lb                           # noqa: E402
+import PrismaticFractals as lb                           # noqa: E402
 
 folder = tempfile.mkdtemp(prefix="lb_check_")
 lb.paths.EXPORT_DIR = os.path.join(folder, "exports")

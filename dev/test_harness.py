@@ -1,5 +1,5 @@
 """
-Shared test harness for the program (the `lightbounces` package).
+Shared test harness for the program (the `PrismaticFractals` package).
 
 The program is a Tkinter app, so importing it directly requires a
 display. This module stubs out just enough of tkinter/ttk for the import to
@@ -119,7 +119,7 @@ def _install_stubs():
     sys.modules["tkinter.messagebox"] = messagebox
 
 
-PACKAGE = "lightbounces"
+PACKAGE = "PrismaticFractals"
 
 
 def _package_modules():
@@ -128,10 +128,10 @@ def _package_modules():
 
 
 def load_module(path=None):
-    """Import the program headlessly and return it as a module-like object: the `lightbounces` package, whose
+    """Import the program headlessly and return it as a module-like object: the `PrismaticFractals` package, whose
     attributes include every name of every module of it (public and underscore). Safe to call multiple times
     (e.g. once per test function that needs a clean copy to break on purpose, like the deliberate-breakage
-    checks in test_light_bounces.py); each call imports the WHOLE package afresh, so the copies are independent
+    checks in test_PrismaticFractals.py); each call imports the WHOLE package afresh, so the copies are independent
     and tests that mutate module-level state don't affect each other.
 
     To PATCH a global of the program, patch the module that owns it (m.paths.EXPORT_DIR, m.external.ffmpeg):
@@ -142,7 +142,7 @@ def load_module(path=None):
     `path` (for development scripts) loads one old single-file version of the program from that file."""
     _install_stubs()
     if path is not None:
-        spec = importlib.util.spec_from_file_location("light_bounces", path)
+        spec = importlib.util.spec_from_file_location("PrismaticFractals", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module

@@ -1,4 +1,4 @@
-"""Moves top-level definitions out of lightbounces/core.py into a new module of the package.
+"""Moves top-level definitions out of PrismaticFractals/core.py into a new module of the package.
 
 Used by the steps of dev/finished_plans/refactor_plan.md (import it from a throw-away script):
 
@@ -7,7 +7,7 @@ Used by the steps of dev/finished_plans/refactor_plan.md (import it from a throw
 
 What it does, so a step stays a pure move:
   * cuts each named top-level definition (with its decorators and the comment lines directly above it) out of
-    core.py, in file order, and writes them unchanged into lightbounces/<module>.py;
+    core.py, in file order, and writes them unchanged into PrismaticFractals/<module>.py;
   * gives the new module the imports it needs: the standard-library / numpy / tkinter imports of core.py that
     its code uses, and `from .other import name, ...` for every name it uses that another package module
     defines. A name it uses that is STILL defined in core.py is an import cycle: it stops and lists them
@@ -24,18 +24,18 @@ import os
 import re
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-PKG = os.path.join(ROOT, "lightbounces")
+PKG = os.path.join(ROOT, "PrismaticFractals")
 CORE = os.path.join(PKG, "core.py")
 
 def _patchable_globals():
-    """name -> owner module, read from PATCHABLE_GLOBALS in lightbounces/__init__.py (the one list); such a name
+    """name -> owner module, read from PATCHABLE_GLOBALS in PrismaticFractals/__init__.py (the one list); such a name
     is always read as `<owner>.<name>` at call time."""
     with open(os.path.join(PKG, "__init__.py"), encoding="utf-8") as handle:
         tree = ast.parse(handle.read())
     for node in tree.body:
         if isinstance(node, ast.Assign) and node.targets[0].id == "PATCHABLE_GLOBALS":
             return ast.literal_eval(node.value)
-    raise SystemExit("PATCHABLE_GLOBALS not found in lightbounces/__init__.py")
+    raise SystemExit("PATCHABLE_GLOBALS not found in PrismaticFractals/__init__.py")
 
 
 PATCHABLE = _patchable_globals()

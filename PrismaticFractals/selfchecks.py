@@ -1,6 +1,6 @@
 """Consistency checks between tables that must independently agree. Each setting, field, termination reason, shape kind, catalog... has to be
 listed correctly in several separate places, and nothing else enforces that agreement. run_self_checks() runs once when the package is
-imported (see lightbounces/__init__.py, after every module is loaded), so a table that is missing an entry fails loudly then, rather than
+imported (see PrismaticFractals/__init__.py, after every module is loaded), so a table that is missing an entry fails loudly then, rather than
 silently producing a KeyError or a wrong value the first time that path is hit. Tests break a fresh copy of the package on purpose to
 confirm that each check fires (they rebind the table on THIS module, which is where the checks read it)."""
 from .constants import (

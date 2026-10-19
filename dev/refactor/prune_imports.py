@@ -1,5 +1,5 @@
 """Remove unused imported names from a module's top-level import statements and rewrap the statement
-(python dev/refactor/prune_imports.py lightbounces/core.py [name ...]: also removes the named ones even if used -
+(python dev/refactor/prune_imports.py PrismaticFractals/core.py [name ...]: also removes the named ones even if used -
 use that for the local-variable names extract_tool.py wrongly imports). Run it after every extraction; then compile and run the suite."""
 import ast, re, sys, textwrap
 

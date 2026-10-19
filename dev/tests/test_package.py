@@ -9,7 +9,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 # --------------------------------------------------------------------------- #
 # The package: modules, re-exports, patchable globals, the launcher
 # --------------------------------------------------------------------------- #
-PACKAGE_DIR = os.path.join(ROOT, "lightbounces")
+PACKAGE_DIR = os.path.join(ROOT, "PrismaticFractals")
 
 
 def _package_sources():
@@ -31,10 +31,10 @@ def test_patchable_globals_are_read_as_attributes_of_their_owner_never_imported_
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 bad = [a.name for a in node.names if a.name in owners and owners[a.name] != module]
-                assert not bad, f"lightbounces/{module}.py imports {bad} by value"
+                assert not bad, f"PrismaticFractals/{module}.py imports {bad} by value"
             if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in owners
                     and owners[node.id] != module and module != "__init__"):
-                raise AssertionError(f"lightbounces/{module}.py line {node.lineno} reads {node.id} directly; "
+                raise AssertionError(f"PrismaticFractals/{module}.py line {node.lineno} reads {node.id} directly; "
                                      f"read {owners[node.id]}.{node.id}")
     for name, owner in owners.items():
         assert hasattr(getattr(m, owner), name), f"{owner} does not define {name}"
@@ -54,7 +54,7 @@ def test_the_package_re_exports_every_name_of_every_module_as_the_same_object():
                 if name.startswith("__") or name in m.PATCHABLE_GLOBALS:
                     continue
                 seen.setdefault(name, []).append(module)
-                assert hasattr(m, name), f"{module}.{name} is not reachable as lightbounces.{name}"
+                assert hasattr(m, name), f"{module}.{name} is not reachable as PrismaticFractals.{name}"
     assert len(seen) > 400
     for name, modules in seen.items():
         if len(modules) == 1:
@@ -66,30 +66,30 @@ def test_every_load_of_the_package_is_an_independent_copy():
     assert first is not second and first.core is not second.core and first.EllipseShape is not second.EllipseShape
     first.LuneShape.KEY = "changed"
     assert second.LuneShape.KEY == "lune"
-    assert set(first.__lb_modules__) >= {"lightbounces", "lightbounces.core", "lightbounces.paths"}
-    assert not [name for name in sys.modules if name.startswith("lightbounces")], \
+    assert set(first.__lb_modules__) >= {"PrismaticFractals", "PrismaticFractals.core", "PrismaticFractals.paths"}
+    assert not [name for name in sys.modules if name.startswith("PrismaticFractals")], \
         "a copy must not stay in sys.modules (the next copy would not start clean)"
 
 
 def test_the_launcher_exposes_the_programs_names_and_names_the_output_files_after_itself():
     import importlib.util
-    path = os.path.join(ROOT, "light_bounces.py")
+    path = os.path.join(ROOT, "PrismaticFractals.py")
     spec = importlib.util.spec_from_file_location("launcher_under_test", path)
     launcher = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(launcher)
-        package = sys.modules["lightbounces"]
+        package = sys.modules["PrismaticFractals"]
         assert launcher.App is package.core.App and launcher.main is package.core.main
-        assert launcher.paths is package.paths and launcher.paths.PROGRAM_NAME == "light_bounces"
+        assert launcher.paths is package.paths and launcher.paths.PROGRAM_NAME == "PrismaticFractals"
         assert launcher.Shape is package.Shape
     finally:
-        for name in [n for n in sys.modules if n == "lightbounces" or n.startswith("lightbounces.")]:
+        for name in [n for n in sys.modules if n == "PrismaticFractals" or n.startswith("PrismaticFractals.")]:
             del sys.modules[name]
 
 
 def test_the_program_folder_is_the_one_with_the_launcher():
     assert m.paths.SCRIPT_DIR == ROOT
-    assert os.path.isfile(os.path.join(m.paths.SCRIPT_DIR, "light_bounces.py"))
+    assert os.path.isfile(os.path.join(m.paths.SCRIPT_DIR, "PrismaticFractals.py"))
     assert m.paths.EXPORT_DIR == os.path.join(m.paths.SCRIPT_DIR, "data", "exports")
     assert m.paths.PROJECT_DIR == os.path.join(m.paths.SCRIPT_DIR, "data", "projects")
     assert m.paths.TEMP_DIR == os.path.join(m.paths.EXPORT_DIR, "TEMP")
