@@ -780,18 +780,13 @@ def _fake_limits_app(lookback="4", method="Box", threshold="0.00390625"):
 
         def configure(self, style=None, **_k):
             app.styles[self.name] = style
-    names = {"iter": "iter", "dist": "dist", "escape_radius": "escape_radius", "confine_lookback": "lookback", "confine_threshold": "threshold"}
+    names = {"iter": "iter", "dist": "dist", "escape_radius": "escape_radius", "confine_lookback": "lookback", "confine_threshold": "threshold",
+             **{f"emit_target_{field}": f"target_{field}" for field in m.EMIT_TARGET_FIELDS}}
     app.limit_msg_var, app.confine_msg_var = _StubVar(""), _StubVar("")
     app.invalidate_preview = app.update_buttons = lambda: None
     app.refresh_timeline_diffs = lambda: None
     _give_settings_model(app, entry_factory=lambda key: Entry(names.get(key, key)), iter="256", dist="0", escape_radius="2.0",
                          confine_lookback=lookback, confine_method=method, confine_threshold=threshold)
-    for field in m.EMIT_TARGET_FIELDS:
-        setattr(app, f"emit_target_{field}_var", _StubVar("0.0"))
-        setattr(app, f"last_emit_target_{field}", 0.0)
-    for field in m.EMIT_TARGET_FIELDS:
-        setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
-    app.emit_msg_var = _StubVar("")
     return app
 
 
@@ -1102,12 +1097,12 @@ def test_emission_settings_are_registered_and_the_right_ones_interpolate():
 
 def test_emission_settings_round_trip_through_capture_and_resolve():
     app = _make_fake_app_for_snapshot()
-    app.emit_mode_var = _StubVar("Towards point")
-    app.emit_target_r_var = _StubVar("-2.5e3")
-    app.emit_target_theta_var = _StubVar("90")
-    app.emit_target_cx_var = _StubVar("0.75")
-    app.emit_target_cy_var = _StubVar("-4")
-    app.emit_offset_scale = _StubVar(12.5)
+    app.emit_mode_var.set("Towards point")
+    app.emit_target_r_var.set("-2.5e3")
+    app.emit_target_theta_var.set("90")
+    app.emit_target_cx_var.set("0.75")
+    app.emit_target_cy_var.set("-4")
+    app.emit_offset_var.set("12.5")
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
     app.colorations = []
@@ -1160,8 +1155,7 @@ def test_valid_target_entries_update_the_last_good_values():
     app.emit_target_cx_var.set("3e8")
     app.emit_target_cy_var.set("0.25")
     app.on_limit_var_changed()
-    assert (app.last_emit_target_r, app.last_emit_target_theta, app.last_emit_target_cx,
-            app.last_emit_target_cy) == (-12.5, -720.0, 3e8, 0.25)
+    assert tuple(app.model.value(f"emit_target_{field}") for field in m.EMIT_TARGET_FIELDS) == (-12.5, -720.0, 3e8, 0.25)
     assert all(app.styles[f"target_{f}"] == "TEntry" for f in m.EMIT_TARGET_FIELDS)
     assert app.emit_msg_var.get() == ""
 
@@ -1179,16 +1173,16 @@ def test_an_invalid_target_is_flagged_and_the_last_good_value_restored_on_commit
 
 def test_current_ray_settings_reads_the_emission_controls_and_is_none_when_a_target_is_bad():
     app = _make_fake_app_for_snapshot()
-    app.emit_mode_var = _StubVar("Towards point")
-    app.emit_target_r_var = _StubVar("-0.25")
-    app.emit_target_theta_var = _StubVar("45")
-    app.emit_target_cx_var = _StubVar("1e3")
-    app.emit_target_cy_var = _StubVar("-2")
-    app.emit_offset_scale = _StubVar(33.333)
+    app.emit_mode_var.set("Towards point")
+    app.emit_target_r_var.set("-0.25")
+    app.emit_target_theta_var.set("45")
+    app.emit_target_cx_var.set("1e3")
+    app.emit_target_cy_var.set("-2")
+    app.emit_offset_var.set("33.333")
     snap = app.current_ray_settings()
     assert (snap.emit_mode, snap.emit_target_r, snap.emit_target_theta, snap.emit_target_cx,
             snap.emit_target_cy, snap.emit_offset) == (TOWARDS, -0.25, 45.0, 1000.0, -2.0, 33.33)
-    app.emit_target_theta_var = _StubVar("x")
+    app.emit_target_theta_var.set("x")
     assert app.current_ray_settings() is None
 
 
@@ -1198,7 +1192,7 @@ def test_the_emissions_tab_has_a_ray_emission_section_with_all_its_controls():
         inspect.getsource(m.App.build_controls_quadrant)
     source = inspect.getsource(m.App.build_emission_controls)
     assert 'text="Ray emission"' in source
-    for control in ("emit_mode_var", "emit_offset_scale", "EMIT_TARGET_FIELDS",
+    for control in ("emit_mode_var", '"emit_offset"', "EMIT_TARGET_FIELDS",
                     "EMIT_TARGET_LABELS"):
         assert control in source
 
@@ -1206,15 +1200,16 @@ def test_the_emissions_tab_has_a_ray_emission_section_with_all_its_controls():
 def test_the_fuzzing_tab_no_longer_has_an_emission_angle_control():
     import inspect
     source = inspect.getsource(m.App.build_fuzzing_controls)
-    assert "emit_angle" not in source and "emit_jitter_scale" in source
+    assert "emit_angle" not in source and '"emit_jitter"' in source
 
 
 def test_the_target_entries_are_only_enabled_when_firing_towards_a_point():
     class FakeApp:
         pass
     app = FakeApp()
+    _give_settings_model(app, controls=False)
     app.update_emission_state = m.App.update_emission_state.__get__(app)
-    app.emit_mode_var = _StubVar("Up")
+    app.model.set("emit_mode", m.EMIT_UP)
     states = []
 
     class Entry:
@@ -1224,7 +1219,7 @@ def test_the_target_entries_are_only_enabled_when_firing_towards_a_point():
     app.update_emission_state()
     assert states == [["disabled"]] * 4
     states.clear()
-    app.emit_mode_var.set("Towards point")
+    app.model.set("emit_mode", m.EMIT_TOWARDS)
     app.update_emission_state()
     assert states == [["!disabled"]] * 4
 

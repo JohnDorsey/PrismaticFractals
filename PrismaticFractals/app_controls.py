@@ -7,19 +7,18 @@ from .constants import (
     CONFINE_METHOD_NAMES,
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
-    DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
+    DEFAULT_EMIT_MODE, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
     OFFERED_ENGINES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES, ORBIT_Z0_NOTE,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
     DEFAULT_SEGMENT_MULT, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
-    EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
-    FUZZ_MULT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
+    EMIT_TARGET_LABELS, ERROR_RED, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
 from .engines import effect_names, engine_description
 from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
-from .parsing import parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
+from .parsing import parse_resolution_dimension, parse_target_coordinate
 from .settings import (
-    DEFAULT_SETTING_VALUES, NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
+    DEFAULT_SETTING_VALUES, NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings,
     MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
@@ -80,9 +79,7 @@ class ControlsMixin:
         self.pre_seg_mult_scale = self.add_angle_entry(
             sm, 0, "Length multiplier, before the calculation (Mandelbrot only)", DEFAULT_SEGMENT_MULT, on_change=self.on_pre_seg_mult_changed,
             lo=SEGMENT_MULT_MIN, hi=SEGMENT_MULT_MAX, fmt="{:.2f}")
-        self.seg_mult_scale = self.add_angle_entry(
-            sm, 1, "Length multiplier, after the calculation", DEFAULT_SEGMENT_MULT, on_change=self.on_seg_mult_changed,
-            lo=SEGMENT_MULT_MIN, hi=SEGMENT_MULT_MAX, fmt="{:.2f}")
+        self.add_model_entry(sm, 1, "Length multiplier, after the calculation", "seg_mult", on_commit=self.on_seg_mult_changed)
         ttk.Label(sm, foreground="#666", wraplength=RIGHT_W - 70,
                   text="After: shortens every ordinary bounce's segment to this fraction of "
                        "its true length, pulling the end back towards the start - but "
@@ -195,9 +192,7 @@ class ControlsMixin:
 
         offset_frame = ttk.Frame(em)
         offset_frame.grid(row=5, column=0, columnspan=2, sticky="w")
-        self.emit_offset_scale = self.add_angle_entry(
-            offset_frame, 0, "Angle offset (\u00b0, + = counterclockwise)", DEFAULT_EMIT_OFFSET,
-            on_change=self.on_emission_changed, fmt="{:.2f}")
+        self.add_model_entry(offset_frame, 0, "Angle offset (\u00b0, + = counterclockwise)", "emit_offset", on_commit=self.on_emission_changed)
 
         self.emit_msg_var = tk.StringVar()
         ttk.Label(em, textvariable=self.emit_msg_var, foreground=ERROR_RED,
@@ -218,18 +213,12 @@ class ControlsMixin:
 
     def update_emission_state(self):
         """The target point only matters when rays are fired towards it."""
-        state = ["!disabled"] if self.emit_mode_var.get() == EMIT_MODE_NAMES[EMIT_TOWARDS] \
-            else ["disabled"]
+        state = ["!disabled"] if self.model.value("emit_mode") == EMIT_TOWARDS else ["disabled"]
         for entry in self.emit_target_entries:
             entry.state(state)
 
-    def on_emit_mode_changed(self, *_args):
-        self.update_emission_state()
-        self.on_limit_var_changed()
-
     def on_emission_changed(self):
-        """The angle offset entry committed a new value (already parsed and
-        clamped into range by its FloatEntryHandle)."""
+        """The angle offset entry committed a new value."""
         self.invalidate_preview()
         self.update_buttons()
         self.refresh_timeline_diffs()
@@ -364,27 +353,17 @@ class ControlsMixin:
 
         emit_group = ttk.LabelFrame(fz, text="Ray emission")
         emit_group.columnconfigure(1, weight=1)
-        self.emit_jitter_scale = self.add_angle_entry(
-            emit_group, 0, "Jitter (\u00b1\u00b0)", 0.0, on_change=self.on_fuzz_changed,
-            lo=FUZZ_JITTER_MIN, hi=FUZZ_JITTER_MAX, fmt="{:.1f}")
+        self.add_model_entry(emit_group, 0, "Jitter (\u00b1\u00b0)", "emit_jitter", on_commit=self.on_fuzz_changed)
         emit_group.grid(row=2, column=0, sticky="nsew", padx=(6, 3), pady=(0, 6))
-        self.fuzz_ttk_widgets += [self.emit_jitter_scale.widget]
+        self.fuzz_ttk_widgets += [self.emit_jitter_entry]
 
         def bounce_group(title, prefix):
             g = ttk.LabelFrame(fz, text=title)
             g.columnconfigure(1, weight=1)
-            off = self.add_angle_entry(g, 0, "Offset (\u00b0)", 0.0,
-                                       on_change=self.on_fuzz_changed)
-            jit = self.add_angle_entry(g, 1, "Jitter (\u00b1\u00b0)", 0.0,
-                                       on_change=self.on_fuzz_changed,
-                                       lo=FUZZ_JITTER_MIN, hi=FUZZ_JITTER_MAX, fmt="{:.1f}")
-            mult = self.add_angle_entry(g, 2, "Multiplier", 1.0,
-                                        on_change=self.on_fuzz_changed,
-                                        lo=FUZZ_MULT_MIN, hi=FUZZ_MULT_MAX, fmt="{:.2f}")
-            setattr(self, f"{prefix}_offset_scale", off)
-            setattr(self, f"{prefix}_jitter_scale", jit)
-            setattr(self, f"{prefix}_mult_scale", mult)
-            self.fuzz_ttk_widgets += [off.widget, jit.widget, mult.widget]
+            for row, (field, label) in enumerate((("offset", "Offset (\u00b0)"), ("jitter", "Jitter (\u00b1\u00b0)"),
+                                                  ("mult", "Multiplier"))):
+                self.add_model_entry(g, row, label, f"{prefix}_{field}", on_commit=self.on_fuzz_changed)
+                self.fuzz_ttk_widgets.append(getattr(self, f"{prefix}_{field}_entry"))
             return g
 
         bounce_group("Boundary bounces", "bnd").grid(
@@ -494,7 +473,8 @@ class ControlsMixin:
             if origin == "set":
                 self.bindings[key].write_value()
             self.bindings[key].show_error()
-        if NATURAL_TERMINATION_SETTING_SPECS.keys().isdisjoint(changes):          # (the blur and the seeding react when committed)
+        self.on_ray_model_changed(changes)
+        if NATURAL_TERMINATION_SETTING_SPECS.keys().isdisjoint(changes):          # (the other settings react when committed)
             return
         errors = lambda keys: " ".join(self.model.error(key) for key in keys if self.model.error(key) is not None)
         self.limit_msg_var.set(errors(("iter", "dist", "escape_radius")))
@@ -503,19 +483,20 @@ class ControlsMixin:
         self.update_buttons()
         self.refresh_timeline_diffs()
 
+    def on_ray_model_changed(self, changes):
+        """An emission setting or the fuzzing seed changed in the model (typed, or set by the program): what the old traces did."""
+        if "emit_mode" in changes:
+            self.update_emission_state()
+        if "seed" in changes:
+            self.on_fuzz_changed()
+        if any(key in changes for key in ("emit_mode", "emit_target_r", "emit_target_theta", "emit_target_cx", "emit_target_cy")):
+            self.on_limit_var_changed()
+
     def on_limit_var_changed(self, *_args):
-        """An emission target entry's text changed (or settings were loaded): flag bad values, track the last good ones."""
-        emit_msgs = []
-        for field in EMIT_TARGET_FIELDS:
-            value = parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
-            if value is not None:
-                setattr(self, f"last_emit_target_{field}", value)
-            getattr(self, f"emit_target_{field}_entry").configure(
-                style="TEntry" if value is not None else "Invalid.TEntry")
-            if value is None and not emit_msgs:
-                emit_msgs.append("Target position values must be numbers (any size, "
-                                 "positive or negative, e.g. -0.5 or 3e8).")
-        self.emit_msg_var.set(" ".join(emit_msgs))
+        """The emission settings changed (an entry was typed in, or settings were loaded): say what is wrong with the target, and refresh
+        what depends on them."""
+        self.emit_msg_var.set(next((self.model.error(f"emit_target_{field}") for field in EMIT_TARGET_FIELDS
+                                    if self.model.error(f"emit_target_{field}") is not None), ""))
         self.invalidate_preview()
         self.update_buttons()
         self.refresh_timeline_diffs()
@@ -527,9 +508,7 @@ class ControlsMixin:
             if spec.kind != "choice":
                 self.bindings[key].commit()
         for field in EMIT_TARGET_FIELDS:
-            var = getattr(self, f"emit_target_{field}_var")
-            value = parse_target_coordinate(var.get())
-            var.set(str(getattr(self, f"last_emit_target_{field}") if value is None else value))
+            self.bindings[f"emit_target_{field}"].commit()
 
     def on_pre_seg_mult_changed(self):
         """The pre-calculation segment length multiplier entry committed a new value."""
@@ -543,16 +522,8 @@ class ControlsMixin:
         self.update_buttons()
         self.refresh_timeline_diffs()
 
-    def on_rng_seed_var_changed(self, *_args):
-        rng_seed = parse_rng_seed(self.rng_seed_var.get())
-        if rng_seed is not None:
-            self.last_rng_seed = rng_seed
-        self.rng_seed_entry.configure(style="TEntry" if rng_seed is not None else "Invalid.TEntry")
-        self.on_fuzz_changed()
-
     def on_rng_seed_commit(self, _event=None):
-        rng_seed = parse_rng_seed(self.rng_seed_var.get())
-        self.rng_seed_var.set(str(self.last_rng_seed if rng_seed is None else rng_seed))
+        self.bindings["seed"].commit()
 
     def randomize_rng_seed(self):
         self.rng_seed_var.set(str(random.randint(0, 999999999)))
@@ -567,26 +538,12 @@ class ControlsMixin:
         self.refresh_timeline_diffs()
 
     # ---- fuzzing controls ---------------------------------------------------- #
-    def read_fuzz_controls(self):
-        """FuzzParams from the current widget values."""
-        rng_seed = parse_rng_seed(self.rng_seed_var.get())
-        return FuzzParams(
-            enabled=bool(self.fuzz_enabled_var.get()),
-            emit_jitter=round(float(self.emit_jitter_scale.get()), 2),
-            bnd_offset=round(float(self.bnd_offset_scale.get()), 2),
-            bnd_jitter=round(float(self.bnd_jitter_scale.get()), 2),
-            bnd_mult=round(float(self.bnd_mult_scale.get()), 3),
-            self_offset=round(float(self.self_offset_scale.get()), 2),
-            self_jitter=round(float(self.self_jitter_scale.get()), 2),
-            self_mult=round(float(self.self_mult_scale.get()), 3),
-            rng_seed=self.last_rng_seed if rng_seed is None else rng_seed)
-
     def update_fuzz_enabled_state(self):
         """Grey out every Fuzzing-tab control except the Enable checkbox itself
         whenever fuzzing is disabled."""
         engine_off = self.current_engine_description().ignores("fuzz_on")
         self.fuzz_enable_check.state(["disabled"] if engine_off else ["!disabled"])
-        enabled = self.fuzz_enabled_var.get() and not engine_off
+        enabled = self.model.value("fuzz_on") and not engine_off
         tk_state = tk.NORMAL if enabled else tk.DISABLED
         for w in self.fuzz_tk_widgets:
             w.configure(state=tk_state)
@@ -614,15 +571,7 @@ class ControlsMixin:
     def current_ray_settings(self):
         """The ray-bouncing engine's control values (segment length, fuzzing, emission), or None
         if an emission target entry is invalid."""
-        target = [parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
-                  for field in EMIT_TARGET_FIELDS]
-        if None in target:
-            return None
-        return RaySettings(seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
-                           emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
-                           emit_target_r=target[0], emit_target_theta=target[1],
-                           emit_target_cx=target[2], emit_target_cy=target[3],
-                           emit_offset=round(float(self.emit_offset_scale.get()), 2))
+        return self.model.record(RaySettings)
 
     def current_natural_termination_settings(self):
         """The termination limits' and confinement controls' values (a NaturalTerminationSettings), or

@@ -577,45 +577,25 @@ def test_settings_list_scroll_is_refitted_after_every_rebuild():
                                        ("moveto", 0.7)]
 
 
-def _recorded_angle_entries(build_name):
-    """Build a controls section on a fake app whose add_angle_entry only records
-    (label, lo, hi) for each angle entry asked for."""
-    calls = []
-
-    class Handle:
-        widget = None
-
-    class FakeApp:
-        root = _StubWidget()
-        fuzz_ttk_widgets = []
-
-        def add_angle_entry(self, parent, row, label, default, on_change=None,
-                            lo=None, hi=None, fmt="{:.2f}"):
-            calls.append((label, lo, hi))
-            return Handle()
-
-        def __getattr__(self, name):
-            return lambda *a, **k: None
-    app = FakeApp()
-    getattr(m.App, build_name)(app, _StubWidget())
-    return calls
-
-
 def test_angle_offset_and_rotation_style_entries_have_no_limits():
     """The emission angle offset, and the fuzzing offsets, take any number of
     degrees (many revolutions, either direction)."""
-    (emission,) = _recorded_angle_entries("build_emission_controls")
-    assert emission[1:] == (None, None), emission
-    fuzz = {label: (lo, hi) for label, lo, hi in _recorded_angle_entries("build_fuzzing_controls")}
-    assert fuzz["Offset (\u00b0)"] == (None, None)
+    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    for key in ("emit_offset", "bnd_offset", "self_offset"):
+        for text, value in (("720000", 720000.0), ("-36000.5", -36000.5)):
+            model.submit(key, text)
+            assert model.value(key) == value, (key, text)
 
 
 def test_fuzzing_jitter_ranges_stay_limited_to_0_through_180_degrees():
     """Jitter is a +/- range, so it keeps its 0..180 limits (only offsets and
     rotations are unlimited)."""
-    jitters = [(lo, hi) for label, lo, hi in _recorded_angle_entries("build_fuzzing_controls")
-               if label.startswith("Jitter")]
-    assert len(jitters) == 3 and all(j == (0.0, 180.0) for j in jitters), jitters
+    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    for key in ("emit_jitter", "bnd_jitter", "self_jitter"):
+        model.submit(key, "999")
+        assert model.value(key) == 180.0, key
+        model.submit(key, "-5")
+        assert model.value(key) == 0.0, key
 
 
 def test_huge_emission_offsets_point_the_same_way_as_their_remainder():

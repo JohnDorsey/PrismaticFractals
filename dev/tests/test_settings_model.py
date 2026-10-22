@@ -19,7 +19,9 @@ def test_a_new_model_holds_the_defaults_and_makes_the_default_record():
     assert model.record(m.BuddhaBlurSettings) == m.DEFAULT_BUDDHA_BLUR and model.record(m.BuddhaSeedSettings) == m.DEFAULT_BUDDHA_SEED
     assert all(model.error(key) is None for key in model.keys())
     assert sorted(model.keys()) == sorted(m.MODEL_SETTING_SPECS)
-    assert set(m.NATURAL_TERMINATION_SETTING_SPECS) | set(m.BLUR_SETTING_SPECS) | set(m.BUDDHA_SEED_SETTING_SPECS) == set(model.keys())
+    assert model.record(m.RaySettings) == m.DEFAULT_RAY_SETTINGS
+    assert (set(m.NATURAL_TERMINATION_SETTING_SPECS) | set(m.BLUR_SETTING_SPECS) | set(m.BUDDHA_SEED_SETTING_SPECS) | set(m.RAY_SETTING_SPECS)
+            == set(model.keys()))
 
 
 def test_a_valid_text_changes_the_value_and_an_invalid_one_keeps_it_and_sets_the_error():
@@ -85,15 +87,15 @@ def test_a_batch_tells_the_listeners_once_at_its_end_and_batches_nest():
 def test_the_model_makes_no_partial_records():
     model = _model()
     try:
-        model.record(m.RaySettings)
+        model.record(m.EngineSettings)
     except KeyError as exc:
-        assert "RaySettings" in str(exc)
+        assert "EngineSettings" in str(exc)
     else:
         raise AssertionError("expected a KeyError for a record the model does not manage")
 
 
 def test_every_text_a_setting_formats_to_is_read_back_as_the_same_value():
-    varied = m.settings_to_dict(_varied_natural_termination_settings(), _varied_blur_settings(), _varied_seed_settings())
+    varied = m.settings_to_dict(_varied_natural_termination_settings(), _varied_blur_settings(), _varied_seed_settings(), _varied_ray_settings())
     for key in m.MODEL_SETTING_SPECS:
         for value in (m.DEFAULT_SETTING_VALUES[key], varied[key]):
             model = _model()
@@ -149,6 +151,45 @@ def test_the_blur_type_is_chosen_by_name_and_an_unknown_name_is_ignored():
     assert model.value("buddha_blur_type") == m.BUDDHA_BLUR_BOKEH
     model.submit("buddha_blur_type", "no such blur")
     assert model.value("buddha_blur_type") == m.BUDDHA_BLUR_BOKEH and model.error("buddha_blur_type") is None
+
+
+# ---- the ray-bouncing engine's settings ---------------------------------------------------------
+def test_the_emission_target_is_not_lenient_a_bad_number_is_an_error_and_there_is_no_ray_record_then():
+    model = _model()
+    message = model.submit("emit_target_theta", "abc")
+    assert "Target position values must be numbers" in message and model.record(m.RaySettings) is None
+    assert model.last_valid_record(m.RaySettings) == m.DEFAULT_RAY_SETTINGS, "a preview still has the last valid values"
+    model.submit("emit_target_theta", "-720")
+    assert model.record(m.RaySettings).emit_target_theta == -720.0
+
+
+def test_a_bad_fuzzing_seed_is_flagged_but_never_stops_a_ray_record_and_blank_is_zero():
+    model = _model()
+    model.submit("seed", "123")
+    assert model.submit("seed", "12x") is not None and model.error("seed") is not None
+    assert model.record(m.RaySettings).fuzz.rng_seed == 123, "the last valid seed stands"
+    assert model.submit("seed", "") is None and model.value("seed") == 0 and model.error("seed") is None
+
+
+def test_the_ray_entries_clamp_round_and_format_as_their_old_number_entries_did():
+    model = _model()
+    model.submit("seg_mult", "5")
+    assert model.value("seg_mult") == m.SEGMENT_MULT_MAX
+    model.submit("seg_mult", "0.755")
+    assert model.value("seg_mult") == 0.755, "the multiplier is not rounded (only its text is)"
+    assert m.format_value("seg_mult", 0.755) == "0.76" and m.format_value("emit_jitter", 4.0) == "4.0" and m.format_value("bnd_mult", 1.25) == "1.25"
+    model.submit("bnd_mult", "9.87654")
+    assert model.value("bnd_mult") == m.FUZZ_MULT_MAX
+    model.submit("bnd_mult", "1.23456")
+    assert model.value("bnd_mult") == 1.235, "rounded to three places like the record always was"
+    model.submit("emit_offset", "-45.678")
+    assert model.value("emit_offset") == -45.68
+
+
+def test_a_choice_of_emission_direction_is_by_name():
+    model = _model()
+    model.submit("emit_mode", m.EMIT_MODE_NAMES[m.EMIT_TOWARDS])
+    assert model.record(m.RaySettings).emit_mode == m.EMIT_TOWARDS
 
 
 # ---- the binding of a control to the model --------------------------------------------------

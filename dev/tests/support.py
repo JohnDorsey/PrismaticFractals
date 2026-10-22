@@ -51,7 +51,6 @@ def _make_fake_app_for_snapshot():
         pass
 
     app = FakeApp()
-    app.read_fuzz_controls = m.App.read_fuzz_controls.__get__(app)
     app.current_ray_settings = m.App.current_ray_settings.__get__(app)
     app.current_natural_termination_settings = m.App.current_natural_termination_settings.__get__(app)
     app.current_generation_settings = m.App.current_generation_settings.__get__(app)
@@ -61,19 +60,7 @@ def _make_fake_app_for_snapshot():
     app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
     app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
 
-    app.rng_seed_var = _Get("0")
-    app.last_rng_seed = 0
-    app.fuzz_enabled_var = _Get(False)
-    for field in ["emit_jitter", "bnd_offset", "bnd_jitter", "bnd_mult",
-                 "self_offset", "self_jitter", "self_mult"]:
-        setattr(app, f"{field}_scale", _Get(1.0 if field.endswith("mult") else 0.0))
-
-    _give_settings_model(app, iter="32", dist="0")
-    app.seg_mult_scale = _Get(0.75)
-    app.emit_mode_var = _Get(m.EMIT_MODE_NAMES[m.DEFAULT_EMIT_MODE])
-    for field in m.EMIT_TARGET_FIELDS:
-        setattr(app, f"emit_target_{field}_var", _Get("0.0"))
-    app.emit_offset_scale = _Get(m.DEFAULT_EMIT_OFFSET)
+    _give_settings_model(app, iter="32", dist="0", seg_mult="0.75")
     _give_framings(app)
     return app
 
@@ -250,12 +237,15 @@ def _give_settings_model(app, controls=True, entry_factory=None, **texts):
         setattr(app, spec.control, _StubVar(m.format_value(key, m.DEFAULT_SETTING_VALUES[key])))
         if spec.kind not in ("choice", "bool"):
             setattr(app, spec.widget, _StubEntry() if entry_factory is None else entry_factory(key))
-    for name in ("limit_msg_var", "confine_msg_var"):
+    for name in ("limit_msg_var", "confine_msg_var", "emit_msg_var"):
         if not hasattr(app, name):
             setattr(app, name, _StubVar(""))
-    for name in ("invalidate_preview", "update_buttons", "refresh_timeline_diffs"):
+    for name in ("invalidate_preview", "update_buttons", "refresh_timeline_diffs", "update_emission_state", "on_fuzz_changed"):
         if not hasattr(app, name):
             setattr(app, name, lambda *a, **k: None)
+    if not hasattr(app, "on_limit_var_changed"):
+        app.on_limit_var_changed = m.App.on_limit_var_changed.__get__(app)
+    app.on_ray_model_changed = m.App.on_ray_model_changed.__get__(app)
     app.bind_model_controls = m.App.bind_model_controls.__get__(app)
     app.on_model_changed = m.App.on_model_changed.__get__(app)
     app.bind_model_controls()
@@ -874,6 +864,16 @@ def _varied_blur_settings():
 
 def _varied_seed_settings():
     return m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
+
+
+def _varied_ray_settings():
+    return m.RaySettings(
+        seg_mult=0.8,
+        fuzz=m.FuzzParams(enabled=True, emit_jitter=4.0, bnd_offset=1.5, bnd_jitter=2.5,
+                          bnd_mult=1.25, self_offset=-3.0, self_jitter=6.0, self_mult=0.5,
+                          rng_seed=424242),
+        emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
+        emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

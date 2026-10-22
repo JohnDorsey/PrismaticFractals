@@ -208,16 +208,6 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
 # SETTING_TABLES): one row per setting (path into its record, its control, how
 # the control is written)
 # --------------------------------------------------------------------------- #
-def _varied_ray_settings():
-    return m.RaySettings(
-        seg_mult=0.8,
-        fuzz=m.FuzzParams(enabled=True, emit_jitter=4.0, bnd_offset=1.5, bnd_jitter=2.5,
-                          bnd_mult=1.25, self_offset=-3.0, self_jitter=6.0, self_mult=0.5,
-                          rng_seed=424242),
-        emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
-        emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
-
-
 def test_each_settings_table_and_its_record_fields_are_the_same_set():
     assert set(m.SETTING_TABLES) == {m.NaturalTerminationSettings, m.RaySettings, m.BuddhaBlurSettings,
                                      m.BuddhaSeedSettings, m.EngineSettings, m.MandelbrotSettings}
@@ -378,7 +368,7 @@ def _expected_control_value(spec, value):
     if spec.kind == "int_text":
         return str(int(round(value)))
     if spec.kind == "float_text":
-        return str(float(value))
+        return spec.fmt.format(float(value)) if spec.fmt else str(float(value))
     if spec.kind == "choice":
         return spec.names[int(round(value))]
     return value
@@ -396,7 +386,7 @@ def test_each_kind_of_control_is_written_the_way_its_kind_needs():
     assert app.emit_target_r_var.get() == "0.4" and app.rng_seed_var.get() == "424242"
     assert app.emit_mode_var.get() == m.EMIT_MODE_NAMES[m.EMIT_TOWARDS]
     assert app.buddha_blur_type_var.get() == m.BUDDHA_BLUR_LABELS[m.BUDDHA_BLUR_BOKEH]
-    assert app.fuzz_enabled_var.get() is True and app.bnd_mult_scale.get() == 1.25
+    assert app.fuzz_enabled_var.get() is True and app.bnd_mult_var.get() == "1.25" and app.seg_mult_var.get() == "0.80"
 
 
 def test_a_value_an_interpolating_keyframe_made_fractional_still_reaches_an_int_control():

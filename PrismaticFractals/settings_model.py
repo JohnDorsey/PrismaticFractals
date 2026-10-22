@@ -5,7 +5,7 @@ writes values with `set`; it reads them back with `value`, `error` and `record`.
 valid value and the error message of the text last submitted (None when that text was valid). The text being typed is the view's.
 
 Only the settings whose spec row has a parser are managed so far (`MODEL_SETTING_SPECS`: the natural termination limits and confinement,
-the Buddha blur and the Buddha seeding); the rest are still held by their controls, and this module changes nothing for them.
+the Buddha blur, the Buddha seeding and the ray-bouncing engine's settings); the rest are still held by their controls, and this module changes nothing for them.
 
 Pure: imports no Tk."""
 from .settings import DEFAULT_SETTING_VALUES, SETTING_SPECS, SETTING_TABLES, settings_from_dict
@@ -22,7 +22,7 @@ def format_value(key, value):
     if spec.kind == "int_text":
         return str(int(round(value)))
     if spec.kind == "float_text":
-        return str(float(value))
+        return spec.fmt.format(float(value)) if spec.fmt else str(float(value))
     if spec.kind == "choice":
         return spec.names[int(round(value))]
     raise ValueError(f"setting {key!r} is shown as {spec.kind!r}, which is not text")
@@ -52,15 +52,25 @@ class SettingsModel:
         return self._errors[key]
 
     def record(self, record_class):
-        """A `record_class` of the current values, or None while any of its settings has an error (the text being typed is not usable).
-        Every setting of the record must be managed (KeyError otherwise: no partial records)."""
+        """A `record_class` of the current values, or None while any of its settings has an error (the text being typed is not usable;
+        a lenient setting never counts: its last valid value stands). Every setting of the record must be managed (KeyError otherwise:
+        no partial records)."""
+        keys = self._record_keys(record_class)
+        if any(self._errors[key] is not None and not self._parsers[key].lenient for key in keys):
+            return None
+        return settings_from_dict(record_class, self._values)
+
+    def last_valid_record(self, record_class):
+        """A `record_class` of the last valid values, whatever is being typed (never None): what a preview uses."""
+        self._record_keys(record_class)
+        return settings_from_dict(record_class, self._values)
+
+    def _record_keys(self, record_class):
         keys = list(SETTING_TABLES[record_class])
         missing = [key for key in keys if key not in self._parsers]
         if missing:
             raise KeyError(f"{record_class.__name__} has settings the model does not manage: {missing}")
-        if any(self._errors[key] is not None for key in keys):
-            return None
-        return settings_from_dict(record_class, self._values)
+        return keys
 
     def submit(self, key, text):
         """The user typed `text` for `key`: a valid text changes the value and clears the error; an invalid one leaves the value and sets
@@ -75,7 +85,7 @@ class SettingsModel:
     def _submit(self, key, text, origin):
         parser = self._parsers[key]
         value = parser.parse(text)
-        error = parser.message if value is None and not parser.lenient else None
+        error = parser.message if value is None and (parser.message or not parser.lenient) else None
         old = (self._values[key], self._errors[key])
         if value is not None:
             self._values[key] = value

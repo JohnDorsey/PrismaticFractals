@@ -8,7 +8,8 @@ import dataclasses
 from math import cos, radians, sin
 from .constants import (
     BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN, CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN, CONFINE_METHOD_NAMES,
-    DIST_LIMIT_MAX, DIST_LIMIT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_ENGINE,
+    DIST_LIMIT_MAX, DIST_LIMIT_MIN, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX, FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN,
+    SEGMENT_MULT_MAX, SEGMENT_MULT_MIN, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_ENGINE,
     ENGINE_NAMES,
     DEFAULT_ORBIT_ESCAPE, DEFAULT_ORBIT_EXPONENT, DEFAULT_ORBIT_JULIA_IM, DEFAULT_ORBIT_JULIA_RE, DEFAULT_ORBIT_MAPPING,
     DEFAULT_ORBIT_Z0, ORBIT_ESCAPE_CLIP, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_C, ORBIT_Z0_NAMES,
@@ -20,7 +21,8 @@ from .constants import (
     EMIT_MODE_NAMES
 )
 from .parsing import (
-    parse_confine_lookback, parse_confine_threshold, parse_dist_limit, parse_escape_radius, parse_iter_limit, parse_target_coordinate
+    parse_confine_lookback, parse_confine_threshold, parse_dist_limit, parse_escape_radius, parse_iter_limit, parse_rng_seed,
+    parse_target_coordinate
 )
 from .kernels import (
     ENGINE_RAY_BOUNCING, RAY_SEQUENCE_TABLES, ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, OrbitArgs, PathArgs, RayArgs
@@ -292,12 +294,14 @@ class SettingSpec:
     label: str             # its name there
     parse: object          # for a setting held by the settings model (settings_model.py): control text (or a checkbox's bool) -> value, or None; else None
     message: str           # ... the sentence shown while the text is not acceptable
-    lenient: bool          # ... True: unacceptable text is silently ignored (the last valid value stays, no error is held or shown)
+    lenient: bool          # ... True: unacceptable text never makes a record None: the last valid value stays (and an error is held, for the view to
+                           #     flag, only if `message` is given)
+    fmt: str               # for an entry of numbers: the format of the text it shows ("{:.2f}"); "" shows the shortest exact text
 
 
-def _spec(path, control, widget, kind, tab, label, names=(), parse=None, message="", lenient=False):
+def _spec(path, control, widget, kind, tab, label, names=(), parse=None, message="", lenient=False, fmt=""):
     return SettingSpec(path=path, control=control, widget=widget, kind=kind, names=names,
-                       tab=tab, label=label, parse=parse, message=message, lenient=lenient)
+                       tab=tab, label=label, parse=parse, message=message, lenient=lenient, fmt=fmt)
 
 
 def choice_parser(names):
@@ -305,14 +309,23 @@ def choice_parser(names):
     return lambda text: names.index(text) if text in names else None
 
 
-def clamped_float_parser(lo, hi):
-    """A parser for a number typed into an entry that is clamped into [lo, hi] rather than refused; text that is no number is None."""
+def clamped_float_parser(lo=None, hi=None, digits=None):
+    """A parser for a number typed into an entry that is clamped into [lo, hi] (either may be None: no limit) rather than refused, and
+    rounded to `digits` places if given; text that is no number is None."""
     def parse(text):
         try:
-            return min(hi, max(lo, float(text)))
+            value = float(text)
         except ValueError:
             return None
+        if lo is not None:
+            value = max(lo, value)
+        if hi is not None:
+            value = min(hi, value)
+        return value if digits is None else round(value, digits)
     return parse
+
+
+EMIT_TARGET_MESSAGE = "Target position values must be numbers (any size, positive or negative, e.g. -0.5 or 3e8)."
 
 
 def bool_parser(value):
@@ -346,38 +359,48 @@ NATURAL_TERMINATION_SETTING_SPECS = {
 
 # Every setting of the ray-bouncing engine itself (a RaySettings), the same way.
 RAY_SETTING_SPECS = {
-    "seg_mult": _spec(("seg_mult",), "seg_mult_scale", "seg_mult_scale", "number",
-                      "Mutations", "Segment length multiplier (after)"),
+    "seg_mult": _spec(("seg_mult",), "seg_mult_var", "seg_mult_entry", "float_text",
+                      "Mutations", "Segment length multiplier (after)", fmt="{:.2f}", lenient=True,
+                      parse=clamped_float_parser(SEGMENT_MULT_MIN, SEGMENT_MULT_MAX)),
     "emit_mode": _spec(("emit_mode",), "emit_mode_var", "emit_mode_combo", "choice",
-                       "Emissions", "Emission direction", EMIT_MODE_NAMES),
+                       "Emissions", "Emission direction", EMIT_MODE_NAMES, parse=choice_parser(EMIT_MODE_NAMES), lenient=True),
     "emit_target_r": _spec(("emit_target_r",), "emit_target_r_var", "emit_target_r_entry",
-                           "float_text", "Emissions", "Emission target distance (r)"),
+                           "float_text", "Emissions", "Emission target distance (r)", parse=parse_target_coordinate,
+                           message=EMIT_TARGET_MESSAGE),
     "emit_target_theta": _spec(("emit_target_theta",), "emit_target_theta_var",
                                "emit_target_theta_entry", "float_text", "Emissions",
-                               "Emission target angle (\u03b8)"),
+                               "Emission target angle (\u03b8)", parse=parse_target_coordinate, message=EMIT_TARGET_MESSAGE),
     "emit_target_cx": _spec(("emit_target_cx",), "emit_target_cx_var", "emit_target_cx_entry",
-                            "float_text", "Emissions", "Emission target offset X"),
+                            "float_text", "Emissions", "Emission target offset X", parse=parse_target_coordinate,
+                            message=EMIT_TARGET_MESSAGE),
     "emit_target_cy": _spec(("emit_target_cy",), "emit_target_cy_var", "emit_target_cy_entry",
-                            "float_text", "Emissions", "Emission target offset Y"),
-    "emit_offset": _spec(("emit_offset",), "emit_offset_scale", "emit_offset_scale", "number",
-                         "Emissions", "Emission angle offset"),
+                            "float_text", "Emissions", "Emission target offset Y", parse=parse_target_coordinate,
+                            message=EMIT_TARGET_MESSAGE),
+    "emit_offset": _spec(("emit_offset",), "emit_offset_var", "emit_offset_entry", "float_text",
+                         "Emissions", "Emission angle offset", fmt="{:.2f}", lenient=True, parse=clamped_float_parser(digits=2)),
     "fuzz_on": _spec(("fuzz", "enabled"), "fuzz_enabled_var", "fuzz_enable_check", "bool",
-                     "Mutations", "Enabled"),
-    "emit_jitter": _spec(("fuzz", "emit_jitter"), "emit_jitter_scale", "emit_jitter_scale",
-                         "number", "Mutations", "Emission jitter"),
-    "bnd_offset": _spec(("fuzz", "bnd_offset"), "bnd_offset_scale", "bnd_offset_scale",
-                        "number", "Mutations", "Boundary offset"),
-    "bnd_jitter": _spec(("fuzz", "bnd_jitter"), "bnd_jitter_scale", "bnd_jitter_scale",
-                        "number", "Mutations", "Boundary jitter"),
-    "bnd_mult": _spec(("fuzz", "bnd_mult"), "bnd_mult_scale", "bnd_mult_scale", "number",
-                      "Mutations", "Boundary multiplier"),
-    "self_offset": _spec(("fuzz", "self_offset"), "self_offset_scale", "self_offset_scale",
-                         "number", "Mutations", "Self offset"),
-    "self_jitter": _spec(("fuzz", "self_jitter"), "self_jitter_scale", "self_jitter_scale",
-                         "number", "Mutations", "Self jitter"),
-    "self_mult": _spec(("fuzz", "self_mult"), "self_mult_scale", "self_mult_scale", "number",
-                       "Mutations", "Self multiplier"),
-    "seed": _spec(("fuzz", "rng_seed"), "rng_seed_var", "rng_seed_entry", "text", "Mutations", "Seed"),
+                     "Mutations", "Enabled", parse=bool_parser),
+    "emit_jitter": _spec(("fuzz", "emit_jitter"), "emit_jitter_var", "emit_jitter_entry",
+                         "float_text", "Mutations", "Emission jitter", fmt="{:.1f}", lenient=True,
+                         parse=clamped_float_parser(FUZZ_JITTER_MIN, FUZZ_JITTER_MAX, 2)),
+    "bnd_offset": _spec(("fuzz", "bnd_offset"), "bnd_offset_var", "bnd_offset_entry",
+                        "float_text", "Mutations", "Boundary offset", fmt="{:.2f}", lenient=True, parse=clamped_float_parser(digits=2)),
+    "bnd_jitter": _spec(("fuzz", "bnd_jitter"), "bnd_jitter_var", "bnd_jitter_entry",
+                        "float_text", "Mutations", "Boundary jitter", fmt="{:.1f}", lenient=True,
+                        parse=clamped_float_parser(FUZZ_JITTER_MIN, FUZZ_JITTER_MAX, 2)),
+    "bnd_mult": _spec(("fuzz", "bnd_mult"), "bnd_mult_var", "bnd_mult_entry", "float_text",
+                      "Mutations", "Boundary multiplier", fmt="{:.2f}", lenient=True,
+                      parse=clamped_float_parser(FUZZ_MULT_MIN, FUZZ_MULT_MAX, 3)),
+    "self_offset": _spec(("fuzz", "self_offset"), "self_offset_var", "self_offset_entry",
+                         "float_text", "Mutations", "Self offset", fmt="{:.2f}", lenient=True, parse=clamped_float_parser(digits=2)),
+    "self_jitter": _spec(("fuzz", "self_jitter"), "self_jitter_var", "self_jitter_entry",
+                         "float_text", "Mutations", "Self jitter", fmt="{:.1f}", lenient=True,
+                         parse=clamped_float_parser(FUZZ_JITTER_MIN, FUZZ_JITTER_MAX, 2)),
+    "self_mult": _spec(("fuzz", "self_mult"), "self_mult_var", "self_mult_entry", "float_text",
+                       "Mutations", "Self multiplier", fmt="{:.2f}", lenient=True,
+                       parse=clamped_float_parser(FUZZ_MULT_MIN, FUZZ_MULT_MAX, 3)),
+    "seed": _spec(("fuzz", "rng_seed"), "rng_seed_var", "rng_seed_entry", "text", "Mutations", "Seed", parse=parse_rng_seed,
+                  lenient=True, message="The seed must be a whole number of at most nine digits."),
 }
 
 # The same for the Buddha blur (a BuddhaBlurSettings), which is a record of its own.

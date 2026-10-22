@@ -66,7 +66,7 @@ for shape_class in (lb.LuneShape, lb.TrefoilShape):
 app.obstacles[1].cut_offset = 0.7
 app.obstacles[1].r = 0.1
 app.iter_var.set("40")
-app.emit_offset_scale.set(-20.0)
+app.model.set("emit_offset", -20.0)
 app.new_coloration()
 app.live_coloration().set_channel(0, lb.ChannelSettings(
     chan_src=lb.CHAN_SRC_BUDDHA, metric_type=lb.METRIC_TYPE_OTHER, metric_slot=lb.ST_BOUNCE_COUNT, point1=0, point2=1,

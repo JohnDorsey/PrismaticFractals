@@ -353,7 +353,9 @@ def test_fuzzings_own_rule_never_enables_what_the_engine_ignores():
     check = types.SimpleNamespace(state=lambda flags: states.setdefault("check", flags))
     tk_widget = types.SimpleNamespace(configure=lambda state: states.setdefault("tk", state))
     ttk_widget = types.SimpleNamespace(state=lambda flags: states.setdefault("ttk", flags))
-    app = types.SimpleNamespace(fuzz_enable_check=check, fuzz_enabled_var=_StubVar(True), fuzz_tk_widgets=[tk_widget],
+    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    model.set("fuzz_on", True)
+    app = types.SimpleNamespace(fuzz_enable_check=check, model=model, fuzz_tk_widgets=[tk_widget],
                                 fuzz_ttk_widgets=[ttk_widget], current_engine_description=lambda: m.MANDELBROT_ENGINE)
     app.engine_ignores_tab = m.App.engine_ignores_tab.__get__(app)
     m.App.update_fuzz_enabled_state(app)

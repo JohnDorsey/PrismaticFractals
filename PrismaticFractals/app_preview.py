@@ -152,13 +152,7 @@ class PreviewMixin:
         current entries/controls (last valid values) if nothing has been started."""
         if self.generated is not None:
             return self.generated.ray
-        return RaySettings(seg_mult=self.seg_mult_scale.get(), fuzz=self.read_fuzz_controls(),
-                        emit_mode=EMIT_MODE_NAMES.index(self.emit_mode_var.get()),
-                        emit_target_r=self.last_emit_target_r,
-                        emit_target_theta=self.last_emit_target_theta,
-                        emit_target_cx=self.last_emit_target_cx,
-                        emit_target_cy=self.last_emit_target_cy,
-                        emit_offset=round(float(self.emit_offset_scale.get()), 2))
+        return self.model.last_valid_record(RaySettings)
 
     def preview_natural_termination_settings(self):
         """The natural termination settings for previews, chosen the same way as preview_settings():

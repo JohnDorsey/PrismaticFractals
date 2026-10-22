@@ -87,11 +87,6 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         self.engine_applied = DEFAULT_ENGINE            # the engine the program has been using (the dropdown may already show another)
         self.engine_memory = EMPTY_ENGINE_MEMORY        # what the engines remember of their settings, for the session (D18)
         self.model = SettingsModel(MODEL_SETTING_SPECS)   # the values (and errors) of the settings it manages; see settings_model.py
-        self.last_emit_target_r = DEFAULT_EMIT_TARGET_R
-        self.last_emit_target_theta = DEFAULT_EMIT_TARGET_THETA
-        self.last_emit_target_cx = DEFAULT_EMIT_TARGET_CX
-        self.last_emit_target_cy = DEFAULT_EMIT_TARGET_CY
-        self.last_rng_seed = DEFAULT_RNG_SEED
         self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
         self._coloration_counter = 1
         self.selected_coloration_id = 0         # which coloration is selected - both for editing in
@@ -176,11 +171,6 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         # Watch the number entries (registered last, once everything exists)
         self.bind_model_controls()
         self.confine_method_var.trace_add("write", self.on_confine_method_changed)
-        for field in EMIT_TARGET_FIELDS:
-            getattr(self, f"emit_target_{field}_var").trace_add(
-                "write", self.on_limit_var_changed)
-        self.emit_mode_var.trace_add("write", self.on_emit_mode_changed)
-        self.rng_seed_var.trace_add("write", self.on_rng_seed_var_changed)
 
         self.draw()
         self.update_buttons()
