@@ -355,7 +355,6 @@ def _fake_kf_app():
         for k, v in app.current.items()]
     app.setting_fallback = lambda key: app.current[key]
     app.setting_is_float = lambda key: isinstance(app.current[key], float)
-    app.engine_var = _StubVar(m.ENGINE_NAMES[0])
     app.engine_titles = lambda: {}
     app.notices = []
     app.show_notice = lambda message, can_go_back=False, **kw: app.notices.append(message) or True
@@ -580,7 +579,7 @@ def test_settings_list_scroll_is_refitted_after_every_rebuild():
 def test_angle_offset_and_rotation_style_entries_have_no_limits():
     """The emission angle offset, and the fuzzing offsets, take any number of
     degrees (many revolutions, either direction)."""
-    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    model = m.SettingsModel(m.SETTING_SPECS)
     for key in ("emit_offset", "bnd_offset", "self_offset"):
         for text, value in (("720000", 720000.0), ("-36000.5", -36000.5)):
             model.submit(key, text)
@@ -590,7 +589,7 @@ def test_angle_offset_and_rotation_style_entries_have_no_limits():
 def test_fuzzing_jitter_ranges_stay_limited_to_0_through_180_degrees():
     """Jitter is a +/- range, so it keeps its 0..180 limits (only offsets and
     rotations are unlimited)."""
-    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    model = m.SettingsModel(m.SETTING_SPECS)
     for key in ("emit_jitter", "bnd_jitter", "self_jitter"):
         model.submit(key, "999")
         assert model.value(key) == 180.0, key

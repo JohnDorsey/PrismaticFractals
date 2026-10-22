@@ -271,23 +271,9 @@ class TimelineMixin:
         self.rebuild_coloration_list()             # (which also rebuilds the framings' list)
 
     def set_setting_control(self, key, val):
-        """Write a setting (a SETTING_SPECS key) into its control, as the
-        control's kind needs it. Does NOT refresh what depends on it."""
-        if key in self.model.keys():
-            self.model.set(key, val)
-            return
-        spec = SETTING_SPECS[key]
-        control = getattr(self, spec.control)
-        if spec.kind == "text":
-            control.set(str(val))
-        elif spec.kind == "int_text":
-            control.set(str(int(round(val))))
-        elif spec.kind == "float_text":
-            control.set(str(float(val)))
-        elif spec.kind == "choice":
-            control.set(spec.names[int(round(val))])
-        else:                                       # "number" (a slider or number entry), "bool"
-            control.set(val)
+        """Write a setting (a SETTING_SPECS key) into its control, through the settings model (which holds every one of them and
+        writes the control as its kind needs it). Does NOT refresh what depends on it."""
+        self.model.set(key, val)
 
     def live_setting_values(self):
         """{static setting key: the value its control holds right now}: what an export (a video, or a new image) uses for

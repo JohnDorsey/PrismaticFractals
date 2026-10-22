@@ -20,7 +20,7 @@ from .constants import (
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, EMIT_TARGET_FIELDS, ERROR_RED,
     DEFAULT_ENGINE, ITER_LIMIT_MAX, REFRESH_HZ
 )
-from .settings import MODEL_SETTING_SPECS, DEFAULT_ENGINE_SETTINGS, DEFAULT_MANDELBROT_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
+from .settings import SETTING_SPECS, DEFAULT_ENGINE_SETTINGS, DEFAULT_MANDELBROT_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
 from .settings_model import SettingsModel
@@ -86,7 +86,7 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         self.baseline_mandelbrot = DEFAULT_MANDELBROT_SETTINGS
         self.engine_applied = DEFAULT_ENGINE            # the engine the program has been using (the dropdown may already show another)
         self.engine_memory = EMPTY_ENGINE_MEMORY        # what the engines remember of their settings, for the session (D18)
-        self.model = SettingsModel(MODEL_SETTING_SPECS)   # the values (and errors) of the settings it manages; see settings_model.py
+        self.model = SettingsModel(SETTING_SPECS)   # the values (and errors) of the settings it manages; see settings_model.py
         self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
         self._coloration_counter = 1
         self.selected_coloration_id = 0         # which coloration is selected - both for editing in

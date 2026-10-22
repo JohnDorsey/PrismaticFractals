@@ -10,13 +10,13 @@ from .constants import (
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
     OFFERED_ENGINES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES, ORBIT_Z0_NOTE,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
-    DEFAULT_SEGMENT_MULT, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
-    EMIT_TARGET_LABELS, ERROR_RED, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
+    EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
+    EMIT_TARGET_LABELS, ERROR_RED, RIGHT_W
 )
 from .engines import effect_names, engine_description
 from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
-from .parsing import parse_resolution_dimension, parse_target_coordinate
+from .parsing import parse_resolution_dimension
 from .settings import (
     DEFAULT_SETTING_VALUES, NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings,
     MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
@@ -76,9 +76,8 @@ class ControlsMixin:
         sm = ttk.LabelFrame(parent, text="Segment length")
         sm.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
         sm.columnconfigure(1, weight=1)
-        self.pre_seg_mult_scale = self.add_angle_entry(
-            sm, 0, "Length multiplier, before the calculation (Mandelbrot only)", DEFAULT_SEGMENT_MULT, on_change=self.on_pre_seg_mult_changed,
-            lo=SEGMENT_MULT_MIN, hi=SEGMENT_MULT_MAX, fmt="{:.2f}")
+        self.pre_seg_mult_row = self.add_model_entry(
+            sm, 0, "Length multiplier, before the calculation (Mandelbrot only)", "orbit_pre_seg_mult", on_commit=self.on_pre_seg_mult_changed)
         self.add_model_entry(sm, 1, "Length multiplier, after the calculation", "seg_mult", on_commit=self.on_seg_mult_changed)
         ttk.Label(sm, foreground="#666", wraplength=RIGHT_W - 70,
                   text="After: shortens every ordinary bounce's segment to this fraction of "
@@ -610,8 +609,6 @@ class ControlsMixin:
         frame.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
         self.orbit_labels, self.orbit_widgets = {}, {}
         float_vcmd = (self.root.register(self.validate_signed_float), "%P")
-        self.last_orbit = {"exponent": DEFAULT_MANDELBROT_SETTINGS.exponent, "julia_re": DEFAULT_MANDELBROT_SETTINGS.julia_re,
-                           "julia_im": DEFAULT_MANDELBROT_SETTINGS.julia_im}
         rows = (("exponent", "Exponent:", "entry"), ("z0", "Starting value z_0:", ORBIT_Z0_NAMES),
                 ("mapping", "Pixel maps to:", ORBIT_MAPPING_NAMES), ("julia_re", "Julia constant, real part:", "entry"),
                 ("julia_im", "Julia constant, imaginary part:", "entry"), ("escape", "An escaping orbit ends:", ORBIT_ESCAPE_NAMES))
@@ -639,31 +636,24 @@ class ControlsMixin:
     def update_orbit_state(self):
         """Grey out the Mandelbrot engine's controls that are of no use now (nothing is hidden, D4)."""
         mandelbrot_on = self.current_engine_description().uses_orbit_settings
-        julia = self.orbit_mapping_var.get() == ORBIT_MAPPING_NAMES[ORBIT_MAPPING_JULIA]
+        julia = self.model.value("orbit_mapping") == ORBIT_MAPPING_JULIA
         useless = {"julia_re": not julia, "julia_im": not julia, "z0": julia}
         for field, widget in self.orbit_widgets.items():
             off = not mandelbrot_on or useless.get(field, False)
             for w in (widget, self.orbit_labels[field]):
                 w.state(["disabled"] if off else ["!disabled"])
         self.orbit_note.state(["disabled"] if not mandelbrot_on or julia else ["!disabled"])
-        self.set_tree_enabled(self.pre_seg_mult_scale.row, mandelbrot_on)          # (the Segment length section's own row)
+        self.set_tree_enabled(self.pre_seg_mult_row, mandelbrot_on)          # (the Segment length section's own row)
 
     def on_orbit_commit(self, _event=None):
         """Enter pressed or focus left one of the exponent / Julia constant entries: an invalid one goes back to its last valid
         value."""
-        for field in self.last_orbit:
-            var = getattr(self, f"orbit_{field}_var")
-            value = parse_target_coordinate(var.get())
-            var.set(str(self.last_orbit[field] if value is None else value))
+        for field in ("exponent", "julia_re", "julia_im"):
+            self.bindings[f"orbit_{field}"].commit()
         self.on_orbit_changed()
 
     def on_orbit_changed(self):
-        """A Mandelbrot engine setting changed (by hand, or loaded from a keyframe or a project): remember the entries' valid
-        values and refresh what depends on it."""
-        for field in self.last_orbit:
-            value = parse_target_coordinate(getattr(self, f"orbit_{field}_var").get())
-            if value is not None:
-                self.last_orbit[field] = value
+        """A Mandelbrot engine setting changed (by hand, or loaded from a keyframe or a project): refresh what depends on it."""
         self.update_orbit_state()
         self.update_buttons()
         self.refresh_timeline_diffs()
@@ -677,9 +667,7 @@ class ControlsMixin:
 
     def current_engine_description(self):
         """What the engine selected in the dropdown offers and accepts (an EngineDescription)."""
-        if not hasattr(self, "engine_var"):                  # (the Simulation tab is built after the Colorations tab)
-            return engine_description(DEFAULT_ENGINE)
-        return engine_description(self.current_engine_settings().engine)
+        return engine_description(self.model.value("engine"))
 
     def set_tree_enabled(self, widget, enabled):
         """Enable or grey out `widget` and everything inside it (ttk widgets by their state, classic Tk ones by their `state` option)."""
@@ -724,13 +712,7 @@ class ControlsMixin:
     def current_mandelbrot_settings(self):
         """The Mandelbrot engine controls' values (a MandelbrotSettings; never invalid: an entry holding nonsense for the moment
         counts as its last valid value)."""
-        number = {}
-        for field, last in self.last_orbit.items():
-            value = parse_target_coordinate(getattr(self, f"orbit_{field}_var").get())
-            number[field] = last if value is None else value
-        return MandelbrotSettings(
-            z0=ORBIT_Z0_NAMES.index(self.orbit_z0_var.get()), mapping=ORBIT_MAPPING_NAMES.index(self.orbit_mapping_var.get()),
-            escape=ORBIT_ESCAPE_NAMES.index(self.orbit_escape_var.get()), pre_seg_mult=self.pre_seg_mult_scale.get(), **number)
+        return self.model.record(MandelbrotSettings)
 
     def mandelbrot_defines_figure(self, mandelbrot):
         """Whether `mandelbrot` (a MandelbrotSettings) matters to a figure made with the engine selected now: only when that is the
@@ -739,7 +721,7 @@ class ControlsMixin:
 
     def current_engine_settings(self):
         """The Simulation tab's engine (an EngineSettings; never invalid)."""
-        return EngineSettings(engine=ENGINE_NAMES.index(self.engine_var.get()))
+        return self.model.record(EngineSettings)
 
     def current_blur_settings(self):
         """The Buddha blur controls' values (a BuddhaBlurSettings; a slider and a list of

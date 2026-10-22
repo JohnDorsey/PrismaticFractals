@@ -4,7 +4,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 def _model():
-    return m.SettingsModel(m.MODEL_SETTING_SPECS)
+    return m.SettingsModel(m.SETTING_SPECS)
 
 
 def _listening(model):
@@ -18,10 +18,10 @@ def test_a_new_model_holds_the_defaults_and_makes_the_default_record():
     assert model.record(m.NaturalTerminationSettings) == m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     assert model.record(m.BuddhaBlurSettings) == m.DEFAULT_BUDDHA_BLUR and model.record(m.BuddhaSeedSettings) == m.DEFAULT_BUDDHA_SEED
     assert all(model.error(key) is None for key in model.keys())
-    assert sorted(model.keys()) == sorted(m.MODEL_SETTING_SPECS)
+    assert sorted(model.keys()) == sorted(m.SETTING_SPECS)
     assert model.record(m.RaySettings) == m.DEFAULT_RAY_SETTINGS
-    assert (set(m.NATURAL_TERMINATION_SETTING_SPECS) | set(m.BLUR_SETTING_SPECS) | set(m.BUDDHA_SEED_SETTING_SPECS) | set(m.RAY_SETTING_SPECS)
-            == set(model.keys()))
+    assert model.record(m.EngineSettings) == m.DEFAULT_ENGINE_SETTINGS and model.record(m.MandelbrotSettings) == m.DEFAULT_MANDELBROT_SETTINGS
+    assert set(m.SETTING_SPECS) == set(model.keys()), "every static setting is held by the model"
 
 
 def test_a_valid_text_changes_the_value_and_an_invalid_one_keeps_it_and_sets_the_error():
@@ -85,7 +85,7 @@ def test_a_batch_tells_the_listeners_once_at_its_end_and_batches_nest():
 
 
 def test_the_model_makes_no_partial_records():
-    model = _model()
+    model = m.SettingsModel(m.NATURAL_TERMINATION_SETTING_SPECS)
     try:
         model.record(m.EngineSettings)
     except KeyError as exc:
@@ -95,17 +95,24 @@ def test_the_model_makes_no_partial_records():
 
 
 def test_every_text_a_setting_formats_to_is_read_back_as_the_same_value():
-    varied = m.settings_to_dict(_varied_natural_termination_settings(), _varied_blur_settings(), _varied_seed_settings(), _varied_ray_settings())
-    for key in m.MODEL_SETTING_SPECS:
+    varied = m.settings_to_dict(_varied_natural_termination_settings(), _varied_blur_settings(), _varied_seed_settings(), _varied_ray_settings(),
+                                m.EngineSettings(engine=m.ENGINE_MANDELBROT), _varied_mandelbrot())
+    for key in m.SETTING_SPECS:
         for value in (m.DEFAULT_SETTING_VALUES[key], varied[key]):
             model = _model()
             assert model.set(key, value) is None, key
             assert model.value(key) == value, key
 
 
+def test_the_self_checks_catch_a_setting_with_no_parser():
+    fresh = load_module()
+    fresh.selfchecks.SETTING_SPECS = {**fresh.SETTING_SPECS, "iter": fresh.SETTING_SPECS["iter"].replace(parse=None)}
+    _breaks_a_self_check(fresh, "has no parser in its spec row")
+
+
 def test_the_self_checks_catch_a_parser_that_cannot_read_its_own_default():
     fresh = load_module()
-    fresh.selfchecks.MODEL_SETTING_SPECS = {**fresh.MODEL_SETTING_SPECS, "iter": fresh.MODEL_SETTING_SPECS["iter"].replace(parse=lambda text: None)}
+    fresh.selfchecks.SETTING_SPECS = {**fresh.SETTING_SPECS, "iter": fresh.SETTING_SPECS["iter"].replace(parse=lambda text: None)}
     _breaks_a_self_check(fresh, "does not read back the text of its own default value")
 
 

@@ -4,8 +4,9 @@ A view (the Tk window today; another front end, a script, or an audio node tomor
 writes values with `set`; it reads them back with `value`, `error` and `record`. The model holds only VALUES: for each setting its last
 valid value and the error message of the text last submitted (None when that text was valid). The text being typed is the view's.
 
-Only the settings whose spec row has a parser are managed so far (`MODEL_SETTING_SPECS`: the natural termination limits and confinement,
-the Buddha blur, the Buddha seeding and the ray-bouncing engine's settings); the rest are still held by their controls, and this module changes nothing for them.
+The model holds every static setting of `SETTING_SPECS`: each spec row carries the parser of its text (`parse`, `message`, `lenient`, `fmt`),
+and a self-check refuses a row without one. The window's controls are views of it (`widgets.ModelBinding`); the keyframe, project and
+export code read the records it makes.
 
 Pure: imports no Tk."""
 from .settings import DEFAULT_SETTING_VALUES, SETTING_SPECS, SETTING_TABLES, settings_from_dict

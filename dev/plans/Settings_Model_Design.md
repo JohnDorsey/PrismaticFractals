@@ -1,6 +1,6 @@
 # Settings model: design note and spike plan
 
-Status: PROPOSAL, nothing built. Needs the author's sign-off on the choices in "Decisions to confirm" before the spike starts.
+Status: ROLLED OUT (FILE_VERSION 181): the model holds every static setting. Open: events for everything (see decision 3) and the obstacle editor's `FloatEntryHandle`.
 
 ## Why
 
@@ -100,3 +100,13 @@ The model now holds 29 settings: the 16 of `RaySettings` (segment multiplier, em
 - One deliberate, practically unobservable difference: an entry that rounds more coarsely than its record (a jitter shown to one place, stored to two) is now rounded to the record's places when typed, not when read; the committed text can differ from before only for a value like 0.1500000001.
 - Checks as before: 936 tests, `settings_model_check.py` (75 checks, now also the emission, segment multiplier, fuzzing, seed, Start, Revert and keyframe steps), `project_roundtrip_check.py`, `engine_switch_check.py` (both updated for the renamed controls), image hashes identical, project pictures identical to before the rollouts. Tests changed: fixtures only, plus two tests of "the builder passes lo/hi to add_angle_entry" that became tests of the model's limits.
 - Next: the engine and Mandelbrot settings (`EngineSettings`, `MandelbrotSettings`: 8 settings; the engine choice is also read by many places, and `pre_seg_mult` retires the last `FloatEntryHandle` of the engine side).
+
+## Rollout 3: the engine and the Mandelbrot engine's settings (FILE_VERSION 181) - the rollout is finished
+
+The model holds all 37 settings of `SETTING_SPECS`, so `MODEL_SETTING_SPECS` is gone (the model is built from `SETTING_SPECS`), a self-check refuses a spec row without a parser, the `"number"` kind and the legacy branch of `set_setting_control` are gone, and `current_*_settings` are one-line `model.record(...)` calls.
+
+- The engine choice is `model.value("engine")` everywhere (`engine_var` is only the dropdown's variable): the `hasattr(self, "engine_var")` guards are gone, because the model exists from the start with the default engine. `engine_applied` stays separate from it on purpose (the dropdown/model changes at once; the program has used the old engine until the switch runs).
+- The Mandelbrot settings are lenient (the exponent and Julia constant keep the last valid text's value; no error shown, as before); the before-multiplier is built by `add_model_entry` like the others (`pre_seg_mult_entry`, `pre_seg_mult_row` for greying).
+- Checks as before: 937 tests, `settings_model_check.py` (93 checks; also the engine dropdown, the greying under each engine, a half-typed exponent, the Julia mapping and the before-multiplier), `project_roundtrip_check.py`, `engine_switch_check.py` (the before-multiplier entry renamed), image hashes identical, project pictures identical to before the rollouts.
+- Whole rollout, measured at the end: `app_controls.py` 862 -> 778 lines; every `last_*` copy, `read_fuzz_controls`, the per-setting traces and the parsing in handlers are gone; `FloatEntryHandle` remains only for the obstacle editor.
+- Later (not started): events for everything (obstacles, colorations and framings publishing changes, so `poll_modified` and `poll_project_title` can go); moving the fixture helper `_give_settings_model` into more tests as they are touched.

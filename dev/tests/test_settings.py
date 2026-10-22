@@ -668,11 +668,6 @@ def test_the_figure_settings_name_the_engine_first_when_it_is_given_and_the_bloc
 # --------------------------------------------------------------------------- #
 # The Mandelbrot engine's own settings
 # --------------------------------------------------------------------------- #
-def _varied_mandelbrot():
-    return m.MandelbrotSettings(exponent=3.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=-0.8, julia_im=0.156,
-                                escape=m.ORBIT_ESCAPE_BEYOND, pre_seg_mult=0.6)
-
-
 def test_the_mandelbrot_settings_are_a_record_of_their_own_with_a_row_a_catalog_and_a_control_each():
     assert [f.name for f in dataclasses.fields(m.MandelbrotSettings)] == ["exponent", "z0", "mapping", "julia_re", "julia_im", "escape", "pre_seg_mult"]
     assert m.DEFAULT_MANDELBROT_SETTINGS == m.MandelbrotSettings(exponent=2.0, z0=0, mapping=0, julia_re=0.0, julia_im=0.0, escape=0, pre_seg_mult=1.0)
@@ -715,11 +710,14 @@ def test_the_mandelbrot_controls_read_back_as_a_record_and_grey_out_what_is_of_n
     class FakeApp:
         pass
     app = FakeApp()
-    app.last_orbit = {"exponent": 2.5, "julia_re": 0.25, "julia_im": -0.5}
+    _give_settings_model(app)
+    for field, value in (("exponent", "2.5"), ("julia_re", "0.25"), ("julia_im", "-0.5")):
+        getattr(app, f"orbit_{field}_var").set(value)                        # (valid first, so that there is a last valid value)
     for field, value in (("exponent", "oops"), ("julia_re", "0.75"), ("julia_im", "")):
-        setattr(app, f"orbit_{field}_var", _StubVar(value))
-    app.pre_seg_mult_scale = types.SimpleNamespace(get=lambda: 0.75)
-    app.orbit_z0_var, app.orbit_mapping_var, app.orbit_escape_var = (_StubVar(m.ORBIT_Z0_NAMES[1]), _StubVar(m.ORBIT_MAPPING_NAMES[1]),
-                                                                       _StubVar(m.ORBIT_ESCAPE_NAMES[1]))
+        getattr(app, f"orbit_{field}_var").set(value)
+    app.pre_seg_mult_var.set("0.75")
+    app.orbit_z0_var.set(m.ORBIT_Z0_NAMES[1])
+    app.orbit_mapping_var.set(m.ORBIT_MAPPING_NAMES[1])
+    app.orbit_escape_var.set(m.ORBIT_ESCAPE_NAMES[1])
     assert m.App.current_mandelbrot_settings(app) == m.MandelbrotSettings(
         exponent=2.5, z0=1, mapping=1, julia_re=0.75, julia_im=-0.5, escape=1, pre_seg_mult=0.75), "(nonsense counts as the last valid value)"

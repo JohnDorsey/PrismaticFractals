@@ -288,7 +288,7 @@ class SettingSpec:
     control: str           # the App attribute holding the control that shows the value
     widget: str            # the App attribute of the widget its modified-outline surrounds
     kind: str              # how set_setting_control writes the control: "text", "int_text",
-                           # "float_text", "number", "bool" or "choice"
+                           # "float_text", "bool" or "choice"
     names: tuple           # for "choice": the names the value indexes into
     tab: str               # the keyframe settings list section it is listed under
     label: str             # its name there
@@ -429,23 +429,27 @@ BUDDHA_SEED_SETTING_SPECS = {
 
 # The same for the choice of path engine (an EngineSettings).
 ENGINE_SETTING_SPECS = {
-    "engine": _spec(("engine",), "engine_var", "engine_combo", "choice", "Simulation", "Engine", ENGINE_NAMES),
+    "engine": _spec(("engine",), "engine_var", "engine_combo", "choice", "Simulation", "Engine", ENGINE_NAMES,
+                    parse=choice_parser(ENGINE_NAMES), lenient=True),
 }
 
 # The same for the Mandelbrot engine's own settings (a MandelbrotSettings).
 MANDELBROT_SETTING_SPECS = {
-    "orbit_exponent": _spec(("exponent",), "orbit_exponent_var", "orbit_exponent_entry", "float_text", "Simulation", "Exponent"),
-    "orbit_z0": _spec(("z0",), "orbit_z0_var", "orbit_z0_combo", "choice", "Simulation", "Starting value z_0", ORBIT_Z0_NAMES),
+    "orbit_exponent": _spec(("exponent",), "orbit_exponent_var", "orbit_exponent_entry", "float_text", "Simulation", "Exponent",
+                            parse=parse_target_coordinate, lenient=True),
+    "orbit_z0": _spec(("z0",), "orbit_z0_var", "orbit_z0_combo", "choice", "Simulation", "Starting value z_0", ORBIT_Z0_NAMES,
+                      parse=choice_parser(ORBIT_Z0_NAMES), lenient=True),
     "orbit_mapping": _spec(("mapping",), "orbit_mapping_var", "orbit_mapping_combo", "choice", "Simulation", "Pixel maps to",
-                           ORBIT_MAPPING_NAMES),
+                           ORBIT_MAPPING_NAMES, parse=choice_parser(ORBIT_MAPPING_NAMES), lenient=True),
     "orbit_julia_re": _spec(("julia_re",), "orbit_julia_re_var", "orbit_julia_re_entry", "float_text", "Simulation",
-                            "Julia constant (real part)"),
+                            "Julia constant (real part)", parse=parse_target_coordinate, lenient=True),
     "orbit_julia_im": _spec(("julia_im",), "orbit_julia_im_var", "orbit_julia_im_entry", "float_text", "Simulation",
-                            "Julia constant (imaginary part)"),
+                            "Julia constant (imaginary part)", parse=parse_target_coordinate, lenient=True),
     "orbit_escape": _spec(("escape",), "orbit_escape_var", "orbit_escape_combo", "choice", "Simulation", "An escaping orbit ends",
-                          ORBIT_ESCAPE_NAMES),
-    "orbit_pre_seg_mult": _spec(("pre_seg_mult",), "pre_seg_mult_scale", "pre_seg_mult_scale", "number", "Mutations",
-                                "Segment length multiplier (before)"),
+                          ORBIT_ESCAPE_NAMES, parse=choice_parser(ORBIT_ESCAPE_NAMES), lenient=True),
+    "orbit_pre_seg_mult": _spec(("pre_seg_mult",), "pre_seg_mult_var", "pre_seg_mult_entry", "float_text", "Mutations",
+                                "Segment length multiplier (before)", fmt="{:.2f}", lenient=True,
+                                parse=clamped_float_parser(SEGMENT_MULT_MIN, SEGMENT_MULT_MAX)),
 }
 
 # Every record of settings and the table of its rows. This is the one place that says
@@ -462,9 +466,6 @@ DEFAULT_SETTINGS = {NaturalTerminationSettings: DEFAULT_NATURAL_TERMINATION_SETT
 
 # Every static setting a keyframe can define, from all the tables, in table order.
 SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
-
-# The settings the settings model holds (settings_model.py): the rows that have a parser.
-MODEL_SETTING_SPECS = {key: spec for key, spec in SETTING_SPECS.items() if spec.parse is not None}
 
 # Every setting a keyframe can define: (key, tab it lives on, short label for the
 # settings list), in the order shown within each tab group - the SETTING_SPECS rows,

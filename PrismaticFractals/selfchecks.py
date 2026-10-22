@@ -28,7 +28,7 @@ from .projects import (
     CAT_STAT_REDUCTION, PROJECT_KEY_PATTERN, SETTING_CHOICE_CATALOGS
 )
 from .settings import (
-    DEFAULT_SETTINGS, DEFAULT_SETTING_VALUES, MODEL_SETTING_SPECS, SETTING_FLOAT_KEYS, SETTING_INFO, SETTING_SPECS,
+    DEFAULT_SETTINGS, DEFAULT_SETTING_VALUES, SETTING_FLOAT_KEYS, SETTING_INFO, SETTING_SPECS,
     SETTING_TABLES, SETTING_WIDGET_ATTRS, record_leaf_paths
 )
 from .settings_model import format_value
@@ -271,14 +271,14 @@ def run_self_checks():
                 f"fields without a row: {leaves - set(spec_paths) or None}; "
                 f"rows without a field: {set(spec_paths) - leaves or None}")
         bad_kinds = [k for k, spec in table.items()
-                     if spec.kind not in ("text", "int_text", "float_text", "number", "bool",
+                     if spec.kind not in ("text", "int_text", "float_text", "bool",
                                           "choice")
                      or bool(spec.names) != (spec.kind == "choice")]
         if bad_kinds:
             raise AssertionError(f"settings rows of {record_class.__name__} with a bad kind or "
                                  f"names: {bad_kinds}")
-    for key, spec in MODEL_SETTING_SPECS.items():                         # the settings the settings model holds
-        if spec.kind not in ("text", "int_text", "float_text", "choice", "bool"):
-            raise AssertionError(f"the setting {key!r} has a parser but its kind {spec.kind!r} is not text, a choice or a checkbox")
+    for key, spec in SETTING_SPECS.items():                               # the settings model holds every static setting
+        if spec.parse is None:
+            raise AssertionError(f"the setting {key!r} has no parser in its spec row: the settings model cannot hold it")
         if spec.parse(format_value(key, DEFAULT_SETTING_VALUES[key])) != DEFAULT_SETTING_VALUES[key]:
             raise AssertionError(f"the parser of {key!r} does not read back the text of its own default value")

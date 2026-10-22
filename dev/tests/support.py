@@ -230,10 +230,10 @@ def _give_settings_model(app, controls=True, entry_factory=None, **texts):
     entries of those settings bound to it by the real App.bind_model_controls, so typing into a variable (app.iter_var.set("9"))
     reaches the model as it does in the window. `entry_factory(key)` makes the entry of a setting (a _StubEntry by default); `texts` set the starting text of settings by key (the
     defaults otherwise)."""
-    app.model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    app.model = m.SettingsModel(m.SETTING_SPECS)
     if not controls:
         return
-    for key, spec in m.MODEL_SETTING_SPECS.items():
+    for key, spec in m.SETTING_SPECS.items():
         setattr(app, spec.control, _StubVar(m.format_value(key, m.DEFAULT_SETTING_VALUES[key])))
         if spec.kind not in ("choice", "bool"):
             setattr(app, spec.widget, _StubEntry() if entry_factory is None else entry_factory(key))
@@ -250,7 +250,7 @@ def _give_settings_model(app, controls=True, entry_factory=None, **texts):
     app.on_model_changed = m.App.on_model_changed.__get__(app)
     app.bind_model_controls()
     for key, text in texts.items():
-        getattr(app, m.MODEL_SETTING_SPECS[key].control).set(text)
+        getattr(app, m.SETTING_SPECS[key].control).set(text)
 
 
 class _StubWidget:
@@ -874,6 +874,11 @@ def _varied_ray_settings():
                           rng_seed=424242),
         emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
         emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
+
+
+def _varied_mandelbrot():
+    return m.MandelbrotSettings(exponent=3.5, z0=m.ORBIT_Z0_C, mapping=m.ORBIT_MAPPING_JULIA, julia_re=-0.8, julia_im=0.156,
+                                escape=m.ORBIT_ESCAPE_BEYOND, pre_seg_mult=0.6)
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

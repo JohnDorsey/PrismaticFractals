@@ -73,7 +73,7 @@ def generate():
 
 
 model = app.model
-check(set(model.keys()) == set(lb.MODEL_SETTING_SPECS) and len(model.keys()) == 29, "the model manages the natural termination, blur, seeding and ray settings")
+check(set(model.keys()) == set(lb.SETTING_SPECS) and len(model.keys()) == 37, "the model manages every static setting")
 check(model.record(lb.NaturalTerminationSettings) == app.current_natural_termination_settings() == lb.DEFAULT_NATURAL_TERMINATION_SETTINGS,
       "at start the model and the controls hold the defaults")
 
@@ -250,6 +250,38 @@ app.deselect_keyframe()
 app.fuzz_enable_check.invoke()                       # (fuzzing off again, so that it does not slow what follows)
 root.update()
 check(model.value("fuzz_on") is False and app.bnd_jitter_entry.instate(["disabled"]), "unticking it greys the entries again")
+
+# ---- the engine and the Mandelbrot engine's settings
+check(model.value("engine") == lb.ENGINE_RAY_BOUNCING and app.current_engine_settings() == lb.DEFAULT_ENGINE_SETTINGS, "the ray engine is selected at start")
+check(app.orbit_exponent_entry.instate(["disabled"]) and app.pre_seg_mult_entry.instate(["disabled"]), "under the ray engine the Mandelbrot controls are greyed out")
+app.engine_var.set("Mandelbrot")
+app.on_engine_changed()
+root.update()
+check(model.value("engine") == lb.ENGINE_MANDELBROT and app.engine_applied == lb.ENGINE_MANDELBROT and app.current_engine_description().uses_orbit_settings,
+      "choosing Mandelbrot in the dropdown reaches the model and the engine switch ran")
+check(not app.orbit_exponent_entry.instate(["disabled"]) and not app.pre_seg_mult_entry.instate(["disabled"]), "...and the Mandelbrot controls are enabled")
+check(app.orbit_julia_re_entry.instate(["disabled"]) and not app.orbit_z0_combo.instate(["disabled"]), "with the pixel as c, the Julia constant is greyed out and z_0 is not")
+type_into(app.orbit_exponent_entry, "3")
+type_into(app.orbit_exponent_entry, "-")
+check(app.current_mandelbrot_settings().exponent == 3.0 and model.error("orbit_exponent") is None and style(app.orbit_exponent_entry) == "TEntry",
+      "a half-typed exponent counts as the last valid one, with no error")
+press(app.orbit_exponent_entry, "<Return>")
+check(app.orbit_exponent_var.get() == "3.0", "committing puts the last valid exponent back")
+app.orbit_mapping_var.set(lb.ORBIT_MAPPING_NAMES[lb.ORBIT_MAPPING_JULIA])
+app.on_orbit_changed()
+root.update()
+check(model.value("orbit_mapping") == lb.ORBIT_MAPPING_JULIA and not app.orbit_julia_re_entry.instate(["disabled"]) and app.orbit_z0_combo.instate(["disabled"]),
+      "choosing the Julia mapping reaches the model, enables the Julia constant and greys out z_0")
+type_into(app.pre_seg_mult_entry, "0.5")
+press(app.pre_seg_mult_entry, "<Return>")
+check(app.pre_seg_mult_var.get() == "0.50" and app.current_mandelbrot_settings().pre_seg_mult == 0.5, "the before-multiplier is committed to 0.50 and read by the settings")
+check(app.mandelbrot_defines_figure(lb.DEFAULT_MANDELBROT_SETTINGS) and enabled(app.start_btn), "a Mandelbrot setting is figure-defining under Mandelbrot: Start is enabled")
+app.engine_var.set("Ray Bouncing")
+app.on_engine_changed()
+root.update()
+check(model.value("engine") == lb.ENGINE_RAY_BOUNCING and app.orbit_exponent_entry.instate(["disabled"]) and app.pre_seg_mult_entry.instate(["disabled"]),
+      "choosing the ray engine again greys the Mandelbrot controls out")
+check(app.orbit_exponent_var.get() == "3.0" and app.current_mandelbrot_settings().pre_seg_mult == 0.5, "...but they keep their values")
 
 # ---- a project captures and applies them
 type_into(app.confine_lookback_entry, "6")           # (an earlier step left this entry invalid, and a project cannot be captured then)

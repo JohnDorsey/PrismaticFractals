@@ -5,7 +5,6 @@ engines.py; this is the part that reads and writes the controls."""
 import tkinter as tk
 from tkinter import ttk
 from .colorations import coloration_channel_value
-from .constants import DEFAULT_ENGINE, ENGINE_NAMES
 from .engines import (
     EMPTY_ENGINE_MEMORY, KEYFRAME_HEADER, correct_channel, correct_settings, correction_message, engine_description, go_back,
     keyframe_fixes, switch_engine
@@ -75,7 +74,7 @@ class EngineFlowMixin:
     def switch_to_selected_engine(self):
         """The engine dropdown now shows another engine than the one the program has been using (`engine_applied`): everything the new
         engine does not accept is reset (what it had comes back where nothing has changed since), the user is told - and may go back."""
-        new_code = ENGINE_NAMES.index(self.engine_var.get())
+        new_code = self.model.value("engine")
         old_code = self.engine_applied
         settings = None if new_code == old_code else self.capture_all_settings(show_error=False)
         if settings is None:                                # nothing to switch, or an entry holds nonsense for the moment
@@ -100,7 +99,7 @@ class EngineFlowMixin:
     def correct_loaded_values(self, values, header=KEYFRAME_HEADER):
         """`values` ({setting key: value}, what selecting a keyframe is about to load) corrected for the engine they put in effect
         (the one among them, else the program's): (corrected values, the message to show or None)."""
-        code = values.get("engine", ENGINE_NAMES.index(self.engine_var.get()))
+        code = values.get("engine", self.model.value("engine"))
         corrected, corrections = correct_settings(values, engine_description(code), self.engine_titles())
         return corrected, (correction_message(corrections, header) if corrections else None)
 
@@ -111,7 +110,7 @@ class EngineFlowMixin:
         from .settings import Keyframe
         prospective = [Keyframe(k.id, k.frame_index, dict(k.data)) for k in self.keyframes if k is not kf]
         prospective.append(Keyframe(kf.id, kf.frame_index, {**kf.data, **new_values}))
-        fixes = keyframe_fixes(prospective, ENGINE_NAMES.index(self.engine_var.get()), saved={(kf.id, key) for key in new_values},
+        fixes = keyframe_fixes(prospective, self.model.value("engine"), saved={(kf.id, key) for key in new_values},
                                is_float=self.setting_is_float, titles=self.engine_titles())
         if fixes and not self.show_notice(correction_message([fix.correction for fix in fixes], SAVE_HEADER), can_go_back=True):
             return False
@@ -131,7 +130,7 @@ class EngineFlowMixin:
         settings = self.capture_all_settings(show_error=False)
         if settings is None:
             return
-        corrected, corrections = correct_settings(settings, engine_description(ENGINE_NAMES.index(self.engine_var.get())), self.engine_titles())
+        corrected, corrections = correct_settings(settings, engine_description(self.model.value("engine")), self.engine_titles())
         if corrections:
             self.apply_setting_values({c.key: corrected[c.key] for c in corrections})
             self.show_notice(correction_message(corrections, RENDER_HEADER))
@@ -139,7 +138,7 @@ class EngineFlowMixin:
     def correct_new_coloration(self, coloration):
         """A coloration just made has the usual defaults, which the engine in use may not offer (the default one counts bounces): give it
         the engine's own (D39). Not a reset, so no notice."""
-        description = engine_description(ENGINE_NAMES.index(self.engine_var.get()) if hasattr(self, "engine_var") else DEFAULT_ENGINE)
+        description = engine_description(self.model.value("engine"))
         for c in range(3):
             channel, _changes = correct_channel(coloration_channel_value(coloration, c), description, c)
             coloration.set_channel(c, channel)

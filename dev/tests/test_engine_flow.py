@@ -23,13 +23,13 @@ def _flow_app(values=None):
     class FakeApp:
         pass
     app = FakeApp()
-    _give_settings_model(app, controls=False)
+    _give_settings_model(app)
     state = _Controls(values)
     app.state = state
-    app.engine_var = _StubVar(m.ENGINE_NAMES[state.values["engine"]])
+    app.model.set("engine", state.values["engine"])
     app.engine_applied, app.engine_memory = state.values["engine"], m.EMPTY_ENGINE_MEMORY
     app.kf_applying = False
-    app.capture_all_settings = lambda show_error=True: {**state.values, "engine": m.ENGINE_NAMES.index(app.engine_var.get())}
+    app.capture_all_settings = lambda show_error=True: {**state.values, "engine": app.model.value("engine")}
 
     def load_value(key, value):
         state.values[key] = value
@@ -39,7 +39,7 @@ def _flow_app(values=None):
     for name in ("on_limit_var_changed", "on_shape_param_changed", "on_fuzz_changed", "on_buddha_blur_changed", "on_buddha_seeds_changed",
                  "on_orbit_changed", "on_framings_loaded", "refresh_timeline_diffs"):
         setattr(app, name, lambda *a, **k: state.refreshes.append(name))
-    app.apply_engine_offers = lambda: setattr(app, "engine_applied", m.ENGINE_NAMES.index(app.engine_var.get()))
+    app.apply_engine_offers = lambda: setattr(app, "engine_applied", app.model.value("engine"))
     app.engine_titles = lambda: {}
 
     def show_notice(message, can_go_back=False, **kwargs):
@@ -147,12 +147,13 @@ def test_a_new_coloration_gets_the_defaults_of_the_engine_in_use():
     class FakeApp:
         pass
     app = FakeApp()
-    app.engine_var = _StubVar("Mandelbrot")
+    _give_settings_model(app, controls=False)
+    app.model.set("engine", m.ENGINE_MANDELBROT)
     config = m.ColorationConfig(5)
     m.App.correct_new_coloration(app, config)
     assert m.METRIC_LABELS[config.other_metric[2]] == "Path: Point count / limit"
     assert config.metric_types == list(m.DEFAULT_METRIC_TYPES) and config.point_metric == list(m.DEFAULT_POINT_METRICS)
-    app.engine_var = _StubVar("Ray Bouncing")
+    app.model.set("engine", m.ENGINE_RAY_BOUNCING)
     ray = m.ColorationConfig(6)
     m.App.correct_new_coloration(app, ray)
     assert ray.other_metric == list(m.DEFAULT_OTHER_METRICS)
@@ -353,7 +354,7 @@ def test_fuzzings_own_rule_never_enables_what_the_engine_ignores():
     check = types.SimpleNamespace(state=lambda flags: states.setdefault("check", flags))
     tk_widget = types.SimpleNamespace(configure=lambda state: states.setdefault("tk", state))
     ttk_widget = types.SimpleNamespace(state=lambda flags: states.setdefault("ttk", flags))
-    model = m.SettingsModel(m.MODEL_SETTING_SPECS)
+    model = m.SettingsModel(m.SETTING_SPECS)
     model.set("fuzz_on", True)
     app = types.SimpleNamespace(fuzz_enable_check=check, model=model, fuzz_tk_widgets=[tk_widget],
                                 fuzz_ttk_widgets=[ttk_widget], current_engine_description=lambda: m.MANDELBROT_ENGINE)
