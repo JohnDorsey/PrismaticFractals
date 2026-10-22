@@ -121,10 +121,11 @@ def test_the_video_help_text_names_the_folders_relative_to_the_program_and_survi
         m.paths.TEMP_DIR = os.path.join(m.paths.EXPORT_DIR, "TEMP")
         text = m.App.video_help_text(app)
         assert "data/exports/TEMP/" in text and "saved in data/exports/." in text and "Re-encode" in text
-        if os.name == "nt":                                 # (relpath raises across drives)
-            m.paths.EXPORT_DIR = "D:\\elsewhere\\exports"
-            m.paths.TEMP_DIR = "D:\\elsewhere\\exports\\TEMP"
-            assert "D:/elsewhere/exports/TEMP/" in m.App.video_help_text(app)
+        if os.name == "nt":                                 # (relpath raises across drives: one that is not the one the program is on)
+            drive = "Z:" if os.path.splitdrive(root)[0].upper() != "Z:" else "Y:"
+            m.paths.EXPORT_DIR = drive + "\\elsewhere\\exports"
+            m.paths.TEMP_DIR = drive + "\\elsewhere\\exports\\TEMP"
+            assert drive + "/elsewhere/exports/TEMP/" in m.App.video_help_text(app)
     finally:
         m.paths.SCRIPT_DIR, m.paths.TEMP_DIR, m.paths.EXPORT_DIR = saved
 
