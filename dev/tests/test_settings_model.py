@@ -4,7 +4,7 @@ from .support import *      # noqa: F401,F403 - m, ROOT, SkipTest and the shared
 
 
 def _model():
-    return m.SettingsModel(m.NATURAL_TERMINATION_PARSERS)
+    return m.SettingsModel(m.MODEL_SETTING_SPECS)
 
 
 def _listening(model):
@@ -16,8 +16,10 @@ def _listening(model):
 def test_a_new_model_holds_the_defaults_and_makes_the_default_record():
     model = _model()
     assert model.record(m.NaturalTerminationSettings) == m.DEFAULT_NATURAL_TERMINATION_SETTINGS
+    assert model.record(m.BuddhaBlurSettings) == m.DEFAULT_BUDDHA_BLUR and model.record(m.BuddhaSeedSettings) == m.DEFAULT_BUDDHA_SEED
     assert all(model.error(key) is None for key in model.keys())
-    assert sorted(model.keys()) == sorted(m.NATURAL_TERMINATION_SETTING_SPECS)
+    assert sorted(model.keys()) == sorted(m.MODEL_SETTING_SPECS)
+    assert set(m.NATURAL_TERMINATION_SETTING_SPECS) | set(m.BLUR_SETTING_SPECS) | set(m.BUDDHA_SEED_SETTING_SPECS) == set(model.keys())
 
 
 def test_a_valid_text_changes_the_value_and_an_invalid_one_keeps_it_and_sets_the_error():
@@ -91,8 +93,9 @@ def test_the_model_makes_no_partial_records():
 
 
 def test_every_text_a_setting_formats_to_is_read_back_as_the_same_value():
-    for key in m.NATURAL_TERMINATION_PARSERS:
-        for value in (m.DEFAULT_SETTING_VALUES[key], m.settings_to_dict(_varied_natural_termination_settings())[key]):
+    varied = m.settings_to_dict(_varied_natural_termination_settings(), _varied_blur_settings(), _varied_seed_settings())
+    for key in m.MODEL_SETTING_SPECS:
+        for value in (m.DEFAULT_SETTING_VALUES[key], varied[key]):
             model = _model()
             assert model.set(key, value) is None, key
             assert model.value(key) == value, key
@@ -100,9 +103,52 @@ def test_every_text_a_setting_formats_to_is_read_back_as_the_same_value():
 
 def test_the_self_checks_catch_a_parser_that_cannot_read_its_own_default():
     fresh = load_module()
-    fresh.selfchecks.NATURAL_TERMINATION_PARSERS = {
-        **fresh.NATURAL_TERMINATION_PARSERS, "iter": fresh.SettingParser(parse=lambda text: None, message="never")}
+    fresh.selfchecks.MODEL_SETTING_SPECS = {**fresh.MODEL_SETTING_SPECS, "iter": fresh.MODEL_SETTING_SPECS["iter"].replace(parse=lambda text: None)}
     _breaks_a_self_check(fresh, "does not read back the text of its own default value")
+
+
+# ---- settings whose unusable text is ignored, and checkboxes (the Buddha blur and seeding) --------------
+def test_a_lenient_setting_ignores_text_that_is_no_number_clamps_one_that_is_too_big_and_never_holds_an_error():
+    model = _model()
+    assert model.submit("buddha_blur_radius", "0.2") is None and model.value("buddha_blur_radius") == 0.2
+    assert model.submit("buddha_blur_radius", "-") is None and model.value("buddha_blur_radius") == 0.2 and model.error("buddha_blur_radius") is None
+    assert model.submit("buddha_blur_radius", "0.9") is None and model.value("buddha_blur_radius") == m.BUDDHA_BLUR_RADIUS_MAX
+    assert model.submit("buddha_blur_radius", "-3") is None and model.value("buddha_blur_radius") == m.BUDDHA_BLUR_RADIUS_MIN
+    assert model.record(m.BuddhaBlurSettings) is not None, "a blur is never None"
+
+
+def test_the_seeding_zone_keeps_the_last_valid_value_while_a_number_is_half_typed():
+    model = _model()
+    model.submit("buddha_seed_x_start", "-.5")
+    assert model.value("buddha_seed_x_start") == -0.5
+    for half in ("-", "", "1e", "abc"):
+        model.submit("buddha_seed_x_start", half)
+        assert model.value("buddha_seed_x_start") == -0.5 and model.error("buddha_seed_x_start") is None, half
+    assert model.record(m.BuddhaSeedSettings).x_start == -0.5
+
+
+def test_a_program_write_to_a_lenient_setting_is_clamped_and_still_reported_so_the_view_shows_what_was_kept():
+    model = _model()
+    calls = _listening(model)
+    model.set("buddha_blur_radius", 5)
+    assert model.value("buddha_blur_radius") == m.BUDDHA_BLUR_RADIUS_MAX and calls == [{"buddha_blur_radius": "set"}]
+
+
+def test_a_checkbox_setting_holds_a_bool_and_shows_one():
+    model = _model()
+    assert model.value("buddha_seed_camera") is True
+    model.submit("buddha_seed_camera", False)
+    assert model.value("buddha_seed_camera") is False
+    model.set("buddha_seed_camera", 1)
+    assert model.value("buddha_seed_camera") is True and m.format_value("buddha_seed_camera", 0) is False
+
+
+def test_the_blur_type_is_chosen_by_name_and_an_unknown_name_is_ignored():
+    model = _model()
+    model.submit("buddha_blur_type", m.BUDDHA_BLUR_LABELS[m.BUDDHA_BLUR_BOKEH])
+    assert model.value("buddha_blur_type") == m.BUDDHA_BLUR_BOKEH
+    model.submit("buddha_blur_type", "no such blur")
+    assert model.value("buddha_blur_type") == m.BUDDHA_BLUR_BOKEH and model.error("buddha_blur_type") is None
 
 
 # ---- the binding of a control to the model --------------------------------------------------

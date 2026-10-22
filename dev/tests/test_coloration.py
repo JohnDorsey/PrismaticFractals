@@ -346,8 +346,8 @@ def test_loading_keyframe_settings_refreshes_the_buddha_blur():
 
 def test_capture_and_resolve_round_trip_buddha_blur_settings():
     app = _make_fake_app_for_snapshot()
-    app.buddha_blur_radius_scale = _StubVar(0.2)
-    app.buddha_blur_type_var = _StubVar(m.BUDDHA_BLUR_LABELS[m.BUDDHA_BLUR_BOKEH])
+    app.buddha_blur_radius_var.set("0.2")
+    app.buddha_blur_type_var.set(m.BUDDHA_BLUR_LABELS[m.BUDDHA_BLUR_BOKEH])
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
     app.colorations = []
@@ -782,17 +782,6 @@ def test_every_choice_a_coloration_can_make_has_its_own_label_and_a_working_key(
 # --------------------------------------------------------------------------- #
 # The Buddha seeding tab: greying, the zone's entries, the outline on the preview, and the image
 # --------------------------------------------------------------------------- #
-class _SeedVar:
-    def __init__(self, value):
-        self.value = value
-
-    def get(self):
-        return self.value
-
-    def set(self, value):
-        self.value = value
-
-
 class _StateWidget:
     def __init__(self):
         self.states = []
@@ -808,10 +797,7 @@ def _fake_seeding_app(camera=True, **zone):
     _give_image_geometry(app)
     defaults = dict(x_start=-1.0, x_stop=1.0, y_start=-1.0, y_stop=1.0)
     defaults.update(zone)
-    app.last_buddha_seed = dict(defaults)
-    for field, value in defaults.items():
-        setattr(app, f"buddha_seed_{field}_var", _SeedVar(str(value)))
-    app.buddha_seed_camera_var = _SeedVar(camera)
+    app.seed_zone = defaults
     app.buddha_seed_entries = [_StateWidget() for _ in range(4)]
     app.buddha_seed_labels = [_StateWidget() for _ in range(5)]
     app.seed_job = None
@@ -822,6 +808,7 @@ def _fake_seeding_app(camera=True, **zone):
     for name in ("current_buddha_seed_settings", "update_buddha_seed_state", "on_buddha_seed_camera_changed",
                  "on_buddha_seed_commit", "on_buddha_seeds_changed", "refresh_buddha_seeds"):
         setattr(app, name, getattr(m.App, name).__get__(app))
+    _give_settings_model(app, buddha_seed_camera=camera, **{f"buddha_seed_{field}": str(value) for field, value in defaults.items()})
     return app
 
 
@@ -850,7 +837,7 @@ def test_committing_a_zone_entry_tidies_it_puts_back_the_last_valid_value_and_re
     app.buddha_seed_x_start_var.set("-.5")
     app.buddha_seed_y_stop_var.set("")
     app.on_buddha_seed_commit()
-    assert app.buddha_seed_x_start_var.get() == "-0.5" and app.last_buddha_seed["x_start"] == -0.5
+    assert app.buddha_seed_x_start_var.get() == "-0.5" and app.model.value("buddha_seed_x_start") == -0.5
     assert app.buddha_seed_y_stop_var.get() == "1.0", "an empty entry goes back to its last valid value"
     assert len(app.pending) == 1
     app.on_buddha_seed_commit()                          # a second commit before the recolour: still one pending job

@@ -208,10 +208,6 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
 # SETTING_TABLES): one row per setting (path into its record, its control, how
 # the control is written)
 # --------------------------------------------------------------------------- #
-def _varied_blur_settings():
-    return m.BuddhaBlurSettings(radius=0.07, type=m.BUDDHA_BLUR_BOKEH)
-
-
 def _varied_ray_settings():
     return m.RaySettings(
         seg_mult=0.8,
@@ -220,10 +216,6 @@ def _varied_ray_settings():
                           rng_seed=424242),
         emit_mode=m.EMIT_TOWARDS, emit_target_r=0.4, emit_target_theta=33.0,
         emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
-
-
-def _varied_seed_settings():
-    return m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
 
 
 def test_each_settings_table_and_its_record_fields_are_the_same_set():

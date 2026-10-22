@@ -4,7 +4,7 @@ import re
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
-    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES,
+    CONFINE_METHOD_NAMES,
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
@@ -19,7 +19,7 @@ from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
 from .parsing import parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 from .settings import (
-    SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
+    DEFAULT_SETTING_VALUES, NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
     MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
@@ -314,6 +314,30 @@ class ControlsMixin:
         handle.row = row_frame                      # (the label and the entry: for greying both)
         return handle
 
+    def add_model_entry(self, parent, row, label, key, on_commit=None):
+        """A label and a text entry on one snug row (in the manner of add_angle_entry) for the setting `key` of self.model: what is
+        typed is reported to the model, and committing it (Enter, focus out) puts the last valid value back and calls `on_commit`.
+        The variable and entry are the attributes the setting's spec row names. Returns the row's frame."""
+        spec = SETTING_SPECS[key]
+        row_frame = ttk.Frame(parent)
+        row_frame.grid(row=row, column=0, columnspan=3, sticky="w", pady=1)
+        ttk.Label(row_frame, text=label).pack(side="left", padx=(8, 6))
+        var = tk.StringVar(value=format_value(key, DEFAULT_SETTING_VALUES[key]))
+        vcmd = (self.root.register(self.validate_float_free), "%P")
+        entry = ttk.Entry(row_frame, textvariable=var, width=9, justify="right", validate="key", validatecommand=vcmd)
+        entry.pack(side="left")
+
+        def commit(_event=None):
+            self.bindings[key].commit()
+            if on_commit is not None:
+                on_commit()
+
+        for event in ("<FocusOut>", "<Return>", "<KP_Enter>"):
+            entry.bind(event, commit)
+        setattr(self, spec.control, var)
+        setattr(self, spec.widget, entry)
+        return row_frame
+
     def build_fuzzing_controls(self, parent):
         """Angle controls for ray emission, bounces off the boundary, and
         bounces off the ray itself (laid out in a 2x2 grid). Everything except
@@ -455,12 +479,12 @@ class ControlsMixin:
             var.set(str(rounded))
 
     def bind_model_controls(self):
-        """Connect the natural termination controls (the Termination tab's limits and confinement) to their settings in self.model:
-        what is typed goes to the model, what the program sets comes back through on_model_changed."""
+        """Connect the controls of every setting the model holds (the natural termination limits and confinement, the Buddha blur and
+        the Buddha seeding) to it: what is typed goes to the model, what the program sets comes back through on_model_changed."""
         self.bindings = {}
         for key in self.model.keys():
             spec = SETTING_SPECS[key]
-            entry = None if spec.kind == "choice" else getattr(self, spec.widget)       # (a dropdown has no entry to colour)
+            entry = None if spec.kind in ("choice", "bool") else getattr(self, spec.widget)       # (a dropdown or checkbox has no entry to colour)
             self.bindings[key] = ModelBinding(self.model, key, getattr(self, spec.control), entry, lambda value, key=key: format_value(key, value))
         self.model.subscribe(self.on_model_changed)
 
@@ -470,6 +494,8 @@ class ControlsMixin:
             if origin == "set":
                 self.bindings[key].write_value()
             self.bindings[key].show_error()
+        if NATURAL_TERMINATION_SETTING_SPECS.keys().isdisjoint(changes):          # (the blur and the seeding react when committed)
+            return
         errors = lambda keys: " ".join(self.model.error(key) for key in keys if self.model.error(key) is not None)
         self.limit_msg_var.set(errors(("iter", "dist", "escape_radius")))
         self.confine_msg_var.set(errors(("confine_lookback", "confine_threshold")))
@@ -497,9 +523,9 @@ class ControlsMixin:
     def on_limit_commit(self, _event=None):
         """Enter pressed or focus left an entry: tidy the text, and put back the
         last valid value if the field holds something invalid."""
-        for key, binding in self.bindings.items():
-            if key != "confine_method":
-                binding.commit()
+        for key, spec in NATURAL_TERMINATION_SETTING_SPECS.items():
+            if spec.kind != "choice":
+                self.bindings[key].commit()
         for field in EMIT_TARGET_FIELDS:
             var = getattr(self, f"emit_target_{field}_var")
             value = parse_target_coordinate(var.get())
@@ -771,18 +797,13 @@ class ControlsMixin:
         choices can never hold an invalid value, so unlike current_generation_settings this is
         never None). Always what Buddha channels are colored with: the blur is not baked
         into a generated image, so there is no "generated" blur to remember."""
-        return BuddhaBlurSettings(radius=self.buddha_blur_radius_scale.get(),
-                                  type=BUDDHA_BLUR_LABELS.index(self.buddha_blur_type_var.get()))
+        return self.model.record(BuddhaBlurSettings)
 
     def current_buddha_seed_settings(self):
         """The Buddha seeding controls' values (a BuddhaSeedSettings). Like the blur it is never None: a zone entry
         that holds something invalid for the moment counts as its last valid value. Not part of what a generated
         image is made of, so there is no "generated" seeding to remember either."""
-        zone = {}
-        for field, last in self.last_buddha_seed.items():
-            value = parse_target_coordinate(getattr(self, f"buddha_seed_{field}_var").get())
-            zone[field] = last if value is None else value
-        return BuddhaSeedSettings(camera_pixels=bool(self.buddha_seed_camera_var.get()), **zone)
+        return self.model.record(BuddhaSeedSettings)
 
     def update_buttons(self):
         """Start: enabled if the entries are valid and either nothing has been

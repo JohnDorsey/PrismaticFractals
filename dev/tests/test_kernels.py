@@ -784,7 +784,7 @@ def _fake_limits_app(lookback="4", method="Box", threshold="0.00390625"):
     app.limit_msg_var, app.confine_msg_var = _StubVar(""), _StubVar("")
     app.invalidate_preview = app.update_buttons = lambda: None
     app.refresh_timeline_diffs = lambda: None
-    _give_settings_model(app, entry_factory=lambda key: Entry(names[key]), iter="256", dist="0", escape_radius="2.0",
+    _give_settings_model(app, entry_factory=lambda key: Entry(names.get(key, key)), iter="256", dist="0", escape_radius="2.0",
                          confine_lookback=lookback, confine_method=method, confine_threshold=threshold)
     for field in m.EMIT_TARGET_FIELDS:
         setattr(app, f"emit_target_{field}_var", _StubVar("0.0"))

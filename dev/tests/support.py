@@ -56,7 +56,7 @@ def _make_fake_app_for_snapshot():
     app.current_natural_termination_settings = m.App.current_natural_termination_settings.__get__(app)
     app.current_generation_settings = m.App.current_generation_settings.__get__(app)
     app.current_blur_settings = m.App.current_blur_settings.__get__(app)
-    app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
+    app.current_buddha_seed_settings = m.App.current_buddha_seed_settings.__get__(app)
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
     app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
@@ -70,8 +70,6 @@ def _make_fake_app_for_snapshot():
 
     _give_settings_model(app, iter="32", dist="0")
     app.seg_mult_scale = _Get(0.75)
-    app.buddha_blur_radius_scale = _Get(m.DEFAULT_BUDDHA_BLUR_RADIUS)
-    app.buddha_blur_type_var = _Get(m.BUDDHA_BLUR_LABELS[m.DEFAULT_BUDDHA_BLUR_TYPE])
     app.emit_mode_var = _Get(m.EMIT_MODE_NAMES[m.DEFAULT_EMIT_MODE])
     for field in m.EMIT_TARGET_FIELDS:
         setattr(app, f"emit_target_{field}_var", _Get("0.0"))
@@ -241,19 +239,17 @@ class _StubEntry:
 
 
 def _give_settings_model(app, controls=True, entry_factory=None, **texts):
-    """Give a fake app the settings model of the real App (the natural termination settings) and, with `controls`, the variables and
-    entries of the Termination tab bound to it by the real App.bind_model_controls, so typing into a variable (app.iter_var.set("9"))
+    """Give a fake app the settings model of the real App (every setting it holds) and, with `controls`, the variables and
+    entries of those settings bound to it by the real App.bind_model_controls, so typing into a variable (app.iter_var.set("9"))
     reaches the model as it does in the window. `entry_factory(key)` makes the entry of a setting (a _StubEntry by default); `texts` set the starting text of settings by key (the
     defaults otherwise)."""
-    app.model = m.SettingsModel(m.NATURAL_TERMINATION_PARSERS)
+    app.model = m.SettingsModel(m.MODEL_SETTING_SPECS)
     if not controls:
         return
-    attrs = {"iter": "iter", "dist": "dist", "escape_radius": "escape_radius", "confine_lookback": "confine_lookback",
-             "confine_method": "confine_method", "confine_threshold": "confine_threshold"}
-    for key, name in attrs.items():
-        setattr(app, f"{name}_var", _StubVar(m.format_value(key, m.DEFAULT_SETTING_VALUES[key])))
-        if key != "confine_method":
-            setattr(app, f"{name}_entry", _StubEntry() if entry_factory is None else entry_factory(key))
+    for key, spec in m.MODEL_SETTING_SPECS.items():
+        setattr(app, spec.control, _StubVar(m.format_value(key, m.DEFAULT_SETTING_VALUES[key])))
+        if spec.kind not in ("choice", "bool"):
+            setattr(app, spec.widget, _StubEntry() if entry_factory is None else entry_factory(key))
     for name in ("limit_msg_var", "confine_msg_var"):
         if not hasattr(app, name):
             setattr(app, name, _StubVar(""))
@@ -264,7 +260,7 @@ def _give_settings_model(app, controls=True, entry_factory=None, **texts):
     app.on_model_changed = m.App.on_model_changed.__get__(app)
     app.bind_model_controls()
     for key, text in texts.items():
-        getattr(app, f"{attrs[key]}_var").set(text)
+        getattr(app, m.MODEL_SETTING_SPECS[key].control).set(text)
 
 
 class _StubWidget:
@@ -870,6 +866,14 @@ def _varied_natural_termination_settings():
     return m.NaturalTerminationSettings(
         max_iter=77, max_dist=3.5, escape_radius=3.25, confine_lookback=9,
         confine_method=m.CONFINE_PATH, confine_threshold=0.03)
+
+
+def _varied_blur_settings():
+    return m.BuddhaBlurSettings(radius=0.07, type=m.BUDDHA_BLUR_BOKEH)
+
+
+def _varied_seed_settings():
+    return m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

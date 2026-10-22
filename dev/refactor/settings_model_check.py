@@ -1,10 +1,11 @@
 """The real-window check of the settings model (python dev/refactor/settings_model_check.py).
 
-Starts the real program and types into the natural termination entries (the Termination tab's limits and confinement) the way a user does
+Starts the real program and types into the natural termination entries (the Termination tab's limits and confinement), the Buddha blur and the Buddha seeding the way a user does
 (entry.delete / entry.insert, then a Return or FocusOut event), asserting that the model, the red entry style, the message under the entries,
 the Start / Revert buttons, Start's generated figure, Revert, a keyframe's load and its "modified" marks, and the hover preview all follow.
 Prints one line per check and exits with an error at the first failure. Writes only into a temporary folder."""
 import os
+import re
 import sys
 import tempfile
 import time
@@ -47,11 +48,12 @@ def type_into(entry, text):
 
 
 def press(entry, sequence):
-    """Do what Tk does for `sequence` on `entry`. Generated key events are not delivered to a window that has no real focus (as when this
-    runs from a tool), so the check asserts that the entry has a binding for it and calls the program's commit handler, which every
-    one of these bindings is."""
-    check(bool(entry.bind(sequence)), f"the entry has a binding for {sequence}")
-    app.on_limit_commit()
+    """Run what Tk runs for `sequence` on `entry`: the callable registered for the binding. (A generated key event is delivered to the
+    window that has the focus, and this window cannot be given the operating system's focus from a tool, so the binding's own command
+    is called instead.)"""
+    script = entry.bind(sequence)
+    check(bool(script), f"the entry has a binding for {sequence}")
+    root.tk.call(re.search(r"\[(\S+) %#", script).group(1))
     root.update()
 
 
@@ -71,7 +73,7 @@ def generate():
 
 
 model = app.model
-check(set(model.keys()) == set(lb.NATURAL_TERMINATION_SETTING_SPECS), "the model manages the six natural termination settings")
+check(set(model.keys()) == set(lb.MODEL_SETTING_SPECS) and len(model.keys()) == 13, "the model manages the six natural termination, two blur and five seeding settings")
 check(model.record(lb.NaturalTerminationSettings) == app.current_natural_termination_settings() == lb.DEFAULT_NATURAL_TERMINATION_SETTINGS,
       "at start the model and the controls hold the defaults")
 
@@ -158,6 +160,49 @@ app.generated = None                      # (before the first Start the preview 
 check(app.preview_natural_termination_settings().confine_lookback == 6, "the preview reads the model's value")
 type_into(app.confine_lookback_entry, "1")
 check(app.preview_natural_termination_settings().confine_lookback == 6, "...and keeps the last valid one while the entry is invalid")
+
+# ---- the Buddha blur
+type_into(app.buddha_blur_radius_entry, "0.2")
+check(model.value("buddha_blur_radius") == 0.2 and app.current_blur_settings().radius == 0.2, "typing a blur radius reaches the model at once")
+type_into(app.buddha_blur_radius_entry, "0.9")
+check(model.value("buddha_blur_radius") == lb.BUDDHA_BLUR_RADIUS_MAX, "a radius above the maximum counts as the maximum")
+type_into(app.buddha_blur_radius_entry, "-")
+check(model.error("buddha_blur_radius") is None and style(app.buddha_blur_radius_entry) == "TEntry" and model.value("buddha_blur_radius") == lb.BUDDHA_BLUR_RADIUS_MAX,
+      "half-typed text is ignored without an error (the last valid value stays)")
+press(app.buddha_blur_radius_entry, "<Return>")
+check(app.buddha_blur_radius_var.get() == "0.5", "committing puts the last valid radius back")
+check(app.blur_job is None, "...and the recolouring it started has run")
+app.buddha_blur_type_var.set(lb.BUDDHA_BLUR_LABELS[2])
+check(app.current_blur_settings() == lb.BuddhaBlurSettings(radius=0.5, type=2), "choosing a blur type reaches the model")
+
+# ---- the Buddha seeding
+check(app.model.value("buddha_seed_camera") is True and app.buddha_seed_x_start_entry.instate(["disabled"]), "at start the camera pixels are the seeds and the zone is greyed out")
+app.buddha_seed_camera_check.invoke()
+root.update()
+check(app.model.value("buddha_seed_camera") is False and not app.buddha_seed_x_start_entry.instate(["disabled"]), "unticking the checkbox reaches the model and enables the zone")
+check(app.seed_job is None, "...and the recolouring it started has run")
+type_into(app.buddha_seed_x_start_entry, "-1.5")
+check(model.value("buddha_seed_x_start") == -1.5 and app.current_buddha_seed_settings().x_start == -1.5, "typing a zone value reaches the model")
+type_into(app.buddha_seed_x_start_entry, "-")
+check(model.error("buddha_seed_x_start") is None and app.current_buddha_seed_settings().x_start == -1.5, "a half-typed zone value counts as the last valid one")
+press(app.buddha_seed_x_start_entry, "<FocusOut>")
+check(app.buddha_seed_x_start_var.get() == "-1.5", "committing puts the last valid zone value back")
+type_into(app.buddha_seed_y_stop_entry, ".25")
+press(app.buddha_seed_y_stop_entry, "<Return>")
+check(app.buddha_seed_y_stop_var.get() == "0.25", "committing tidies .25 to 0.25")
+
+# ---- a project captures and applies them
+type_into(app.confine_lookback_entry, "6")           # (an earlier step left this entry invalid, and a project cannot be captured then)
+project = app.capture_project()
+check(project.buddha_seed.x_start == -1.5 and project.buddha_seed.camera_pixels is False and project.buddha_blur == lb.BuddhaBlurSettings(radius=0.5, type=2),
+      "the project captures the blur and the seeding from the model")
+app.model.set("buddha_seed_x_start", 0.75)
+app.model.set("buddha_blur_radius", 0.1)
+root.update()
+check(app.buddha_seed_x_start_var.get() == "0.75" and app.buddha_blur_radius_var.get() == "0.1", "a program write shows in the controls")
+app.apply_project(lb.project_from_dict(lb.project_to_dict(project)))
+root.update()
+check(app.buddha_seed_x_start_var.get() == "-1.5" and app.buddha_blur_radius_var.get() == "0.5", "applying a project writes them back into the controls")
 
 root.destroy()
 print("all checks passed")

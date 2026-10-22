@@ -4,52 +4,19 @@ A view (the Tk window today; another front end, a script, or an audio node tomor
 writes values with `set`; it reads them back with `value`, `error` and `record`. The model holds only VALUES: for each setting its last
 valid value and the error message of the text last submitted (None when that text was valid). The text being typed is the view's.
 
-Only the settings that have a row in a parser table are managed so far (the natural termination limits and confinement); the rest are
-still held by their controls, and this module changes nothing for them.
+Only the settings whose spec row has a parser are managed so far (`MODEL_SETTING_SPECS`: the natural termination limits and confinement,
+the Buddha blur and the Buddha seeding); the rest are still held by their controls, and this module changes nothing for them.
 
 Pure: imports no Tk."""
-from .constants import (
-    CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN, CONFINE_METHOD_NAMES, DIST_LIMIT_MAX, DIST_LIMIT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN
-)
-from .parsing import (
-    parse_confine_lookback, parse_confine_threshold, parse_dist_limit, parse_escape_radius, parse_iter_limit
-)
-from .settings import DEFAULT_SETTING_VALUES, SETTING_SPECS, SETTING_TABLES, strict_record, settings_from_dict
-
-
-@strict_record
-class SettingParser:
-    """How the text of one setting becomes its value: `parse` returns the value, or None for text that is not acceptable, which is then
-    reported as `message`."""
-    parse: object          # text -> value, or None
-    message: str
-
-
-def choice_parser(names):
-    """A parser for a setting chosen from `names` (the text is a name; the value is its index)."""
-    return lambda text: names.index(text) if text in names else None
-
-
-# Every natural-termination setting (NaturalTerminationSettings), by key, with the sentence shown while its entry holds nonsense.
-NATURAL_TERMINATION_PARSERS = {
-    "iter": SettingParser(parse=parse_iter_limit,
-                          message=f"Iteration limit must be a whole number from {ITER_LIMIT_MIN} to {ITER_LIMIT_MAX}."),
-    "dist": SettingParser(parse=parse_dist_limit,
-                          message=f"Distance limit must be a whole number from {DIST_LIMIT_MIN} to {DIST_LIMIT_MAX} (0 = no limit)."),
-    "escape_radius": SettingParser(parse=parse_escape_radius,
-                                   message="Escape radius must be a number greater than 0 (e.g. 2 or 1.5e3)."),
-    "confine_lookback": SettingParser(parse=parse_confine_lookback,
-                                      message=f"Lookback must be a whole number from {CONFINE_LOOKBACK_MIN} to {CONFINE_LOOKBACK_MAX}."),
-    "confine_method": SettingParser(parse=choice_parser(CONFINE_METHOD_NAMES), message="Choose one of the detection methods."),
-    "confine_threshold": SettingParser(parse=parse_confine_threshold,
-                                       message="Threshold must be a number greater than 0 (any size, e.g. 0.004 or 1e-9)."),
-}
+from .settings import DEFAULT_SETTING_VALUES, SETTING_SPECS, SETTING_TABLES, settings_from_dict
 
 
 def format_value(key, value):
-    """The text that shows `value` of setting `key` in a control (what a view writes after `set`, and what committing an entry tidies
-    its text to)."""
+    """What a control shows for `value` of setting `key`: the text of an entry or dropdown, a checkbox's bool (what a view writes after
+    `set`, and what committing an entry tidies its text to)."""
     spec = SETTING_SPECS[key]
+    if spec.kind == "bool":
+        return bool(value)
     if spec.kind == "text":
         return str(value)
     if spec.kind == "int_text":
@@ -62,11 +29,11 @@ def format_value(key, value):
 
 
 class SettingsModel:
-    """The values of the settings that have a parser row. A listener (`subscribe`) is called with {key: origin} for each setting whose
+    """The values of the settings of `specs` ({key: SettingSpec with a parser}). A listener (`subscribe`) is called with {key: origin} for each setting whose
     value or error changed, origin being "submit" (the user typed it) or "set" (a program wrote it: the view must then show it)."""
 
-    def __init__(self, parsers):
-        self._parsers = dict(parsers)
+    def __init__(self, specs):
+        self._parsers = dict(specs)
         self._values = {key: DEFAULT_SETTING_VALUES[key] for key in self._parsers}
         self._errors = {key: None for key in self._parsers}
         self._listeners = []
@@ -108,7 +75,7 @@ class SettingsModel:
     def _submit(self, key, text, origin):
         parser = self._parsers[key]
         value = parser.parse(text)
-        error = parser.message if value is None else None
+        error = parser.message if value is None and not parser.lenient else None
         old = (self._values[key], self._errors[key])
         if value is not None:
             self._values[key] = value

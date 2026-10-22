@@ -4,14 +4,15 @@ from tkinter import ttk
 import numpy as np
 from .constants import (
     DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP,
-    DEFAULT_BUDDHA_SEED_Y_START, DEFAULT_BUDDHA_SEED_Y_STOP, BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN,
-    DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_BLUR_TYPE, RIGHT_W
+    DEFAULT_BUDDHA_SEED_Y_START, DEFAULT_BUDDHA_SEED_Y_STOP, BUDDHA_BLUR_LABELS,
+    DEFAULT_BUDDHA_BLUR_TYPE, RIGHT_W
 )
 from .kernels import PIXEL_TRACED
-from .parsing import parse_target_coordinate
 from .metrics import BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, CHAN_SRC_BUDDHA
 from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
 from .color_pipeline import coloration_fits
+
+SEED_ZONE_FIELDS = ("x_start", "x_stop", "y_start", "y_stop")        # the fields of the Buddha seeding zone
 
 
 class BuddhaMixin:
@@ -77,7 +78,6 @@ class BuddhaMixin:
         coord_vcmd = (self.root.register(self.validate_signed_float), "%P")
         self.buddha_seed_labels = []
         self.buddha_seed_entries = []
-        self.last_buddha_seed = {}
         for row, (field, label, default) in enumerate(
                 (("x_start", "X start", DEFAULT_BUDDHA_SEED_X_START),
                  ("x_stop", "X stop", DEFAULT_BUDDHA_SEED_X_STOP),
@@ -85,7 +85,6 @@ class BuddhaMixin:
                  ("y_stop", "Y stop", DEFAULT_BUDDHA_SEED_Y_STOP))):
             var = tk.StringVar(value=str(default))
             setattr(self, f"buddha_seed_{field}_var", var)
-            self.last_buddha_seed[field] = default
             name = ttk.Label(zone, text=label + " (world units):")
             name.grid(row=row, column=0, sticky="w", padx=(8, 6), pady=2)
             entry = ttk.Entry(zone, textvariable=var, width=14, justify="right", validate="key",
@@ -108,7 +107,7 @@ class BuddhaMixin:
 
     def update_buddha_seed_state(self):
         """The zone's controls are greyed out while the camera's pixels are the seeds."""
-        state = ["disabled"] if self.buddha_seed_camera_var.get() else ["!disabled"]
+        state = ["disabled"] if self.model.value("buddha_seed_camera") else ["!disabled"]
         for widget in self.buddha_seed_entries + self.buddha_seed_labels:
             widget.state(state)
 
@@ -118,20 +117,14 @@ class BuddhaMixin:
     def on_buddha_seed_commit(self, _event=None):
         """Enter pressed or focus left a zone entry: tidy its text (an invalid one goes back to the last valid
         value) and, if the zone changed, recolour."""
-        for field in self.last_buddha_seed:
-            var = getattr(self, f"buddha_seed_{field}_var")
-            value = parse_target_coordinate(var.get())
-            var.set(str(self.last_buddha_seed[field] if value is None else value))
+        for field in SEED_ZONE_FIELDS:
+            self.bindings[f"buddha_seed_{field}"].commit()
         self.on_buddha_seeds_changed()
 
     def on_buddha_seeds_changed(self):
-        """The seeding changed (by hand, or loaded from a keyframe or a project): remember the zone's valid values,
-        refresh what shows it now, and recolour - which takes a moment when a Buddha channel has to trace its
-        rays again - once the changes of this moment have all arrived."""
-        for field in self.last_buddha_seed:
-            value = parse_target_coordinate(getattr(self, f"buddha_seed_{field}_var").get())
-            if value is not None:
-                self.last_buddha_seed[field] = value
+        """The seeding changed (by hand, or loaded from a keyframe or a project): refresh what shows it now, and
+        recolour - which takes a moment when a Buddha channel has to trace its rays again - once the changes of this
+        moment have all arrived."""
         self.update_buddha_seed_state()
         self.update_seed_zone_outline()
         self.refresh_timeline_diffs()
@@ -163,10 +156,7 @@ class BuddhaMixin:
         rf = ttk.LabelFrame(parent, text="Radius")
         rf.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 6))
         rf.columnconfigure(1, weight=1)
-        self.buddha_blur_radius_scale = self.add_angle_entry(
-            rf, 0, "Radius", DEFAULT_BUDDHA_BLUR_RADIUS, on_change=self.on_buddha_blur_changed,
-            lo=BUDDHA_BLUR_RADIUS_MIN, hi=BUDDHA_BLUR_RADIUS_MAX, fmt="{:.2f}",
-            exact=True)
+        self.add_model_entry(rf, 0, "Radius", "buddha_blur_radius", on_commit=self.on_buddha_blur_changed)
         ttk.Label(rf, foreground="#666", wraplength=RIGHT_W - 70,
                   text="A multiple of the image's smaller side, whatever framing it shows: 0.1 "
                        "means a blur radius of a tenth of it. 0 means no blur at all - "

@@ -78,7 +78,7 @@ app.refresh_live_preview_state()
 app.new_keyframe()
 app.fps_var.set("12")
 BLUR = lb.BuddhaBlurSettings(radius=0.04, type=lb.BUDDHA_BLUR_BOKEH)      # the Buddha blur: a record of its own
-app.buddha_blur_radius_scale.set(BLUR.radius)
+app.model.set("buddha_blur_radius", BLUR.radius)
 app.buddha_blur_type_var.set(lb.BUDDHA_BLUR_LABELS[BLUR.type])
 app.on_buddha_blur_changed()
 root.update()
@@ -109,7 +109,7 @@ check(app.current_blur_settings() == BLUR, "Open restores the Buddha blur contro
 second = generate()
 check(second == first and np.array_equal(stats_before, app.stats),
       "the regenerated image and simulation data are identical to the first ones")
-app.buddha_blur_radius_scale.set(0.08)                    # the blur is live: no Start needed
+app.model.set("buddha_blur_radius", 0.08)                    # the blur is live: no Start needed
 app.on_buddha_blur_changed()
 root.update()
 check(hashlib.sha256(app.img.tobytes()).hexdigest() != second,
@@ -117,7 +117,7 @@ check(hashlib.sha256(app.img.tobytes()).hexdigest() != second,
 check(np.array_equal(stats_before, app.stats) and not app.start_btn.instate(["!disabled"])
       and not app.revert_btn.instate(["!disabled"]),
       "...without touching the simulation data, and Start and Revert are not needed")
-app.buddha_blur_radius_scale.set(BLUR.radius)
+app.model.set("buddha_blur_radius", BLUR.radius)
 app.on_buddha_blur_changed()
 root.update()
 check(hashlib.sha256(app.img.tobytes()).hexdigest() == second and not app.is_dirty(),

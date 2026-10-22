@@ -7,7 +7,8 @@ everything derived from them; the kernel argument tuples built from them (`fuzz_
 import dataclasses
 from math import cos, radians, sin
 from .constants import (
-    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_ENGINE,
+    BUDDHA_BLUR_LABELS, BUDDHA_BLUR_RADIUS_MAX, BUDDHA_BLUR_RADIUS_MIN, CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN, CONFINE_METHOD_NAMES,
+    DIST_LIMIT_MAX, DIST_LIMIT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, DEFAULT_BUDDHA_BLUR_RADIUS, DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_ENGINE,
     ENGINE_NAMES,
     DEFAULT_ORBIT_ESCAPE, DEFAULT_ORBIT_EXPONENT, DEFAULT_ORBIT_JULIA_IM, DEFAULT_ORBIT_JULIA_RE, DEFAULT_ORBIT_MAPPING,
     DEFAULT_ORBIT_Z0, ORBIT_ESCAPE_CLIP, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_C, ORBIT_Z0_NAMES,
@@ -17,6 +18,9 @@ from .constants import (
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
     DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, DEFAULT_SEGMENT_MULT,
     EMIT_MODE_NAMES
+)
+from .parsing import (
+    parse_confine_lookback, parse_confine_threshold, parse_dist_limit, parse_escape_radius, parse_iter_limit, parse_target_coordinate
 )
 from .kernels import (
     ENGINE_RAY_BOUNCING, RAY_SEQUENCE_TABLES, ConfineRule, EmissionRule, FuzzRule, NaturalTerminationRule, OrbitArgs, PathArgs, RayArgs
@@ -286,29 +290,58 @@ class SettingSpec:
     names: tuple           # for "choice": the names the value indexes into
     tab: str               # the keyframe settings list section it is listed under
     label: str             # its name there
+    parse: object          # for a setting held by the settings model (settings_model.py): control text (or a checkbox's bool) -> value, or None; else None
+    message: str           # ... the sentence shown while the text is not acceptable
+    lenient: bool          # ... True: unacceptable text is silently ignored (the last valid value stays, no error is held or shown)
 
 
-def _spec(path, control, widget, kind, tab, label, names=()):
+def _spec(path, control, widget, kind, tab, label, names=(), parse=None, message="", lenient=False):
     return SettingSpec(path=path, control=control, widget=widget, kind=kind, names=names,
-                       tab=tab, label=label)
+                       tab=tab, label=label, parse=parse, message=message, lenient=lenient)
+
+
+def choice_parser(names):
+    """A parser for a setting chosen from `names` (the text is a name; the value is its index)."""
+    return lambda text: names.index(text) if text in names else None
+
+
+def clamped_float_parser(lo, hi):
+    """A parser for a number typed into an entry that is clamped into [lo, hi] rather than refused; text that is no number is None."""
+    def parse(text):
+        try:
+            return min(hi, max(lo, float(text)))
+        except ValueError:
+            return None
+    return parse
+
+
+def bool_parser(value):
+    """A checkbox's value is already a bool."""
+    return bool(value)
 
 
 # Every natural-termination setting (a NaturalTerminationSettings), in the order the keyframe settings list shows
 # them within each tab. run_self_checks() makes sure these rows and the record's fields are the same set.
 NATURAL_TERMINATION_SETTING_SPECS = {
     "iter": _spec(("max_iter",), "iter_var", "iter_entry", "text",
-                  "Termination", "Iteration limit"),
+                  "Termination", "Iteration limit", parse=parse_iter_limit,
+                  message=f"Iteration limit must be a whole number from {ITER_LIMIT_MIN} to {ITER_LIMIT_MAX}."),
     "dist": _spec(("max_dist",), "dist_var", "dist_entry", "text",
-                  "Termination", "Distance limit"),
+                  "Termination", "Distance limit", parse=parse_dist_limit,
+                  message=f"Distance limit must be a whole number from {DIST_LIMIT_MIN} to {DIST_LIMIT_MAX} (0 = no limit)."),
     "escape_radius": _spec(("escape_radius",), "escape_radius_var", "escape_radius_entry",
-                           "float_text", "Termination", "Escape radius"),
+                           "float_text", "Termination", "Escape radius", parse=parse_escape_radius,
+                           message="Escape radius must be a number greater than 0 (e.g. 2 or 1.5e3)."),
     "confine_lookback": _spec(("confine_lookback",), "confine_lookback_var", "confine_lookback_entry",
-                            "int_text", "Termination", "Confinement lookback"),
+                            "int_text", "Termination", "Confinement lookback", parse=parse_confine_lookback,
+                            message=f"Lookback must be a whole number from {CONFINE_LOOKBACK_MIN} to {CONFINE_LOOKBACK_MAX}."),
     "confine_method": _spec(("confine_method",), "confine_method_var", "confine_method_combo",
-                            "choice", "Termination", "Confinement method", CONFINE_METHOD_NAMES),
+                            "choice", "Termination", "Confinement method", CONFINE_METHOD_NAMES,
+                            parse=choice_parser(CONFINE_METHOD_NAMES), message="Choose one of the detection methods."),
     "confine_threshold": _spec(("confine_threshold",), "confine_threshold_var",
                                "confine_threshold_entry", "float_text", "Termination",
-                               "Confinement threshold"),
+                               "Confinement threshold", parse=parse_confine_threshold,
+                               message="Threshold must be a number greater than 0 (any size, e.g. 0.004 or 1e-9)."),
 }
 
 # Every setting of the ray-bouncing engine itself (a RaySettings), the same way.
@@ -349,25 +382,26 @@ RAY_SETTING_SPECS = {
 
 # The same for the Buddha blur (a BuddhaBlurSettings), which is a record of its own.
 BLUR_SETTING_SPECS = {
-    "buddha_blur_radius": _spec(("radius",), "buddha_blur_radius_scale",
-                                "buddha_blur_radius_scale", "number", "Buddha blur", "Radius"),
+    "buddha_blur_radius": _spec(("radius",), "buddha_blur_radius_var",
+                                "buddha_blur_radius_entry", "float_text", "Buddha blur", "Radius",
+                                parse=clamped_float_parser(BUDDHA_BLUR_RADIUS_MIN, BUDDHA_BLUR_RADIUS_MAX), lenient=True),
     "buddha_blur_type": _spec(("type",), "buddha_blur_type_var",
                               "buddha_blur_type_combo", "choice", "Buddha blur", "Blur type",
-                              BUDDHA_BLUR_LABELS),
+                              BUDDHA_BLUR_LABELS, parse=choice_parser(BUDDHA_BLUR_LABELS), lenient=True),
 }
 
 # The same for the Buddha seeding (a BuddhaSeedSettings).
 BUDDHA_SEED_SETTING_SPECS = {
     "buddha_seed_camera": _spec(("camera_pixels",), "buddha_seed_camera_var", "buddha_seed_camera_check",
-                                "bool", "Buddha seeding", "Use camera pixels"),
+                                "bool", "Buddha seeding", "Use camera pixels", parse=bool_parser),
     "buddha_seed_x_start": _spec(("x_start",), "buddha_seed_x_start_var", "buddha_seed_x_start_entry",
-                                 "float_text", "Buddha seeding", "X start"),
+                                 "float_text", "Buddha seeding", "X start", parse=parse_target_coordinate, lenient=True),
     "buddha_seed_x_stop": _spec(("x_stop",), "buddha_seed_x_stop_var", "buddha_seed_x_stop_entry",
-                                "float_text", "Buddha seeding", "X stop"),
+                                "float_text", "Buddha seeding", "X stop", parse=parse_target_coordinate, lenient=True),
     "buddha_seed_y_start": _spec(("y_start",), "buddha_seed_y_start_var", "buddha_seed_y_start_entry",
-                                 "float_text", "Buddha seeding", "Y start"),
+                                 "float_text", "Buddha seeding", "Y start", parse=parse_target_coordinate, lenient=True),
     "buddha_seed_y_stop": _spec(("y_stop",), "buddha_seed_y_stop_var", "buddha_seed_y_stop_entry",
-                                "float_text", "Buddha seeding", "Y stop"),
+                                "float_text", "Buddha seeding", "Y stop", parse=parse_target_coordinate, lenient=True),
 }
 
 # The same for the choice of path engine (an EngineSettings).
@@ -405,6 +439,9 @@ DEFAULT_SETTINGS = {NaturalTerminationSettings: DEFAULT_NATURAL_TERMINATION_SETT
 
 # Every static setting a keyframe can define, from all the tables, in table order.
 SETTING_SPECS = {key: spec for table in SETTING_TABLES.values() for key, spec in table.items()}
+
+# The settings the settings model holds (settings_model.py): the rows that have a parser.
+MODEL_SETTING_SPECS = {key: spec for key, spec in SETTING_SPECS.items() if spec.parse is not None}
 
 # Every setting a keyframe can define: (key, tab it lives on, short label for the
 # settings list), in the order shown within each tab group - the SETTING_SPECS rows,

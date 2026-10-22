@@ -75,3 +75,16 @@ Deviation from the plan's first criterion ("existing tests pass unmodified"): 30
 Found on the way: generated key events (`event_generate("<Return>")`) are not delivered when the window has no real focus, so the real-window check asserts that the binding exists and calls `on_limit_commit`; and `FloatEntryHandle` (the number entries of the other families) has the same last-valid logic written again, which the roll-out replaces.
 
 Verdict: roll out. Next family: the Buddha blur and seeding (smallest, no engine coupling), then the ray settings, the engine and orbit settings last.
+
+## Rollout 1: Buddha blur and Buddha seeding (FILE_VERSION 179)
+
+Done, on `main` (the spike branch was fast-forward merged first). The model now holds 13 settings: the six natural termination ones, the two blur ones and the five seeding ones.
+
+- `SettingSpec` gained `parse`, `message` and `lenient` (decision 2); `NATURAL_TERMINATION_PARSERS` and `SettingParser` are gone; `MODEL_SETTING_SPECS` is the rows that have a parser, and `SettingsModel(specs)` is built from them.
+- **Lenient settings** (new): text that is no number is silently ignored and the last valid value stays; no error is held or shown, `record()` is never None. The blur radius (also clamped into its range) and the seeding zone behave this way, exactly as `FloatEntryHandle.get` and `last_buddha_seed` did. A checkbox (`bool` kind) holds a bool.
+- Both families react when committed or when the program loads them, not on every keystroke (as before); only the natural termination keys trigger `on_model_changed`'s refresh. A reaction style per family is therefore a property of the family's handlers, not of the model.
+- The blur radius is no longer a `FloatEntryHandle` (`add_model_entry` builds label, entry and variable from the spec row; the control attributes are now `buddha_blur_radius_var` / `buddha_blur_radius_entry`). `last_buddha_seed` is gone.
+- Bindings are derived from the spec rows (`spec.control`, `spec.widget`): a new managed setting needs no binding code.
+- Checks as for the spike: 932 tests, the three real-window checks plus `project_roundtrip_check.py` (which wrote the blur radius through the old handle and now uses `model.set`) and `engine_switch_check.py`, image hashes identical, project pictures identical to before. No test needed more than a fixture change; only the seeding fixture was rebuilt around a real model.
+- Found: a real-window check must not leave an entry invalid before capturing a project (`capture_project` then raises a modal dialog and the check hangs); the check now types a valid value first.
+- Next: the ray settings (segment multiplier, emission, fuzzing, seed) - these use `FloatEntryHandle` throughout (the sliders-as-entries of `add_angle_entry`), so that family also retires `FloatEntryHandle`.
