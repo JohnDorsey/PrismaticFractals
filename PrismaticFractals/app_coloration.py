@@ -16,6 +16,17 @@ from .colorations import COLOR_MODELS, COLOR_MODEL_NAMES, ColorationConfig
 
 
 class ColorationMixin:
+    def init_coloration_state(self):
+        """The list of colorations (in export/composition order), which one is selected - both for editing in the Colorations tab and
+        shown in the preview - the live one's mapping, and the cache of the other colorations' thumbnails (the live one always reuses
+        the image itself)."""
+        self.colorations = [ColorationConfig(0)]
+        self._coloration_counter = 1
+        self.selected_coloration_id = 0
+        live = self.live_coloration()
+        self.mapping = make_mapping(live.metric_types, live.point_metric, live.other_metric, live.chan_src, live.constant_choice)
+        self.coloration_thumb_cache = {}
+
     # ---- colorations (Colorations tab) -------------------------------------------- #
     def coloration_by_id(self, coloration_id):
         """The live ColorationConfig for one coloration id, or None if it doesn't exist."""
@@ -124,7 +135,7 @@ class ColorationMixin:
         """Populate every Color mapping control from the selected coloration (or
         leave them as-is if the Colorations tab hasn't been built yet, or no
         coloration is selected). Mirrors refresh_obstacle_editor."""
-        if not hasattr(self, "color_model_var"):
+        if "color_model_var" not in self.built:
             return                                  # Colorations tab not built yet
         coloration = self.selected_coloration_obj()
         if coloration is None:
@@ -174,7 +185,7 @@ class ColorationMixin:
                   coloration_id == self.selected_coloration_id)
                  for idx, coloration_id in enumerate(self.all_coloration_ids())]
         self.coloration_strip.rebuild(items)
-        if hasattr(self, "framing_strip"):
+        if "framing_strip" in self.built:
             self.rebuild_framing_list()
 
     def build_color_controls(self, parent):
@@ -222,6 +233,7 @@ class ColorationMixin:
         top.grid(row=0, column=0, sticky="w", padx=(0, 4), pady=(0, 6))
         ttk.Label(top, text="Color model:").pack(side="left", padx=(0, 10))
         self.color_model_var = tk.StringVar(value=coloration.color_model)
+        self.built.add("color_model_var")
         self.color_model_combo = ttk.Combobox(top, textvariable=self.color_model_var,
                                        values=COLOR_MODEL_NAMES, state="readonly", width=8)
         self.color_model_combo.pack(side="left")

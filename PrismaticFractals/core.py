@@ -1,5 +1,6 @@
 """The window: class App, assembled from the mixins of the app_*.py modules (each holds one area of its methods, which use
-`self` and the attributes __init__ creates), and main(). All of the application's state is created in App.__init__.
+`self` and the attributes their area's init_<area>_state method creates), and main(). Each area creates its own state (App.__init__ calls them
+in an order that matters only where one needs another).
 
 The program's feature description is the docstring of the package (PrismaticFractals/__init__.py)."""
 
@@ -10,21 +11,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-import numpy as np
-
-
-from .framings import FramingConfig, snapshot_framing
-from .kernels import N_POINTS, N_RAW, N_STATS
-from .constants import (
-    DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
-    DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, EMIT_TARGET_FIELDS, ERROR_RED,
-    DEFAULT_ENGINE, ITER_LIMIT_MAX, REFRESH_HZ
-)
-from .settings import SETTING_SPECS, DEFAULT_ENGINE_SETTINGS, DEFAULT_MANDELBROT_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
-from .shapes import default_starting_obstacle
-from .metrics import make_mapping
-from .settings_model import SettingsModel
-from .colorations import ColorationConfig
+from .framings import snapshot_framing
+from .constants import ERROR_RED, REFRESH_HZ
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
 from .app_engine import EngineFlowMixin
@@ -72,89 +60,19 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         # Style used to flag an invalid number entry
         ttk.Style().configure("Invalid.TEntry", foreground=ERROR_RED)
 
-        # ---- state ---- (defined before any widget can call back into us)
-        self.ready = False                # numba kernels compiled?
-        self.running = False              # generation in progress?
-        self.done = False                 # image fully generated?
-        # What the current image was generated from is ONE GeneratedFigure (figure.py), made by Start: None until then
-        # (see current_figure for what stands in). The Buddha blur is not part of it: it is applied whenever Buddha
-        # channels are colored, so the image always uses the blur controls' current values.
-        self.generated = None
-        self.baseline = DEFAULT_RAY_SETTINGS  # what "Revert" restores
-        self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
-        self.baseline_engine = DEFAULT_ENGINE_SETTINGS
-        self.baseline_mandelbrot = DEFAULT_MANDELBROT_SETTINGS
-        self.engine_applied = DEFAULT_ENGINE            # the engine the program has been using (the dropdown may already show another)
-        self.engine_memory = EMPTY_ENGINE_MEMORY        # what the engines remember of their settings, for the session (D18)
-        self.model = SettingsModel(SETTING_SPECS)   # the values (and errors) of the settings it manages; see settings_model.py
-        self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
-        self._coloration_counter = 1
-        self.selected_coloration_id = 0         # which coloration is selected - both for editing in
-                                           # the Colorations tab AND shown in the preview
-        self.mapping = make_mapping(self.live_coloration().metric_types, self.live_coloration().point_metric,
-                                    self.live_coloration().other_metric, self.live_coloration().chan_src,
-                                    self.live_coloration().constant_choice)
-        self.buddha_counts = [None, None, None]   # per channel of the live coloration: (img_h, img_w)
-                                                   # float64 RAW (unblurred) visit counts,
-                                                   # or None while unused/before Start
-        self.buddha_counts_blurred = [None, None, None]   # per channel: the lazily-computed,
-                                                           # cached blurred version - see
-                                                           # blurred_buddha_counts()
-        self.coloration_thumb_cache = {}        # non-live coloration id -> (rows_done, thumbnail array)
-                                          # at the time it was computed - see
-                                          # render_coloration_thumbnail(). The live coloration is
-                                          # never cached here; it always reuses self.img
-                                          # directly instead.
-        self.deco = {}                    # decoration key -> BooleanVar
-        self.rows_done = 0
-        self.batch_rows = 1
-        self.tick_id = None
-        self.outline_job = None
-        self.blur_job = None              # a pending refresh_blur (slider events coalesce)
-        self.seed_job = None              # a pending refresh_buddha_seeds (changes of one moment coalesce)
-        self.start_time = 0.0
-        self.elapsed = 0.0
-        self.next_tick = 0.0
-        self.hover_px = None
-        self.pinned_px = None             # pixel pinned by a click, or None
-        self.fuzz_tk_widgets = []         # classic Tk widgets in the Fuzzing section of the Mutations tab
-        self.fuzz_ttk_widgets = []        # ttk widgets in the Fuzzing section of the Mutations tab
-        self.hover_path_points = np.empty((ITER_LIMIT_MAX + 2, 2))
-        self.hover_path_point_tags = np.empty(ITER_LIMIT_MAX + 2)
-        self.hover_raw = np.empty(N_RAW)
-        self.hover_vec = np.empty(N_STATS)
-        self.hover_ray_characteristic_points = np.empty((N_POINTS, 2))
-
-        # ---- timeline / video state ----
-        self.keyframes = []               # list[Keyframe], in the order shown
-        self._kf_counter = 0
-        self.selected_keyframe = None
-        self.kf_modified = set()          # setting keys the user changed since the selected
-                                          # keyframe was selected / last saved (blue outlines)
-        self.kf_last_seen = None          # capture_all_settings() at the previous check
-        self.kf_applying = False          # True while a keyframe's values are being loaded
-        self.outlines = {}                # widget -> ModifiedOutline
-        self.diff_expanded = set()        # titles of the expanded sections of the keyframe
-                                          # settings list (everything starts collapsed)
-        self.render_thread = None
-        self.render_cancel = None
-
-        # ---- obstacles ---- (the scene: not part of Settings, but every obstacle's
-        # own fields are keyframeable). The app starts with one obstacle: the
-        # unit circle, which reflects rays and fires them inside itself.
-        self.obstacles = [default_starting_obstacle(0)]   # list[Shape], in list order
-        self._obst_counter = 1
-        self.selected_obstacle = self.obstacles[0]
-
-        # ---- framings ---- (the camera: where it is and how far it sees; the selected one is what the image on
-        # screen and every export are of, and the first one, "framing 0", is what every coloration's thumbnail shows)
-        self.framings = [FramingConfig(0)]       # list[FramingConfig], in list order
-        self._framing_counter = 1
-        self.selected_framing_id = 0
-        self.framings_loaded = False             # a keyframe just set framings' numbers (see on_framings_loaded)
-        self.thumb_sims = {}                     # (framing numbers, size) -> a small simulation of the generated
-                                                 # figure as that framing sees it, for thumbnails (see
-                                                 # simulated_thumbnail_data); cleared by every new generation
+        # ---- state ---- (each area creates its own, before any widget can call back into us; the order matters only where one
+        # needs another: the settings model first, the colorations before anything that reads the live one)
+        self.built = set()                # names of widgets that exist yet: what a method called while the window is still being built asks
+        self.init_controls_state()
+        self.init_engine_state()
+        self.init_coloration_state()
+        self.init_generation_state()
+        self.init_buddha_state()
+        self.init_preview_state()
+        self.init_timeline_state()
+        self.init_video_state()
+        self.init_obstacle_state()
+        self.init_framing_state()
 
         # ---- the image on screen ---- its framing (a FramingSnapshot), size in pixels, the world rectangle it
         # covers, and the per-pixel data and image buffers (see set_image_framing)

@@ -20,6 +20,7 @@ def test_new_image_export_widens_when_a_second_coloration_is_added_and_all_color
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)
@@ -68,6 +69,7 @@ def test_new_image_export_stays_single_width_when_all_colorations_not_included()
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)
@@ -630,6 +632,7 @@ def test_new_image_export_creates_the_export_dir_if_missing():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)
@@ -681,6 +684,7 @@ def _fake_button_gating_app():
     app.start_btn = _RecordingButton()
     app.revert_btn = _RecordingButton()
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_btn_tooltip = m.Tooltip.__new__(m.Tooltip)
     app.save_btn_tooltip.text = ""
@@ -746,6 +750,7 @@ def test_update_buttons_tolerates_export_widgets_not_built_yet():
     del app.save_btn_tooltip
     del app.save_as_btn
     del app.save_as_btn_tooltip
+    app.built.discard("save_btn")
     app.update_buttons()   # must not raise
 
 

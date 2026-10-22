@@ -74,10 +74,19 @@ def _framing(**changes):
     return m.FramingSnapshot(**values)
 
 
+def _built(app, *names):
+    """Say that the widgets `names` exist on a fake app (the real App adds each name to `app.built` as it creates the widget): the guards
+    of the methods that may be called while the window is still being built ask this."""
+    app.built = getattr(app, "built", set()) | set(names)
+    return app
+
+
 def _give_image_geometry(app, framing=None):
     """Give a fake app the state of the image on screen that the real App has (its framing, size in pixels and world
     rectangle, buffers and grid: see App.set_image_framing) and the conversions between pixels and the world. The buffers
     are those of the figure the app holds (the placeholder one, unless `_give_generated` gave it another before)."""
+    if not hasattr(app, "built"):
+        app.built = set()                       # (no widgets: the guards that name the panels see none built)
     if not hasattr(app, "current_figure"):
         app.generated = getattr(app, "generated", None)
         app.current_figure = m.App.current_figure.__get__(app)
@@ -539,6 +548,7 @@ def _fake_color_editor_app():
     app.current_engine_description = lambda: m.RAY_BOUNCING_ENGINE
 
     app.color_model_var = _StubVar("RGB")
+    _built(app, "color_model_var")
     app.color_model_combo = _StubWidget()
     app.comp_labels = [_StubWidget() for _ in range(3)]
     app.map_help_var = _StubVar("")

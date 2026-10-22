@@ -19,6 +19,21 @@ from .figure import PLACEHOLDER_FIGURE, generated_figure
 
 
 class GenerationMixin:
+    def init_generation_state(self):
+        """Whether the kernels are compiled, whether a generation is running or done, the figure the image on screen was generated
+        from (None until the first Start: see current_figure) and the tick loop's timing. The Buddha blur is not part of the figure:
+        it is applied whenever Buddha channels are colored, so the image always uses the blur controls' current values."""
+        self.ready = False
+        self.running = False
+        self.done = False
+        self.generated = None
+        self.rows_done = 0
+        self.batch_rows = 1
+        self.tick_id = None
+        self.start_time = 0.0
+        self.elapsed = 0.0
+        self.next_tick = 0.0
+
     # ---- generation ------------------------------------------------------- #
     def warm_up(self):
         """Trigger numba compilation (slow only the first time; then cached)."""

@@ -35,6 +35,7 @@ def _fake_preview_app(pinned):
     app.deco = {k: _StubVar(k != "samples") for k in
                 ("pending", "outline", "ray_path", "ray_start", "ray_end", "guides", "samples")}
     app.canvas = _StubWidget()
+    _built(app, "canvas")
     app.hline_img = app.vline_img = None
     app.live_coloration = lambda: m.ColorationConfig(0)
     app.map_color = lambda vals: (1, 2, 3)
@@ -73,6 +74,7 @@ def _fake_click_app(pinned, obstacles):
     app.preview_settings = lambda: m.DEFAULT_RAY_SETTINGS
     app.preview_natural_termination_settings = lambda: m.DEFAULT_NATURAL_TERMINATION_SETTINGS
     app.canvas = _StubWidget()
+    _built(app, "canvas")
     app.previews = []
     app.update_preview = lambda i, j: app.previews.append((i, j))
     return app
@@ -338,6 +340,7 @@ def test_save_new_image_draws_coloration_info_when_enabled():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)

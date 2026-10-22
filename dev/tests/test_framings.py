@@ -225,6 +225,7 @@ def _fake_framing_app(generated=False):
                  "apply_selected_framing", "refresh_framing_controls_for_selected_framing", "on_framing_commit"):
         setattr(app, name, getattr(m.App, name).__get__(app))
     app.canvas = app.photo = _StubWidget()
+    _built(app, "canvas", "framing_strip", "framing_x_var")
     _give_generated(app, generated=generated)
     app.pinned_px = (3, 4) if generated else None
     app.calls = []

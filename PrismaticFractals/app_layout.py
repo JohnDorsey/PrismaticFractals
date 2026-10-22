@@ -56,6 +56,7 @@ class LayoutMixin:
                                 highlightthickness=0, bg="black",
                                 cursor="crosshair")
         self.canvas.grid(row=0, column=0, padx=(PAD, PAD // 2), pady=(PAD, PAD // 2))
+        self.built.add("canvas")
         self.photo = tk.PhotoImage(width=PREVIEW_BOX, height=PREVIEW_BOX)
         self.canvas.create_image(0, 0, anchor="nw", image=self.photo)
         self.canvas.bind("<Motion>", self.on_motion)
@@ -146,6 +147,7 @@ class LayoutMixin:
         buddha_seeding_tab = ttk.Frame(buddha_notebook)
         buddha_blur_tab = ttk.Frame(buddha_notebook)
         self.buddha_seeding_tab = buddha_seeding_tab
+        self.built.add("buddha_seeding_tab")
         buddha_notebook.add(buddha_seeding_tab, text="Buddha seeding")
         buddha_notebook.add(buddha_blur_tab, text="Buddha blur")
         buddha_seeding_tab.columnconfigure(0, weight=1)
@@ -472,6 +474,7 @@ class LayoutMixin:
         self.save_frame = ttk.Frame(exp)
         self.save_frame.columnconfigure((0, 1), weight=1)
         self.save_btn = ttk.Button(self.save_frame, text="Export", command=self.save)
+        self.built.add("save_btn")
         self.save_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.save_as_btn = ttk.Button(self.save_frame, text="Export As...",
                                       command=self.save_as)

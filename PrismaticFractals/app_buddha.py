@@ -16,6 +16,14 @@ SEED_ZONE_FIELDS = ("x_start", "x_stop", "y_start", "y_stop")        # the field
 
 
 class BuddhaMixin:
+    def init_buddha_state(self):
+        """The live coloration's Buddha visit counts (per channel: raw, and the lazily computed blurred version) and the pending
+        refreshes that coalesce changes of one moment."""
+        self.buddha_counts = [None, None, None]
+        self.buddha_counts_blurred = [None, None, None]
+        self.blur_job = None
+        self.seed_job = None
+
     # ---- a channel's Buddha choices ------------------------------------------------ #
     def on_buddha_points_changed(self, c):
         """One of channel c's 8 Buddha point checkboxes was toggled."""

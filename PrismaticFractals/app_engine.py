@@ -5,6 +5,7 @@ engines.py; this is the part that reads and writes the controls."""
 import tkinter as tk
 from tkinter import ttk
 from .colorations import coloration_channel_value
+from .constants import DEFAULT_ENGINE
 from .engines import (
     EMPTY_ENGINE_MEMORY, KEYFRAME_HEADER, correct_channel, correct_settings, correction_message, engine_description, go_back,
     keyframe_fixes, switch_engine
@@ -16,6 +17,12 @@ SAVE_HEADER = "Saving this would leave some keyframe values invalid for the engi
 
 
 class EngineFlowMixin:
+    def init_engine_state(self):
+        """The engine the program has been using (the dropdown may already show another) and what the engines remember of their
+        settings, for the session (D18)."""
+        self.engine_applied = DEFAULT_ENGINE
+        self.engine_memory = EMPTY_ENGINE_MEMORY
+
     # ---- the notice -------------------------------------------------------------------- #
     def show_notice(self, message, can_go_back=False, title="Some settings changed"):
         """Show `message` in a window of its own and wait: True when the user pressed [ok], False for [go back] (only offered with

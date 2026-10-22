@@ -69,6 +69,26 @@ def test_each_engine_description_says_whether_it_owns_the_orbit_settings_and_whe
     assert (orbit.uses_orbit_settings, orbit.path_has_bounces) == (True, False)
 
 
+def test_every_area_of_the_window_creates_its_own_state_without_a_window():
+    """App.__init__ calls one init_<area>_state per area, in an order that matters only where one needs another. Each runs on a bare
+    object (no Tk), and together they leave the attributes the other methods read from the start."""
+    class FakeApp:
+        pass
+    app = FakeApp()
+    for name in ("live_coloration", "selected_coloration_obj", "coloration_by_id"):      # (what init_coloration_state reads)
+        setattr(app, name, getattr(m.App, name).__get__(app))
+    inits = [n for n in dir(m.App) if n.startswith("init_") and n.endswith("_state")]
+    assert len(inits) >= 10, inits
+    order = ["init_controls_state", "init_engine_state", "init_coloration_state", "init_generation_state", "init_buddha_state",
+             "init_preview_state", "init_timeline_state", "init_video_state", "init_obstacle_state", "init_framing_state"]
+    assert set(order) <= set(inits)
+    for name in order:
+        getattr(m.App, name)(app)
+    for attr in ("model", "colorations", "mapping", "generated", "obstacles", "framings", "keyframes", "pinned_px", "render_thread"):
+        assert hasattr(app, attr), attr
+    assert app.model.value("engine") == m.DEFAULT_ENGINE and app.engine_applied == m.DEFAULT_ENGINE
+
+
 def test_the_package_re_exports_every_name_of_every_module_as_the_same_object():
     import ast
     seen = {}
@@ -249,10 +269,11 @@ def test_kernels_read_their_rule_and_obstacle_arguments_by_field_name_never_by_n
     assert checked >= 20, "the scan should have found the field reads it is protecting"
 
 
-def test_a_hasattr_guard_in_the_window_code_names_an_attribute_something_sets():
-    """Regression: `refresh_color_controls_for_selected_coloration` guarded itself with `hasattr(self, "mode_var")`, an attribute
-    that a rename had left nothing to create, so the guard held for good and the method never did its work (and the one test that
-    called it set the attribute by hand). Every attribute a `hasattr(self, "x")` names must be assigned somewhere in the package."""
+def test_every_widget_name_a_guard_asks_about_is_added_to_built_by_the_code_that_creates_it():
+    """Regression: `refresh_color_controls_for_selected_coloration` once guarded itself with `hasattr(self, "mode_var")`, an attribute that
+    a rename had left nothing to create, so the guard held for good and the method never did its work. The guards now ask `self.built`
+    (`"name" in self.built`), and every name asked about must be added somewhere (`self.built.add("name")`), or the same thing can
+    happen again. There must be no `hasattr(self, ...)` guard left in the window code."""
     import ast
     import glob
     import re
@@ -260,19 +281,28 @@ def test_a_hasattr_guard_in_the_window_code_names_an_attribute_something_sets():
     for path in glob.glob(os.path.join(PACKAGE_DIR, "*.py")):
         with open(path, encoding="utf-8") as handle:
             trees[path] = ast.parse(handle.read())
-    assigned = {node.attr for tree in trees.values() for node in ast.walk(tree)
-                if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)}
-    templates = []                                      # setattr(self, f"framing_{field}_var", ...): a name with a hole in it
-    for tree in trees.values():
+
+    def is_built(node):
+        return isinstance(node, ast.Attribute) and node.attr == "built" and isinstance(node.value, ast.Name) and node.value.id == "self"
+    added, templates, asked = set(), [], []
+    for path, tree in trees.items():
         for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr"
-                    and len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr)):
-                templates.append("".join(re.escape(part.value) if isinstance(part, ast.Constant) else ".+" for part in node.args[1].values))
-    guards = [(os.path.basename(path), node.args[1].value) for path, tree in trees.items() for node in ast.walk(tree)
-              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "hasattr"
-              and len(node.args) == 2 and isinstance(node.args[0], ast.Name) and node.args[0].id == "self"
-              and isinstance(node.args[1], ast.Constant)]
-    assert len(guards) >= 8, "the scan should have found the guards it is checking"
-    missing = [f"{name}: hasattr(self, {attr!r})" for name, attr in guards
-               if attr not in assigned and not any(re.fullmatch(template, attr) for template in templates)]
-    assert not missing, "nothing ever assigns " + "; ".join(missing)
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add" and is_built(node.func.value)
+                    and node.args):
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant):
+                    added.add(arg.value)
+                elif isinstance(arg, ast.JoinedStr):
+                    templates.append("".join(re.escape(part.value) if isinstance(part, ast.Constant) else ".+" for part in arg.values))
+            if isinstance(node, ast.Compare) and any(is_built(c) for c in node.comparators):
+                if isinstance(node.left, ast.Constant):
+                    asked.append((os.path.basename(path), node.left.value))
+                elif isinstance(node.left, ast.Set):
+                    asked += [(os.path.basename(path), item.value) for item in node.left.elts]
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "hasattr"
+                    and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "self"):
+                raise AssertionError(f"{os.path.basename(path)} line {node.lineno}: a hasattr(self, ...) guard: ask self.built instead")
+    assert len(asked) >= 7, "the scan should have found the guards it is checking"
+    missing = [f"{name}: {asked_name!r}" for name, asked_name in asked
+               if asked_name not in added and not any(re.fullmatch(template, asked_name) for template in templates)]
+    assert not missing, "nothing ever adds to self.built " + "; ".join(missing)

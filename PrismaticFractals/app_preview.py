@@ -2,14 +2,14 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
+    EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ITER_LIMIT_MAX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
     COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
 from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_placeholder, render_text_line
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
-    N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
+    N_POINTS, N_RAW, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
     RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
 )
 from .engines import engine_description, layout_of_engine, tables_of_engine
@@ -22,6 +22,19 @@ from .colorations import COLOR_MODELS
 
 
 class PreviewMixin:
+    def init_preview_state(self):
+        """The hovered and the pinned pixel, the decorations' variables, the pending outline refresh, and the buffers one hover ray is
+        traced into."""
+        self.deco = {}
+        self.outline_job = None
+        self.hover_px = None
+        self.pinned_px = None
+        self.hover_path_points = np.empty((ITER_LIMIT_MAX + 2, 2))
+        self.hover_path_point_tags = np.empty(ITER_LIMIT_MAX + 2)
+        self.hover_raw = np.empty(N_RAW)
+        self.hover_vec = np.empty(N_STATS)
+        self.hover_ray_characteristic_points = np.empty((N_POINTS, 2))
+
     # ---- the image on screen: its framing, its pixels and the world they cover ---------------------------- #
     def set_image_framing(self, framing):
         """The image on screen is, from now on, an image of `framing` (a FramingSnapshot): the pixel grid is
@@ -35,7 +48,7 @@ class PreviewMixin:
         self.outline_pixel = framing_outline_pixel(framing)
         self.rows_done = 0
         self.make_image_buffers()
-        if hasattr(self, "canvas"):
+        if "canvas" in self.built:
             self.canvas.configure(width=self.img_w, height=self.img_h)
             self.photo.configure(width=self.img_w, height=self.img_h)
 
@@ -340,7 +353,7 @@ class PreviewMixin:
         """Dashed purple outline of the zone the Buddha seed points are spread over, on the preview, while - and only
         while - the Buddha seeding tab is being looked at. (It is not a decoration with a checkbox of its own, for
         now.) The zone may reach outside the image."""
-        if not hasattr(self, "canvas") or not hasattr(self, "buddha_seeding_tab"):
+        if not {"canvas", "buddha_seeding_tab"} <= self.built:
             return                                 # the window is still being built
         self.canvas.delete("seedzone")
         if not self.seed_tab_focused():

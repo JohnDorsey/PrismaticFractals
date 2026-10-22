@@ -154,6 +154,7 @@ def _fake_diff_app():
     app.diff_expanded = set()
     app.diff_presence_var = m.tk.StringVar(value="present or absent")
     app.diff_list_frame = types.SimpleNamespace(winfo_children=lambda: [])
+    _built(app, "diff_list_frame")
     app.kf_modified = set()
     app.diff_save_all_btn = _StubWidget()
     app.diff_delete_all_btn = _StubWidget()

@@ -97,6 +97,7 @@ def test_save_new_image_rounds_a_non_multiple_of_4_resolution():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)

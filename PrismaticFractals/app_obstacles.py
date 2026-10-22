@@ -8,10 +8,17 @@ from .constants import (
 from .image_io import encode_png_bytes
 from .engines import new_obstacle_effects
 from .kernels import OBSTACLE_EFFECT_PASS, OBSTACLE_EFFECT_REFLECT
-from .shapes import POSITION_PARAMS, SHAPE_CLASSES, Shape, render_obstacle_thumbnail
+from .shapes import POSITION_PARAMS, SHAPE_CLASSES, Shape, default_starting_obstacle, render_obstacle_thumbnail
 
 
 class ObstaclesMixin:
+    def init_obstacle_state(self):
+        """The scene's obstacles (not part of the settings, but every obstacle's own fields are keyframeable): the program starts with one,
+        the circle that reflects rays and fires them inside itself."""
+        self.obstacles = [default_starting_obstacle(0)]
+        self._obst_counter = 1
+        self.selected_obstacle = self.obstacles[0]
+
     def build_obstacles_controls(self, parent):
         """Obstacle list (scrollable, with "new..." - a button opening a menu of the shape kinds -
         Dupe and Del stacked to its left) plus an editor for whichever obstacle is

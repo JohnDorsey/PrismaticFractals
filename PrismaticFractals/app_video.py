@@ -39,6 +39,11 @@ def frame_file_offset(first_frame, number_from_start):
 
 
 class VideoMixin:
+    def init_video_state(self):
+        """The thread rendering a video (or a new image) and the event that cancels it."""
+        self.render_thread = None
+        self.render_cancel = None
+
     def build_video_panel(self):
         """The Video tab (`self.video_tab`, made by build_status_quadrant), in rows: resolution and which frames to render, the
         encoding (framerate, format, downsampling, bitrate), the render buttons with the progress bar and a "?" button that holds

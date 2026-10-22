@@ -562,6 +562,7 @@ def test_save_new_image_with_bottom_margin_produces_a_taller_file():
     app.save_jxl_mode_var = _StubVar("Lossless")
     app.save_jxl_quality_scale = _StubVar(90)
     app.save_btn = _StubWidget()
+    _built(app, "save_btn")
     app.save_as_btn = _StubWidget()
     app.save_new_image = m.App.save_new_image.__get__(app)
     app._save_new_image_worker = m.App._save_new_image_worker.__get__(app)
@@ -865,6 +866,7 @@ def test_the_zone_outline_is_drawn_only_while_the_seeding_tab_is_focused_over_th
 
     app = _fake_seeding_app(camera=False, x_start=-0.5, x_stop=0.5, y_start=-1.0, y_stop=0.0)
     app.canvas = Canvas()
+    _built(app, "canvas", "buddha_seeding_tab")
     app.buddha_seeding_tab, app.buddha_tab = "seeding", "buddha"
     app.controls_notebook, app.buddha_notebook = Notebook("buddha"), Notebook("seeding")
     app.seed_tab_focused = m.App.seed_tab_focused.__get__(app)

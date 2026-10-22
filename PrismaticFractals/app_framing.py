@@ -19,6 +19,15 @@ FRAMING_ENTRIES = (
 
 
 class FramingMixin:
+    def init_framing_state(self):
+        """The framings (the camera: where it is and how far it sees; the selected one is what the image on screen and every export are
+        of, and the first, "framing 0", is what every coloration's thumbnail shows) and the small simulations the thumbnails are made from."""
+        self.framings = [FramingConfig(0)]
+        self._framing_counter = 1
+        self.selected_framing_id = 0
+        self.framings_loaded = False     # a keyframe just set framings' numbers (see on_framings_loaded)
+        self.thumb_sims = {}             # cleared by every new generation (see simulated_thumbnail_data)
+
     # ---- framings (Framing tab) -------------------------------------------------------------- #
     def framing_by_id(self, framing_id):
         """The live FramingConfig for one framing id, or None if it doesn't exist."""
@@ -119,6 +128,7 @@ class FramingMixin:
             parent, THUMB_SIZE, self.small_font, SELECTED_OUTLINE, SELECTED_OUTLINE_PX, self.new_framing,
             self.duplicate_framing, self.delete_framing, self.select_framing)
         self.framing_strip.frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
+        self.built.add("framing_strip")
 
         edit = ttk.LabelFrame(parent, text="Edit selected framing")
         edit.grid(row=1, column=0, sticky="ew", padx=6, pady=(2, 6))
@@ -128,6 +138,7 @@ class FramingMixin:
         for row, (field, label, _parse, validator) in enumerate(FRAMING_ENTRIES):
             var = tk.StringVar(value=str(self.last_framing[field]))
             setattr(self, f"framing_{field}_var", var)
+            self.built.add(f"framing_{field}_var")
             ttk.Label(edit, text=label).grid(row=row, column=0, sticky="w", padx=(8, 6), pady=2)
             vcmd = (self.root.register(getattr(self, validator)), "%P")
             entry = ttk.Entry(edit, textvariable=var, width=20, justify="right", validate="key", validatecommand=vcmd)
@@ -146,7 +157,7 @@ class FramingMixin:
 
     def refresh_framing_controls_for_selected_framing(self):
         """Show the selected framing's numbers in the entries (nothing, if the tab is not built yet)."""
-        if not hasattr(self, "framing_x_var"):
+        if "framing_x_var" not in self.built:
             return
         framing = self.selected_framing_obj()
         if framing is None:

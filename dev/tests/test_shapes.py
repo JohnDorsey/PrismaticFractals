@@ -539,11 +539,12 @@ def test_the_starting_obstacle_is_the_circle_of_radius_2_that_reflects_and_fires
 
 
 def test_the_app_starts_with_the_starting_obstacle_selected():
-    import inspect
-    source = inspect.getsource(m.App.__init__)
-    assert "self.obstacles = [default_starting_obstacle(0)]" in source
-    assert "self._obst_counter = 1" in source
-    assert "self.selected_obstacle = self.obstacles[0]" in source
+    class FakeApp:
+        pass
+    app = FakeApp()
+    m.App.init_obstacle_state(app)
+    assert len(app.obstacles) == 1 and app._obst_counter == 1 and app.selected_obstacle is app.obstacles[0]
+    assert app.obstacles[0].params() == m.default_starting_obstacle(0).params()
 
 
 def test_the_old_bounding_shape_system_is_gone():

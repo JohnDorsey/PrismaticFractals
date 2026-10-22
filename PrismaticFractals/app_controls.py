@@ -18,15 +18,27 @@ from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
 from .parsing import parse_resolution_dimension
 from .settings import (
-    DEFAULT_SETTING_VALUES, NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings,
+    DEFAULT_ENGINE_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS, DEFAULT_SETTING_VALUES,
+    NATURAL_TERMINATION_SETTING_SPECS, SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings,
     MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
-from .settings_model import format_value
+from .settings_model import SettingsModel, format_value
 from .widgets import FloatEntryHandle, ModelBinding
 
 
 class ControlsMixin:
+    def init_controls_state(self):
+        """The settings model (every static setting's value and error; the controls are its views), what Revert restores, and the
+        classic and ttk widgets of the Fuzzing section (greyed out together)."""
+        self.model = SettingsModel(SETTING_SPECS)
+        self.baseline = DEFAULT_RAY_SETTINGS
+        self.baseline_natural_termination = DEFAULT_NATURAL_TERMINATION_SETTINGS
+        self.baseline_engine = DEFAULT_ENGINE_SETTINGS
+        self.baseline_mandelbrot = DEFAULT_MANDELBROT_SETTINGS
+        self.fuzz_tk_widgets = []
+        self.fuzz_ttk_widgets = []
+
     def build_limits_controls(self, parent):
         """Three validated number-entry fields: iteration limit, distance limit and escape radius."""
         lim = ttk.LabelFrame(parent, text="Termination limits")
@@ -757,7 +769,7 @@ class ControlsMixin:
                      or self.current_mandelbrot_settings() != self.baseline_mandelbrot)
         self.start_btn.state(["!disabled"] if start_ok else ["disabled"])
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
-        if hasattr(self, "save_btn"):
+        if "save_btn" in self.built:
             has_image = (self.generated is not None and not self.running
                          and self.rows_done >= self.img_h)
             self.save_btn.state(["!disabled"] if has_image else ["disabled"])

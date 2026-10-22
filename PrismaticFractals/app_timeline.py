@@ -20,6 +20,18 @@ from .widgets import MODIFIED_OUTLINE, MODIFIED_OUTLINE_PX, ModifiedOutline, det
 
 
 class TimelineMixin:
+    def init_timeline_state(self):
+        """The keyframes, which one is selected, the settings changed since it was selected or last saved (the blue outlines), and the
+        keyframe settings list's expanded sections (everything starts collapsed)."""
+        self.keyframes = []
+        self._kf_counter = 0
+        self.selected_keyframe = None
+        self.kf_modified = set()
+        self.kf_last_seen = None          # capture_all_settings() at the previous check
+        self.kf_applying = False          # True while a keyframe's values are being loaded
+        self.outlines = {}                # widget -> ModifiedOutline
+        self.diff_expanded = set()
+
     def purge_keyframe_settings(self, prefix):
         """Removes a just-deleted obstacle's, coloration's or framing's settings from every
         keyframe right away (see remove_keyframe_keys), so no keyframe is ever
@@ -100,6 +112,7 @@ class TimelineMixin:
         diff_canvas.grid(row=1, column=0, sticky="nsew")
         dvsb.grid(row=1, column=1, sticky="ns")
         self.diff_list_frame = ttk.Frame(diff_canvas)
+        self.built.add("diff_list_frame")
         diff_window = diff_canvas.create_window((0, 0), window=self.diff_list_frame, anchor="nw")
         self.diff_list_frame.bind(
             "<Configure>", lambda _e: diff_canvas.configure(scrollregion=diff_canvas.bbox("all")))
@@ -569,7 +582,7 @@ class TimelineMixin:
         or coloration it belongs to; all collapsed until expanded, see
         toggle_diff_section), each setting showing whether it's defined here,
         animated by surrounding keyframes, or neither."""
-        if not hasattr(self, "diff_list_frame"):
+        if "diff_list_frame" not in self.built:
             return                                 # Timeline panel not built yet
         for w in self.diff_list_frame.winfo_children():
             w.destroy()
