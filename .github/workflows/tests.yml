@@ -37,4 +37,9 @@ jobs:
       - name: Compile check
         run: python -m compileall -q PrismaticFractals dev PrismaticFractals.py
       - name: "Test suite (no window, Tk is stubbed; numba compiles the kernels first)"
-        run: python dev/test_PrismaticFractals.py
+        shell: bash
+        run: |
+          python dev/test_PrismaticFractals.py > suite.log 2>&1 && code=0 || code=$?
+          tail -n 3 suite.log
+          python dev/ci_annotate.py suite.log
+          exit $code
