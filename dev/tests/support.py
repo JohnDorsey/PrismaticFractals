@@ -802,7 +802,8 @@ def small_engine(**changes):
         default_point=m.POINT_START, default_buddha_option=labels.index("Path: Mean point"),
         choices={"obst:*:in_effect": effects, "obst:*:out_effect": effects},
         fallbacks={"obst:*:in_effect": m.OBSTACLE_EFFECT_PASS, "obst:*:out_effect": m.OBSTACLE_EFFECT_PASS},
-        ranges={"iter": (1, 100), "seg_mult": (0.5, 1.0)}, ignored_tabs=("Emissions", "Mutations"), ignored_keys=frozenset())
+        ranges={"iter": (1, 100), "seg_mult": (0.5, 1.0)}, ignored_tabs=("Emissions", "Mutations"), ignored_keys=frozenset(),
+        uses_orbit_settings=False, path_has_bounces=False)
     fields.update(changes)
     return m.EngineDescription(**fields)
 

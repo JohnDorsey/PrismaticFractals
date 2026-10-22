@@ -10,9 +10,9 @@ from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_plac
 from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
 from .kernels import (
     N_POINTS, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    ENGINE_MANDELBROT, RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
+    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
 )
-from .engines import layout_of_engine, tables_of_engine
+from .engines import engine_description, layout_of_engine, tables_of_engine
 from .metrics import CONSTANT_POINT_COORDS, POINT_METRICS, resolve_point_xy
 from .settings import (
     NaturalTerminationSettings, RaySettings, path_args, settings_natural_termination, settings_orbit_args, settings_ray_args
@@ -307,7 +307,7 @@ class PreviewMixin:
         v = self.info_vars
         pin_tag = "  [pinned]" if self.pinned_px == (i, j) else ""
         v["start"].set(f"({i}, {j})  [{x:+.3f}, {y:+.3f}]{pin_tag}")
-        orbit = engine == ENGINE_MANDELBROT
+        orbit = not engine_description(engine).path_has_bounces
         if orbit:
             v["outcome"].set(ORBIT_OUTCOME_TEXT[term].format(n=n - 1))
             v["bounces"].set(f"none (an orbit: {n - 1} iterations)")

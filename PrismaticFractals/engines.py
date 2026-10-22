@@ -56,6 +56,8 @@ class EngineDescription:
     ranges: dict                        # {key pattern: (lo, hi)} the numbers it accepts (None for no limit on that side)
     ignored_tabs: tuple                 # the tabs whose settings it makes no use of (greyed out, never reset)
     ignored_keys: frozenset             # ... and other settings it makes no use of
+    uses_orbit_settings: bool           # whether it is run by the MandelbrotSettings (exponent, z0, mapping...): they are greyed out for the others
+    path_has_bounces: bool              # whether its paths bounce off edges (an orbit's do not: the preview says iterations, not bounces)
 
     def ignores(self, key):
         """Does this engine make no use of the setting `key` (so that its control is greyed out)? It still has a value, which is
@@ -69,7 +71,8 @@ RAY_BOUNCING_ENGINE = EngineDescription(
     metrics=frozenset(range(N_STATS)), points=frozenset(range(N_POINT_CHOICES)),
     buddha_options=frozenset(range(N_BUDDHA_POINTS)),
     default_point_metric=ST_HDIST, default_other_metric=ST_BOUNCE_COUNT, default_point=POINT_START,
-    default_buddha_option=POINT_ALL_MEAN, choices={}, fallbacks={}, ranges={}, ignored_tabs=(), ignored_keys=frozenset())
+    default_buddha_option=POINT_ALL_MEAN, choices={}, fallbacks={}, ranges={}, ignored_tabs=(), ignored_keys=frozenset(),
+    uses_orbit_settings=False, path_has_bounces=True)
 
 # Every setting of the Mutations tab but the two segment length multipliers is fuzzing's: an orbit has no direction to jitter.
 _FUZZING_KEYS = frozenset(key for key, tab in SETTING_TAB.items() if tab == "Mutations" and key not in ("seg_mult", "orbit_pre_seg_mult"))
@@ -96,7 +99,7 @@ def _mandelbrot_description():
         default_point=POINT_START, default_buddha_option=point_slot(SEQ_PATH, PRED_MEAN),
         choices={"obst:*:in_effect": effects, "obst:*:out_effect": effects},
         fallbacks={"obst:*:in_effect": OBSTACLE_EFFECT_PASS, "obst:*:out_effect": OBSTACLE_EFFECT_PASS}, ranges={},
-        ignored_tabs=("Emissions",), ignored_keys=_FUZZING_KEYS)
+        ignored_tabs=("Emissions",), ignored_keys=_FUZZING_KEYS, uses_orbit_settings=True, path_has_bounces=False)
 
 
 MANDELBROT_ENGINE = _mandelbrot_description()

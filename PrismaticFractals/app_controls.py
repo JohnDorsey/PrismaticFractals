@@ -16,7 +16,7 @@ from .constants import (
 )
 from .engines import effect_names, engine_description
 from .figure import settings_of
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH, ENGINE_MANDELBROT
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
 from .parsing import (
     parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
     parse_iter_limit,
@@ -699,7 +699,7 @@ class ControlsMixin:
 
     def update_orbit_state(self):
         """Grey out the Mandelbrot engine's controls that are of no use now (nothing is hidden, D4)."""
-        mandelbrot_on = ENGINE_NAMES.index(self.engine_var.get()) == ENGINE_MANDELBROT
+        mandelbrot_on = self.current_engine_description().uses_orbit_settings
         julia = self.orbit_mapping_var.get() == ORBIT_MAPPING_NAMES[ORBIT_MAPPING_JULIA]
         useless = {"julia_re": not julia, "julia_im": not julia, "z0": julia}
         for field, widget in self.orbit_widgets.items():
@@ -796,7 +796,7 @@ class ControlsMixin:
     def mandelbrot_defines_figure(self, mandelbrot):
         """Whether `mandelbrot` (a MandelbrotSettings) matters to a figure made with the engine selected now: only when that is the
         Mandelbrot engine."""
-        return self.current_engine_settings().engine == ENGINE_MANDELBROT and self.current_mandelbrot_settings() != mandelbrot
+        return engine_description(self.current_engine_settings().engine).uses_orbit_settings and self.current_mandelbrot_settings() != mandelbrot
 
     def current_engine_settings(self):
         """The Simulation tab's engine (an EngineSettings; never invalid)."""

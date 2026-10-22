@@ -8,7 +8,7 @@ from .constants import (
 )
 from .engines import engine_description
 from .image_io import GLYPH_ROWS, jxl_quality_tag, render_text_line
-from .kernels import CONFINE_BOX, EMIT_TOWARDS, ENGINE_MANDELBROT, PREVIEW_BOX
+from .kernels import CONFINE_BOX, EMIT_TOWARDS, PREVIEW_BOX
 from .metrics import (
     BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_SRC_BUDDHA,
     CHAN_SRC_CONSTANT, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, PATH_KIND_LABELS, POINT_SHORT, POINT_METRICS,
@@ -176,7 +176,7 @@ def figure_info_blocks(ray, natural_termination, obstacles, engine=None, mandelb
                  f"  {ORBIT_MAPPING_NAMES[mandelbrot.mapping].split(' (')[0]}",
                  f"  Julia {mandelbrot.julia_re:.9g}{mandelbrot.julia_im:+.9g}i", f"  escape {ORBIT_ESCAPE_NAMES[mandelbrot.escape].split(' ')[0]}",
                  f"  step x{mandelbrot.pre_seg_mult:.2f} (before)"]
-        blocks.append(orbit if engine.engine == ENGINE_MANDELBROT else [GreyLine(line) for line in orbit])
+        blocks.append(orbit if description.uses_orbit_settings else [GreyLine(line) for line in orbit])
     if obstacles:
         blocks += [o.info_lines(i + 1) for i, o in enumerate(obstacles)]
     else:

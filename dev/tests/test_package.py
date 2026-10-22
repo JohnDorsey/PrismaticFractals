@@ -1,4 +1,5 @@
 """Tests: package."""
+import ast
 import os
 import sys
 import numpy as np
@@ -39,6 +40,33 @@ def test_patchable_globals_are_read_as_attributes_of_their_owner_never_imported_
     for name, owner in owners.items():
         assert hasattr(getattr(m, owner), name), f"{owner} does not define {name}"
         assert not hasattr(m, name), f"the package must not re-export {name}: it would be a stale copy after a patch"
+
+
+def test_the_modules_below_the_window_never_import_tkinter_or_the_window_modules():
+    """The window is the app_* modules, core and widgets. Everything else (kernels, settings, engines, projects, the colour
+    pipeline, export text...) must stay usable without Tk, so that another front end (or a script) can drive it."""
+    window = lambda name: name.startswith("app_") or name in ("core", "widgets")
+    for module, tree in _package_sources():
+        if window(module) or module == "__init__":
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported = [node.module.split(".")[0]]
+            elif isinstance(node, ast.ImportFrom):                   # from .x import ...  /  from . import x
+                imported = [node.module.split(".")[0]] if node.module else [a.name for a in node.names]
+            else:
+                continue
+            for name in imported:
+                assert name != "tkinter" and not window(name), f"PrismaticFractals/{module}.py (line {node.lineno}) imports {name}"
+
+
+def test_each_engine_description_says_whether_it_owns_the_orbit_settings_and_whether_its_paths_bounce():
+    """The window and the figure margin ask the description, not the engine's code (a third engine needs no edit there)."""
+    ray, orbit = m.engine_description(m.ENGINE_RAY_BOUNCING), m.engine_description(m.ENGINE_MANDELBROT)
+    assert (ray.uses_orbit_settings, ray.path_has_bounces) == (False, True)
+    assert (orbit.uses_orbit_settings, orbit.path_has_bounces) == (True, False)
 
 
 def test_the_package_re_exports_every_name_of_every_module_as_the_same_object():
