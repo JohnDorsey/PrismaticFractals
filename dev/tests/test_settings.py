@@ -222,12 +222,6 @@ def _varied_ray_settings():
         emit_target_cx=-0.2, emit_target_cy=0.6, emit_offset=12.5)
 
 
-def _varied_natural_termination_settings():
-    return m.NaturalTerminationSettings(
-        max_iter=77, max_dist=3.5, escape_radius=3.25, confine_lookback=9,
-        confine_method=m.CONFINE_PATH, confine_threshold=0.03)
-
-
 def _varied_seed_settings():
     return m.BuddhaSeedSettings(camera_pixels=False, x_start=-0.5, x_stop=0.25, y_start=-3.0, y_stop=2.0)
 
@@ -379,6 +373,7 @@ def _fake_controls_app():
     app = FakeApp()
     for spec in m.SETTING_SPECS.values():
         setattr(app, spec.control, _StubVar(None))
+    _give_settings_model(app)                     # (the natural termination settings are held by the model, shown by their controls)
     app.on_limit_var_changed = app.on_shape_param_changed = app.on_fuzz_changed = lambda: None
     app.set_setting_control = m.App.set_setting_control.__get__(app)
     app.revert_settings = m.App.revert_settings.__get__(app)
@@ -644,6 +639,7 @@ def test_the_engine_controls_list_only_the_offered_engines_and_read_back_as_a_re
     class FakeApp:
         pass
     app = FakeApp()
+    _give_settings_model(app, controls=False)
     app.update_buttons = lambda: app.__dict__.setdefault("calls", []).append("update_buttons")
     app.refresh_timeline_diffs = lambda: app.__dict__.setdefault("calls", []).append("diffs")
     app.build_mandelbrot_controls = app.update_orbit_state = app.apply_engine_offers = lambda *args: None

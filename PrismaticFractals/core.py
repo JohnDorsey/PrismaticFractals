@@ -16,14 +16,14 @@ import numpy as np
 from .framings import FramingConfig, snapshot_framing
 from .kernels import N_POINTS, N_RAW, N_STATS
 from .constants import (
-    DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST, DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_EMIT_TARGET_R,
-    DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER, EMIT_TARGET_FIELDS, ERROR_RED,
+    DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, EMIT_TARGET_FIELDS, ERROR_RED,
     DEFAULT_ENGINE, ITER_LIMIT_MAX, REFRESH_HZ
 )
 from .settings import DEFAULT_ENGINE_SETTINGS, DEFAULT_MANDELBROT_SETTINGS, DEFAULT_NATURAL_TERMINATION_SETTINGS, DEFAULT_RAY_SETTINGS
 from .shapes import default_starting_obstacle
 from .metrics import make_mapping
+from .settings_model import NATURAL_TERMINATION_PARSERS, SettingsModel
 from .colorations import ColorationConfig
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
@@ -86,15 +86,11 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         self.baseline_mandelbrot = DEFAULT_MANDELBROT_SETTINGS
         self.engine_applied = DEFAULT_ENGINE            # the engine the program has been using (the dropdown may already show another)
         self.engine_memory = EMPTY_ENGINE_MEMORY        # what the engines remember of their settings, for the session (D18)
-        self.last_iter = DEFAULT_ITER     # most recent valid entry values
-        self.last_dist = DEFAULT_DIST
-        self.last_escape_radius = DEFAULT_ESCAPE_RADIUS
+        self.model = SettingsModel(NATURAL_TERMINATION_PARSERS)   # the values (and errors) of the settings it manages; see settings_model.py
         self.last_emit_target_r = DEFAULT_EMIT_TARGET_R
         self.last_emit_target_theta = DEFAULT_EMIT_TARGET_THETA
         self.last_emit_target_cx = DEFAULT_EMIT_TARGET_CX
         self.last_emit_target_cy = DEFAULT_EMIT_TARGET_CY
-        self.last_confine_lookback = DEFAULT_CONFINE_LOOKBACK
-        self.last_confine_threshold = DEFAULT_CONFINE_THRESHOLD
         self.last_rng_seed = DEFAULT_RNG_SEED
         self.colorations = [ColorationConfig(0)]      # list[ColorationConfig], in export/composition order
         self._coloration_counter = 1
@@ -178,11 +174,7 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         self.update_fuzz_enabled_state()
 
         # Watch the number entries (registered last, once everything exists)
-        self.iter_var.trace_add("write", self.on_limit_var_changed)
-        self.dist_var.trace_add("write", self.on_limit_var_changed)
-        self.escape_radius_var.trace_add("write", self.on_limit_var_changed)
-        self.confine_lookback_var.trace_add("write", self.on_limit_var_changed)
-        self.confine_threshold_var.trace_add("write", self.on_limit_var_changed)
+        self.bind_model_controls()
         self.confine_method_var.trace_add("write", self.on_confine_method_changed)
         for field in EMIT_TARGET_FIELDS:
             getattr(self, f"emit_target_{field}_var").trace_add(

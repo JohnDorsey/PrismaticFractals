@@ -336,7 +336,7 @@ License
   the file LICENSE. The third-party software it uses is listed in
   THIRD_PARTY_NOTICES.md.
 """
-from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, engines, export_text, framings, external, figure, geometry, image_io, kernels, metrics, buddha, color_pipeline, parsing, stored_layout, paths, projects, selfchecks, settings, shapes, ui_text, version, colorations, widgets, window
+from . import app_buddha, app_coloration, app_controls, app_debug, app_engine, app_export, app_framing, app_generation, app_layout, app_obstacles, app_preview, app_projects, app_recolor, app_render, app_timeline, app_video, constants, core, debug, engines, export_text, framings, external, figure, geometry, image_io, kernels, metrics, buddha, color_pipeline, parsing, stored_layout, paths, projects, selfchecks, settings, settings_model, shapes, ui_text, version, colorations, widgets, window
 
 # Globals that tests patch, and the module that owns each. Code reads them as `paths.EXPORT_DIR` (an attribute of
 # the owner) at call time, never by `from .paths import EXPORT_DIR`, which would copy the value at import and make a
@@ -346,7 +346,7 @@ PATCHABLE_GLOBALS = {"EXPORT_DIR": "paths", "TEMP_DIR": "paths", "PROJECT_DIR": 
                      "PROGRAM_NAME": "paths", "ffmpeg": "external", "ImageGrab": "external",
                      "dump_app_state": "debug"}
 
-_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, stored_layout, figure, metrics, buddha, colorations, engines, color_pipeline, framings, export_text, projects, selfchecks, parsing, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_engine, app_generation, app_preview, app_recolor, app_buddha, app_obstacles, app_coloration, app_controls, app_layout, core)
+_MODULES = (version, paths, external, image_io, widgets, kernels, constants, settings, geometry, shapes, stored_layout, figure, metrics, buddha, colorations, engines, color_pipeline, framings, export_text, projects, selfchecks, parsing, settings_model, window, ui_text, debug, app_projects, app_export, app_framing, app_render, app_video, app_timeline, app_debug, app_engine, app_generation, app_preview, app_recolor, app_buddha, app_obstacles, app_coloration, app_controls, app_layout, core)
 
 # Everything every module defines is also reachable as an attribute of the package (public and underscore
 # names alike), so `PrismaticFractals.write_png` works wherever it lives; tests read names this way. To PATCH a

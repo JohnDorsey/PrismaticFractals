@@ -68,15 +68,10 @@ def _make_fake_app_for_snapshot():
                  "self_offset", "self_jitter", "self_mult"]:
         setattr(app, f"{field}_scale", _Get(1.0 if field.endswith("mult") else 0.0))
 
-    app.iter_var = _Get("32")
-    app.dist_var = _Get("0")
-    app.escape_radius_var = _Get(str(m.DEFAULT_ESCAPE_RADIUS))
+    _give_settings_model(app, iter="32", dist="0")
     app.seg_mult_scale = _Get(0.75)
     app.buddha_blur_radius_scale = _Get(m.DEFAULT_BUDDHA_BLUR_RADIUS)
     app.buddha_blur_type_var = _Get(m.BUDDHA_BLUR_LABELS[m.DEFAULT_BUDDHA_BLUR_TYPE])
-    app.confine_lookback_var = _Get(str(m.DEFAULT_CONFINE_LOOKBACK))
-    app.confine_method_var = _Get(m.CONFINE_METHOD_NAMES[m.DEFAULT_CONFINE_METHOD])
-    app.confine_threshold_var = _Get(str(m.DEFAULT_CONFINE_THRESHOLD))
     app.emit_mode_var = _Get(m.EMIT_MODE_NAMES[m.DEFAULT_EMIT_MODE])
     for field in m.EMIT_TARGET_FIELDS:
         setattr(app, f"emit_target_{field}_var", _Get("0.0"))
@@ -223,12 +218,53 @@ class _StubJxlControls:
 
 
 class _StubVar:
+    """A Tk variable stand-in: get / set, and the write traces of trace_add run on every set (as in Tk)."""
     def __init__(self, v=None):
         self._v = v
+        self._traces = []
     def get(self):
         return self._v
     def set(self, v):
         self._v = v
+        for callback in list(self._traces):
+            callback("name", "", "write")
+    def trace_add(self, _mode, callback):
+        self._traces.append(callback)
+
+
+class _StubEntry:
+    """An entry stand-in that remembers the style it was last given."""
+    style = "TEntry"
+    def configure(self, style=None, **_kwargs):
+        if style is not None:
+            self.style = style
+
+
+def _give_settings_model(app, controls=True, entry_factory=None, **texts):
+    """Give a fake app the settings model of the real App (the natural termination settings) and, with `controls`, the variables and
+    entries of the Termination tab bound to it by the real App.bind_model_controls, so typing into a variable (app.iter_var.set("9"))
+    reaches the model as it does in the window. `entry_factory(key)` makes the entry of a setting (a _StubEntry by default); `texts` set the starting text of settings by key (the
+    defaults otherwise)."""
+    app.model = m.SettingsModel(m.NATURAL_TERMINATION_PARSERS)
+    if not controls:
+        return
+    attrs = {"iter": "iter", "dist": "dist", "escape_radius": "escape_radius", "confine_lookback": "confine_lookback",
+             "confine_method": "confine_method", "confine_threshold": "confine_threshold"}
+    for key, name in attrs.items():
+        setattr(app, f"{name}_var", _StubVar(m.format_value(key, m.DEFAULT_SETTING_VALUES[key])))
+        if key != "confine_method":
+            setattr(app, f"{name}_entry", _StubEntry() if entry_factory is None else entry_factory(key))
+    for name in ("limit_msg_var", "confine_msg_var"):
+        if not hasattr(app, name):
+            setattr(app, name, _StubVar(""))
+    for name in ("invalidate_preview", "update_buttons", "refresh_timeline_diffs"):
+        if not hasattr(app, name):
+            setattr(app, name, lambda *a, **k: None)
+    app.bind_model_controls = m.App.bind_model_controls.__get__(app)
+    app.on_model_changed = m.App.on_model_changed.__get__(app)
+    app.bind_model_controls()
+    for key, text in texts.items():
+        getattr(app, f"{attrs[key]}_var").set(text)
 
 
 class _StubWidget:
@@ -828,6 +864,12 @@ def settings_dict_with_lists(obstacle_effects=((0, 0),), channels=None):
 def small_tables():
     """The SequenceTables of the test double `small_engine()`: its Path sequence only, stored densely."""
     return m.sequence_tables(m.engine_layout(small_engine()))
+
+
+def _varied_natural_termination_settings():
+    return m.NaturalTerminationSettings(
+        max_iter=77, max_dist=3.5, escape_radius=3.25, confine_lookback=9,
+        confine_method=m.CONFINE_PATH, confine_threshold=0.03)
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]

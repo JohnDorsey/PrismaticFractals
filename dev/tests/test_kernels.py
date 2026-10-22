@@ -723,9 +723,9 @@ def test_confinement_settings_are_registered_and_only_the_threshold_interpolates
 
 def test_confinement_settings_round_trip_through_capture_and_resolve():
     app = _make_fake_app_for_snapshot()
-    app.confine_lookback_var = _StubVar("9")
-    app.confine_method_var = _StubVar("Path length")
-    app.confine_threshold_var = _StubVar("1e-12")
+    app.confine_lookback_var.set("9")
+    app.confine_method_var.set("Path length")
+    app.confine_threshold_var.set("1e-12")
     app.deco = {"outline": _StubVar(True)}
     app.obstacles = []
     app.colorations = []
@@ -772,17 +772,6 @@ def _fake_limits_app(lookback="4", method="Box", threshold="0.00390625"):
     _give_image_geometry(app)
     app.on_limit_var_changed = m.App.on_limit_var_changed.__get__(app)
     app.on_limit_commit = m.App.on_limit_commit.__get__(app)
-    app.iter_var, app.dist_var = _StubVar("256"), _StubVar("0")
-    app.escape_radius_var, app.last_escape_radius = _StubVar("2.0"), 2.0
-    app.confine_lookback_var = _StubVar(lookback)
-    app.confine_method_var = _StubVar(method)
-    app.confine_threshold_var = _StubVar(threshold)
-    for field in m.EMIT_TARGET_FIELDS:
-        setattr(app, f"emit_target_{field}_var", _StubVar("0.0"))
-        setattr(app, f"last_emit_target_{field}", 0.0)
-    app.last_iter, app.last_dist = 256, 0
-    app.last_confine_lookback = 4
-    app.last_confine_threshold = m.DEFAULT_PIXEL_WORLD_WIDTH
     app.styles = {}
 
     class Entry:
@@ -791,22 +780,25 @@ def _fake_limits_app(lookback="4", method="Box", threshold="0.00390625"):
 
         def configure(self, style=None, **_k):
             app.styles[self.name] = style
-    app.iter_entry, app.dist_entry = Entry("iter"), Entry("dist")
-    app.escape_radius_entry = Entry("escape_radius")
-    app.confine_lookback_entry, app.confine_threshold_entry = Entry("lookback"), Entry("threshold")
-    for field in m.EMIT_TARGET_FIELDS:
-        setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
+    names = {"iter": "iter", "dist": "dist", "escape_radius": "escape_radius", "confine_lookback": "lookback", "confine_threshold": "threshold"}
     app.limit_msg_var, app.confine_msg_var = _StubVar(""), _StubVar("")
-    app.emit_msg_var = _StubVar("")
     app.invalidate_preview = app.update_buttons = lambda: None
     app.refresh_timeline_diffs = lambda: None
+    _give_settings_model(app, entry_factory=lambda key: Entry(names[key]), iter="256", dist="0", escape_radius="2.0",
+                         confine_lookback=lookback, confine_method=method, confine_threshold=threshold)
+    for field in m.EMIT_TARGET_FIELDS:
+        setattr(app, f"emit_target_{field}_var", _StubVar("0.0"))
+        setattr(app, f"last_emit_target_{field}", 0.0)
+    for field in m.EMIT_TARGET_FIELDS:
+        setattr(app, f"emit_target_{field}_entry", Entry(f"target_{field}"))
+    app.emit_msg_var = _StubVar("")
     return app
 
 
 def test_valid_confinement_entries_update_the_last_good_values():
     app = _fake_limits_app(lookback="9", threshold="1e-30")
     app.on_limit_var_changed()
-    assert app.last_confine_lookback == 9 and app.last_confine_threshold == 1e-30
+    assert app.model.value("confine_lookback") == 9 and app.model.value("confine_threshold") == 1e-30
     assert app.styles["lookback"] == "TEntry" and app.styles["threshold"] == "TEntry"
     assert app.confine_msg_var.get() == ""
 
@@ -816,7 +808,7 @@ def test_an_invalid_threshold_is_flagged_and_the_last_good_value_is_kept():
         app = _fake_limits_app(threshold=bad)
         app.on_limit_var_changed()
         assert app.styles["threshold"] == "Invalid.TEntry", bad
-        assert app.last_confine_threshold == m.DEFAULT_PIXEL_WORLD_WIDTH
+        assert app.model.value("confine_threshold") == m.DEFAULT_PIXEL_WORLD_WIDTH
         assert "greater than 0" in app.confine_msg_var.get()
         app.on_limit_commit()
         assert app.confine_threshold_var.get() == str(m.DEFAULT_PIXEL_WORLD_WIDTH), "put back the last good one"
@@ -842,7 +834,7 @@ def test_committing_tidies_a_valid_threshold_without_changing_its_value():
 def test_the_natural_termination_settings_are_none_while_a_confinement_entry_is_invalid():
     for field, bad in (("confine_lookback_var", "1"), ("confine_threshold_var", "0")):
         app = _make_fake_app_for_snapshot()
-        setattr(app, field, _StubVar(bad))
+        getattr(app, field).set(bad)
         assert app.current_natural_termination_settings() is None, field
         assert app.current_generation_settings() is None, field
         assert app.current_ray_settings() is not None, "the ray engine's own settings are unaffected"
@@ -850,9 +842,9 @@ def test_the_natural_termination_settings_are_none_while_a_confinement_entry_is_
 
 def test_the_natural_termination_settings_read_the_confinement_controls():
     app = _make_fake_app_for_snapshot()
-    app.confine_lookback_var = _StubVar("7")
-    app.confine_method_var = _StubVar("Path length")
-    app.confine_threshold_var = _StubVar("2.5e-9")
+    app.confine_lookback_var.set("7")
+    app.confine_method_var.set("Path length")
+    app.confine_threshold_var.set("2.5e-9")
     snap = app.current_natural_termination_settings()
     assert (snap.confine_lookback, snap.confine_method, snap.confine_threshold) == (7, PATH, 2.5e-9)
 
@@ -1528,13 +1520,13 @@ def test_an_invalid_escape_radius_is_flagged_and_the_last_good_value_restored_on
     app = _fake_limits_app()
     app.escape_radius_var.set("1.5e3")
     app.on_limit_var_changed()
-    assert app.last_escape_radius == 1500.0 and app.styles["escape_radius"] == "TEntry"
+    assert app.model.value("escape_radius") == 1500.0 and app.styles["escape_radius"] == "TEntry"
     for bad in ("0", "", "-1", "1e999", "abc"):
         app.escape_radius_var.set(bad)
         app.on_limit_var_changed()
         assert app.styles["escape_radius"] == "Invalid.TEntry", bad
         assert "Escape radius" in app.limit_msg_var.get()
-        assert app.last_escape_radius == 1500.0
+        assert app.model.value("escape_radius") == 1500.0
     app.on_limit_commit()
     assert app.escape_radius_var.get() == "1500.0"
 

@@ -273,6 +273,9 @@ class TimelineMixin:
     def set_setting_control(self, key, val):
         """Write a setting (a SETTING_SPECS key) into its control, as the
         control's kind needs it. Does NOT refresh what depends on it."""
+        if key in self.model.keys():
+            self.model.set(key, val)
+            return
         spec = SETTING_SPECS[key]
         control = getattr(self, spec.control)
         if spec.kind == "text":

@@ -2,7 +2,7 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    CONFINE_METHOD_NAMES, EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
+    EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
     TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
     COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
 )
@@ -166,10 +166,9 @@ class PreviewMixin:
         if self.generated is not None:
             return self.generated.natural_termination
         return NaturalTerminationSettings(
-            max_iter=self.last_iter, max_dist=self.last_dist, escape_radius=self.last_escape_radius,
-            confine_lookback=self.last_confine_lookback,
-            confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
-            confine_threshold=self.last_confine_threshold)
+            max_iter=self.model.value("iter"), max_dist=self.model.value("dist"), escape_radius=self.model.value("escape_radius"),
+            confine_lookback=self.model.value("confine_lookback"), confine_method=self.model.value("confine_method"),
+            confine_threshold=self.model.value("confine_threshold"))
 
     def preview_engine_settings(self):
         """The path engine for previews, chosen the same way as preview_settings(): that of the image being generated, or the

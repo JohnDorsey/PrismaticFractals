@@ -56,8 +56,9 @@ class EngineFlowMixin:
         then refresh what depends on them once. Not an edit the keyframe being edited should see as one while it is done."""
         self.kf_applying = True
         try:
-            for key, value in values.items():
-                self.load_value(key, value)
+            with self.model.batch():
+                for key, value in values.items():
+                    self.load_value(key, value)
             self.on_limit_var_changed()
             self.on_shape_param_changed()
             self.on_fuzz_changed()

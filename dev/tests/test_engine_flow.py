@@ -23,6 +23,7 @@ def _flow_app(values=None):
     class FakeApp:
         pass
     app = FakeApp()
+    _give_settings_model(app, controls=False)
     state = _Controls(values)
     app.state = state
     app.engine_var = _StubVar(m.ENGINE_NAMES[state.values["engine"]])

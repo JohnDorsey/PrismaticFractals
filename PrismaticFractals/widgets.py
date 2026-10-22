@@ -1,5 +1,5 @@
 """Small Tk building blocks that know nothing about the simulation: the blue outline around a modified control, tooltips,
-a number entry with a slider-like interface, a scrollable tab, a strip of thumbnails, and the JPEG XL mode/quality row."""
+a number entry with a slider-like interface, the binding of a control to a setting of the settings model, a scrollable tab, a strip of thumbnails, and the JPEG XL mode/quality row."""
 import tkinter as tk
 from tkinter import ttk
 from .image_io import JXL_LOSSY_MAX_QUALITY, JXL_MODES
@@ -323,6 +323,42 @@ class FloatEntryHandle:
         except ValueError:
             pass
         self.var.set(self.text(self.last_valid))
+
+
+class ModelBinding:
+    """Connects one control - a Tk variable, and the entry that shows it, if any - to one setting of a SettingsModel (settings_model.py),
+    which is where the setting's value lives. Typing reports the text to the model; a value the program writes (origin "set") is written
+    into the variable by `write_value`; the entry shows red while the model holds an error for the setting; committing (Enter, focus
+    out) puts the last valid value back, in its tidy form."""
+
+    def __init__(self, model, key, var, entry, to_text):
+        self.model = model
+        self.key = key
+        self.var = var
+        self.entry = entry                  # None for a dropdown (nothing to colour)
+        self.to_text = to_text              # value -> the control's text
+        self.writing = False                # True while this binding itself writes the variable
+        var.trace_add("write", self.on_var_written)
+
+    def on_var_written(self, *_args):
+        if not self.writing:
+            self.model.submit(self.key, self.var.get())
+
+    def write_value(self):
+        """The program wrote the value: show it."""
+        self.writing = True
+        try:
+            self.var.set(self.to_text(self.model.value(self.key)))
+        finally:
+            self.writing = False
+
+    def show_error(self):
+        if self.entry is not None:
+            self.entry.configure(style="Invalid.TEntry" if self.model.error(self.key) is not None else "TEntry")
+
+    def commit(self):
+        """Replace whatever is in the control by the setting's valid value (which also clears an error)."""
+        self.var.set(self.to_text(self.model.value(self.key)))
 
 
 class JxlQualityControls:

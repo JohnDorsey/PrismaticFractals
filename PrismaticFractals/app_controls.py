@@ -4,30 +4,27 @@ import re
 import tkinter as tk
 from tkinter import ttk
 from .constants import (
-    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES, CONFINE_LOOKBACK_MAX, CONFINE_LOOKBACK_MIN,
+    BUDDHA_BLUR_LABELS, CONFINE_METHOD_NAMES,
     DEFAULT_CONFINE_METHOD, DEFAULT_CONFINE_THRESHOLD, DEFAULT_CONFINE_LOOKBACK, DEFAULT_DIST,
     DEFAULT_ESCAPE_RADIUS,
     DEFAULT_EMIT_MODE, DEFAULT_EMIT_OFFSET, DEFAULT_EMIT_TARGET_CX, DEFAULT_EMIT_TARGET_CY, DEFAULT_ENGINE, ENGINE_NAMES,
     OFFERED_ENGINES, ORBIT_ESCAPE_NAMES, ORBIT_MAPPING_JULIA, ORBIT_MAPPING_NAMES, ORBIT_Z0_NAMES, ORBIT_Z0_NOTE,
     DEFAULT_EMIT_TARGET_R, DEFAULT_EMIT_TARGET_THETA, DEFAULT_RNG_SEED, DEFAULT_ITER,
-    DEFAULT_SEGMENT_MULT, DIST_LIMIT_MAX, DIST_LIMIT_MIN, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
+    DEFAULT_SEGMENT_MULT, EMIT_MODE_NAMES, EMIT_TARGET_FIELDS,
     EMIT_TARGET_LABELS, ERROR_RED, FUZZ_JITTER_MAX, FUZZ_JITTER_MIN, FUZZ_MULT_MAX,
-    FUZZ_MULT_MIN, ITER_LIMIT_MAX, ITER_LIMIT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
+    FUZZ_MULT_MIN, RIGHT_W, SEGMENT_MULT_MAX, SEGMENT_MULT_MIN
 )
 from .engines import effect_names, engine_description
 from .figure import settings_of
 from .kernels import CONFINE_BOX, EMIT_TOWARDS, DEFAULT_PIXEL_WORLD_WIDTH
-from .parsing import (
-    parse_confine_threshold, parse_confine_lookback, parse_dist_limit, parse_escape_radius,
-    parse_iter_limit,
-    parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
-)
+from .parsing import parse_resolution_dimension, parse_rng_seed, parse_target_coordinate
 from .settings import (
-    BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
+    SETTING_SPECS, BuddhaBlurSettings, BuddhaSeedSettings, DEFAULT_FUZZ, DEFAULT_MANDELBROT_SETTINGS, EngineSettings, FuzzParams,
     MandelbrotSettings, NaturalTerminationSettings, RaySettings, settings_to_dict
 )
 from .shapes import obstacles_signature
-from .widgets import FloatEntryHandle
+from .settings_model import format_value
+from .widgets import FloatEntryHandle, ModelBinding
 
 
 class ControlsMixin:
@@ -245,7 +242,6 @@ class ControlsMixin:
 
     def on_confine_method_changed(self, *_args):
         self.update_confine_threshold_label()
-        self.on_limit_var_changed()
 
     def add_slider_row(self, parent, row, label, lo, hi, resolution, default, fmt,
                        on_change=None):
@@ -458,30 +454,31 @@ class ControlsMixin:
         if rounded is not None:
             var.set(str(rounded))
 
+    def bind_model_controls(self):
+        """Connect the natural termination controls (the Termination tab's limits and confinement) to their settings in self.model:
+        what is typed goes to the model, what the program sets comes back through on_model_changed."""
+        self.bindings = {}
+        for key in self.model.keys():
+            spec = SETTING_SPECS[key]
+            entry = None if spec.kind == "choice" else getattr(self, spec.widget)       # (a dropdown has no entry to colour)
+            self.bindings[key] = ModelBinding(self.model, key, getattr(self, spec.control), entry, lambda value, key=key: format_value(key, value))
+        self.model.subscribe(self.on_model_changed)
+
+    def on_model_changed(self, changes):
+        """A setting of the model changed ({key: "submit" or "set"}): show it, flag what is invalid, and refresh what depends on it."""
+        for key, origin in changes.items():
+            if origin == "set":
+                self.bindings[key].write_value()
+            self.bindings[key].show_error()
+        errors = lambda keys: " ".join(self.model.error(key) for key in keys if self.model.error(key) is not None)
+        self.limit_msg_var.set(errors(("iter", "dist", "escape_radius")))
+        self.confine_msg_var.set(errors(("confine_lookback", "confine_threshold")))
+        self.invalidate_preview()
+        self.update_buttons()
+        self.refresh_timeline_diffs()
+
     def on_limit_var_changed(self, *_args):
-        """Either entry's text changed: flag bad values, track the last good ones."""
-        it = parse_iter_limit(self.iter_var.get())
-        ds = parse_dist_limit(self.dist_var.get())
-        er = parse_escape_radius(self.escape_radius_var.get())
-        cw = parse_confine_lookback(self.confine_lookback_var.get())
-        ct = parse_confine_threshold(self.confine_threshold_var.get())
-        if it is not None:
-            self.last_iter = it
-        if ds is not None:
-            self.last_dist = ds
-        if er is not None:
-            self.last_escape_radius = er
-        if cw is not None:
-            self.last_confine_lookback = cw
-        if ct is not None:
-            self.last_confine_threshold = ct
-        self.iter_entry.configure(style="TEntry" if it is not None else "Invalid.TEntry")
-        self.dist_entry.configure(style="TEntry" if ds is not None else "Invalid.TEntry")
-        self.escape_radius_entry.configure(style="TEntry" if er is not None else "Invalid.TEntry")
-        self.confine_lookback_entry.configure(
-            style="TEntry" if cw is not None else "Invalid.TEntry")
-        self.confine_threshold_entry.configure(
-            style="TEntry" if ct is not None else "Invalid.TEntry")
+        """An emission target entry's text changed (or settings were loaded): flag bad values, track the last good ones."""
         emit_msgs = []
         for field in EMIT_TARGET_FIELDS:
             value = parse_target_coordinate(getattr(self, f"emit_target_{field}_var").get())
@@ -493,24 +490,6 @@ class ControlsMixin:
                 emit_msgs.append("Target position values must be numbers (any size, "
                                  "positive or negative, e.g. -0.5 or 3e8).")
         self.emit_msg_var.set(" ".join(emit_msgs))
-        confine_msgs = []
-        if cw is None:
-            confine_msgs.append(f"Lookback must be a whole number from "
-                                f"{CONFINE_LOOKBACK_MIN} to {CONFINE_LOOKBACK_MAX}.")
-        if ct is None:
-            confine_msgs.append("Threshold must be a number greater than 0 "
-                                "(any size, e.g. 0.004 or 1e-9).")
-        self.confine_msg_var.set(" ".join(confine_msgs))
-        msgs = []
-        if it is None:
-            msgs.append(f"Iteration limit must be a whole number from "
-                        f"{ITER_LIMIT_MIN} to {ITER_LIMIT_MAX}.")
-        if ds is None:
-            msgs.append(f"Distance limit must be a whole number from "
-                        f"{DIST_LIMIT_MIN} to {DIST_LIMIT_MAX} (0 = no limit).")
-        if er is None:
-            msgs.append("Escape radius must be a number greater than 0 (e.g. 2 or 1.5e3).")
-        self.limit_msg_var.set(" ".join(msgs))
         self.invalidate_preview()
         self.update_buttons()
         self.refresh_timeline_diffs()
@@ -518,18 +497,13 @@ class ControlsMixin:
     def on_limit_commit(self, _event=None):
         """Enter pressed or focus left an entry: tidy the text, and put back the
         last valid value if the field holds something invalid."""
-        for var, last, parser in (
-                (self.iter_var, self.last_iter, parse_iter_limit),
-                (self.dist_var, self.last_dist, parse_dist_limit),
-                (self.escape_radius_var, self.last_escape_radius, parse_escape_radius),
-                (self.confine_lookback_var, self.last_confine_lookback, parse_confine_lookback),
-                (self.confine_threshold_var, self.last_confine_threshold,
-                 parse_confine_threshold),
-                *[(getattr(self, f"emit_target_{field}_var"),
-                   getattr(self, f"last_emit_target_{field}"), parse_target_coordinate)
-                  for field in EMIT_TARGET_FIELDS]):
-            value = parser(var.get())
-            var.set(str(last if value is None else value))
+        for key, binding in self.bindings.items():
+            if key != "confine_method":
+                binding.commit()
+        for field in EMIT_TARGET_FIELDS:
+            var = getattr(self, f"emit_target_{field}_var")
+            value = parse_target_coordinate(var.get())
+            var.set(str(getattr(self, f"last_emit_target_{field}") if value is None else value))
 
     def on_pre_seg_mult_changed(self):
         """The pre-calculation segment length multiplier entry committed a new value."""
@@ -627,17 +601,7 @@ class ControlsMixin:
     def current_natural_termination_settings(self):
         """The termination limits' and confinement controls' values (a NaturalTerminationSettings), or
         None if one of their entries is invalid."""
-        it = parse_iter_limit(self.iter_var.get())
-        ds = parse_dist_limit(self.dist_var.get())
-        er = parse_escape_radius(self.escape_radius_var.get())
-        cw = parse_confine_lookback(self.confine_lookback_var.get())
-        ct = parse_confine_threshold(self.confine_threshold_var.get())
-        if it is None or ds is None or er is None or cw is None or ct is None:
-            return None
-        return NaturalTerminationSettings(
-            max_iter=it, max_dist=ds, escape_radius=er, confine_lookback=cw,
-            confine_method=CONFINE_METHOD_NAMES.index(self.confine_method_var.get()),
-            confine_threshold=ct)
+        return self.model.record(NaturalTerminationSettings)
 
     def current_generation_settings(self):
         """(RaySettings, NaturalTerminationSettings) - everything that, with the obstacles, determines
