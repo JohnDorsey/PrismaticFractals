@@ -6,16 +6,15 @@ from .constants import (
     DEFAULT_ESCAPE_RADIUS, DEFAULT_WIDTH, DIST_LIMIT_MAX, OBST_BOUND_LEN, WARM_ITER
 )
 from .geometry import ellipse_bound
-from .kernels import (
-    ObstacleArrays, PIXEL_PENDING, SHAPE_ELLIPSE, fires_ray, inside_boundary, measure_path, trace_rows, trace_engine_path,
-    ENGINE_RAY_BOUNCING
-)
+from .kernels import ObstacleArrays, SHAPE_ELLIPSE, fires_ray, inside_boundary, measure_path, trace_rows, trace_engine_path, ENGINE_RAY_BOUNCING
 from .metrics import CHAN_SRC_BUDDHA
 from .settings import (
     CONFINE_DEFAULT, DEFAULT_FUZZ, EMISSION_DEFAULT, fuzz_rule, natural_termination_rule,
     path_args, ray_args
 )
 from .figure import PLACEHOLDER_FIGURE, generated_figure
+from .framings import snapshot_framing
+from .live_image import LiveImage
 
 
 class GenerationMixin:
@@ -27,14 +26,18 @@ class GenerationMixin:
         self.running = False
         self.done = False
         self.generated = None
-        self.rows_done = 0
-        self.batch_rows = 1
         self.tick_id = None
         self.start_time = 0.0
         self.elapsed = 0.0
         self.next_tick = 0.0
 
     # ---- generation ------------------------------------------------------- #
+    def init_live_image(self):
+        """The image on screen: a blank one of the first framing, laid out for the figure before the first Start (the placeholder one), and
+        the window's buffers for decorating it. Made after the framings, and before anything that reads it."""
+        self.live = LiveImage(snapshot_framing(self.framings[0]), self.current_figure().layout)
+        self.allocate_screen_buffers()
+
     def warm_up(self):
         """Trigger numba compilation (slow only the first time; then cached)."""
         big = float(DIST_LIMIT_MAX)
@@ -54,11 +57,9 @@ class GenerationMixin:
         trace_engine_path(0.0, 0.0, self.hover_path_points, self.hover_path_point_tags, termination, engine_args, self.hover_raw)
         measure_path(ENGINE_RAY_BOUNCING, self.hover_path_points, 4, self.hover_path_point_tags, self.hover_raw, WARM_ITER,
                      DEFAULT_SEGMENT_MULT, engine_args.tables, self.hover_vec, self.hover_ray_characteristic_points)
-        trace_rows(self.stats, self.characteristic_points, self.pixel_state, 0, 1, self.img_w, self.img_h, self.image_world_rect,
+        trace_rows(self.live.stats, self.live.characteristic_points, self.live.pixel_state, 0, 1, self.live.img_w, self.live.img_h, self.live.world_rect,
                        termination, engine_args, 0)
-        self.stats[:] = 0
-        self.characteristic_points[:] = 0
-        self.pixel_state[:] = PIXEL_PENDING
+        self.live.reset(self.live.framing, self.current_figure().layout)           # (blank again)
         self.ready = True
         self.update_buttons()
         self.root.after(500, self.take_startup_captures)   # let the UI settle first
@@ -92,7 +93,6 @@ class GenerationMixin:
             self.tick_id = None
         self.canvas.delete("pending")
         self.set_image_framing(self.selected_framing_snapshot())    # (also clears everything computed so far)
-        self.batch_rows = 1
         self.rebuild_buddha_counts()
         self.thumb_sims = {}
         self.coloration_thumb_cache = {}   # every non-live coloration's cached thumbnail is for the
@@ -111,37 +111,18 @@ class GenerationMixin:
     def tick(self):
         """Compute for a slice of the refresh period, redraw, reschedule."""
         t_start = time.perf_counter()
-        budget = self.PERIOD * COMPUTE_FRACTION
-        target = budget / 3.0                      # aim for ~3 batches per tick
-        rows_before = self.rows_done
-        figure = self.current_figure()
+        rows_before = self.live.advance(self.current_figure(), self.PERIOD * COMPUTE_FRACTION)
 
-        while self.rows_done < self.img_h:
-            t0 = time.perf_counter()
-            row1 = min(self.rows_done + self.batch_rows, self.img_h)
-            trace_rows(self.stats, self.characteristic_points, self.pixel_state, self.rows_done, row1, self.img_w, self.img_h,
-                           self.image_world_rect, figure.termination, figure.engine_args, figure.rng_seed)
-            self.rows_done = row1
-            now = time.perf_counter()
-
-            # Adapt batch size so each batch takes about `target` seconds
-            dt = max(now - t0, 1e-6)
-            scale = min(max(target / dt, 0.5), 2.0)
-            self.batch_rows = max(1, int(self.batch_rows * scale))
-
-            if now - t_start >= budget:
-                break
-
-        self.scatter_buddha_rows(rows_before, self.rows_done)
+        self.scatter_buddha_rows(rows_before, self.live.rows_done)
         if any(s == CHAN_SRC_BUDDHA for s in self.live_coloration().chan_src):
-            self.recolor(0, self.rows_done)         # a Buddha channel's counts can
+            self.recolor(0, self.live.rows_done)         # a Buddha channel's counts can
                                                      # affect any already-drawn pixel
         else:
-            self.recolor(rows_before, self.rows_done)
+            self.recolor(rows_before, self.live.rows_done)
         self.elapsed = time.perf_counter() - self.start_time
         self.draw()
 
-        if self.rows_done >= self.img_h:
+        if self.live.rows_done >= self.live.img_h:
             self.on_finished()
             return
 

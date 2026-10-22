@@ -650,15 +650,15 @@ class _FakeBufferApp:
 def test_the_buffers_of_the_image_on_screen_are_those_of_the_layout_of_the_figure_it_was_generated_from():
     import dataclasses
     app = _give_image_geometry(_FakeBufferApp())
-    assert app.stats.shape[-1] == m.N_STATS and app.characteristic_points.shape[-2] == m.N_POINTS
+    assert app.live.stats.shape[-1] == m.N_STATS and app.live.characteristic_points.shape[-2] == m.N_POINTS
     narrow = m.engine_layout(small_engine())
     app.generated = dataclasses.replace(m.PLACEHOLDER_FIGURE, layout=narrow)
-    app.make_image_buffers()
-    assert app.stats.shape == (app.img_h, app.img_w, narrow.n_stats)
-    assert app.characteristic_points.shape == (app.img_h, app.img_w, narrow.n_points, 2)
+    app.set_image_framing(app.live.framing)
+    assert app.live.stats.shape == (app.live.img_h, app.live.img_w, narrow.n_stats)
+    assert app.live.characteristic_points.shape == (app.live.img_h, app.live.img_w, narrow.n_points, 2)
     app.generated = None
-    app.make_image_buffers()
-    assert app.stats.shape[-1] == m.N_STATS, "back to the ray engine's: the buffers are made again, not cleared in place"
+    app.set_image_framing(app.live.framing)
+    assert app.live.stats.shape[-1] == m.N_STATS, "back to the ray engine's: the buffers are made again, not cleared in place"
     assert m.PLACEHOLDER_FIGURE.layout.stat_ids.tolist() == m.FULL_LAYOUT.stat_ids.tolist()
 
 

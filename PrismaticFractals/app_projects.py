@@ -105,7 +105,6 @@ class ProjectsMixin:
         self.done = False
         self.generated = None
         self.set_image_framing(self.selected_framing_snapshot())    # (a blank image of the selected framing)
-        self.batch_rows = 1
         self.thumb_sims = {}
         self.coloration_thumb_cache = {}
         self.canvas.delete("pending")

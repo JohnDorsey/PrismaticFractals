@@ -771,7 +771,7 @@ class ControlsMixin:
         self.revert_btn.state(["!disabled"] if revert_ok else ["disabled"])
         if "save_btn" in self.built:
             has_image = (self.generated is not None and not self.running
-                         and self.rows_done >= self.img_h)
+                         and self.live.rows_done >= self.live.img_h)
             self.save_btn.state(["!disabled"] if has_image else ["disabled"])
             self.save_as_btn.state(["!disabled"] if has_image else ["disabled"])
             tip = ("" if has_image else

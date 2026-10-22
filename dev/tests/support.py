@@ -91,10 +91,11 @@ def _give_image_geometry(app, framing=None):
         app.generated = getattr(app, "generated", None)
         app.current_figure = m.App.current_figure.__get__(app)
     app.set_image_framing = m.App.set_image_framing.__get__(app)
-    app.make_image_buffers = m.App.make_image_buffers.__get__(app)
+    app.allocate_screen_buffers = m.App.allocate_screen_buffers.__get__(app)
     app.pixel_center = m.App.pixel_center.__get__(app)
     app.world_to_canvas = m.App.world_to_canvas.__get__(app)
-    app.set_image_framing(m.DEFAULT_FRAMING if framing is None else framing)
+    app.live = m.LiveImage(m.DEFAULT_FRAMING if framing is None else framing, app.current_figure().layout)
+    app.allocate_screen_buffers()
     return app
 
 
@@ -185,7 +186,7 @@ def _fake_coloration_list_app():
     app.recolor = lambda r0, r1: None
     app.draw = lambda: None
     app.update_preview = lambda i, j: None
-    app.rows_done = 0
+    app.live.rows_done = 0
     app.pinned_px = None
     app.coloration_thumb_cache = {}
     app.keyframes = []
@@ -309,7 +310,7 @@ def _fake_export_app():
     app.recolor = lambda r0, r1: None
     app.draw = lambda: None
     app.update_preview = lambda i, j: None
-    app.rows_done = 0
+    app.live.rows_done = 0
     app.pinned_px = None
     app.coloration_thumb_cache = {}
     app.rebuild_coloration_list = lambda: None
@@ -352,10 +353,10 @@ def _run_save_new_image_synchronously(app):
 # --------------------------------------------------------------------------- #
 def _fake_current_image_app():
     app = _fake_export_app()
-    app.stats = np.random.RandomState(0).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS).astype(np.float32)
-    app.characteristic_points = (np.random.RandomState(1).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2)
+    app.live.stats = np.random.RandomState(0).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS).astype(np.float32)
+    app.live.characteristic_points = (np.random.RandomState(1).rand(m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2)
                  .astype(np.float32) * 2 - 1)
-    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
+    app.live.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
@@ -369,7 +370,7 @@ def _fake_current_image_app():
         shapes=empty_i, bounds=empty_b, cx=empty_f, cy=empty_f,
         effects=np.empty((0, 2), dtype=np.int64), fire_inside=empty_bool)),
         obstacle_snapshots=(m.default_starting_obstacle(0).snapshot(),))
-    app.gx, app.gy = m.make_grid(m.PREVIEW_BOX, m.PREVIEW_BOX)
+    app.live.gx, app.live.gy = m.make_grid(m.PREVIEW_BOX, m.PREVIEW_BOX)
     app.obstacle_ring_specs = lambda: []
     app.image_for_export = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # the "already
                                                                    # rendered" preview
@@ -579,7 +580,7 @@ def _fake_color_editor_app():
     app.mapping = m.make_mapping(m.DEFAULT_METRIC_TYPES, m.DEFAULT_POINT_METRICS,
                                  m.DEFAULT_OTHER_METRICS, m.DEFAULT_CHAN_SRCS,
                                  m.DEFAULT_CONSTANT_CHOICES)
-    app.rows_done = 0
+    app.live.rows_done = 0
     app.pinned_px = None
     app.coloration_thumb_cache = {}
     app.recolor_calls = []

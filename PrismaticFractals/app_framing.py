@@ -105,8 +105,8 @@ class FramingMixin:
         first Start there is only the blank image, which just takes the new shape. Nothing happens when the image is
         of those very numbers already. A pinned ray preview is let go: its pixel is not the same place any more."""
         snapshot = self.selected_framing_snapshot()
-        if same_framing(self.image_framing, snapshot):
-            self.image_framing = snapshot       # (the same camera; maybe another framing's id)
+        if same_framing(self.live.framing, snapshot):
+            self.live.framing = snapshot       # (the same camera; maybe another framing's id)
             return
         self.pinned_px = None
         self.canvas.configure(cursor="crosshair")

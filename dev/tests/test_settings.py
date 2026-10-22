@@ -188,7 +188,7 @@ def test_colorations_colored_from_the_stored_data_use_the_settings_the_image_was
     assert seen[0][2].ray.emission.offset == 12.0
     seen.clear()
     app.coloration_thumb_cache = {}
-    app.rows_done = 0
+    app.live.rows_done = 0
     app.live_coloration = lambda: app.colorations[0]
     app.render_coloration_thumbnail(m.ColorationConfig(1), m.THUMB_SIZE)
     assert seen == [expected]

@@ -11,7 +11,6 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from .framings import snapshot_framing
 from .constants import ERROR_RED, REFRESH_HZ
 from .app_projects import ProjectsMixin
 from .app_export import ExportMixin
@@ -74,9 +73,9 @@ class App(ProjectsMixin, EngineFlowMixin, ExportMixin, FramingMixin, RenderMixin
         self.init_obstacle_state()
         self.init_framing_state()
 
-        # ---- the image on screen ---- its framing (a FramingSnapshot), size in pixels, the world rectangle it
-        # covers, and the per-pixel data and image buffers (see set_image_framing)
-        self.set_image_framing(snapshot_framing(self.framings[0]))
+        # ---- the image on screen ---- a LiveImage: its framing, size in pixels, the world rectangle it covers, the per-pixel data
+        # and the colours (see set_image_framing)
+        self.init_live_image()
 
         self.build_image_quadrant()
         self.build_controls_quadrant()

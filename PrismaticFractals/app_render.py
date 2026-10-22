@@ -17,24 +17,24 @@ class RenderMixin:
     def render_current_image(self, colorations):
         """The CURRENT (already fully-traced) simulation, colorized by each
         of `colorations` and composed side by side at the live preview's own
-        resolution (img_w x img_h per coloration) - reusing self.stats/self.characteristic_points/
-        self.pixel_state as already computed, no re-simulation. Each coloration gets
+        resolution (img_w x img_h per coloration) - reusing self.live.stats/self.live.characteristic_points/
+        self.live.pixel_state as already computed, no re-simulation. Each coloration gets
         the outline decoration drawn in if enabled, exactly like
         self.image_for_export/draw(). Only called for more than one coloration - the
         single-coloration case is just self.image_for_export, already rendered."""
         images = []
         figure = self.current_figure()
         for v in colorations:
-            images.append(self.apply_coloration(v.settings(), self.stats, self.characteristic_points, self.pixel_state,
-                                             self.img_w, self.img_h, self.current_blur_settings(),
+            images.append(self.apply_coloration(v.settings(), self.live.stats, self.live.characteristic_points, self.live.pixel_state,
+                                             self.live.img_w, self.live.img_h, self.current_blur_settings(),
                                              figure.termination, figure.engine_args, figure.rng_seed,
-                                             self.current_buddha_seed_settings(), self.image_world_rect, figure.layout))
+                                             self.current_buddha_seed_settings(), self.live.world_rect, figure.layout))
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for img in images:
                 for ring in self.obstacle_ring_specs():
-                    draw_obstacle_outline(img, ring.shape, ring.bound, self.gx - ring.cx,
-                                          self.gy - ring.cy, ring.in_effect, ring.out_effect, self.outline_pixel)
+                    draw_obstacle_outline(img, ring.shape, ring.bound, self.live.gx - ring.cx,
+                                          self.live.gy - ring.cy, ring.in_effect, ring.out_effect, self.live.outline_pixel)
         return images[0] if len(images) == 1 else np.concatenate(images, axis=1)
 
     def render_full_image(self, data, out_w, out_h, obst_arrays, colorations, framing):
@@ -122,14 +122,14 @@ class RenderMixin:
     def render_coloration_thumbnail(self, coloration_obj, size):
         """A size x size RGB thumbnail of how `coloration_obj` currently colors the
         live simulation, shrunk down (nearest-neighbor - a thumbnail doesn't
-        need better). For the live coloration specifically, self.img already
+        need better). For the live coloration specifically, self.live.img already
         holds exactly this (kept current by recolor(), which every caller
         of rebuild_coloration_list runs first) - reusing it skips apply_coloration
         entirely, which matters because a "multi" Buddha point option (All
         self bounces, segment midpoints, progressive means) makes
         apply_coloration re-trace every fired ray from scratch. For any other
         (non-live) coloration, self.coloration_thumb_cache is checked next: as long as
-        self.rows_done hasn't advanced since it was computed, that coloration's
+        self.live.rows_done hasn't advanced since it was computed, that coloration's
         settings can't have changed either (only the live coloration is ever
         edited), so the cached thumbnail is still exactly correct - and
         reusing it is what keeps editing one coloration fast even when another
@@ -141,24 +141,24 @@ class RenderMixin:
         its data is of no use here, and the thumbnail is a small simulation of framing 0's own
         (render_thumbnail)."""
         framing_zero = self.framings[0]
-        if not same_framing(self.image_framing, framing_zero):
+        if not same_framing(self.live.framing, framing_zero):
             return self.render_thumbnail(framing_zero, coloration_obj.settings(), size)
         if coloration_obj is self.live_coloration():
-            ys = (np.arange(size) * self.img_h / size).astype(np.int64)
-            xs = (np.arange(size) * self.img_w / size).astype(np.int64)
-            return self.img[np.ix_(ys, xs)]
+            ys = (np.arange(size) * self.live.img_h / size).astype(np.int64)
+            xs = (np.arange(size) * self.live.img_w / size).astype(np.int64)
+            return self.live.img[np.ix_(ys, xs)]
         cached = self.coloration_thumb_cache.get(coloration_obj.id)
-        if cached is not None and cached[0] == (self.rows_done, size):
+        if cached is not None and cached[0] == (self.live.rows_done, size):
             return cached[1]
         v = coloration_obj.settings()
         figure = self.current_figure()
-        full = self.apply_coloration(v, self.stats, self.characteristic_points, self.pixel_state, self.img_w, self.img_h,
+        full = self.apply_coloration(v, self.live.stats, self.live.characteristic_points, self.live.pixel_state, self.live.img_w, self.live.img_h,
                                   self.current_blur_settings(), figure.termination, figure.engine_args, figure.rng_seed,
-                                  self.current_buddha_seed_settings(), self.image_world_rect, layout=figure.layout)
-        ys = (np.arange(size) * self.img_h / size).astype(np.int64)
-        xs = (np.arange(size) * self.img_w / size).astype(np.int64)
+                                  self.current_buddha_seed_settings(), self.live.world_rect, layout=figure.layout)
+        ys = (np.arange(size) * self.live.img_h / size).astype(np.int64)
+        xs = (np.arange(size) * self.live.img_w / size).astype(np.int64)
         thumb = full[np.ix_(ys, xs)]
-        self.coloration_thumb_cache[coloration_obj.id] = ((self.rows_done, size), thumb)
+        self.coloration_thumb_cache[coloration_obj.id] = ((self.live.rows_done, size), thumb)
         return thumb
 
     def simulated_thumbnail_data(self, framing, size):

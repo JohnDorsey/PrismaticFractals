@@ -49,7 +49,7 @@ def generate():
     while app.running:
         root.update()
     root.update()
-    return hashlib.sha256(app.img.tobytes()).hexdigest()
+    return hashlib.sha256(app.live.img.tobytes()).hexdigest()
 
 
 def choose(name):
@@ -97,7 +97,7 @@ check(not app.seg_mult_entry.instate(["disabled"]) and not app.pre_seg_mult_entr
 check(app.iter_entry.instate(["!disabled"]) and app.escape_radius_entry.instate(["!disabled"]), "the Termination tab is not")
 select_tab(app.controls_notebook, "Simulation")
 mandelbrot_hash = generate()
-check(mandelbrot_hash != ray_hash and bool((app.img != np.array(lb.BACKGROUND, dtype=np.uint8)).any()), "an image of the Mandelbrot engine is made")
+check(mandelbrot_hash != ray_hash and bool((app.live.img != np.array(lb.BACKGROUND, dtype=np.uint8)).any()), "an image of the Mandelbrot engine is made")
 app.update_preview(300, 256)
 check("iterations" in app.info_vars["outcome"].get(), "the hover preview of an orbit: " + app.info_vars["outcome"].get())
 app.orbit_mapping_var.set(lb.ORBIT_MAPPING_NAMES[1])

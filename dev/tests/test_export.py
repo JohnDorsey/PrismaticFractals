@@ -137,18 +137,18 @@ def test_render_coloration_thumbnail_does_not_crash_for_every_coloration_kind():
 
 def test_render_coloration_thumbnail_reuses_self_img_for_the_live_coloration():
     """The performance fix itself: the live coloration's thumbnail must be an
-    exact downsample of self.img (already kept current by recolor()), not
+    exact downsample of self.live.img (already kept current by recolor()), not
     a fresh apply_coloration computation - this is what avoids redundantly
     re-tracing every ray for a "multi" Buddha point option on every single
     color-setting change."""
     app = _fake_current_image_app()
-    app.img = np.random.RandomState(0).randint(0, 256, (m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
+    app.live.img = np.random.RandomState(0).randint(0, 256, (m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     live = app.live_coloration()
     assert live is app.colorations[0]
     thumb = app.render_coloration_thumbnail(live, m.THUMB_SIZE)
     ys = (np.arange(m.THUMB_SIZE) * m.PREVIEW_BOX / m.THUMB_SIZE).astype(np.int64)
     xs = (np.arange(m.THUMB_SIZE) * m.PREVIEW_BOX / m.THUMB_SIZE).astype(np.int64)
-    expected = app.img[np.ix_(ys, xs)]
+    expected = app.live.img[np.ix_(ys, xs)]
     assert np.array_equal(thumb, expected)
 
 
@@ -157,7 +157,7 @@ def test_render_coloration_thumbnail_never_calls_apply_coloration_for_the_live_c
     point (the expensive, ray-re-tracing case) must not reach
     apply_coloration at all when thumbnailing the live coloration."""
     app = _fake_current_image_app()
-    app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
+    app.live.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
     live = app.live_coloration()
     live.chan_src[0] = m.CHAN_SRC_BUDDHA
     live.buddha_points[0] = tuple(i == 7 for i in range(m.N_BUDDHA_POINTS))  # a "multi" point
@@ -170,10 +170,10 @@ def test_render_coloration_thumbnail_never_calls_apply_coloration_for_the_live_c
 
 def test_render_coloration_thumbnail_still_uses_apply_coloration_for_a_non_live_coloration():
     """The other half: a coloration that ISN'T live has no incrementally-updated
-    self.img to reuse, so it must still go through apply_coloration as
+    self.live.img to reuse, so it must still go through apply_coloration as
     before."""
     app = _fake_current_image_app()
-    app.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # sentinel: must be unused
+    app.live.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 42, dtype=np.uint8)   # sentinel: must be unused
     other = m.ColorationConfig(99)
     other.color_model = "HSV"
     assert other is not app.live_coloration()
@@ -215,7 +215,7 @@ def test_render_coloration_thumbnail_recomputes_a_non_live_coloration_after_rows
         return real_colorize(*a, **k)
     app.apply_coloration = counting_colorize
     app.render_coloration_thumbnail(other, m.THUMB_SIZE)
-    app.rows_done = m.PREVIEW_BOX // 2   # simulate more rows having completed
+    app.live.rows_done = m.PREVIEW_BOX // 2   # simulate more rows having completed
     app.render_coloration_thumbnail(other, m.THUMB_SIZE)
     assert len(calls) == 2, "rows_done advancing must invalidate the cache"
 
@@ -229,16 +229,16 @@ def test_select_coloration_invalidates_the_incoming_colorations_stale_cache():
     app.render_coloration_thumbnail = m.App.render_coloration_thumbnail.__get__(app)
     app.apply_coloration = m.App.apply_coloration.__get__(app)
     app.obstacles = []
-    app.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
-    app.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
-    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
+    app.live.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
+    app.live.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
+    app.live.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
     _give_generated(app, generated=False)             # the placeholder image: default settings
     app.current_blur_settings = lambda: m.DEFAULT_BUDDHA_BLUR
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
     app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
     app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
-    app.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
+    app.live.img = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), dtype=np.uint8)
 
     # coloration 1 starts non-live; cache its (default RGB) thumbnail first
     coloration1 = app.colorations[1]
@@ -680,7 +680,7 @@ def _fake_button_gating_app():
     app.current_mandelbrot_settings = lambda: m.DEFAULT_MANDELBROT_SETTINGS
     app.mandelbrot_defines_figure = m.App.mandelbrot_defines_figure.__get__(app)
     app.running = False
-    app.rows_done = 0
+    app.live.rows_done = 0
     app.start_btn = _RecordingButton()
     app.revert_btn = _RecordingButton()
     app.save_btn = _StubWidget()
@@ -727,7 +727,7 @@ def test_export_disabled_before_any_generation():
 def test_export_enabled_after_generation_finishes():
     app = _fake_button_gating_app()
     _give_generated(app)
-    app.rows_done = m.PREVIEW_BOX
+    app.live.rows_done = m.PREVIEW_BOX
     app.running = False
     app.update_buttons()
     assert app.save_btn_tooltip.text == ""
@@ -736,7 +736,7 @@ def test_export_enabled_after_generation_finishes():
 def test_export_disabled_while_still_generating():
     app = _fake_button_gating_app()
     _give_generated(app)
-    app.rows_done = m.PREVIEW_BOX // 2
+    app.live.rows_done = m.PREVIEW_BOX // 2
     app.running = True
     app.update_buttons()
     assert app.save_btn_tooltip.text != ""

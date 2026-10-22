@@ -134,13 +134,14 @@ def live_hashes():
 
     def make_app(v, seeds):
         app = type("A", (), {})()
-        app.img_h = app.img_w = n
-        app.image_world_rect = world
+        app.live = m.LiveImage(m.DEFAULT_FRAMING, m.FULL_LAYOUT)        # (its grid is then replaced by this scene's)
+        app.live.img_h = app.live.img_w = n
+        app.live.world_rect = world
         app.image_window = world
-        app.stats, app.characteristic_points, app.pixel_state = stats, pts, state
+        app.live.stats, app.live.characteristic_points, app.live.pixel_state = stats, pts, state
         app.points = pts
-        app.img = np.zeros((n, n, 3), np.uint8)
-        app.rows_done = n
+        app.live.img = np.zeros((n, n, 3), np.uint8)
+        app.live.rows_done = n
         app.live_coloration = lambda: v
         app.mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
         app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.03, type=m.BUDDHA_BLUR_GAUSSIAN)
@@ -175,18 +176,18 @@ def live_hashes():
             app = make_app(v, seeds)
             app.rebuild_buddha_counts()
             app.recolor(0, n)
-            res[tag + " full"] = h(app.img)
-            res[tag + " counts"] = [h(c) if c is not None else None for c in app.buddha_counts]
+            res[tag + " full"] = h(app.live.img)
+            res[tag + " counts"] = [h(c) if c is not None else None for c in app.live.buddha_counts]
             res[tag + " blurred"] = [h(app.blurred_buddha_counts(c)) if app.blurred_buddha_counts(c) is not None else None
                                      for c in range(3)]
             app = make_app(v, seeds)                       # incrementally, as the tick loop does
-            app.rows_done = 0
+            app.live.rows_done = 0
             app.rebuild_buddha_counts()
             for r0, r1 in ((0, 7), (7, 19), (19, 33), (33, n)):
-                app.rows_done = r1
+                app.live.rows_done = r1
                 app.scatter_buddha_rows(r0, r1)
                 app.recolor(0 if any(s == m.CHAN_SRC_BUDDHA for s in v.chan_src) else r0, r1)
-            res[tag + " incremental"] = h(app.img)
+            res[tag + " incremental"] = h(app.live.img)
             hover = []
             for (i, j) in ((20, 20), (12, 25), (30, 8), (1, 1), (21, 19)):
                 if state[j, i] != m.PIXEL_TRACED:

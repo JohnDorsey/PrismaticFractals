@@ -418,8 +418,8 @@ def _fake_blur_refresh_app(buddha_channel=True):
     app.update_preview = lambda i, j: app.calls.append(("preview", i, j))
     app.rebuild_coloration_list = lambda: app.calls.append("thumbnails")
     app.pinned_px = None
-    app.rows_done = 37
-    app.buddha_counts_blurred = ["a", "b", "c"]
+    app.live.rows_done = 37
+    app.live.buddha_counts_blurred = ["a", "b", "c"]
     app.coloration_thumb_cache = {1: "stale"}
     coloration = m.ColorationConfig(0)
     if buddha_channel:
@@ -438,7 +438,7 @@ def test_a_blur_change_recolors_the_image_once_the_slider_events_have_all_arrive
     app.pinned_px = (4, 5)
     app.pending.pop()()
     assert app.calls[3:] == [("recolor", 0, 37), "draw", ("preview", 4, 5), "thumbnails"]
-    assert app.buddha_counts_blurred == [None] * 3 and app.coloration_thumb_cache == {}
+    assert app.live.buddha_counts_blurred == [None] * 3 and app.coloration_thumb_cache == {}
     assert app.blur_job is None
     app.on_buddha_blur_changed()                      # and the next change schedules again
     assert len(app.pending) == 1
@@ -449,7 +449,7 @@ def test_a_blur_change_costs_nothing_visible_when_no_coloration_has_a_buddha_cha
     app.on_buddha_blur_changed()
     app.pending.pop()()
     assert app.calls == ["timeline"]                  # no recolor, no redraw, no thumbnails...
-    assert app.buddha_counts_blurred == [None] * 3 and app.coloration_thumb_cache == {}   # ...but no stale cache
+    assert app.live.buddha_counts_blurred == [None] * 3 and app.coloration_thumb_cache == {}   # ...but no stale cache
 
 
 def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
@@ -460,8 +460,8 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
     counts = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64)
     counts[100, 100] = 50.0
-    app.buddha_counts = [counts, None, None]
-    app.buddha_counts_blurred = [None, None, None]
+    app.live.buddha_counts = [counts, None, None]
+    app.live.buddha_counts_blurred = [None, None, None]
     current = [m.BuddhaBlurSettings(radius=0.0, type=m.BUDDHA_BLUR_BOKEH)]
     app.current_blur_settings = lambda: current[0]
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
@@ -473,7 +473,7 @@ def test_the_blurred_counts_follow_the_blur_controls_without_a_new_start():
     app.draw = lambda: None
     app.rebuild_coloration_list = lambda: None
     app.pinned_px = None
-    app.rows_done = m.PREVIEW_BOX
+    app.live.rows_done = m.PREVIEW_BOX
     app.refresh_blur = m.App.refresh_blur.__get__(app)
     sharp = app.blurred_buddha_counts(0)
     assert np.array_equal(sharp, counts)
@@ -492,8 +492,8 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     app = _fake_current_image_app()
     app.live_coloration = lambda: app.colorations[0]
     app.colorations[0].chan_src[0] = m.CHAN_SRC_BUDDHA
-    app.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64), None, None]
-    app.buddha_counts_blurred = [None, None, None]
+    app.live.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64), None, None]
+    app.live.buddha_counts_blurred = [None, None, None]
     app.current_blur_settings = lambda: m.BuddhaBlurSettings(radius=0.05, type=m.BUDDHA_BLUR_BOKEH)
     app.current_buddha_seed_settings = lambda: m.DEFAULT_BUDDHA_SEED
     app.current_engine_settings = lambda: m.DEFAULT_ENGINE_SETTINGS
@@ -505,7 +505,7 @@ def test_blurred_buddha_counts_is_cached_until_invalidated():
     second = app.blurred_buddha_counts(0)
     assert first is second, "must return the cached array, not recompute it"
 
-    app.buddha_counts_blurred[0] = None      # simulate scatter_buddha_rows invalidating it
+    app.live.buddha_counts_blurred[0] = None      # simulate scatter_buddha_rows invalidating it
     third = app.blurred_buddha_counts(0)
     assert third is not first, "must recompute once actually invalidated"
 
@@ -518,16 +518,16 @@ def test_scatter_buddha_rows_invalidates_only_touched_channels():
     coloration.buddha_points[0] = tuple(i == 0 for i in range(m.N_BUDDHA_POINTS))
     coloration.chan_src[1] = m.CHAN_SRC_BUDDHA
     coloration.buddha_points[1] = tuple(False for _ in range(m.N_BUDDHA_POINTS))   # nothing selected
-    app.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64),
+    app.live.buddha_counts = [np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64),
                          np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX), dtype=np.float64), None]
-    app.buddha_counts_blurred = ["sentinel0", "sentinel1", None]
-    app.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
-    app.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
-    app.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
+    app.live.buddha_counts_blurred = ["sentinel0", "sentinel1", None]
+    app.live.pixel_state = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX), m.PIXEL_TRACED, dtype=np.uint8)
+    app.live.characteristic_points = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_POINTS, 2), dtype=np.float32)
+    app.live.stats = np.zeros((m.PREVIEW_BOX, m.PREVIEW_BOX, m.N_STATS), dtype=np.float32)
     app.scatter_buddha_rows = m.App.scatter_buddha_rows.__get__(app)
     app.scatter_buddha_rows(0, m.PREVIEW_BOX)
-    assert app.buddha_counts_blurred[0] is None, "touched channel must be invalidated"
-    assert app.buddha_counts_blurred[1] == "sentinel1", \
+    assert app.live.buddha_counts_blurred[0] is None, "touched channel must be invalidated"
+    assert app.live.buddha_counts_blurred[1] == "sentinel1", \
         "untouched channel (nothing selected) must not be invalidated"
 
 
@@ -948,7 +948,7 @@ def test_refreshing_the_seeding_scatters_the_buddha_channels_again_and_recolours
     app = _fake_seeding_app(camera=False)
     app.colorations = [m.ColorationConfig(0)]
     app.coloration_thumb_cache = {1: "stale"}
-    app.rows_done = 7
+    app.live.rows_done = 7
     app.pinned_px = (3, 4)
     for name in ("rebuild_buddha_counts", "draw", "rebuild_coloration_list"):
         setattr(app, name, lambda name=name: app.calls.append(name))
@@ -1071,11 +1071,12 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
         class LiveApp:
             pass
         app = LiveApp()
-        app.img_h = app.img_w = n
-        app.image_world_rect = UNIT_WORLD
-        app.stats, app.characteristic_points, app.pixel_state = stats, characteristic_points, pixel_state
-        app.img = np.zeros((n, n, 3), np.uint8)
-        app.rows_done = 0
+        app.live = m.LiveImage(m.DEFAULT_FRAMING, m.FULL_LAYOUT)       # (its grid is then replaced by this scene's)
+        app.live.img_h = app.live.img_w = n
+        app.live.world_rect = UNIT_WORLD
+        app.live.stats, app.live.characteristic_points, app.live.pixel_state = stats, characteristic_points, pixel_state
+        app.live.img = np.zeros((n, n, 3), np.uint8)
+        app.live.rows_done = 0
         app.live_coloration = lambda: v
         app.mapping = m.make_mapping(v.metric_types, v.point_metric, v.other_metric, v.chan_src, v.constant_choice)
         app.current_blur_settings = lambda: blur
@@ -1086,13 +1087,13 @@ def test_the_live_image_built_row_by_row_is_the_picture_an_export_of_the_same_da
             setattr(app, name, getattr(m.App, name).__get__(app))
         app.rebuild_buddha_counts()
         for r0, r1 in ((0, 6), (6, 15), (15, n)):
-            app.rows_done = r1
+            app.live.rows_done = r1
             app.scatter_buddha_rows(r0, r1)
         app.recolor(0, n)
         export = m.App.apply_coloration(app, _coloration_settings_from_config(v), stats, characteristic_points, pixel_state,
                                         n, n, blur, termination, engine_args, 3, seeds, UNIT_WORLD)
-        assert np.array_equal(app.img, export), seeds.camera_pixels
-        assert (app.img != m.BACKGROUND).any()
+        assert np.array_equal(app.live.img, export), seeds.camera_pixels
+        assert (app.live.img != m.BACKGROUND).any()
 
 
 # --------------------------------------------------------------------------- #

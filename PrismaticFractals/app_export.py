@@ -75,7 +75,7 @@ class ExportMixin:
         rgb = apply_info_locations(
             rgb, colorations, rgb.shape[1] // len(colorations), *settings_of(self.generated),
             self.generated.obstacle_snapshots if self.generated is not None else [], self.color_info_location_var.get(),
-            self.figure_info_location_var.get(), self.image_framing, self.framing_info_location_var.get(),
+            self.figure_info_location_var.get(), self.live.framing, self.framing_info_location_var.get(),
             mutate_ok=len(colorations) > 1, engine=self.generated.engine if self.generated is not None else None,
             mandelbrot=self.generated.mandelbrot if self.generated is not None else None)   # len(colorations) > 1 means rgb is already a fresh
                                        # array from render_current_image, not self.image_for_export

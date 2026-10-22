@@ -251,7 +251,7 @@ class TimelineMixin:
                                                    # own edit can't either - see
                                                    # apply_mapping_change's identical fix
                 self.update_stat_tags()
-                self.recolor(0, self.rows_done)
+                self.recolor(0, self.live.rows_done)
                 self.draw()
                 if self.pinned_px is not None:
                     self.update_preview(*self.pinned_px)

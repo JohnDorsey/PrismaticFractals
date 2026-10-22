@@ -272,9 +272,9 @@ def test_draw_never_lets_the_coloration_name_overlay_leak_into_the_export_buffer
     overlay; only self.image_for_screen (never written to disk) should carry it."""
     app = type("FakeApp", (), {})()
     _give_image_geometry(app)
-    app.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 50, dtype=np.uint8)
-    app.image_for_export = np.empty_like(app.img)
-    app.image_for_screen = np.empty_like(app.img)
+    app.live.img = np.full((m.PREVIEW_BOX, m.PREVIEW_BOX, 3), 50, dtype=np.uint8)
+    app.image_for_export = np.empty_like(app.live.img)
+    app.image_for_screen = np.empty_like(app.live.img)
     app.deco = {"outline": type("X", (), {"get": lambda self: False})()}
     app.colorations = [m.ColorationConfig(0)]
     app.selected_coloration_id = 0

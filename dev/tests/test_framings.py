@@ -166,39 +166,39 @@ def _geometry_app(framing=None):
 
 def test_set_image_framing_reshapes_every_buffer_and_forgets_what_was_computed():
     app = _geometry_app()
-    assert app.stats.shape == (512, 512, m.N_STATS) and app.gx.shape == (512, 512)
-    app.pixel_state[:] = m.PIXEL_TRACED
-    app.rows_done = 300
+    assert app.live.stats.shape == (512, 512, m.N_STATS) and app.live.gx.shape == (512, 512)
+    app.live.pixel_state[:] = m.PIXEL_TRACED
+    app.live.rows_done = 300
     app.set_image_framing(_framing(aspect=2.0))
-    assert (app.img_w, app.img_h) == (512, 256) and app.rows_done == 0
-    assert app.stats.shape == (256, 512, m.N_STATS) and app.characteristic_points.shape == (256, 512, m.N_POINTS, 2)
-    assert app.pixel_state.shape == (256, 512) and (app.pixel_state == m.PIXEL_PENDING).all()
-    assert app.img.shape == app.image_for_export.shape == app.image_for_screen.shape == (256, 512, 3)
-    assert (app.img == m.BACKGROUND).all() and app.gx.shape == (256, 512)
-    assert app.image_world_rect == m.framing_world_rect(_framing(aspect=2.0))
-    assert app.outline_pixel == m.framing_outline_pixel(_framing(aspect=2.0)) and app.image_framing == _framing(aspect=2.0)
+    assert (app.live.img_w, app.live.img_h) == (512, 256) and app.live.rows_done == 0
+    assert app.live.stats.shape == (256, 512, m.N_STATS) and app.live.characteristic_points.shape == (256, 512, m.N_POINTS, 2)
+    assert app.live.pixel_state.shape == (256, 512) and (app.live.pixel_state == m.PIXEL_PENDING).all()
+    assert app.live.img.shape == app.image_for_export.shape == app.image_for_screen.shape == (256, 512, 3)
+    assert (app.live.img == m.BACKGROUND).all() and app.live.gx.shape == (256, 512)
+    assert app.live.world_rect == m.framing_world_rect(_framing(aspect=2.0))
+    assert app.live.outline_pixel == m.framing_outline_pixel(_framing(aspect=2.0)) and app.live.framing == _framing(aspect=2.0)
 
 
 def test_set_image_framing_of_the_same_size_clears_the_buffers_it_has_instead_of_making_new_ones():
     app = _geometry_app()
-    stats = app.stats
-    app.stats[:] = 5
+    stats = app.live.stats
+    app.live.stats[:] = 5
     app.set_image_framing(_framing(x=0.5))
-    assert app.stats is stats and not stats.any(), "80 MB are not allocated again for a pan"
-    assert app.image_world_rect.x_start == m.framing_world_rect(_framing(x=0.5)).x_start and app.gx[0, 0] > -2.0 + 0.4
+    assert app.live.stats is stats and not stats.any(), "80 MB are not allocated again for a pan"
+    assert app.live.world_rect.x_start == m.framing_world_rect(_framing(x=0.5)).x_start and app.live.gx[0, 0] > -2.0 + 0.4
 
 
 def test_a_pixels_centre_is_its_grid_point_and_the_canvas_position_of_the_centre_is_the_pixel():
     for framing in (m.DEFAULT_FRAMING, _framing(x=0.3, y=-0.2, diagonal=1.7, aspect=2.5), _framing(diagonal=3.1, aspect=0.4)):
         app = _geometry_app(framing)
-        for i, j in ((0, 0), (17, 3), (app.img_w - 1, app.img_h - 1), (app.img_w // 2, app.img_h // 3)):
+        for i, j in ((0, 0), (17, 3), (app.live.img_w - 1, app.live.img_h - 1), (app.live.img_w // 2, app.live.img_h // 3)):
             x, y = app.pixel_center(i, j)
-            assert (x, y) == (float(app.gx[j, i]), float(app.gy[j, i])), "a hover ray starts where the image's did"
+            assert (x, y) == (float(app.live.gx[j, i]), float(app.live.gy[j, i])), "a hover ray starts where the image's did"
             cx, cy = app.world_to_canvas(x, y)
             assert abs(cx - (i + 0.5)) < 1e-9 and abs(cy - (j + 0.5)) < 1e-9
-    xs, ys = app.world_to_canvas(np.array([app.image_world_rect.x_start, app.image_world_rect.x_stop]),
-                                 np.array([app.image_world_rect.y_stop, app.image_world_rect.y_start]))
-    assert np.allclose(xs, [0, app.img_w]) and np.allclose(ys, [0, app.img_h]), "the world rectangle's corners are the canvas'"
+    xs, ys = app.world_to_canvas(np.array([app.live.world_rect.x_start, app.live.world_rect.x_stop]),
+                                 np.array([app.live.world_rect.y_stop, app.live.world_rect.y_start]))
+    assert np.allclose(xs, [0, app.live.img_w]) and np.allclose(ys, [0, app.live.img_h]), "the world rectangle's corners are the canvas'"
 
 
 def test_an_obstacle_outline_is_placed_on_the_canvas_by_the_window_of_the_image():
@@ -278,7 +278,7 @@ def test_selecting_a_framing_before_anything_is_generated_only_gives_the_blank_i
     app.calls.clear()
     app.framing_aspect_var.set("2")
     app.on_framing_commit()
-    assert (app.img_w, app.img_h) == (512, 256) and app.calls.count("refresh_live_preview_state") == 1
+    assert (app.live.img_w, app.live.img_h) == (512, 256) and app.calls.count("refresh_live_preview_state") == 1
     assert not any(isinstance(c, tuple) for c in app.calls), "nothing is generated: there is no figure yet"
     assert "rebuild_coloration_list" in app.calls
 
@@ -348,7 +348,7 @@ def test_begin_generation_makes_an_image_of_the_selected_framing_of_the_figure_a
     _give_generated(app, ray=settings)
     figure = app.generated
     m.App.begin_generation(app)
-    assert (app.img_w, app.img_h) == (512, 256) and app.rows_done == 0
+    assert (app.live.img_w, app.live.img_h) == (512, 256) and app.live.rows_done == 0
     assert app.generated is figure, "a new image, not a new figure"
     assert app.thumb_sims == {} and app.coloration_thumb_cache == {}
     assert app.running and not app.done and app.calls[-1] == "tick"
@@ -410,8 +410,8 @@ def test_the_simulation_behind_thumbnails_is_made_once_per_framing_and_size():
 def test_a_colorations_thumbnail_is_of_framing_0_even_when_the_image_on_screen_is_of_another_framing():
     app = _thumbnail_app()
     app.colorations = [m.ColorationConfig(0), m.ColorationConfig(1)]
-    app.image_framing = _framing(x=0.4, id=5)
-    app.img = None                                   # the image on screen is of no use to it
+    app.live.framing = _framing(x=0.4, id=5)
+    app.live.img = None                                   # the image on screen is of no use to it
     want = app.render_thumbnail(app.framings[0], app.colorations[1].settings(), 48)
     assert np.array_equal(app.render_coloration_thumbnail(app.colorations[1], 48), want)
     live = app.render_coloration_thumbnail(app.colorations[0], 48)

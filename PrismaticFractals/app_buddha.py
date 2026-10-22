@@ -1,26 +1,20 @@
 """Buddha coloration on the live image: the Buddha seeding and Buddha blur tabs (a change recolours at once), a channel's Buddha point, compression and brightness choices, and the visit-count buffers with their blur cache. How the counts are made and read is in buddha.py."""
 import tkinter as tk
 from tkinter import ttk
-import numpy as np
 from .constants import (
     DEFAULT_BUDDHA_SEED_CAMERA, DEFAULT_BUDDHA_SEED_X_START, DEFAULT_BUDDHA_SEED_X_STOP,
     DEFAULT_BUDDHA_SEED_Y_START, DEFAULT_BUDDHA_SEED_Y_STOP, BUDDHA_BLUR_LABELS,
     DEFAULT_BUDDHA_BLUR_TYPE, RIGHT_W
 )
-from .kernels import PIXEL_TRACED
 from .metrics import BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, CHAN_SRC_BUDDHA
-from .buddha import blur_counts_image, blur_kernel, scatter_buddha_channel
-from .color_pipeline import coloration_fits
+
 
 SEED_ZONE_FIELDS = ("x_start", "x_stop", "y_start", "y_stop")        # the fields of the Buddha seeding zone
 
 
 class BuddhaMixin:
     def init_buddha_state(self):
-        """The live coloration's Buddha visit counts (per channel: raw, and the lazily computed blurred version) and the pending
-        refreshes that coalesce changes of one moment."""
-        self.buddha_counts = [None, None, None]
-        self.buddha_counts_blurred = [None, None, None]
+        """The pending refreshes that coalesce changes of one moment (the Buddha visit counts are the live image's)."""
         self.blur_job = None
         self.seed_job = None
 
@@ -147,7 +141,7 @@ class BuddhaMixin:
         if not any(src == CHAN_SRC_BUDDHA for v in self.colorations for src in v.chan_src):
             return
         self.rebuild_buddha_counts()
-        self.recolor(0, self.rows_done)
+        self.recolor(0, self.live.rows_done)
         self.draw()
         if self.pinned_px is not None:
             self.update_preview(*self.pinned_px)
@@ -204,11 +198,11 @@ class BuddhaMixin:
         the old blur; the live coloration is recolored, redrawn and its thumbnail rebuilt. Costs
         nothing visible when no coloration has a Buddha channel."""
         self.blur_job = None
-        self.buddha_counts_blurred = [None] * 3
+        self.live.invalidate_blur()
         self.coloration_thumb_cache = {}
         if not any(src == CHAN_SRC_BUDDHA for v in self.colorations for src in v.chan_src):
             return
-        self.recolor(0, self.rows_done)
+        self.recolor(0, self.live.rows_done)
         self.draw()
         if self.pinned_px is not None:
             self.update_preview(*self.pinned_px)
@@ -216,47 +210,14 @@ class BuddhaMixin:
 
     # ---- the visit counts ---------------------------------------------------------- #
     def scatter_buddha_rows(self, r0, r1):
-        """Add rows [r0, r1)'s contribution to every Buddha-mode channel's RAW (unblurred) visit-count buffer (see
-        buddha.scatter_buddha_channel: the stored characteristic points for the "simple" options, rays traced again for
-        the "multi" ones, or a seed grid when the seeding is not the camera's pixels). Blur (if any) is never applied
-        here - it's applied once, lazily, to the whole accumulated buffer when a colorized value is actually needed
-        (see blurred_buddha_counts) - so this stays cheap regardless of the blur radius; each channel whose raw counts
-        changed here has its cached blurred version invalidated."""
-        coloration = self.live_coloration()
-        if r1 <= r0 or not any(s == CHAN_SRC_BUDDHA for s in coloration.chan_src):
-            return
-        if not coloration_fits(coloration, self.current_figure().layout, self.current_buddha_seed_settings()):
-            return                                  # (the image waits for Start: it is of another engine than the controls')
-        seeds = self.current_buddha_seed_settings()
-        fired = self.pixel_state[r0:r1] == PIXEL_TRACED
-        stats = self.stats[r0:r1]
-        characteristic_points = self.characteristic_points[r0:r1]
-        figure = self.current_figure()
-        for c in range(3):
-            if coloration.chan_src[c] != CHAN_SRC_BUDDHA or self.buddha_counts[c] is None:
-                continue
-            if scatter_buddha_channel(self.buddha_counts[c], coloration.buddha_points[c], r0, r1, self.image_world_rect,
-                                      seeds, fired, stats, characteristic_points, figure.termination,
-                                      figure.engine_args, figure.rng_seed, figure.layout, coloration.buddha_path_kinds[c]):
-                self.buddha_counts_blurred[c] = None
+        """Add rows [r0, r1) to the live coloration's Buddha visit counts (see LiveImage.scatter_buddha_rows)."""
+        self.live.scatter_buddha_rows(r0, r1, self.live_coloration(), self.current_figure(), self.current_buddha_seed_settings())
 
     def blurred_buddha_counts(self, c):
-        """Channel c's blurred Buddha counts, computed once (via a single whole-image FFT pass, independent of how many
-        points were scattered or how large the blur radius is) and cached until the next scatter_buddha_rows call
-        invalidates it. None if the channel isn't in Buddha mode at all."""
-        if self.buddha_counts[c] is None:
-            return None
-        if self.buddha_counts_blurred[c] is None:
-            kernel = blur_kernel(self.current_blur_settings(), self.img_w, self.img_h)
-            self.buddha_counts_blurred[c] = blur_counts_image(self.buddha_counts[c], kernel)
-        return self.buddha_counts_blurred[c]
+        """Channel c's blurred Buddha counts, with the blur controls' current settings (see LiveImage.blurred_buddha_counts)."""
+        return self.live.blurred_buddha_counts(c, self.current_blur_settings())
 
     def rebuild_buddha_counts(self):
-        """Full reset + rescatter of every Buddha-mode channel's visit-count buffer, from every row computed so far.
-        Used when the Buddha configuration itself changes (which points, or which channels are in Buddha mode at all) -
-        the existing counts would otherwise be for the wrong selection - and when starting a fresh render."""
-        self.buddha_counts = [
-            np.zeros((self.img_h, self.img_w), dtype=np.float64) if s == CHAN_SRC_BUDDHA else None
-            for s in self.live_coloration().chan_src]
-        self.buddha_counts_blurred = [None] * 3
-        self.scatter_buddha_rows(0, self.rows_done)
+        """Reset and scatter again the live coloration's Buddha visit counts from every row computed so far (see
+        LiveImage.rebuild_buddha_counts)."""
+        self.live.rebuild_buddha_counts(self.live_coloration(), self.current_figure(), self.current_buddha_seed_settings())

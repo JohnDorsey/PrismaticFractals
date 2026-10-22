@@ -2,15 +2,14 @@
 import tkinter as tk
 import numpy as np
 from .constants import (
-    EMIT_MODE_NAMES, GUIDE_FALLBACK_HEX, ITER_LIMIT_MAX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE,
-    TERM_END_COLOR, TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG,
-    COLORATION_NAME_OVERLAY_MARGIN, COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE, BACKGROUND
+    GUIDE_FALLBACK_HEX, ITER_LIMIT_MAX, ORBIT_OUTCOME_TEXT, VIDEO_PREVIEW_SIZE, SAMPLE_COLORS, SEED_ZONE_OUTLINE, TERM_END_COLOR,
+    TERM_OUTCOME_TEXT, COLORATION_NAME_OVERLAY_BG, COLORATION_NAME_OVERLAY_FG, COLORATION_NAME_OVERLAY_MARGIN,
+    COLORATION_NAME_OVERLAY_PAD, COLORATION_NAME_OVERLAY_SCALE
 )
-from .image_io import bilinear_resize, encode_png_bytes, make_grid, preview_placeholder, render_text_line
-from .framings import framing_image_size, framing_outline_pixel, framing_world_rect
+from .image_io import bilinear_resize, encode_png_bytes, preview_placeholder, render_text_line
 from .kernels import (
-    N_POINTS, N_RAW, N_STATS, PIXEL_PENDING, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR,
-    RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K, SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
+    N_POINTS, N_RAW, N_STATS, RAW_AREA, RAW_BOUNCES, RAW_DISP, RAW_LAST, RAW_LAST_DIR, RAW_LAST_FULL, RAW_LENGTH, RAW_SELF_K,
+    SEQ_BOUNDARY, fires_ray, in_sequence, measure_path, trace_engine_path
 )
 from .engines import engine_description, layout_of_engine, tables_of_engine
 from .metrics import CONSTANT_POINT_COORDS, POINT_METRICS, resolve_point_xy
@@ -35,58 +34,31 @@ class PreviewMixin:
         self.hover_vec = np.empty(N_STATS)
         self.hover_ray_characteristic_points = np.empty((N_POINTS, 2))
 
-    # ---- the image on screen: its framing, its pixels and the world they cover ---------------------------- #
+    # ---- the image on screen: the LiveImage (self.live) and the window's own buffers for decorating it ----------- #
     def set_image_framing(self, framing):
-        """The image on screen is, from now on, an image of `framing` (a FramingSnapshot): the pixel grid is
-        its aspect ratio's size (see framing_image_size), covers the world rectangle it makes (image_world_rect), and
-        everything computed so far is discarded (nothing is computed for the new grid yet: rows_done is 0). The
-        canvas takes the new size. Every conversion between a pixel and the world goes through image_world_rect,
-        img_w and img_h (pixel_center, world_to_canvas)."""
-        self.image_framing = framing
-        self.image_world_rect = framing_world_rect(framing)
-        self.img_w, self.img_h = framing_image_size(framing)
-        self.outline_pixel = framing_outline_pixel(framing)
-        self.rows_done = 0
-        self.make_image_buffers()
+        """The image on screen is, from now on, an image of `framing` (a FramingSnapshot): see LiveImage.reset (the pixel grid is its
+        aspect ratio's size and covers the world rectangle it makes, and everything computed so far is discarded). The canvas takes the
+        new size, and the buffers the picture is decorated in are made again when the shape changed."""
+        if self.live.reset(framing, self.current_figure().layout):
+            self.allocate_screen_buffers()
         if "canvas" in self.built:
-            self.canvas.configure(width=self.img_w, height=self.img_h)
-            self.photo.configure(width=self.img_w, height=self.img_h)
+            self.canvas.configure(width=self.live.img_w, height=self.live.img_h)
+            self.photo.configure(width=self.live.img_w, height=self.live.img_h)
 
-    def make_image_buffers(self):
-        """The per-pixel data and the image buffers for an img_w x img_h image of image_world_rect, all empty (the
-        buffers of the same size as the last are cleared, not made again) and the grid of the world coordinates of
-        every pixel centre (which is also each ray's start point)."""
-        shape = (self.img_h, self.img_w)
-        layout = self.current_figure().layout
-        if (getattr(self, "pixel_state", None) is not None and self.pixel_state.shape == shape
-                and self.stats.shape[-1] == layout.n_stats and self.characteristic_points.shape[-2] == layout.n_points):
-            self.stats[:] = 0
-            self.characteristic_points[:] = 0
-            self.pixel_state[:] = PIXEL_PENDING
-            self.img[:] = BACKGROUND
-        else:
-            self.stats, self.characteristic_points = self.current_figure().layout.allocate(*shape)
-            self.pixel_state = np.full(shape, PIXEL_PENDING, dtype=np.uint8)
-            self.img = np.empty(shape + (3,), dtype=np.uint8)
-            self.img[:] = BACKGROUND
-            self.image_for_export = np.empty_like(self.img)        # img + the outlines; this is what gets exported/saved, so
-                                                        # it must never hold a preview-only decoration
-            self.image_for_screen = np.empty_like(self.img)   # self.image_for_export + the coloration-name overlay; only ever
-                                                           # pushed to self.photo, never written to disk
-        self.gx, self.gy = make_grid(self.img_w, self.img_h, self.image_world_rect)
+    def allocate_screen_buffers(self):
+        """The two buffers a picture is decorated in, of the live image's shape: image_for_export (the image + the obstacle outlines: what
+        gets exported/saved, so it must never hold a preview-only decoration) and image_for_screen (that + the coloration-name overlay: only
+        ever pushed to the photo, never written to disk)."""
+        self.image_for_export = np.empty_like(self.live.img)
+        self.image_for_screen = np.empty_like(self.live.img)
 
     def pixel_center(self, i, j):
-        """The world coordinates of the centre of pixel (i, j) of the image on screen: where its ray starts (the same
-        arithmetic as trace_rows's, so a hover ray is exactly the one the image has)."""
-        world_rect = self.image_world_rect
-        return (world_rect.x_start + (i + 0.5) * ((world_rect.x_stop - world_rect.x_start) / self.img_w),
-                world_rect.y_stop - (j + 0.5) * ((world_rect.y_stop - world_rect.y_start) / self.img_h))
+        """The world coordinates of the centre of pixel (i, j) of the image on screen (see LiveImage.pixel_center)."""
+        return self.live.pixel_center(i, j)
 
     def world_to_canvas(self, x, y):
         """The canvas (pixel) coordinates of the world point (x, y) - numbers or arrays - on the image on screen."""
-        world_rect = self.image_world_rect
-        return ((x - world_rect.x_start) * (self.img_w / (world_rect.x_stop - world_rect.x_start)),
-                (world_rect.y_stop - y) * (self.img_h / (world_rect.y_stop - world_rect.y_start)))
+        return self.live.to_canvas(x, y)
 
     def set_preview_image(self, rgb):
         """Show `rgb` (an (H, W, 3) uint8 array) bilinearly resized into the
@@ -127,15 +99,15 @@ class PreviewMixin:
         decoration drawn into self.image_for_screen, a separate buffer from
         self.image_for_export (which is what gets exported/saved, and so must never
         carry it)."""
-        np.copyto(self.image_for_export, self.img)
+        np.copyto(self.image_for_export, self.live.img)
         outline = self.deco.get("outline")
         if outline is None or outline.get():
             for ring in self.obstacle_ring_specs():
-                draw_obstacle_outline(self.image_for_export, ring.shape, ring.bound, self.gx - ring.cx,
-                                      self.gy - ring.cy, ring.in_effect, ring.out_effect, self.outline_pixel)
+                draw_obstacle_outline(self.image_for_export, ring.shape, ring.bound, self.live.gx - ring.cx,
+                                      self.live.gy - ring.cy, ring.in_effect, ring.out_effect, self.live.outline_pixel)
         np.copyto(self.image_for_screen, self.image_for_export)
         self.draw_coloration_name_overlay()
-        header = f"P6 {self.img_w} {self.img_h} 255\n".encode()
+        header = f"P6 {self.live.img_w} {self.live.img_h} 255\n".encode()
         self.photo.configure(data=header + self.image_for_screen.tobytes(), format="PPM")
 
     def draw_coloration_name_overlay(self):
@@ -149,11 +121,11 @@ class PreviewMixin:
         h, w = mask.shape
         pad = COLORATION_NAME_OVERLAY_PAD
         margin = COLORATION_NAME_OVERLAY_MARGIN
-        y1 = self.img_h - margin
+        y1 = self.live.img_h - margin
         y0 = y1 - h - 2 * pad
         x0 = margin
         x1 = x0 + w + 2 * pad
-        if y0 < 0 or x1 > self.img_w:
+        if y0 < 0 or x1 > self.live.img_w:
             return                                 # the image is too small to hold it
         self.image_for_screen[y0:y1, x0:x1] = COLORATION_NAME_OVERLAY_BG
         region = self.image_for_screen[y0 + pad:y0 + pad + h, x0 + pad:x0 + pad + w]
@@ -200,7 +172,7 @@ class PreviewMixin:
 
     def on_click(self, event):
         i, j = event.x, event.y
-        if not (0 <= i < self.img_w and 0 <= j < self.img_h):
+        if not (0 <= i < self.live.img_w and 0 <= j < self.live.img_h):
             return
         x, y = self.pixel_center(i, j)
         ps = self.preview_settings()
@@ -220,7 +192,7 @@ class PreviewMixin:
 
     def update_preview(self, i, j):
         """(Re)compute and draw the preview for pixel (i, j) of the canvas."""
-        if not (0 <= i < self.img_w and 0 <= j < self.img_h):
+        if not (0 <= i < self.live.img_w and 0 <= j < self.live.img_h):
             self.clear_overlay()
             return
         x, y = self.pixel_center(i, j)
@@ -261,15 +233,15 @@ class PreviewMixin:
 
         # Semi-transparent grey guide lines through the end of the ray
         if show["guides"]:
-            gx = min(max(int(xs[-1]), 0), self.img_w - 1)
-            gy = min(max(int(ys[-1]), 0), self.img_h - 1)
+            gx = min(max(int(xs[-1]), 0), self.live.img_w - 1)
+            gy = min(max(int(ys[-1]), 0), self.live.img_h - 1)
             if self.hline_img is not None:
                 cv.create_image(0, gy, anchor="nw", image=self.hline_img, tags="ray")
                 cv.create_image(gx, 0, anchor="nw", image=self.vline_img, tags="ray")
             else:                                   # no alpha support: stipple instead
-                cv.create_line(0, gy + 0.5, self.img_w, gy + 0.5, fill=GUIDE_FALLBACK_HEX,
+                cv.create_line(0, gy + 0.5, self.live.img_w, gy + 0.5, fill=GUIDE_FALLBACK_HEX,
                                stipple="gray50", tags="ray")
-                cv.create_line(gx + 0.5, 0, gx + 0.5, self.img_h, fill=GUIDE_FALLBACK_HEX,
+                cv.create_line(gx + 0.5, 0, gx + 0.5, self.live.img_h, fill=GUIDE_FALLBACK_HEX,
                                stipple="gray50", tags="ray")
 
         # The ray's path

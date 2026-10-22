@@ -1,15 +1,13 @@
 """Colour mapping on the live image: the Colorations tab's handlers (model, source, metric, points...) and recolouring rows from the stored per-pixel data (the colour chain itself is in color_pipeline.py, the Buddha counts in app_buddha.py and buddha.py)."""
 import numpy as np
-from .kernels import N_STATS, PIXEL_TRACED
+from .kernels import N_STATS
 from .metrics import (
-    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_BUDDHA,
-    CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT, CHAN_SRC_LABELS, METRIC_TYPE_LABELS,
-    METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, OTHER_LABELS, POINT_DESCRIPTIONS, POINT_LABELS,
-    POINT_METRIC_LABELS, POINT_NOTE, POINT_METRICS, METRIC_DESCRIPTIONS, METRIC_LABELS,
-    constant_label_to_metric, constant_metric_to_label, make_mapping, other_label_to_metric,
-    other_metric_to_label
+    BUDDHA_BRIGHTNESS_OPTIONS, BUDDHA_COMPRESSION_LABELS, BUDDHA_POINT_LABELS, CHAN_BUDDHA, CHAN_SRC_BUDDHA, CHAN_SRC_CONSTANT,
+    CHAN_SRC_LABELS, METRIC_TYPE_LABELS, METRIC_TYPE_POINT_PAIR, NONE_ONE, NONE_ZERO, POINT_DESCRIPTIONS, POINT_LABELS,
+    POINT_METRIC_LABELS, POINT_NOTE, POINT_METRICS, METRIC_DESCRIPTIONS, METRIC_LABELS, constant_label_to_metric,
+    constant_metric_to_label, make_mapping, other_label_to_metric, other_metric_to_label
 )
-from .color_pipeline import coloration_fits, paint, ray_values
+from .color_pipeline import coloration_fits, ray_values
 from .engines import correct_channel, other_metric_labels, point_menu_labels, point_metric_labels
 from .stored_layout import FULL_LAYOUT
 from .ui_text import default_map_help
@@ -33,7 +31,7 @@ class RecolorMixin:
         self.color_model_combo.selection_clear()
         if coloration is self.live_coloration():
             self.update_stat_tags()
-            self.recolor(0, self.rows_done)
+            self.recolor(0, self.live.rows_done)
             self.draw()
             if self.pinned_px is not None:
                 self.update_preview(*self.pinned_px)
@@ -210,7 +208,7 @@ class RecolorMixin:
                                                # color change fast even when some
                                                # OTHER channel uses an expensive
                                                # "multi" Buddha point option
-            self.recolor(0, self.rows_done)
+            self.recolor(0, self.live.rows_done)
             self.draw()
             if self.pinned_px is not None:
                 self.update_preview(*self.pinned_px)
@@ -218,17 +216,9 @@ class RecolorMixin:
         self.refresh_timeline_diffs()
 
     def recolor(self, r0, r1):
-        """Turn stored metrics and characteristic points into pixel colors, rows [r0, r1) (see color_pipeline)."""
-        if r1 <= r0 or not coloration_fits(self.live_coloration(), self.current_figure().layout, self.current_buddha_seed_settings()):
-            return                                  # (the image waits for Start: it is of another engine than the controls')
-        computed = self.pixel_state[r0:r1] == PIXEL_TRACED
-        blurred = [None] * 3
-        if computed.any():
-            for c in range(3):
-                counts = self.blurred_buddha_counts(c) if self.mapping[c] == CHAN_BUDDHA else None
-                blurred[c] = None if counts is None else counts[r0:r1]
-        paint(self.img[r0:r1], self.live_coloration(), self.mapping, self.stats[r0:r1],
-              self.characteristic_points[r0:r1], computed, blurred, self.current_figure().layout)
+        """Turn stored metrics and characteristic points into pixel colors, rows [r0, r1) (see LiveImage.recolor)."""
+        self.live.recolor(r0, r1, self.live_coloration(), self.mapping, self.current_figure(), self.current_buddha_seed_settings(),
+                          self.current_blur_settings())
 
     def component_values(self, vec, ray_characteristic_points, x0, y0, layout=FULL_LAYOUT):
         """The three channel values (0..1) for one ray under the current mapping. vec: its metrics,
@@ -244,7 +234,7 @@ class RecolorMixin:
             if counts is not None:
                 cx, cy = self.world_to_canvas(x0, y0)
                 col, row = int(np.floor(cx)), int(np.floor(cy))
-                inside = 0 <= row < self.img_h and 0 <= col < self.img_w
+                inside = 0 <= row < self.live.img_h and 0 <= col < self.live.img_w
                 at_pixel[c] = counts[row, col] if inside else 0.0
         return ray_values(self.live_coloration(), self.mapping, vec, ray_characteristic_points, at_pixel, layout)
 
