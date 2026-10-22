@@ -1,0 +1,6 @@
+# What the program and its tests need. numba makes the simulation usable (without it everything runs in pure Python); ffmpeg-python also needs
+# the ffmpeg program for video, and Pillow is only for the development screenshots. The optional `cjxl` program (libjxl) is not a Python package.
+numpy
+numba
+ffmpeg-python
+Pillow

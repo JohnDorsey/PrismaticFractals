@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: ${{ matrix.os }}, Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: windows-latest, python: "3.11"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install the Python packages
+        run: python -m pip install -r requirements.txt
+      - name: Install ffmpeg (the tests that need it are skipped without it)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Compile check
+        run: python -m compileall -q PrismaticFractals dev PrismaticFractals.py
+      - name: Test suite (no window: Tk is stubbed; numba compiles the kernels first)
+        run: python dev/test_PrismaticFractals.py

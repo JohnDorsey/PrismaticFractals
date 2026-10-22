@@ -18,6 +18,7 @@ python dev/test_PrismaticFractals.py               # full suite (~15 s); custom 
 python PrismaticFractals.py                        # launch the Tkinter app
 ```
 
+- CI (`.github/workflows/tests.yml`) runs the compile-check and the suite on Ubuntu (Python 3.11, 3.12) and Windows (3.11) for every push to `main` and every pull request; `requirements.txt` is what it installs. Its jobs do not have `cjxl` or Nim, so those tests skip there.
 - Requirements: `numpy`, `numba` (without it everything is pure Python and unusably slow), `ffmpeg-python` + the `ffmpeg` binary for video, optionally `cjxl` (JPEG XL animations, and stills above 2^28 pixels, which ffmpeg's libjxl cannot encode).
 - Folders: `PrismaticFractals/` the program, `PrismaticFractals.py` the launcher, `data/` what the program reads and writes (`projects/` is committed; `exports/` and `debug/` are gitignored), `dev/` everything for development (`tests/`, `refactor/` measurement and check tools, `testing/` fixtures, `tools/` standalone helpers, `finished_plans/` history).
 - **Line endings:** working files are CRLF (`core.autocrlf=true`): every `.py`, `.md`, `.cmd`, `.gitignore`. LF stays for `dev/testing/cjxl` (pinned by `.gitattributes`) and the `.lightbounce` project files (the program writes LF). The Edit tool preserves endings; from a script read and write bytes, and scan for lone LF and for CR CR LF afterwards. Never `sed -i`.
